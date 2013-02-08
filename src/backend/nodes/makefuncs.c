@@ -153,12 +153,12 @@ makeWholeRowVar(RangeTblEntry *rte,
 			break;
 		case RTE_FUNCTION:
 			toid = exprType(rte->funcexpr);
-			if (type_is_rowtype(toid))
+			if (type_is_rowtype(toid) || rte->ordinality)
 			{
 				/* func returns composite; same as relation case */
 				result = makeVar(varno,
 								 InvalidAttrNumber,
-								 toid,
+								 (rte->ordinality) ? RECORDOID : toid,
 								 -1,
 								 InvalidOid,
 								 varlevelsup);

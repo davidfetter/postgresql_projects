@@ -114,8 +114,8 @@ static BitmapHeapScan *make_bitmap_heapscan(List *qptlist,
 static TidScan *make_tidscan(List *qptlist, List *qpqual, Index scanrelid,
 			 List *tidquals);
 static FunctionScan *make_functionscan(List *qptlist, List *qpqual,
-				  Index scanrelid, Node *funcexpr, List *funccolnames,
-				  List *funccoltypes, List *funccoltypmods,
+				  Index scanrelid, Node *funcexpr, bool ordinality,
+                  List *funccolnames, List *funccoltypes, List *funccoltypmods,
 				  List *funccolcollations);
 static ValuesScan *make_valuesscan(List *qptlist, List *qpqual,
 				Index scanrelid, List *values_lists);
@@ -1723,6 +1723,7 @@ create_functionscan_plan(PlannerInfo *root, Path *best_path,
 
 	scan_plan = make_functionscan(tlist, scan_clauses, scan_relid,
 								  funcexpr,
+								  rte->ordinality,
 								  rte->eref->colnames,
 								  rte->funccoltypes,
 								  rte->funccoltypmods,
@@ -3356,6 +3357,7 @@ make_functionscan(List *qptlist,
 				  List *qpqual,
 				  Index scanrelid,
 				  Node *funcexpr,
+				  bool ordinality,
 				  List *funccolnames,
 				  List *funccoltypes,
 				  List *funccoltypmods,
@@ -3371,6 +3373,7 @@ make_functionscan(List *qptlist,
 	plan->righttree = NULL;
 	node->scan.scanrelid = scanrelid;
 	node->funcexpr = funcexpr;
+	node->funcordinality = ordinality;
 	node->funccolnames = funccolnames;
 	node->funccoltypes = funccoltypes;
 	node->funccoltypmods = funccoltypmods;

@@ -7967,6 +7967,8 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 			case RTE_FUNCTION:
 				/* Function RTE */
 				get_rule_expr(rte->funcexpr, context, true);
+				if (rte->ordinality)
+					appendStringInfoString(buf, " WITH ORDINALITY");
 				break;
 			case RTE_VALUES:
 				/* Values list RTE */

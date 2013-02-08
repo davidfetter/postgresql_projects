@@ -4497,6 +4497,10 @@ inline_set_returning_function(PlannerInfo *root, RangeTblEntry *rte)
 	 */
 	check_stack_depth();
 
+	/* Fail if the caller wanted ORDINALITY - we don't implement that here. */
+	if (rte->ordinality)
+		return NULL;
+
 	/* Fail if FROM item isn't a simple FuncExpr */
 	fexpr = (FuncExpr *) rte->funcexpr;
 	if (fexpr == NULL || !IsA(fexpr, FuncExpr))

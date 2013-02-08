@@ -2123,6 +2123,7 @@ static bool
 _equalRangeFunction(const RangeFunction *a, const RangeFunction *b)
 {
 	COMPARE_SCALAR_FIELD(lateral);
+	COMPARE_SCALAR_FIELD(ordinality);
 	COMPARE_NODE_FIELD(funccallnode);
 	COMPARE_NODE_FIELD(alias);
 	COMPARE_NODE_FIELD(coldeflist);
@@ -2241,6 +2242,7 @@ _equalRangeTblEntry(const RangeTblEntry *a, const RangeTblEntry *b)
 	COMPARE_NODE_FIELD(alias);
 	COMPARE_NODE_FIELD(eref);
 	COMPARE_SCALAR_FIELD(lateral);
+	COMPARE_SCALAR_FIELD(ordinality);
 	COMPARE_SCALAR_FIELD(inh);
 	COMPARE_SCALAR_FIELD(inFromCl);
 	COMPARE_SCALAR_FIELD(requiredPerms);
