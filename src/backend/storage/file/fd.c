@@ -44,10 +44,10 @@
  * corresponding native functions, except that the handle is registered with
  * the current subtransaction, and will be automatically closed at abort.
  * These are intended for short operations like reading a configuration file.
- * and there is a fixed limit on the number files that can be open using these
- * functions at any one time.
+ * and there is a fixed limit on the number of files that can be opened using
+ * these functions at any one time.
  *
- * Finally, BasicOpenFile is a just thin wrapper around open() that can
+ * Finally, BasicOpenFile is just a thin wrapper around open() that can
  * release file descriptors in use by the virtual file descriptors if
  * necessary. There is no automatic cleanup of file descriptors returned by
  * BasicOpenFile, it is solely the caller's responsibility to close the file
