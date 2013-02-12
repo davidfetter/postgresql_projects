@@ -44,7 +44,7 @@ typedef struct
 	int			sublevels_up;
 } check_ungrouped_columns_context;
 
-static int	check_agg_arguments(ParseState *pstate, List *args);
+static int	check_agg_arguments(ParseState *pstate, List *args, Expr *filter);
 static bool check_agg_arguments_walker(Node *node,
 						   check_agg_arguments_context *context);
 static void check_ungrouped_columns(Node *node, ParseState *pstate, Query *qry,
@@ -160,7 +160,7 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	 * Check the arguments to compute the aggregate's level and detect
 	 * improper nesting.
 	 */
-	min_varlevel = check_agg_arguments(pstate, agg->args);
+	min_varlevel = check_agg_arguments(pstate, agg->args, agg->agg_filter);
 	agg->agglevelsup = min_varlevel;
 
 	/* Mark the correct pstate level as having aggregates */
@@ -206,6 +206,9 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 			break;
 		case EXPR_KIND_HAVING:
 			/* okay */
+			break;
+		case EXPR_KIND_FILTER:
+			errkind = true;
 			break;
 		case EXPR_KIND_WINDOW_PARTITION:
 			/* okay */
@@ -309,7 +312,7 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
  * which we can't know until we finish scanning the arguments.
  */
 static int
-check_agg_arguments(ParseState *pstate, List *args)
+check_agg_arguments(ParseState *pstate, List *args, Expr *filter)
 {
 	int			agglevel;
 	check_agg_arguments_context context;
@@ -320,6 +323,10 @@ check_agg_arguments(ParseState *pstate, List *args)
 	context.sublevels_up = 0;
 
 	(void) expression_tree_walker((Node *) args,
+								  check_agg_arguments_walker,
+								  (void *) &context);
+
+	(void) expression_tree_walker((Node *) filter,
 								  check_agg_arguments_walker,
 								  (void *) &context);
 
@@ -479,6 +486,9 @@ transformWindowFuncCall(ParseState *pstate, WindowFunc *wfunc,
 			errkind = true;
 			break;
 		case EXPR_KIND_HAVING:
+			errkind = true;
+			break;
+		case EXPR_KIND_FILTER:
 			errkind = true;
 			break;
 		case EXPR_KIND_WINDOW_PARTITION:

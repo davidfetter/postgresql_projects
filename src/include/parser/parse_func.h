@@ -46,7 +46,7 @@ extern Node *ParseFuncOrColumn(ParseState *pstate,
 				  List *funcname, List *fargs,
 				  List *agg_order, bool agg_star, bool agg_distinct,
 				  bool func_variadic,
-				  WindowDef *over, bool is_column, int location);
+				  Expr *agg_filter, WindowDef *over, bool is_column, int location);
 
 extern FuncDetailCode func_get_detail(List *funcname,
 				List *fargs, List *fargnames,

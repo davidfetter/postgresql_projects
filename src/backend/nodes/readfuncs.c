@@ -478,6 +478,7 @@ _readAggref(void)
 	READ_NODE_FIELD(args);
 	READ_NODE_FIELD(aggorder);
 	READ_NODE_FIELD(aggdistinct);
+	READ_NODE_FIELD(agg_filter);
 	READ_BOOL_FIELD(aggstar);
 	READ_UINT_FIELD(agglevelsup);
 	READ_LOCATION_FIELD(location);
@@ -498,6 +499,7 @@ _readWindowFunc(void)
 	READ_OID_FIELD(wincollid);
 	READ_OID_FIELD(inputcollid);
 	READ_NODE_FIELD(args);
+	READ_NODE_FIELD(agg_filter);
 	READ_UINT_FIELD(winref);
 	READ_BOOL_FIELD(winstar);
 	READ_BOOL_FIELD(winagg);

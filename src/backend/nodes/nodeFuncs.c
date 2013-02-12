@@ -1570,6 +1570,9 @@ expression_tree_walker(Node *node,
 				if (expression_tree_walker((Node *) expr->aggdistinct,
 										   walker, context))
 					return true;
+				if (expression_tree_walker((Node *) expr->agg_filter,
+										   walker, context))
+					return true;
 			}
 			break;
 		case T_WindowFunc:
@@ -1578,6 +1581,9 @@ expression_tree_walker(Node *node,
 
 				/* recurse directly on List */
 				if (expression_tree_walker((Node *) expr->args,
+										   walker, context))
+					return true;
+				if (expression_tree_walker((Node *) expr->agg_filter,
 										   walker, context))
 					return true;
 			}
@@ -2079,6 +2085,7 @@ expression_tree_mutator(Node *node,
 				MUTATE(newnode->args, aggref->args, List *);
 				MUTATE(newnode->aggorder, aggref->aggorder, List *);
 				MUTATE(newnode->aggdistinct, aggref->aggdistinct, List *);
+				MUTATE(newnode->agg_filter, aggref->agg_filter, Expr *);
 				return (Node *) newnode;
 			}
 			break;
@@ -2089,6 +2096,7 @@ expression_tree_mutator(Node *node,
 
 				FLATCOPY(newnode, wfunc, WindowFunc);
 				MUTATE(newnode->args, wfunc->args, List *);
+				MUTATE(newnode->agg_filter, wfunc->agg_filter, Expr *);
 				return (Node *) newnode;
 			}
 			break;
@@ -2947,6 +2955,8 @@ raw_expression_tree_walker(Node *node,
 				if (walker(fcall->args, context))
 					return true;
 				if (walker(fcall->agg_order, context))
+					return true;
+				if (walker(fcall->agg_filter, context))
 					return true;
 				if (walker(fcall->over, context))
 					return true;

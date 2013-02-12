@@ -7419,7 +7419,15 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 		appendStringInfoString(buf, " ORDER BY ");
 		get_rule_orderby(aggref->aggorder, aggref->args, false, context);
 	}
+
+	if (aggref->agg_filter != NULL)
+	{
+		appendStringInfoString(buf, ") FILTER (WHERE ");
+		get_rule_expr((Node *)aggref->agg_filter, context, false);
+	}
+
 	appendStringInfoChar(buf, ')');
+
 }
 
 /*
@@ -7456,6 +7464,13 @@ get_windowfunc_expr(WindowFunc *wfunc, deparse_context *context)
 		appendStringInfoChar(buf, '*');
 	else
 		get_rule_expr((Node *) wfunc->args, context, true);
+
+	if (wfunc->agg_filter != NULL)
+	{
+		appendStringInfoString(buf, ") FILTER (WHERE ");
+		get_rule_expr((Node *)wfunc->agg_filter, context, false);
+	}
+
 	appendStringInfoString(buf, ") OVER ");
 
 	foreach(l, context->windowClause)

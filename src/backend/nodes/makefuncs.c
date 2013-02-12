@@ -508,3 +508,27 @@ makeDefElemExtended(char *nameSpace, char *name, Node *arg,
 
 	return res;
 }
+<<<<<<< HEAD
+=======
+
+/*
+ * makeFuncCall -
+ *  set up to call a function. DRY!
+ */
+FuncCall *
+makeFuncCall(List *name, List *args, int location)
+{
+	FuncCall *n = makeNode(FuncCall);
+	n->funcname = name;
+	n->args = args;
+	n->location = location;
+	n->agg_order = NIL;
+	n->agg_star = FALSE;
+	n->agg_distinct = FALSE;
+	n->func_variadic = FALSE;
+	n->agg_filter = NULL;
+	n->over = NULL;
+	return n;
+}
+
+>>>>>>> 4eb9c7c... First cut at FILTER on aggregates

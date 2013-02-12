@@ -487,6 +487,18 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 		int			i;
 		TupleTableSlot *slot;
 
+		/* Skip anything FILTERed out */
+		ExprState *filter = peraggstate->aggrefstate->agg_filter;
+		if (filter)
+		{
+			MemoryContext oldcontext = MemoryContextSwitchTo(aggstate->tmpcontext->ecxt_per_tuple_memory);
+			bool isnull;
+			Datum res = ExecEvalExpr(filter, aggstate->tmpcontext, &isnull, NULL);
+			MemoryContextSwitchTo(oldcontext);
+			if (isnull || !DatumGetBool(res))
+				continue;
+		}
+
 		/* Evaluate the current input expressions for this aggregate */
 		slot = ExecProject(peraggstate->evalproj, NULL);
 
