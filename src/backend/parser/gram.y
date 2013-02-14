@@ -10947,7 +10947,6 @@ c_expr:		columnref								{ $$ = $1; }
  */
 func_expr:	func_name '(' ')' filter_clause over_clause
 				{
-<<<<<<< HEAD
 					FuncCall *n = makeNode(FuncCall);
 					n->funcname = $1;
 					n->args = NIL;
@@ -10955,18 +10954,14 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					n->agg_star = FALSE;
 					n->agg_distinct = FALSE;
 					n->func_variadic = FALSE;
-					n->over = $4;
-					n->location = @1;
-=======
-					FuncCall *n = makeFuncCall($1, NIL, @1);
 					n->agg_filter = $4;
 					n->over = $5;
->>>>>>> 4eb9c7c... First cut at FILTER on aggregates
+					n->location = @1;
+					FuncCall *n = makeFuncCall($1, NIL, @1);
 					$$ = (Node *)n;
 				}
 			| func_name '(' func_arg_list ')' filter_clause over_clause
 				{
-<<<<<<< HEAD
 					FuncCall *n = makeNode(FuncCall);
 					n->funcname = $1;
 					n->args = $3;
@@ -10974,13 +10969,10 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					n->agg_star = FALSE;
 					n->agg_distinct = FALSE;
 					n->func_variadic = FALSE;
-					n->over = $5;
-					n->location = @1;
-=======
-					FuncCall *n = makeFuncCall($1, $3, @1);
 					n->agg_filter = $5;
 					n->over = $6;
->>>>>>> 4eb9c7c... First cut at FILTER on aggregates
+					n->location = @1;
+					FuncCall *n = makeFuncCall($1, $3, @1);
 					$$ = (Node *)n;
 				}
 			| func_name '(' VARIADIC func_arg_expr ')' filter_clause over_clause
@@ -10992,13 +10984,9 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					n->agg_star = FALSE;
 					n->agg_distinct = FALSE;
 					n->func_variadic = TRUE;
-<<<<<<< HEAD
-					n->over = $6;
-					n->location = @1;
-=======
 					n->agg_filter = $6;
 					n->over = $7;
->>>>>>> 4eb9c7c... First cut at FILTER on aggregates
+					n->location = @1;
 					$$ = (Node *)n;
 				}
 			| func_name '(' func_arg_list ',' VARIADIC func_arg_expr ')' filter_clause over_clause
@@ -11010,13 +10998,9 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					n->agg_star = FALSE;
 					n->agg_distinct = FALSE;
 					n->func_variadic = TRUE;
-<<<<<<< HEAD
-					n->over = $8;
-					n->location = @1;
-=======
 					n->agg_filter = $8;
 					n->over = $9;
->>>>>>> 4eb9c7c... First cut at FILTER on aggregates
+					n->location = @1;
 					$$ = (Node *)n;
 				}
 			| func_name '(' func_arg_list sort_clause ')' filter_clause over_clause
@@ -11025,16 +11009,12 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					n->funcname = $1;
 					n->args = $3;
 					n->agg_order = $4;
-<<<<<<< HEAD
 					n->agg_star = FALSE;
 					n->agg_distinct = FALSE;
 					n->func_variadic = FALSE;
-					n->over = $6;
-					n->location = @1;
-=======
 					n->agg_filter = $6;
 					n->over = $7;
->>>>>>> 4eb9c7c... First cut at FILTER on aggregates
+					n->location = @1;
 					$$ = (Node *)n;
 				}
 			| func_name '(' ALL func_arg_list opt_sort_clause ')' filter_clause over_clause
@@ -11049,14 +11029,10 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					 * "must be an aggregate", but there's no provision
 					 * for that in FuncCall at the moment.
 					 */
-<<<<<<< HEAD
 					n->func_variadic = FALSE;
-					n->over = $7;
-					n->location = @1;
-=======
 					n->agg_filter = $7;
 					n->over = $8;
->>>>>>> 4eb9c7c... First cut at FILTER on aggregates
+					n->location = @1;
 					$$ = (Node *)n;
 				}
 			| func_name '(' DISTINCT func_arg_list opt_sort_clause ')' filter_clause over_clause
@@ -11067,14 +11043,10 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					n->agg_order = $5;
 					n->agg_star = FALSE;
 					n->agg_distinct = TRUE;
-<<<<<<< HEAD
 					n->func_variadic = FALSE;
-					n->over = $7;
-					n->location = @1;
-=======
 					n->agg_filter = $7;
 					n->over = $8;
->>>>>>> 4eb9c7c... First cut at FILTER on aggregates
+					n->location = @1;
 					$$ = (Node *)n;
 				}
 			| func_name '(' '*' ')' filter_clause over_clause
@@ -11094,15 +11066,11 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					n->args = NIL;
 					n->agg_order = NIL;
 					n->agg_star = TRUE;
-<<<<<<< HEAD
 					n->agg_distinct = FALSE;
 					n->func_variadic = FALSE;
-					n->over = $5;
-					n->location = @1;
-=======
 					n->agg_filter = $5;
 					n->over = $6;
->>>>>>> 4eb9c7c... First cut at FILTER on aggregates
+					n->location = @1;
 					$$ = (Node *)n;
 				}
 			| COLLATION FOR '(' a_expr ')'
