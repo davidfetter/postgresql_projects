@@ -10957,7 +10957,6 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					n->agg_filter = $4;
 					n->over = $5;
 					n->location = @1;
-					FuncCall *n = makeFuncCall($1, NIL, @1);
 					$$ = (Node *)n;
 				}
 			| func_name '(' func_arg_list ')' filter_clause over_clause
@@ -10972,7 +10971,6 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					n->agg_filter = $5;
 					n->over = $6;
 					n->location = @1;
-					FuncCall *n = makeFuncCall($1, $3, @1);
 					$$ = (Node *)n;
 				}
 			| func_name '(' VARIADIC func_arg_expr ')' filter_clause over_clause
