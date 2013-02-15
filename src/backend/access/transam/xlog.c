@@ -391,6 +391,10 @@ typedef struct XLogCtlData
 	XLogRecPtr	asyncXactLSN;	/* LSN of newest async commit/abort */
 	XLogSegNo	lastRemovedSegNo; /* latest removed/recycled XLOG segment */
 
+	/* Fake LSN counter, for unlogged relations. Protected by ulsn_lck */
+	XLogRecPtr  unloggedLSN;
+	slock_t		ulsn_lck;
+
 	/* Protected by WALWriteLock: */
 	XLogCtlWrite Write;
 
@@ -408,7 +412,15 @@ typedef struct XLogCtlData
 	char	   *pages;			/* buffers for unwritten XLOG pages */
 	XLogRecPtr *xlblocks;		/* 1st byte ptr-s + XLOG_BLCKSZ */
 	int			XLogCacheBlck;	/* highest allocated xlog buffer index */
+
+	/*
+	 * Shared copy of ThisTimeLineID. Does not change after end-of-recovery.
+	 * If we created a new timeline when the system was started up,
+	 * PrevTimeLineID is the old timeline's ID that we forked off from.
+	 * Otherwise it's equal to ThisTimeLineID.
+	 */
 	TimeLineID	ThisTimeLineID;
+	TimeLineID	PrevTimeLineID;
 
 	/*
 	 * archiveCleanupCommand is read from recovery.conf but needs to be in
@@ -613,7 +625,8 @@ static void SetLatestXTime(TimestampTz xtime);
 static void SetCurrentChunkStartTime(TimestampTz xtime);
 static void CheckRequiredParameterValues(void);
 static void XLogReportParameters(void);
-static void checkTimeLineSwitch(XLogRecPtr lsn, TimeLineID newTLI);
+static void checkTimeLineSwitch(XLogRecPtr lsn, TimeLineID newTLI,
+					TimeLineID prevTLI);
 static void LocalSetXLogInsertAllowed(void);
 static void CreateEndOfRecoveryRecord(void);
 static void CheckPointGuts(XLogRecPtr checkPointRedo, int flags);
@@ -3688,6 +3701,31 @@ GetSystemIdentifier(void)
 }
 
 /*
+ * Returns a fake LSN for unlogged relations.
+ *
+ * Each call generates an LSN that is greater than any previous value
+ * returned. The current counter value is saved and restored across clean
+ * shutdowns, but like unlogged relations, does not survive a crash. This can
+ * be used in lieu of real LSN values returned by XLogInsert, if you need an
+ * LSN-like increasing sequence of numbers without writing any WAL.
+ */
+XLogRecPtr
+GetFakeLSNForUnloggedRel(void)
+{
+	XLogRecPtr nextUnloggedLSN;
+
+	/* use volatile pointer to prevent code rearrangement */
+	volatile XLogCtlData *xlogctl = XLogCtl;
+
+	/* increment the unloggedLSN counter, need SpinLock */
+	SpinLockAcquire(&xlogctl->ulsn_lck);
+	nextUnloggedLSN = xlogctl->unloggedLSN++;
+	SpinLockRelease(&xlogctl->ulsn_lck);
+
+	return nextUnloggedLSN;
+}
+
+/*
  * Auto-tune the number of XLOG buffers.
  *
  * The preferred setting for wal_buffers is about 3% of shared_buffers, with
@@ -3835,6 +3873,7 @@ XLOGShmemInit(void)
 	XLogCtl->WalWriterSleeping = false;
 	XLogCtl->Insert.currpage = (XLogPageHeader) (XLogCtl->pages);
 	SpinLockInit(&XLogCtl->info_lck);
+	SpinLockInit(&XLogCtl->ulsn_lck);
 	InitSharedLatch(&XLogCtl->recoveryWakeupLatch);
 
 	/*
@@ -3896,6 +3935,7 @@ BootStrapXLOG(void)
 	 */
 	checkPoint.redo = XLogSegSize + SizeOfXLogLongPHD;
 	checkPoint.ThisTimeLineID = ThisTimeLineID;
+	checkPoint.PrevTimeLineID = ThisTimeLineID;
 	checkPoint.fullPageWrites = fullPageWrites;
 	checkPoint.nextXidEpoch = 0;
 	checkPoint.nextXid = FirstNormalTransactionId;
@@ -3979,6 +4019,7 @@ BootStrapXLOG(void)
 	ControlFile->time = checkPoint.time;
 	ControlFile->checkPoint = checkPoint.redo;
 	ControlFile->checkPointCopy = checkPoint;
+	ControlFile->unloggedLSN = 1;
 
 	/* Set important parameter values for use when replaying WAL */
 	ControlFile->MaxConnections = MaxConnections;
@@ -4712,6 +4753,7 @@ StartupXLOG(void)
 				checkPointLoc,
 				EndOfLog;
 	XLogSegNo	endLogSegNo;
+	TimeLineID	PrevTimeLineID;
 	XLogRecord *record;
 	uint32		freespace;
 	TransactionId oldestActiveXID;
@@ -4720,6 +4762,7 @@ StartupXLOG(void)
 	DBState		dbstate_at_startup;
 	XLogReaderState *xlogreader;
 	XLogPageReadPrivate private;
+	bool		fast_promoted = false;
 
 	/*
 	 * Read control file and check XLOG status looks valid.
@@ -5019,6 +5062,16 @@ StartupXLOG(void)
 	SetMultiXactIdLimit(checkPoint.oldestMulti, checkPoint.oldestMultiDB);
 	XLogCtl->ckptXidEpoch = checkPoint.nextXidEpoch;
 	XLogCtl->ckptXid = checkPoint.nextXid;
+
+	/*
+	 * Initialize unlogged LSN. On a clean shutdown, it's restored from the
+	 * control file. On recovery, all unlogged relations are blown away, so
+	 * the unlogged LSN counter can be reset too.
+	 */
+	if (ControlFile->state == DB_SHUTDOWNED)
+		XLogCtl->unloggedLSN = ControlFile->unloggedLSN;
+	else
+		XLogCtl->unloggedLSN = 1;
 
 	/*
 	 * We must replay WAL entries using the same TimeLineID they were created
@@ -5431,6 +5484,7 @@ StartupXLOG(void)
 				if (record->xl_rmid == RM_XLOG_ID)
 				{
 					TimeLineID	newTLI = ThisTimeLineID;
+					TimeLineID	prevTLI = ThisTimeLineID;
 					uint8		info = record->xl_info & ~XLR_INFO_MASK;
 
 					if (info == XLOG_CHECKPOINT_SHUTDOWN)
@@ -5439,6 +5493,7 @@ StartupXLOG(void)
 
 						memcpy(&checkPoint, XLogRecGetData(record), sizeof(CheckPoint));
 						newTLI = checkPoint.ThisTimeLineID;
+						prevTLI = checkPoint.PrevTimeLineID;
 					}
 					else if (info == XLOG_END_OF_RECOVERY)
 					{
@@ -5446,12 +5501,13 @@ StartupXLOG(void)
 
 						memcpy(&xlrec, XLogRecGetData(record), sizeof(xl_end_of_recovery));
 						newTLI = xlrec.ThisTimeLineID;
+						prevTLI = xlrec.PrevTimeLineID;
 					}
 
 					if (newTLI != ThisTimeLineID)
 					{
 						/* Check that it's OK to switch to this TLI */
-						checkTimeLineSwitch(EndRecPtr, newTLI);
+						checkTimeLineSwitch(EndRecPtr, newTLI, prevTLI);
 
 						/* Following WAL records should be run with new TLI */
 						ThisTimeLineID = newTLI;
@@ -5620,6 +5676,7 @@ StartupXLOG(void)
 	 *
 	 * In a normal crash recovery, we can just extend the timeline we were in.
 	 */
+	PrevTimeLineID = ThisTimeLineID;
 	if (InArchiveRecovery)
 	{
 		char	reason[200];
@@ -5655,6 +5712,7 @@ StartupXLOG(void)
 
 	/* Save the selected TimeLineID in shared memory, too */
 	XLogCtl->ThisTimeLineID = ThisTimeLineID;
+	XLogCtl->PrevTimeLineID = PrevTimeLineID;
 
 	/*
 	 * We are now done reading the old WAL.  Turn off archive fetching if it
@@ -5765,15 +5823,13 @@ StartupXLOG(void)
 		 * assigning a new TLI, using a shutdown checkpoint allows us to have
 		 * the rule that TLI only changes in shutdown checkpoints, which
 		 * allows some extra error checking in xlog_redo.
+		 *
+		 * In fast promotion, only create a lightweight end-of-recovery record
+		 * instead of a full checkpoint. A checkpoint is requested later, after
+		 * we're fully out of recovery mode and already accepting queries.
 		 */
 		if (bgwriterLaunched)
 		{
-			bool	checkpoint_wait = true;
-
-			/*
-			 * If we've been explicitly promoted with fast option,
-			 * end of recovery without a checkpoint if possible.
-			 */
 			if (fast_promote)
 			{
 				checkPointLoc = ControlFile->prevCheckPoint;
@@ -5786,22 +5842,15 @@ StartupXLOG(void)
 				record = ReadCheckpointRecord(xlogreader, checkPointLoc, 1, false);
 				if (record != NULL)
 				{
-					checkpoint_wait = false;
+					fast_promoted = true;
 					CreateEndOfRecoveryRecord();
 				}
 			}
 
-			/*
-			 * In most cases we will wait for a full checkpoint to complete.
-			 *
-			 * If not, issue a normal, non-immediate checkpoint but don't wait.
-			 */
-			if (checkpoint_wait)
+			if (!fast_promoted)
 				RequestCheckpoint(CHECKPOINT_END_OF_RECOVERY |
 									CHECKPOINT_IMMEDIATE |
 									CHECKPOINT_WAIT);
-			else
-				RequestCheckpoint(0);	/* No flags */
 		}
 		else
 			CreateCheckPoint(CHECKPOINT_END_OF_RECOVERY | CHECKPOINT_IMMEDIATE);
@@ -5909,6 +5958,15 @@ StartupXLOG(void)
 	 * wal sender processes to notice that we've been promoted.
 	 */
 	WalSndWakeup();
+
+	/*
+	 * If this was a fast promotion, request an (online) checkpoint now. This
+	 * isn't required for consistency, but the last restartpoint might be far
+	 * back, and in case of a crash, recovering from it might take a longer
+	 * than is appropriate now that we're not in standby mode anymore.
+	 */
+	if (fast_promoted)
+		RequestCheckpoint(0);
 }
 
 /*
@@ -6690,6 +6748,11 @@ CreateCheckPoint(int flags)
 		LocalSetXLogInsertAllowed();
 
 	checkPoint.ThisTimeLineID = ThisTimeLineID;
+	if (flags & CHECKPOINT_END_OF_RECOVERY)
+		checkPoint.PrevTimeLineID = XLogCtl->PrevTimeLineID;
+	else
+		checkPoint.PrevTimeLineID = ThisTimeLineID;
+
 	checkPoint.fullPageWrites = Insert->fullPageWrites;
 
 	/*
@@ -6894,6 +6957,16 @@ CreateCheckPoint(int flags)
 	/* crash recovery should always recover to the end of WAL */
 	ControlFile->minRecoveryPoint = InvalidXLogRecPtr;
 	ControlFile->minRecoveryPointTLI = 0;
+
+	/*
+	 * Persist unloggedLSN value. It's reset on crash recovery, so this goes
+	 * unused on non-shutdown checkpoints, but seems useful to store it always
+	 * for debugging purposes.
+	 */
+	SpinLockAcquire(&XLogCtl->ulsn_lck);
+	ControlFile->unloggedLSN = XLogCtl->unloggedLSN;
+	SpinLockRelease(&XLogCtl->ulsn_lck);
+
 	UpdateControlFile();
 	LWLockRelease(ControlFileLock);
 
@@ -6980,7 +7053,11 @@ CreateEndOfRecoveryRecord(void)
 		elog(ERROR, "can only be used to end recovery");
 
 	xlrec.end_time = time(NULL);
+
+	LWLockAcquire(WALInsertLock, LW_SHARED);
 	xlrec.ThisTimeLineID = ThisTimeLineID;
+	xlrec.PrevTimeLineID = XLogCtl->PrevTimeLineID;
+	LWLockRelease(WALInsertLock);
 
 	LocalSetXLogInsertAllowed();
 
@@ -7535,8 +7612,13 @@ UpdateFullPageWrites(void)
  * replay. (Currently, timeline can only change at a shutdown checkpoint).
  */
 static void
-checkTimeLineSwitch(XLogRecPtr lsn, TimeLineID newTLI)
+checkTimeLineSwitch(XLogRecPtr lsn, TimeLineID newTLI, TimeLineID prevTLI)
 {
+	/* Check that the record agrees on what the current (old) timeline is */
+	if (prevTLI != ThisTimeLineID)
+		ereport(PANIC,
+				(errmsg("unexpected prev timeline ID %u (current timeline ID %u) in checkpoint record",
+						prevTLI, ThisTimeLineID)));
 	/*
 	 * The new timeline better be in the list of timelines we expect
 	 * to see, according to the timeline history. It should also not
