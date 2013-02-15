@@ -313,7 +313,7 @@ find_minmax_aggs_walker(Node *node, List **context)
 		ListCell   *l;
 
 		Assert(aggref->agglevelsup == 0);
-		if (list_length(aggref->args) != 1 || aggref->aggorder != NIL)
+		if (list_length(aggref->args) != 1 || aggref->aggorder != NIL || aggref->agg_filter != NULL)
 			return true;		/* it couldn't be MIN/MAX */
 		/* note: we do not care if DISTINCT is mentioned ... */
 		curTarget = (TargetEntry *) linitial(aggref->args);
