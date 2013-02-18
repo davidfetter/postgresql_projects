@@ -442,3 +442,22 @@ select string_agg(v, NULL) from bytea_test_table;
 select string_agg(v, decode('ee', 'hex')) from bytea_test_table;
 
 drop table bytea_test_table;
+
+-- FILTER tests
+
+select min(unique1) filter (where unique1 > 100) from tenk1;
+
+select ten, sum(distinct four) filter (where four > 10) from onek a
+group by ten
+having exists (select 1 from onek b where sum(distinct a.four) = b.four);
+
+-- outer-level aggregates
+select
+  (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)) filter (where o.unique1 < 10))
+from tenk1 o;
+
+-- exercise lots of aggregate parts with FILTER
+
+select aggfns(distinct a,b,c order by a,c using ~<~,b) filter (where a > 1)
+    from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c),
+    generate_series(1,2) i;

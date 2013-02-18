@@ -595,10 +595,13 @@ GROUP BY <replaceable class="parameter">expression</replaceable> [, ...]
    </para>
 
    <para>
-    Aggregate functions, if any are used, are computed across all rows
+    In the absence of a <literal>FILTER</literal> clause,
+    aggregate functions, if any are used, are computed across all rows
     making up each group, producing a separate value for each group
     (whereas without <literal>GROUP BY</literal>, an aggregate
     produces a single value computed across all the selected rows).
+    When a <literal>FILTER</literal> clause is present, only those
+    rows matching the FILTER clause are included.
     When <literal>GROUP BY</literal> is present, it is not valid for
     the <command>SELECT</command> list expressions to refer to
     ungrouped columns except within aggregate functions or if the
