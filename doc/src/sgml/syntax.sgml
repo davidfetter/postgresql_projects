@@ -1562,24 +1562,26 @@ sqrt(2)
     syntax of an aggregate expression is one of the following:
 
 <synopsis>
-<replaceable>aggregate_name</replaceable> (<replaceable>expression</replaceable> [ , ... ] [ <replaceable>order_by_clause</replaceable> ] )
-<replaceable>aggregate_name</replaceable> (ALL <replaceable>expression</replaceable> [ , ... ] [ <replaceable>order_by_clause</replaceable> ] )
-<replaceable>aggregate_name</replaceable> (DISTINCT <replaceable>expression</replaceable> [ , ... ] [ <replaceable>order_by_clause</replaceable> ] )
-<replaceable>aggregate_name</replaceable> ( * )
+<replaceable>aggregate_name</replaceable> (<replaceable>expression</replaceable> [ , ... ] [ <replaceable>order_by_clause</replaceable> ] ) [ FILTER ( WHERE <replaceable>filter_clause</replaceable> ) ]
+<replaceable>aggregate_name</replaceable> (ALL <replaceable>expression</replaceable> [ , ... ] [ <replaceable>order_by_clause</replaceable> ] ) [ FILTER ( WHERE <replaceable>filter_clause</replaceable> ) ]
+<replaceable>aggregate_name</replaceable> (DISTINCT <replaceable>expression</replaceable> [ , ... ] [ <replaceable>order_by_clause</replaceable> ] ) [ FILTER ( WHERE <replaceable>filter_clause</replaceable> ) ]
+<replaceable>aggregate_name</replaceable> ( * ) [ FILTER ( WHERE <replaceable>filter_clause</replaceable> ) ]
 </synopsis>
 
     where <replaceable>aggregate_name</replaceable> is a previously
     defined aggregate (possibly qualified with a schema name),
-    <replaceable>expression</replaceable> is
-    any value expression that does not itself contain an aggregate
-    expression or a window function call, and
-    <replaceable>order_by_clause</replaceable> is a optional
-    <literal>ORDER BY</> clause as described below.
+    <replaceable>expression</replaceable> is any value expression that
+    does not itself contain an aggregate expression or a window
+    function call, <replaceable>order_by_clause</replaceable> is a
+    optional <literal>ORDER BY</> clause as described below.  The
+    <replaceable>aggregate_name</replaceable> can also be suffixed
+    with <literal>FILTER</literal> as described below.
    </para>
 
    <para>
-    The first form of aggregate expression invokes the aggregate
-    once for each input row.
+    The first form of aggregate expression invokes the aggregate once
+    for each input row, or when a FILTER clause is present, each row
+    matching same.
     The second form is the same as the first, since
     <literal>ALL</literal> is the default.
     The third form invokes the aggregate once for each distinct value
@@ -1604,6 +1606,21 @@ sqrt(2)
     <function>count</> ignores nulls; and
     <literal>count(distinct f1)</literal> yields the number of
     distinct non-null values of <literal>f1</literal>.
+   </para>
+
+   <para>
+    Adding a FILTER clause to an aggregate specifies which values of
+    the expression being aggregated to evaluate.  For example:
+<programlisting>
+SELECT
+    count(*) AS unfiltered,
+    count(*) FILTER (WHERE i < 5) AS filtered
+FROM generate_series(1,10) AS s(i);
+ unfiltered | filtered 
+------------+----------
+         10 |        4
+(1 row)
+</programlisting>
    </para>
 
    <para>
@@ -1709,10 +1726,10 @@ SELECT string_agg(a ORDER BY a, ',') FROM table;  -- incorrect
     The syntax of a window function call is one of the following:
 
 <synopsis>
-<replaceable>function_name</replaceable> (<optional><replaceable>expression</replaceable> <optional>, <replaceable>expression</replaceable> ... </optional></optional>) OVER ( <replaceable class="parameter">window_definition</replaceable> )
-<replaceable>function_name</replaceable> (<optional><replaceable>expression</replaceable> <optional>, <replaceable>expression</replaceable> ... </optional></optional>) OVER <replaceable>window_name</replaceable>
-<replaceable>function_name</replaceable> ( * ) OVER ( <replaceable class="parameter">window_definition</replaceable> )
-<replaceable>function_name</replaceable> ( * ) OVER <replaceable>window_name</replaceable>
+<replaceable>function_name</replaceable> (<optional><replaceable>expression</replaceable> <optional>, <replaceable>expression</replaceable> ... </optional></optional>) [ FILTER ( WHERE <replaceable>filter_clause</replaceable> ) ] OVER ( <replaceable class="parameter">window_definition</replaceable> )
+<replaceable>function_name</replaceable> (<optional><replaceable>expression</replaceable> <optional>, <replaceable>expression</replaceable> ... </optional></optional>) [ FILTER ( WHERE <replaceable>filter_clause</replaceable> ) ] OVER <replaceable>window_name</replaceable>
+<replaceable>function_name</replaceable> ( * ) [ FILTER ( WHERE <replaceable>filter_clause</replaceable> ) ] OVER ( <replaceable class="parameter">window_definition</replaceable> )
+<replaceable>function_name</replaceable> ( * ) [ FILTER ( WHERE <replaceable>filter_clause</replaceable> ) ] OVER <replaceable>window_name</replaceable>
 </synopsis>
     where <replaceable class="parameter">window_definition</replaceable>
     has the syntax
