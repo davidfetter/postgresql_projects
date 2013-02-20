@@ -1853,16 +1853,18 @@ UNBOUNDED FOLLOWING
     The built-in window functions are described in <xref
     linkend="functions-window-table">.  Other window functions can be added by
     the user.  Also, any built-in or user-defined aggregate function can be
-    used as a window function.
+    used as a window function.  A <literal>FILTER</literal> clause is
+    only valid for aggregate functions used in windowing.
    </para>
 
    <para>
-    The syntaxes using <literal>*</> are used for calling parameter-less
-    aggregate functions as window functions, for example
-    <literal>count(*) OVER (PARTITION BY x ORDER BY y)</>.
-    The asterisk (<literal>*</>) is customarily not used for non-aggregate window functions.
-    Aggregate window functions, unlike normal aggregate functions, do not
-    allow <literal>DISTINCT</> or <literal>ORDER BY</> to be used within the
+    The syntaxes using <literal>*</> are used for calling
+    parameter-less aggregate functions as window functions, for
+    example <literal>count(*) OVER (PARTITION BY x ORDER BY y)</>.
+    The asterisk (<literal>*</>) is customarily not used for
+    non-aggregate window functions.  Aggregate window functions,
+    unlike normal aggregate functions, do not allow
+    <literal>DISTINCT</> or <literal>ORDER BY</> to be used within the
     function argument list.
    </para>
 
