@@ -12848,6 +12848,7 @@ type_func_name_keyword:
 			| CONCURRENTLY
 			| CROSS
 			| CURRENT_SCHEMA
+			| FILTER
 			| FREEZE
 			| FULL
 			| ILIKE
@@ -12907,7 +12908,6 @@ reserved_keyword:
 			| EXCEPT
 			| FALSE_P
 			| FETCH
-			| FILTER
 			| FOR
 			| FOREIGN
 			| FROM

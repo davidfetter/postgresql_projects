@@ -491,7 +491,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 							NameListToString(funcname)),
 					 parser_errposition(pstate, location)));
 
-		/* 
+		/*
 		 * Reject window functions which are not aggregates in the
 		 * case of FILTER.
 		 */
