@@ -13,6 +13,7 @@ use Project;
 use Solution;
 use Cwd;
 use File::Copy;
+use File::Basename;
 use Config;
 use VSObjectFactory;
 use List::Util qw(first);
@@ -30,23 +31,26 @@ my $libpq;
 
 my $contrib_defines = { 'refint' => 'REFINT_VERBOSE' };
 my @contrib_uselibpq =
-  ('dblink', 'oid2name', 'pgbench', 'pg_upgrade', 'vacuumlo');
+  ('dblink', 'oid2name', 'pgbench', 'pg_upgrade', 'postgres_fdw', 'vacuumlo');
 my @contrib_uselibpgport = (
 	'oid2name',      'pgbench',
 	'pg_standby',    'pg_archivecleanup',
 	'pg_test_fsync', 'pg_test_timing',
-	'pg_upgrade',    'vacuumlo');
+	'pg_upgrade',    'pg_xlogdump',
+	'vacuumlo');
 my @contrib_uselibpgcommon = (
 	'oid2name',      'pgbench',
 	'pg_standby',    'pg_archivecleanup',
 	'pg_test_fsync', 'pg_test_timing',
-	'pg_upgrade',    'vacuumlo');
+	'pg_upgrade',    'pg_xlogdump',
+	'vacuumlo');
 my $contrib_extralibs = { 'pgbench' => ['wsock32.lib'] };
 my $contrib_extraincludes =
   { 'tsearch2' => ['contrib/tsearch2'], 'dblink' => ['src/backend'] };
 my $contrib_extrasource = {
 	'cube' => [ 'cubescan.l', 'cubeparse.y' ],
-	'seg'  => [ 'segscan.l',  'segparse.y' ] };
+	'seg'  => [ 'segscan.l',  'segparse.y' ], 
+	};
 my @contrib_excludes = ('pgcrypto', 'intagg', 'sepgsql');
 
 sub mkvcbuild
@@ -69,10 +73,13 @@ sub mkvcbuild
 	  sprompt.c tar.c thread.c getopt.c getopt_long.c dirent.c rint.c win32env.c
 	  win32error.c win32setlocale.c);
 
-	our @pgcommonfiles = qw(
-		fe_memutils.c);
+	our @pgcommonallfiles = qw(
+		relpath.c);
 
-	our @pgcommonbkndfiles = qw();
+	our @pgcommonfrontendfiles = (@pgcommonallfiles,
+		qw(fe_memutils.c));
+
+	our @pgcommonbkndfiles = @pgcommonallfiles;
 
 	$libpgport = $solution->AddProject('libpgport', 'lib', 'misc');
 	$libpgport->AddDefine('FRONTEND');
@@ -80,7 +87,7 @@ sub mkvcbuild
 
 	$libpgcommon = $solution->AddProject('libpgcommon', 'lib', 'misc');
 	$libpgcommon->AddDefine('FRONTEND');
-	$libpgcommon->AddFiles('src\common', @pgcommonfiles);
+	$libpgcommon->AddFiles('src\common', @pgcommonfrontendfiles);
 
 	$postgres = $solution->AddProject('postgres', 'exe', '', 'src\backend');
 	$postgres->AddIncludeDir('src\backend');
@@ -577,6 +584,20 @@ sub mkvcbuild
 	$pgregress->AddIncludeDir('src\port');
 	$pgregress->AddDefine('HOST_TUPLE="i686-pc-win32vc"');
 	$pgregress->AddReference($libpgport, $libpgcommon);
+
+	# fix up pg_xlogdump once it's been set up
+	# files symlinked on Unix are copied on windows
+	my $pg_xlogdump = (grep {$_->{name} eq 'pg_xlogdump'} 
+					   @{$solution->{projects}->{contrib}} )[0];
+	$pg_xlogdump->AddDefine('FRONTEND');
+	foreach my $xf (glob('src/backend/access/rmgrdesc/*desc.c') )
+	{
+		my $bf = basename $xf;
+		copy($xf,"contrib/pg_xlogdump/$bf");
+		$pg_xlogdump->AddFile("contrib\\pg_xlogdump\\$bf");
+	}
+	copy('src/backend/access/transam/xlogreader.c',
+		 'contrib/pg_xlogdump/xlogreader.c'); 
 
 	$solution->Save();
 	return $solution->{vcver};
