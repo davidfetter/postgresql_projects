@@ -67,6 +67,7 @@ static event_trigger_support_data event_trigger_support[] = {
 	{ "FUNCTION", true },
 	{ "INDEX", true },
 	{ "LANGUAGE", true },
+	{ "MATERIALIZED VIEW", true },
 	{ "OPERATOR", true },
 	{ "OPERATOR CLASS", true },
 	{ "OPERATOR FAMILY", true },
@@ -217,6 +218,7 @@ check_ddl_tag(const char *tag)
 	 */
 	if (pg_strcasecmp(tag, "CREATE TABLE AS") == 0 ||
 		pg_strcasecmp(tag, "SELECT INTO") == 0 ||
+		pg_strcasecmp(tag, "REFRESH MATERIALIZED VIEW") == 0 ||
 		pg_strcasecmp(tag, "ALTER DEFAULT PRIVILEGES") == 0 ||
 		pg_strcasecmp(tag, "ALTER LARGE OBJECT") == 0)
 		return EVENT_TRIGGER_COMMAND_TAG_OK;
@@ -308,8 +310,7 @@ insert_event_trigger_tuple(char *trigname, char *eventname, Oid evtOwner,
 	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 
 	/* Post creation hook for new operator family */
-	InvokeObjectAccessHook(OAT_POST_CREATE,
-						   EventTriggerRelationId, trigoid, 0, NULL);
+	InvokeObjectPostCreateHook(EventTriggerRelationId, trigoid, 0);
 
 	/* Close pg_event_trigger. */
 	heap_close(tgrel, RowExclusiveLock);

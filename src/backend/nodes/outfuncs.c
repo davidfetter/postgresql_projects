@@ -893,6 +893,7 @@ _outIntoClause(StringInfo str, const IntoClause *node)
 	WRITE_ENUM_FIELD(onCommit, OnCommitAction);
 	WRITE_STRING_FIELD(tableSpaceName);
 	WRITE_BOOL_FIELD(skipData);
+	WRITE_CHAR_FIELD(relkind);
 }
 
 static void
@@ -2354,6 +2355,7 @@ _outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
 		case RTE_RELATION:
 			WRITE_OID_FIELD(relid);
 			WRITE_CHAR_FIELD(relkind);
+			WRITE_BOOL_FIELD(isResultRel);
 			break;
 		case RTE_SUBQUERY:
 			WRITE_NODE_FIELD(subquery);
