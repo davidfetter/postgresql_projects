@@ -44,6 +44,7 @@
 #include "catalog/namespace.h"
 #include "commands/trigger.h"
 #include "executor/execdebug.h"
+#include "foreign/fdwapi.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "optimizer/clauses.h"
@@ -84,6 +85,7 @@ static char *ExecBuildSlotValueDescription(TupleTableSlot *slot,
 							  int maxfieldlen);
 static void EvalPlanQualStart(EPQState *epqstate, EState *parentestate,
 				  Plan *planTree);
+static bool RelationIdIsScannable(Oid relid);
 
 /* end of local decls */
 
@@ -493,6 +495,65 @@ ExecutorRewind(QueryDesc *queryDesc)
 
 
 /*
+ * ExecCheckRelationsScannable
+ *		Check that relations which are to be accessed are in a scannable
+ *		state.
+ *
+ * If not, throw error. For a materialized view, suggest refresh.
+ */
+static void
+ExecCheckRelationsScannable(List *rangeTable)
+{
+	ListCell   *l;
+
+	foreach(l, rangeTable)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(l);
+
+		if (rte->rtekind != RTE_RELATION)
+			continue;
+
+		if (!RelationIdIsScannable(rte->relid))
+		{
+			if (rte->relkind == RELKIND_MATVIEW)
+			{
+				/* It is OK to replace the contents of an invalid matview. */
+				if (rte->isResultRel)
+					continue;
+
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						 errmsg("materialized view \"%s\" has not been populated",
+								get_rel_name(rte->relid)),
+						 errhint("Use the REFRESH MATERIALIZED VIEW command.")));
+			}
+			else
+				/* This should never happen, so elog will do. */
+				elog(ERROR, "relation \"%s\" is not flagged as scannable",
+					 get_rel_name(rte->relid));
+		}
+	}
+}
+
+/*
+ * Tells whether a relation is scannable.
+ *
+ * Currently only non-populated materialzed views are not.
+ */
+static bool
+RelationIdIsScannable(Oid relid)
+{
+	Relation	relation;
+	bool		result;
+
+	relation = RelationIdGetRelation(relid);
+	result = relation->rd_isscannable;
+	RelationClose(relation);
+
+	return result;
+}
+
+/*
  * ExecCheckRTPerms
  *		Check access permissions for all relations listed in a range table.
  *
@@ -883,6 +944,13 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 	planstate = ExecInitNode(plan, estate, eflags);
 
 	/*
+	 * Unless we are creating a view or are creating a materialized view WITH
+	 * NO DATA, ensure that all referenced relations are scannable.
+	 */
+	if ((eflags & EXEC_FLAG_WITH_NO_DATA) == 0)
+		ExecCheckRelationsScannable(rangeTable);
+
+	/*
 	 * Get the tuple descriptor describing the type of tuples to return.
 	 */
 	tupType = ExecGetResultType(planstate);
@@ -938,6 +1006,7 @@ void
 CheckValidResultRel(Relation resultRel, CmdType operation)
 {
 	TriggerDesc *trigDesc = resultRel->trigdesc;
+	FdwRoutine *fdwroutine;
 
 	switch (resultRel->rd_rel->relkind)
 	{
@@ -995,11 +1064,42 @@ CheckValidResultRel(Relation resultRel, CmdType operation)
 					break;
 			}
 			break;
-		case RELKIND_FOREIGN_TABLE:
+		case RELKIND_MATVIEW:
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("cannot change foreign table \"%s\"",
+					 errmsg("cannot change materialized view \"%s\"",
 							RelationGetRelationName(resultRel))));
+			break;
+		case RELKIND_FOREIGN_TABLE:
+			/* Okay only if the FDW supports it */
+			fdwroutine = GetFdwRoutineForRelation(resultRel, false);
+			switch (operation)
+			{
+				case CMD_INSERT:
+					if (fdwroutine->ExecForeignInsert == NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								 errmsg("cannot insert into foreign table \"%s\"",
+										RelationGetRelationName(resultRel))));
+					break;
+				case CMD_UPDATE:
+					if (fdwroutine->ExecForeignUpdate == NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								 errmsg("cannot update foreign table \"%s\"",
+										RelationGetRelationName(resultRel))));
+					break;
+				case CMD_DELETE:
+					if (fdwroutine->ExecForeignDelete == NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								 errmsg("cannot delete from foreign table \"%s\"",
+										RelationGetRelationName(resultRel))));
+					break;
+				default:
+					elog(ERROR, "unrecognized CmdType: %d", (int) operation);
+					break;
+			}
 			break;
 		default:
 			ereport(ERROR,
@@ -1045,8 +1145,15 @@ CheckValidRowMarkRel(Relation rel, RowMarkType markType)
 					 errmsg("cannot lock rows in view \"%s\"",
 							RelationGetRelationName(rel))));
 			break;
+		case RELKIND_MATVIEW:
+			/* Should not get here */
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("cannot lock rows in materialized view \"%s\"",
+							RelationGetRelationName(rel))));
+			break;
 		case RELKIND_FOREIGN_TABLE:
-			/* Perhaps we can support this someday, but not today */
+			/* Should not get here */
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 					 errmsg("cannot lock rows in foreign table \"%s\"",
@@ -1100,6 +1207,11 @@ InitResultRelInfo(ResultRelInfo *resultRelInfo,
 		resultRelInfo->ri_TrigWhenExprs = NULL;
 		resultRelInfo->ri_TrigInstrument = NULL;
 	}
+	if (resultRelationDesc->rd_rel->relkind == RELKIND_FOREIGN_TABLE)
+		resultRelInfo->ri_FdwRoutine = GetFdwRoutineForRelation(resultRelationDesc, true);
+	else
+		resultRelInfo->ri_FdwRoutine = NULL;
+	resultRelInfo->ri_FdwState = NULL;
 	resultRelInfo->ri_ConstraintExprs = NULL;
 	resultRelInfo->ri_junkFilter = NULL;
 	resultRelInfo->ri_projectReturning = NULL;
