@@ -63,23 +63,23 @@ CREATE FOREIGN TABLE ft1 (
 	c4 timestamptz,
 	c5 timestamp,
 	c6 varchar(10),
-	c7 char(10),
+	c7 char(10) default 'ft1',
 	c8 user_enum
 ) SERVER loopback;
 ALTER FOREIGN TABLE ft1 DROP COLUMN c0;
 
 CREATE FOREIGN TABLE ft2 (
-	c0 int,
 	c1 int NOT NULL,
 	c2 int NOT NULL,
+	cx int,
 	c3 text,
 	c4 timestamptz,
 	c5 timestamp,
 	c6 varchar(10),
-	c7 char(10),
+	c7 char(10) default 'ft2',
 	c8 user_enum
 ) SERVER loopback;
-ALTER FOREIGN TABLE ft2 DROP COLUMN c0;
+ALTER FOREIGN TABLE ft2 DROP COLUMN cx;
 
 -- ===================================================================
 -- tests for validator
@@ -199,12 +199,12 @@ EXPLAIN (VERBOSE, COSTS false) EXECUTE st1(1, 2);
 EXECUTE st1(1, 1);
 EXECUTE st1(101, 101);
 -- subquery using stable function (can't be sent to remote)
-PREPARE st2(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 < $2 AND t1.c3 IN (SELECT c3 FROM ft2 t2 WHERE c1 > $1 AND EXTRACT(dow FROM c4) = 6) ORDER BY c1;
+PREPARE st2(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 < $2 AND t1.c3 IN (SELECT c3 FROM ft2 t2 WHERE c1 > $1 AND date(c4) = '1970-01-17'::date) ORDER BY c1;
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st2(10, 20);
 EXECUTE st2(10, 20);
-EXECUTE st1(101, 101);
+EXECUTE st2(101, 121);
 -- subquery using immutable function (can be sent to remote)
-PREPARE st3(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 < $2 AND t1.c3 IN (SELECT c3 FROM ft2 t2 WHERE c1 > $1 AND EXTRACT(dow FROM c5) = 6) ORDER BY c1;
+PREPARE st3(int) AS SELECT * FROM ft1 t1 WHERE t1.c1 < $2 AND t1.c3 IN (SELECT c3 FROM ft2 t2 WHERE c1 > $1 AND date(c5) = '1970-01-17'::date) ORDER BY c1;
 EXPLAIN (VERBOSE, COSTS false) EXECUTE st3(10, 20);
 EXECUTE st3(10, 20);
 EXECUTE st3(20, 30);
@@ -275,6 +275,23 @@ SELECT * FROM ft1 ORDER BY c1 LIMIT 1;
 COMMIT;
 
 -- ===================================================================
+-- test handling of collations
+-- ===================================================================
+create table loct3 (f1 text collate "C", f2 text);
+create foreign table ft3 (f1 text collate "C", f2 text)
+  server loopback options (table_name 'loct3');
+
+-- can be sent to remote
+explain (verbose, costs off) select * from ft3 where f1 = 'foo';
+explain (verbose, costs off) select * from ft3 where f1 COLLATE "C" = 'foo';
+explain (verbose, costs off) select * from ft3 where f2 = 'foo';
+-- can't be sent to remote
+explain (verbose, costs off) select * from ft3 where f1 COLLATE "POSIX" = 'foo';
+explain (verbose, costs off) select * from ft3 where f1 = 'foo' COLLATE "C";
+explain (verbose, costs off) select * from ft3 where f2 COLLATE "C" = 'foo';
+explain (verbose, costs off) select * from ft3 where f2 = 'foo' COLLATE "C";
+
+-- ===================================================================
 -- test writable foreign table stuff
 -- ===================================================================
 EXPLAIN (verbose, costs off)
@@ -286,9 +303,9 @@ INSERT INTO ft2 (c1,c2,c3) VALUES (1104,204,'ddd'), (1105,205,'eee');
 UPDATE ft2 SET c2 = c2 + 300, c3 = c3 || '_update3' WHERE c1 % 10 = 3;
 UPDATE ft2 SET c2 = c2 + 400, c3 = c3 || '_update7' WHERE c1 % 10 = 7 RETURNING *;
 EXPLAIN (verbose, costs off)
-UPDATE ft2 SET c2 = ft2.c2 + 500, c3 = ft2.c3 || '_update9'
+UPDATE ft2 SET c2 = ft2.c2 + 500, c3 = ft2.c3 || '_update9', c7 = DEFAULT
   FROM ft1 WHERE ft1.c1 = ft2.c2 AND ft1.c1 % 10 = 9;
-UPDATE ft2 SET c2 = ft2.c2 + 500, c3 = ft2.c3 || '_update9'
+UPDATE ft2 SET c2 = ft2.c2 + 500, c3 = ft2.c3 || '_update9', c7 = DEFAULT
   FROM ft1 WHERE ft1.c1 = ft2.c2 AND ft1.c1 % 10 = 9;
 DELETE FROM ft2 WHERE c1 % 10 = 5 RETURNING *;
 EXPLAIN (verbose, costs off)
@@ -296,8 +313,7 @@ DELETE FROM ft2 USING ft1 WHERE ft1.c1 = ft2.c2 AND ft1.c1 % 10 = 2;
 DELETE FROM ft2 USING ft1 WHERE ft1.c1 = ft2.c2 AND ft1.c1 % 10 = 2;
 SELECT c1,c2,c3,c4 FROM ft2 ORDER BY c1;
 
--- Test that defaults and triggers on remote table work as expected
-ALTER TABLE "S 1"."T 1" ALTER c6 SET DEFAULT '(^-^;)';
+-- Test that trigger on remote table works as expected
 CREATE OR REPLACE FUNCTION "S 1".F_BRTRIG() RETURNS trigger AS $$
 BEGIN
     NEW.c3 = NEW.c3 || '_trig_update';
@@ -316,7 +332,7 @@ ALTER TABLE "S 1"."T 1" ADD CONSTRAINT c2positive CHECK (c2 >= 0);
 
 INSERT INTO ft1(c1, c2) VALUES(11, 12);  -- duplicate key
 INSERT INTO ft1(c1, c2) VALUES(1111, -2);  -- c2positive
-UPDATE ft1 SET c2 = -c2, c4 = null WHERE c1 = 1;  -- c2positive
+UPDATE ft1 SET c2 = -c2 WHERE c1 = 1;  -- c2positive
 
 -- Test savepoint/rollback behavior
 select c2, count(*) from ft2 where c2 < 500 group by 1 order by 1;
@@ -337,7 +353,7 @@ select c2, count(*) from ft2 where c2 < 500 group by 1 order by 1;
 release savepoint s2;
 select c2, count(*) from ft2 where c2 < 500 group by 1 order by 1;
 savepoint s3;
-update ft2 set c2 = -2, c4 = null where c2 = 42; -- fail on remote side
+update ft2 set c2 = -2 where c2 = 42 and c1 = 10; -- fail on remote side
 rollback to savepoint s3;
 select c2, count(*) from ft2 where c2 < 500 group by 1 order by 1;
 release savepoint s3;
