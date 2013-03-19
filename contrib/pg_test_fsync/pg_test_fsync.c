@@ -60,7 +60,7 @@ do { \
 
 static const char *progname;
 
-static int	secs_per_test = 2;
+static int	secs_per_test = 5;
 static int	needs_unlink = 0;
 static char full_buf[XLOG_SEG_SIZE],
 		   *buf,
@@ -101,14 +101,14 @@ main(int argc, char *argv[])
 	handle_args(argc, argv);
 
 	/* Prevent leaving behind the test file */
-	signal(SIGINT, signal_cleanup);
-	signal(SIGTERM, signal_cleanup);
+	pqsignal(SIGINT, signal_cleanup);
+	pqsignal(SIGTERM, signal_cleanup);
 #ifndef WIN32
-	signal(SIGALRM, process_alarm);
+	pqsignal(SIGALRM, process_alarm);
 #endif
 #ifdef SIGHUP
 	/* Not defined on win32 */
-	signal(SIGHUP, signal_cleanup);
+	pqsignal(SIGHUP, signal_cleanup);
 #endif
 
 	prepare_buf();

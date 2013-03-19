@@ -30,6 +30,7 @@
 #include "optimizer/var.h"
 #include "parser/parsetree.h"
 #include "utils/builtins.h"
+#include "utils/guc.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 
@@ -1022,6 +1023,8 @@ postgresPlanForeignModify(PlannerInfo *root,
 						  int subplan_index)
 {
 	CmdType		operation = plan->operation;
+	RangeTblEntry *rte = planner_rt_fetch(resultRelation, root);
+	Relation	rel;
 	StringInfoData sql;
 	List	   *targetAttrs = NIL;
 	List	   *returningList = NIL;
@@ -1029,15 +1032,33 @@ postgresPlanForeignModify(PlannerInfo *root,
 	initStringInfo(&sql);
 
 	/*
-	 * Construct a list of the columns that are to be assigned during INSERT
-	 * or UPDATE.  We should transmit only these columns, for performance and
-	 * to respect any DEFAULT values the remote side may have for other
-	 * columns.  (XXX this will need some re-thinking when we support default
-	 * expressions for foreign tables.)
+	 * Core code already has some lock on each rel being planned, so we can
+	 * use NoLock here.
 	 */
-	if (operation == CMD_INSERT || operation == CMD_UPDATE)
+	rel = heap_open(rte->relid, NoLock);
+
+	/*
+	 * In an INSERT, we transmit all columns that are defined in the foreign
+	 * table.  In an UPDATE, we transmit only columns that were explicitly
+	 * targets of the UPDATE, so as to avoid unnecessary data transmission.
+	 * (We can't do that for INSERT since we would miss sending default values
+	 * for columns not listed in the source statement.)
+	 */
+	if (operation == CMD_INSERT)
 	{
-		RangeTblEntry *rte = planner_rt_fetch(resultRelation, root);
+		TupleDesc	tupdesc = RelationGetDescr(rel);
+		int			attnum;
+
+		for (attnum = 1; attnum <= tupdesc->natts; attnum++)
+		{
+			Form_pg_attribute attr = tupdesc->attrs[attnum - 1];
+
+			if (!attr->attisdropped)
+				targetAttrs = lappend_int(targetAttrs, attnum);
+		}
+	}
+	else if (operation == CMD_UPDATE)
+	{
 		Bitmapset  *tmpset = bms_copy(rte->modifiedCols);
 		AttrNumber	col;
 
@@ -1062,20 +1083,23 @@ postgresPlanForeignModify(PlannerInfo *root,
 	switch (operation)
 	{
 		case CMD_INSERT:
-			deparseInsertSql(&sql, root, resultRelation,
+			deparseInsertSql(&sql, root, resultRelation, rel,
 							 targetAttrs, returningList);
 			break;
 		case CMD_UPDATE:
-			deparseUpdateSql(&sql, root, resultRelation,
+			deparseUpdateSql(&sql, root, resultRelation, rel,
 							 targetAttrs, returningList);
 			break;
 		case CMD_DELETE:
-			deparseDeleteSql(&sql, root, resultRelation, returningList);
+			deparseDeleteSql(&sql, root, resultRelation, rel,
+							 returningList);
 			break;
 		default:
 			elog(ERROR, "unexpected operation: %d", (int) operation);
 			break;
 	}
+
+	heap_close(rel, NoLock);
 
 	/*
 	 * Build the fdw_private list that will be available to the executor.
@@ -1554,8 +1578,11 @@ create_cursor(ForeignScanState *node)
 	if (numParams > 0 && !fsstate->extparams_done)
 	{
 		ParamListInfo params = node->ss.ps.state->es_param_list_info;
+		int			nestlevel;
 		List	   *param_numbers;
 		ListCell   *lc;
+
+		nestlevel = set_transmission_modes();
 
 		param_numbers = (List *)
 			list_nth(fsstate->fdw_private, FdwScanPrivateExternParamIds);
@@ -1598,6 +1625,9 @@ create_cursor(ForeignScanState *node)
 															prm->value);
 			}
 		}
+
+		reset_transmission_modes(nestlevel);
+
 		fsstate->extparams_done = true;
 	}
 
@@ -1706,6 +1736,56 @@ fetch_more_data(ForeignScanState *node)
 }
 
 /*
+ * Force assorted GUC parameters to settings that ensure that we'll output
+ * data values in a form that is unambiguous to the remote server.
+ *
+ * This is rather expensive and annoying to do once per row, but there's
+ * little choice if we want to be sure values are transmitted accurately;
+ * we can't leave the settings in place between rows for fear of affecting
+ * user-visible computations.
+ *
+ * We use the equivalent of a function SET option to allow the settings to
+ * persist only until the caller calls reset_transmission_modes().	If an
+ * error is thrown in between, guc.c will take care of undoing the settings.
+ *
+ * The return value is the nestlevel that must be passed to
+ * reset_transmission_modes() to undo things.
+ */
+int
+set_transmission_modes(void)
+{
+	int			nestlevel = NewGUCNestLevel();
+
+	/*
+	 * The values set here should match what pg_dump does.	See also
+	 * configure_remote_session in connection.c.
+	 */
+	if (DateStyle != USE_ISO_DATES)
+		(void) set_config_option("datestyle", "ISO",
+								 PGC_USERSET, PGC_S_SESSION,
+								 GUC_ACTION_SAVE, true, 0);
+	if (IntervalStyle != INTSTYLE_POSTGRES)
+		(void) set_config_option("intervalstyle", "postgres",
+								 PGC_USERSET, PGC_S_SESSION,
+								 GUC_ACTION_SAVE, true, 0);
+	if (extra_float_digits < 3)
+		(void) set_config_option("extra_float_digits", "3",
+								 PGC_USERSET, PGC_S_SESSION,
+								 GUC_ACTION_SAVE, true, 0);
+
+	return nestlevel;
+}
+
+/*
+ * Undo the effects of set_transmission_modes().
+ */
+void
+reset_transmission_modes(int nestlevel)
+{
+	AtEOXact_GUC(true, nestlevel);
+}
+
+/*
  * Utility routine to close a cursor.
  */
 static void
@@ -1791,15 +1871,19 @@ convert_prep_stmt_params(PgFdwModifyState *fmstate,
 	/* 1st parameter should be ctid, if it's in use */
 	if (tupleid != NULL)
 	{
+		/* don't need set_transmission_modes for TID output */
 		p_values[pindex] = OutputFunctionCall(&fmstate->p_flinfo[pindex],
 											  PointerGetDatum(tupleid));
 		pindex++;
 	}
 
 	/* get following parameters from slot */
-	if (slot != NULL)
+	if (slot != NULL && fmstate->target_attrs != NIL)
 	{
+		int			nestlevel;
 		ListCell   *lc;
+
+		nestlevel = set_transmission_modes();
 
 		foreach(lc, fmstate->target_attrs)
 		{
@@ -1815,6 +1899,8 @@ convert_prep_stmt_params(PgFdwModifyState *fmstate,
 													  value);
 			pindex++;
 		}
+
+		reset_transmission_modes(nestlevel);
 	}
 
 	Assert(pindex == fmstate->p_nums);

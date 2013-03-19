@@ -356,8 +356,7 @@ DefineQueryRewrite(char *rulename,
 		 */
 		checkRuleResultList(query->targetList,
 							RelationGetDescr(event_relation),
-							event_relation->rd_rel->relkind !=
-								RELKIND_MATVIEW);
+							true);
 
 		/*
 		 * ... there must not be another ON SELECT rule already ...
@@ -815,6 +814,9 @@ EnableDisableRule(Relation rel, const char *rulename,
 
 		changed = true;
 	}
+
+	InvokeObjectPostAlterHook(RewriteRelationId,
+							  HeapTupleGetOid(ruletup), 0);
 
 	heap_freetuple(ruletup);
 	heap_close(pg_rewrite_desc, RowExclusiveLock);
