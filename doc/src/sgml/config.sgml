@@ -1661,10 +1661,10 @@ include 'filename'
      </varlistentry>
 
      <varlistentry id="guc-fsync" xreflabel="fsync">
+      <term><varname>fsync</varname> (<type>boolean</type>)</term>
       <indexterm>
        <primary><varname>fsync</> configuration parameter</primary>
       </indexterm>
-      <term><varname>fsync</varname> (<type>boolean</type>)</term>
       <listitem>
        <para>
         If this parameter is on, the <productname>PostgreSQL</> server
@@ -1846,10 +1846,10 @@ include 'filename'
      </varlistentry>
 
      <varlistentry id="guc-full-page-writes" xreflabel="full_page_writes">
+      <term><varname>full_page_writes</varname> (<type>boolean</type>)</term>
       <indexterm>
        <primary><varname>full_page_writes</> configuration parameter</primary>
       </indexterm>
-      <term><varname>full_page_writes</varname> (<type>boolean</type>)</term>
       <listitem>
        <para>
         When this parameter is on, the <productname>PostgreSQL</> server
@@ -1949,7 +1949,7 @@ include 'filename'
       </indexterm>
       <listitem>
        <para>
-        <varname>commit_delay</varname> adds a time delay, set in
+        <varname>commit_delay</varname> adds a time delay, measured in
         microseconds, before a WAL flush is initiated.  This can improve
         group commit throughput by allowing a larger number of transactions
         to commit via a single WAL flush, if system load is high enough
@@ -1959,7 +1959,12 @@ include 'filename'
         flush.  Because the delay is just wasted if no other transactions
         become ready to commit, a delay is only performed if at least
         <varname>commit_siblings</varname> other transactions are active
-        immediately before a flush would otherwise have been initiated.
+        when a flush is about to be initiated.  Also, no delays are
+        performed if <varname>fsync</varname> is disabled.
+        The default <varname>commit_delay</> is zero (no delay).
+        Only superusers can change this setting.
+       </para>
+       <para>
         In <productname>PostgreSQL</> releases prior to 9.3,
         <varname>commit_delay</varname> behaved differently and was much
         less effective: it affected only commits, rather than all WAL flushes,
@@ -1967,9 +1972,7 @@ include 'filename'
         was completed sooner.  Beginning in <productname>PostgreSQL</> 9.3,
         the first process that becomes ready to flush waits for the configured
         interval, while subsequent processes wait only until the leader
-        completes the flush.  The default <varname>commit_delay</> is zero
-        (no delay).  No delays are performed unless <varname>fsync</varname>
-        is enabled.
+        completes the flush operation.
        </para>
       </listitem>
      </varlistentry>
@@ -2917,6 +2920,7 @@ include 'filename'
      <variablelist>
 
      <varlistentry id="guc-geqo" xreflabel="geqo">
+      <term><varname>geqo</varname> (<type>boolean</type>)</term>
       <indexterm>
        <primary>genetic query optimization</primary>
       </indexterm>
@@ -2927,7 +2931,6 @@ include 'filename'
       <indexterm>
        <primary><varname>geqo</> configuration parameter</primary>
       </indexterm>
-      <term><varname>geqo</varname> (<type>boolean</type>)</term>
       <listitem>
        <para>
         Enables or disables genetic query optimization.
@@ -4969,6 +4972,7 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
      </varlistentry>
 
      <varlistentry id="guc-default-transaction-isolation" xreflabel="default_transaction_isolation">
+      <term><varname>default_transaction_isolation</varname> (<type>enum</type>)</term>
       <indexterm>
        <primary>transaction isolation level</primary>
        <secondary>setting default</secondary>
@@ -4976,7 +4980,6 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
       <indexterm>
        <primary><varname>default_transaction_isolation</> configuration parameter</primary>
       </indexterm>
-      <term><varname>default_transaction_isolation</varname> (<type>enum</type>)</term>
       <listitem>
        <para>
         Each SQL transaction has an isolation level, which can be
@@ -4995,6 +4998,7 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
      </varlistentry>
 
      <varlistentry id="guc-default-transaction-read-only" xreflabel="default_transaction_read_only">
+      <term><varname>default_transaction_read_only</varname> (<type>boolean</type>)</term>
       <indexterm>
        <primary>read-only transaction</primary>
        <secondary>setting default</secondary>
@@ -5002,8 +5006,6 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
       <indexterm>
        <primary><varname>default_transaction_read_only</> configuration parameter</primary>
       </indexterm>
-
-      <term><varname>default_transaction_read_only</varname> (<type>boolean</type>)</term>
       <listitem>
        <para>
         A read-only SQL transaction cannot alter non-temporary tables.
@@ -5018,6 +5020,7 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
      </varlistentry>
 
      <varlistentry id="guc-default-transaction-deferrable" xreflabel="default_transaction_deferrable">
+      <term><varname>default_transaction_deferrable</varname> (<type>boolean</type>)</term>
       <indexterm>
        <primary>deferrable transaction</primary>
        <secondary>setting default</secondary>
@@ -5025,8 +5028,6 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
       <indexterm>
        <primary><varname>default_transaction_deferrable</> configuration parameter</primary>
       </indexterm>
-
-      <term><varname>default_transaction_deferrable</varname> (<type>boolean</type>)</term>
       <listitem>
        <para>
         When running at the <literal>serializable</> isolation level,
@@ -5344,6 +5345,7 @@ SET XML OPTION { DOCUMENT | CONTENT };
      </varlistentry>
 
      <varlistentry id="guc-extra-float-digits" xreflabel="extra_float_digits">
+      <term><varname>extra_float_digits</varname> (<type>integer</type>)</term>
       <indexterm>
        <primary>significant digits</primary>
       </indexterm>
@@ -5354,8 +5356,6 @@ SET XML OPTION { DOCUMENT | CONTENT };
       <indexterm>
        <primary><varname>extra_float_digits</> configuration parameter</primary>
       </indexterm>
-
-      <term><varname>extra_float_digits</varname> (<type>integer</type>)</term>
       <listitem>
        <para>
         This parameter adjusts the number of digits displayed for
@@ -5631,6 +5631,7 @@ dynamic_library_path = 'C:\tools\postgresql;H:\my_project\lib;$libdir'
      <variablelist>
 
      <varlistentry id="guc-deadlock-timeout" xreflabel="deadlock_timeout">
+      <term><varname>deadlock_timeout</varname> (<type>integer</type>)</term>
       <indexterm>
        <primary>deadlock</primary>
        <secondary>timeout during</secondary>
@@ -5642,8 +5643,6 @@ dynamic_library_path = 'C:\tools\postgresql;H:\my_project\lib;$libdir'
       <indexterm>
        <primary><varname>deadlock_timeout</> configuration parameter</primary>
       </indexterm>
-
-      <term><varname>deadlock_timeout</varname> (<type>integer</type>)</term>
       <listitem>
        <para>
         This is the amount of time, in milliseconds, to wait on a lock
@@ -6625,6 +6624,30 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
         only available if the <symbol>WAL_DEBUG</symbol> macro was
         defined when <productname>PostgreSQL</productname> was
         compiled.
+       </para>
+      </listitem>
+     </varlistentry>
+
+    <varlistentry id="guc-ignore-checksum-failure" xreflabel="ignore_checksum_failure">
+      <term><varname>ignore_checksum_failure</varname> (<type>boolean</type>)</term>
+      <indexterm>
+       <primary><varname>ignore_checksum_failure</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Only has effect if <xref linkend="app-initdb-data-checksums"> are enabled.
+       </para>
+       <para>
+        Detection of a checksum failure during a read normally causes
+        <productname>PostgreSQL</> to report an error, aborting the current
+        transaction.  Setting <varname>ignore_checksum_failure</> to on causes
+        the system to ignore the failure (but still report a warning), and
+        continue processing.  This behavior may <emphasis>cause crashes, propagate
+        or hide corruption, or other serious problems</>.  However, it may allow
+        you to get past the error and retrieve undamaged tuples that might still be
+        present in the table if the block header is still sane. If the header is
+        corrupt an error will be reported even if this option is enabled. The
+        default setting is <literal>off</>, and it can only be changed by a superuser.
        </para>
       </listitem>
      </varlistentry>

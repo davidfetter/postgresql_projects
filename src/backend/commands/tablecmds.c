@@ -559,7 +559,7 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId)
 	 */
 	descriptor = BuildDescForRelation(schema);
 
-	localHasOids = interpretOidsOption(stmt->options);
+	localHasOids = interpretOidsOption(stmt->options, relkind);
 	descriptor->tdhasoid = (localHasOids || parentOidCount > 0);
 
 	/*
@@ -8901,6 +8901,8 @@ copy_relation_data(SMgrRelation src, SMgrRelation dst,
 		CHECK_FOR_INTERRUPTS();
 
 		smgrread(src, forkNum, blkno, buf);
+
+		PageSetChecksumInplace(page, blkno);
 
 		/* XLOG stuff */
 		if (use_wal)

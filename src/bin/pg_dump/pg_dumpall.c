@@ -63,6 +63,7 @@ static PGresult *executeQuery(PGconn *conn, const char *query);
 static void executeCommand(PGconn *conn, const char *query);
 
 static char pg_dump_bin[MAXPGPATH];
+static const char *progname;
 static PQExpBuffer pgdumpopts;
 static char *connstr = "";
 static bool skip_acls = false;
@@ -82,6 +83,7 @@ static int	server_version;
 static FILE *OPF;
 static char *filename = NULL;
 
+#define exit_nicely(code) exit(code)
 
 int
 main(int argc, char *argv[])
@@ -657,8 +659,8 @@ dumpRoles(PGconn *conn)
 						  "rolcreaterole, rolcreatedb, "
 						  "rolcanlogin, rolconnlimit, rolpassword, "
 						  "rolvaliduntil, rolreplication, "
-			  "pg_catalog.shobj_description(oid, 'pg_authid') as rolcomment, "
-			  			  "rolname = current_user AS is_current_user "
+			 "pg_catalog.shobj_description(oid, 'pg_authid') as rolcomment, "
+						  "rolname = current_user AS is_current_user "
 						  "FROM pg_authid "
 						  "ORDER BY 2");
 	else if (server_version >= 80200)
@@ -667,8 +669,8 @@ dumpRoles(PGconn *conn)
 						  "rolcreaterole, rolcreatedb, "
 						  "rolcanlogin, rolconnlimit, rolpassword, "
 						  "rolvaliduntil, false as rolreplication, "
-			  "pg_catalog.shobj_description(oid, 'pg_authid') as rolcomment, "
-			  			  "rolname = current_user AS is_current_user "
+			 "pg_catalog.shobj_description(oid, 'pg_authid') as rolcomment, "
+						  "rolname = current_user AS is_current_user "
 						  "FROM pg_authid "
 						  "ORDER BY 2");
 	else if (server_version >= 80100)
@@ -678,7 +680,7 @@ dumpRoles(PGconn *conn)
 						  "rolcanlogin, rolconnlimit, rolpassword, "
 						  "rolvaliduntil, false as rolreplication, "
 						  "null as rolcomment, "
-			  			  "rolname = current_user AS is_current_user "
+						  "rolname = current_user AS is_current_user "
 						  "FROM pg_authid "
 						  "ORDER BY 2");
 	else
@@ -694,7 +696,7 @@ dumpRoles(PGconn *conn)
 						  "valuntil as rolvaliduntil, "
 						  "false as rolreplication, "
 						  "null as rolcomment, "
-			  			  "rolname = current_user AS is_current_user "
+						  "rolname = current_user AS is_current_user "
 						  "FROM pg_shadow "
 						  "UNION ALL "
 						  "SELECT 0, groname as rolname, "
@@ -755,7 +757,7 @@ dumpRoles(PGconn *conn)
 		 * will acquire the right properties even if it already exists (ie, it
 		 * won't hurt for the CREATE to fail).  This is particularly important
 		 * for the role we are connected as, since even with --clean we will
-		 * have failed to drop it.  binary_upgrade cannot generate any errors,
+		 * have failed to drop it.	binary_upgrade cannot generate any errors,
 		 * so we assume the current role is already created.
 		 */
 		if (!binary_upgrade ||
@@ -1857,8 +1859,8 @@ connectDatabase(const char *dbname, const char *connection_string,
 	}
 
 	/*
-	 * Ok, connected successfully. Remember the options used, in the form of
-	 * a connection string.
+	 * Ok, connected successfully. Remember the options used, in the form of a
+	 * connection string.
 	 */
 	connstr = constructConnStr(keywords, values);
 
@@ -1873,21 +1875,15 @@ connectDatabase(const char *dbname, const char *connection_string,
 		fprintf(stderr, _("%s: could not get server version\n"), progname);
 		exit_nicely(1);
 	}
-	server_version = parse_version(remoteversion_str);
-	if (server_version < 0)
+	server_version = PQserverVersion(conn);
+	if (server_version == 0)
 	{
 		fprintf(stderr, _("%s: could not parse server version \"%s\"\n"),
 				progname, remoteversion_str);
 		exit_nicely(1);
 	}
 
-	my_version = parse_version(PG_VERSION);
-	if (my_version < 0)
-	{
-		fprintf(stderr, _("%s: could not parse version \"%s\"\n"),
-				progname, PG_VERSION);
-		exit_nicely(1);
-	}
+	my_version = PG_VERSION_NUM;
 
 	/*
 	 * We allow the server to be back to 7.0, and up to any minor release of
@@ -2039,7 +2035,7 @@ static void
 doConnStrQuoting(PQExpBuffer buf, const char *str)
 {
 	const char *s;
-	bool needquotes;
+	bool		needquotes;
 
 	/*
 	 * If the string consists entirely of plain ASCII characters, no need to
