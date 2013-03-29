@@ -88,7 +88,8 @@ sepgsql_attribute_post_create(Oid relOid, AttrNumber attnum)
 	scontext = sepgsql_get_client_label();
 	tcontext = sepgsql_get_label(RelationRelationId, relOid, 0);
 	ncontext = sepgsql_compute_create(scontext, tcontext,
-									  SEPG_CLASS_DB_COLUMN);
+									  SEPG_CLASS_DB_COLUMN,
+									  NameStr(attForm->attname));
 
 	/*
 	 * check db_column:{create} permission
@@ -191,6 +192,36 @@ sepgsql_attribute_relabel(Oid relOid, AttrNumber attnum,
 }
 
 /*
+ * sepgsql_attribute_setattr
+ *
+ * It checks privileges to alter the supplied column.
+ */
+void
+sepgsql_attribute_setattr(Oid relOid, AttrNumber attnum)
+{
+	ObjectAddress object;
+	char	   *audit_name;
+
+	if (get_rel_relkind(relOid) != RELKIND_RELATION)
+		return;
+
+	/*
+	 * check db_column:{setattr} permission
+	 */
+	object.classId = RelationRelationId;
+	object.objectId = relOid;
+	object.objectSubId = attnum;
+	audit_name = getObjectDescription(&object);
+
+	sepgsql_avc_check_perms(&object,
+							SEPG_CLASS_DB_COLUMN,
+							SEPG_DB_COLUMN__SETATTR,
+							audit_name,
+							true);
+	pfree(audit_name);
+}
+
+/*
  * sepgsql_relation_post_create
  *
  * The post creation hook of relation/attribute
@@ -279,7 +310,8 @@ sepgsql_relation_post_create(Oid relOid)
 	scontext = sepgsql_get_client_label();
 	tcontext = sepgsql_get_label(NamespaceRelationId,
 								 classForm->relnamespace, 0);
-	rcontext = sepgsql_compute_create(scontext, tcontext, tclass);
+	rcontext = sepgsql_compute_create(scontext, tcontext, tclass,
+									  NameStr(classForm->relname));
 
 	/*
 	 * check db_xxx:{create} permission
@@ -333,7 +365,8 @@ sepgsql_relation_post_create(Oid relOid)
 
 			ccontext = sepgsql_compute_create(scontext,
 											  rcontext,
-											  SEPG_CLASS_DB_COLUMN);
+											  SEPG_CLASS_DB_COLUMN,
+											  NameStr(attForm->attname));
 
 			/*
 			 * check db_column:{create} permission
@@ -529,6 +562,13 @@ sepgsql_relation_relabel(Oid relOid, const char *seclabel)
 void
 sepgsql_relation_setattr(Oid relOid)
 {
+	Relation		rel;
+	ScanKeyData		skey;
+	SysScanDesc		sscan;
+	HeapTuple		oldtup;
+	HeapTuple		newtup;
+	Form_pg_class	oldform;
+	Form_pg_class	newform;
 	ObjectAddress object;
 	char	   *audit_name;
 	uint16_t	tclass;
@@ -553,26 +593,66 @@ sepgsql_relation_setattr(Oid relOid)
 			return;
 	}
 
-	object.classId = RelationRelationId;
-	object.objectId = relOid;
-	object.objectSubId = 0;
-	audit_name = getObjectDescription(&object);
+	/*
+	 * Fetch newer catalog
+	 */
+	rel = heap_open(RelationRelationId, AccessShareLock);
+
+	ScanKeyInit(&skey,
+				ObjectIdAttributeNumber,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(relOid));
+
+	sscan = systable_beginscan(rel, ClassOidIndexId, true,
+							   SnapshotSelf, 1, &skey);
+
+	newtup = systable_getnext(sscan);
+	if (!HeapTupleIsValid(newtup))
+		elog(ERROR, "catalog lookup failed for relation %u", relOid);
+	newform = (Form_pg_class) GETSTRUCT(newtup);
 
 	/*
-	 * XXX - we should add checks related to namespace stuff, when
-	 * object_access_hook get support for ALTER statement.  Right now, there is
-	 * no invocation path on ALTER ...  RENAME TO / SET SCHEMA.
+	 * Fetch older catalog
+	 */
+	oldtup = SearchSysCache1(RELOID, ObjectIdGetDatum(relOid));
+	if (!HeapTupleIsValid(oldtup))
+		elog(ERROR, "cache lookup failed for relation %u", relOid);
+	oldform = (Form_pg_class) GETSTRUCT(oldtup);
+
+	/*
+	 * Does this ALTER command takes operation to namespace?
+	 */
+	if (newform->relnamespace != oldform->relnamespace)
+	{
+		sepgsql_schema_remove_name(oldform->relnamespace);
+		sepgsql_schema_add_name(newform->relnamespace);
+	}
+	if (strcmp(NameStr(newform->relname), NameStr(oldform->relname)) != 0)
+		sepgsql_schema_rename(oldform->relnamespace);
+
+	/*
+	 * XXX - In the future version, db_tuple:{use} of system catalog entry
+	 * shall be checked, if tablespace configuration is changed.
 	 */
 
 	/*
 	 * check db_xxx:{setattr} permission
 	 */
+	object.classId = RelationRelationId;
+	object.objectId = relOid;
+	object.objectSubId = 0;
+	audit_name = getObjectDescription(&object);
+
 	sepgsql_avc_check_perms(&object,
 							tclass,
 							SEPG_DB_TABLE__SETATTR,
 							audit_name,
 							true);
 	pfree(audit_name);
+
+	ReleaseSysCache(oldtup);
+	systable_endscan(sscan);
+	heap_close(rel, AccessShareLock);
 }
 
 /*

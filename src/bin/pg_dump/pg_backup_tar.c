@@ -31,7 +31,8 @@
 #include "pg_backup.h"
 #include "pg_backup_archiver.h"
 #include "pg_backup_tar.h"
-#include "dumputils.h"
+#include "pg_backup_utils.h"
+#include "parallel.h"
 #include "pgtar.h"
 
 #include <sys/stat.h>
@@ -157,6 +158,12 @@ InitArchiveFmt_Tar(ArchiveHandle *AH)
 	AH->EndBlobsPtr = _EndBlobs;
 	AH->ClonePtr = NULL;
 	AH->DeClonePtr = NULL;
+
+	AH->MasterStartParallelItemPtr = NULL;
+	AH->MasterEndParallelItemPtr = NULL;
+
+	AH->WorkerJobDumpPtr = NULL;
+	AH->WorkerJobRestorePtr = NULL;
 
 	/*
 	 * Set up some special context used in compressing data.
@@ -828,7 +835,7 @@ _CloseArchive(ArchiveHandle *AH)
 		/*
 		 * Now send the data (tables & blobs)
 		 */
-		WriteDataChunks(AH);
+		WriteDataChunks(AH, NULL);
 
 		/*
 		 * Now this format wants to append a script which does a full restore
