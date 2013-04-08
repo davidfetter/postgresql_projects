@@ -43,6 +43,20 @@
 
     <listitem>
      <para>
+      Fix insecure parsing of server command-line switches (Mitsumasa
+      Kondo, Kyotaro Horiguchi)
+     </para>
+
+     <para>
+      A connection request containing a database name that begins with
+      <quote><literal>-</></quote> could be crafted to damage or destroy
+      files within the server's data directory, even if the request is
+      eventually rejected.  (CVE-2013-1899)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
       Reset OpenSSL randomness state in each postmaster child process
       (Marko Kreen)
      </para>
@@ -232,7 +246,8 @@
 
     <listitem>
      <para>
-      Ignore invalid indexes in <application>pg_dump</> (Michael Paquier)
+      Ignore invalid indexes in <application>pg_dump</> and
+      <application>pg_upgrade</> (Michael Paquier, Bruce Momjian)
      </para>
 
      <para>
@@ -242,6 +257,8 @@
       index creation is in fact still in progress, it seems reasonable to
       consider it to be an uncommitted DDL change, which
       <application>pg_dump</> wouldn't be expected to dump anyway.
+      <application>pg_upgrade</> now also skips invalid indexes rather than
+      failing.
      </para>
     </listitem>
 
