@@ -2280,6 +2280,7 @@ SIGHUP_handler(SIGNAL_ARGS)
 				(errmsg("received SIGHUP, reloading configuration files")));
 		ProcessConfigFile(PGC_SIGHUP);
 		SignalChildren(SIGHUP);
+		SignalUnconnectedWorkers(SIGHUP);
 		if (StartupPID != 0)
 			signal_child(StartupPID, SIGHUP);
 		if (BgWriterPID != 0)
@@ -5353,6 +5354,22 @@ bgworker_die(SIGNAL_ARGS)
 					MyBgworkerEntry->bgw_name)));
 }
 
+/*
+ * Standard SIGUSR1 handler for unconnected workers
+ *
+ * Here, we want to make sure an unconnected worker will at least heed
+ * latch activity.
+ */
+static void
+bgworker_sigusr1_handler(SIGNAL_ARGS)
+{
+	int			save_errno = errno;
+
+	latch_sigusr1_handler();
+
+	errno = save_errno;
+}
+
 static void
 do_start_bgworker(void)
 {
@@ -5409,7 +5426,7 @@ do_start_bgworker(void)
 	else
 	{
 		pqsignal(SIGINT, SIG_IGN);
-		pqsignal(SIGUSR1, SIG_IGN);
+		pqsignal(SIGUSR1, bgworker_sigusr1_handler);
 		pqsignal(SIGFPE, SIG_IGN);
 	}
 
