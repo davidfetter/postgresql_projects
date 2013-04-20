@@ -48,6 +48,7 @@ static void expandTupleDesc(TupleDesc tupdesc, Alias *eref,
 				int location, bool include_dropped,
 				List **colnames, List **colvars);
 static int	specialAttNum(const char *attname);
+static bool isQueryUsingTempRelation_walker(Node *node, void *context);
 
 
 /*
@@ -69,7 +70,7 @@ static int	specialAttNum(const char *attname);
  * that (a) has no alias and (b) is for the same relation identified by
  * schemaname.refname.	In this case we convert schemaname.refname to a
  * relation OID and search by relid, rather than by alias name.  This is
- * peculiar, but it's what SQL92 says to do.
+ * peculiar, but it's what SQL says to do.
  */
 RangeTblEntry *
 refnameRangeTblEntry(ParseState *pstate,
@@ -352,7 +353,7 @@ searchRangeTableForRel(ParseState *pstate, RangeVar *relation)
  * Note: we assume that each given argument does not contain conflicts
  * itself; we just want to know if the two can be merged together.
  *
- * Per SQL92, two alias-less plain relation RTEs do not conflict even if
+ * Per SQL, two alias-less plain relation RTEs do not conflict even if
  * they have the same eref->aliasname (ie, same relation name), if they
  * are for different relation OIDs (implying they are in different schemas).
  *
@@ -388,7 +389,7 @@ checkNameSpaceConflicts(ParseState *pstate, List *namespace1,
 			if (rte1->rtekind == RTE_RELATION && rte1->alias == NULL &&
 				rte2->rtekind == RTE_RELATION && rte2->alias == NULL &&
 				rte1->relid != rte2->relid)
-				continue;		/* no conflict per SQL92 rule */
+				continue;		/* no conflict per SQL rule */
 			ereport(ERROR,
 					(errcode(ERRCODE_DUPLICATE_ALIAS),
 					 errmsg("table name \"%s\" specified more than once",
@@ -2614,4 +2615,52 @@ errorMissingColumn(ParseState *pstate,
 			 rte ? errhint("There is a column named \"%s\" in table \"%s\", but it cannot be referenced from this part of the query.",
 						   colname, rte->eref->aliasname) : 0,
 			 parser_errposition(pstate, location)));
+}
+
+
+/*
+ * Examine a fully-parsed query, and return TRUE iff any relation underlying
+ * the query is a temporary relation (table, view, or materialized view).
+ */
+bool
+isQueryUsingTempRelation(Query *query)
+{
+	return isQueryUsingTempRelation_walker((Node *) query, NULL);
+}
+
+static bool
+isQueryUsingTempRelation_walker(Node *node, void *context)
+{
+	if (node == NULL)
+		return false;
+
+	if (IsA(node, Query))
+	{
+		Query	   *query = (Query *) node;
+		ListCell   *rtable;
+
+		foreach(rtable, query->rtable)
+		{
+			RangeTblEntry *rte = lfirst(rtable);
+
+			if (rte->rtekind == RTE_RELATION)
+			{
+				Relation	rel = heap_open(rte->relid, AccessShareLock);
+				char		relpersistence = rel->rd_rel->relpersistence;
+
+				heap_close(rel, AccessShareLock);
+				if (relpersistence == RELPERSISTENCE_TEMP)
+					return true;
+			}
+		}
+
+		return query_tree_walker(query,
+								 isQueryUsingTempRelation_walker,
+								 context,
+								 QTW_IGNORE_JOINALIASES);
+	}
+
+	return expression_tree_walker(node,
+								  isQueryUsingTempRelation_walker,
+								  context);
 }

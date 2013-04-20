@@ -133,7 +133,7 @@ static void setSchemaName(char *context_schema, char **stmt_schema_name);
  * will be the transformed CreateStmt, but there may be additional actions
  * to be done before and after the actual DefineRelation() call.
  *
- * SQL92 allows constraints to be scattered all over, so thumb through
+ * SQL allows constraints to be scattered all over, so thumb through
  * the columns and collect all constraints into one place.
  * If there are any implied indices (e.g. UNIQUE or PRIMARY KEY)
  * then expand those into multiple IndexStmt blocks.
@@ -199,14 +199,11 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	{
 		cxt.stmtType = "CREATE FOREIGN TABLE";
 		cxt.isforeign = true;
-		cxt.hasoids = interpretOidsOption(stmt->options,
-										  RELKIND_FOREIGN_TABLE);
 	}
 	else
 	{
 		cxt.stmtType = "CREATE TABLE";
 		cxt.isforeign = false;
-		cxt.hasoids = interpretOidsOption(stmt->options, RELKIND_RELATION);
 	}
 	cxt.relation = stmt->relation;
 	cxt.rel = NULL;
@@ -220,6 +217,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	cxt.blist = NIL;
 	cxt.alist = NIL;
 	cxt.pkey = NULL;
+	cxt.hasoids = interpretOidsOption(stmt->options, true);
 
 	Assert(!stmt->ofTypename || !stmt->inhRelations);	/* grammar enforces */
 
@@ -1407,7 +1405,7 @@ transformIndexConstraints(CreateStmtContext *cxt)
 	/*
 	 * Scan the index list and remove any redundant index specifications. This
 	 * can happen if, for instance, the user writes UNIQUE PRIMARY KEY. A
-	 * strict reading of SQL92 would suggest raising an error instead, but
+	 * strict reading of SQL would suggest raising an error instead, but
 	 * that strikes me as too anal-retentive. - tgl 2001-02-14
 	 *
 	 * XXX in ALTER TABLE case, it'd be nice to look for duplicate
@@ -2693,7 +2691,7 @@ transformColumnType(CreateStmtContext *cxt, ColumnDef *column)
  * that the logic we use for determining forward references is
  * presently quite incomplete.
  *
- * SQL92 also allows constraints to make forward references, so thumb through
+ * SQL also allows constraints to make forward references, so thumb through
  * the table columns and move forward references to a posterior alter-table
  * command.
  *
