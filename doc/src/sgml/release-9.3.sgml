@@ -67,7 +67,7 @@
       <listitem>
        <para>
         Prevent non-key-field row updates from locking foreign key rows
-        (AlvaroAacute;lvaro Herrera, Marti Raudsepp, Alexander Shulgin,
+        (&Aacute;lvaro Herrera, Marti Raudsepp, Alexander Shulgin,
         Noah Misch and Andres Freund)
        </para>
 
@@ -134,8 +134,7 @@
 
       <listitem>
        <para>
-        Collect and use histograms of lower and upper bounds for range types
-        (Alexander Korotkov)
+        Collect and use histograms for range types (Alexander Korotkov)
        </para>
       </listitem>
 
@@ -176,13 +175,26 @@
 
       <listitem>
        <para>
-        Use a binary heap for Merge-Append operations (Abhijit Menon-Sen)
+        Improve grouping of sessions waiting for commit_delay (Peter
+        Geoghegan)
+       </para>
+
+       <para>
+        This improves the usefulness and behavior of commit_delay.
+        BACKWARD COMPATIBILITY
        </para>
       </listitem>
 
       <listitem>
        <para>
-        Improve memory usage for in-memory sorts (Jeff Janes)
+        Implement a generic binary heap and use it for Merge-Append
+        operations (Abhijit Menon-Sen)
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        "Allow in-memory sorts to use their full memory allocation (Jeff Janes)
        </para>
 
        <para>
@@ -367,7 +379,7 @@
       <listitem>
        <para>
         Add configuration variable lock_timeout to limit lock wait duration
-        (Zoltán Böszörményi)
+        (Zolt&aacute;n B&ouml;sz&ouml;rm&eacute;nyi)
        </para>
       </listitem>
 
@@ -391,17 +403,6 @@
        <para>
         This is the maximum value initdb attempts to set in
         postgresql.conf;  the previous value was 32MB.
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        Improve grouping of sessions waiting for commit_delay (Peter
-        Geoghegan)
-       </para>
-
-       <para>
-        This improves the usefulness of commit_delay.
        </para>
       </listitem>
 
@@ -462,7 +463,8 @@
 
       <listitem>
        <para>
-        Improve performance of streaming replication log shipping (Andres Freund)
+        Improve performance of streaming replication log shipping and
+        standby promotion (Andres Freund, Simon Riggs)
        </para>
       </listitem>
 
@@ -488,7 +490,7 @@
       <listitem>
        <para>
         Have pg_basebackup --write-recovery-conf output a minimal
-        recovery.conf (Zoltan Boszormenyi, Magnus Hagander)
+        recovery.conf (Zolt&aacute;n B&ouml;sz&ouml;rm&eacute;nyi, Magnus Hagander)
        </para>
 
        <para>
@@ -526,24 +528,17 @@
        </para>
       </listitem>
 
-      <listitem>
-       <para>
-        Allow recovery.conf to be relocated using configuration variable
-        recovery_config_directory (Simon Riggs)
-       </para>
-      </listitem>
-
      </itemizedlist>
 
     <sect4>
-     <title>WAL</title>
+     <title>Write-Ahead Log (WAL)</title>
 
      <itemizedlist>
 
       <listitem>
        <para>
         Store WAL in a continuous stream, rather than skipping the last
-        16MB segment every 4GB (Heikki Linnakangas)
+        16MB segment every 4GB (Heikki Linnakangas)  BACKWARD COMPATIBLE BREAK
        </para>
       </listitem>
 
@@ -597,14 +592,7 @@
        </para>
 
        <para>
-        Only CREATE SCHEMA IF NOT EXISTS?  If so, remove it.
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        Correct predicate locking for DROP INDEX CONCURRENTLY (Kevin Grittner)
-        KEEP?
+        Only CREATE SCHEMA ... IF NOT EXISTS?  If so, remove it.
        </para>
       </listitem>
 
@@ -635,7 +623,8 @@
 
       <listitem>
        <para>
-        Add IF NOT EXISTS clause to CREATE SCHEMA (Fabrízio de Royes Mello)
+        Add CREATE SCHEMA ... IF NOT EXIST clause (Fabr&iacute;zio de
+        Royes Mello)
        </para>
       </listitem>
 
@@ -649,7 +638,7 @@
       <listitem>
        <para>
         Have DROP OWNED only remove user-matching GRANTs on shared objects,
-        e.g. databases, tablespaces (AlvaroAacute;lvaro Herrera)
+        e.g. databases, tablespaces (&Aacute;lvaro Herrera)
        </para>
 
        <para>
@@ -659,7 +648,7 @@
 
       <listitem>
        <para>
-        Have REASSIGN OWNED also change ownership of shared objects (AlvaroAacute;lvaro
+        Have REASSIGN OWNED also change ownership of shared objects (&Aacute;lvaro
         Herrera)
        </para>
       </listitem>
@@ -683,13 +672,12 @@
 
       <listitem>
        <para>
-        Allow CREATE TABLE to succeed for a non-existent schema
+        Allow CREATE TABLE IF NOT EXIST to succeed for a non-existent schema
         (Bruce Momjian)
        </para>
 
        <para>
-         Previously, CREATE TABLE IF EXIST threw an error if the schema was
-         nonexistent.
+         Previously, it threw an error if the schema did not exist.
        </para>
       </listitem>
 
@@ -794,7 +782,7 @@
        </para>
 
        <para>
-        Unlink ordinary views, where the base tables are read on every access,
+        Unlike ordinary views, where the base tables are read on every access,
         materialized views create physical tables at creation or refresh time.
         Access to the materialized view reads from these materialized physical
         tables. There is no facility for incrementally refreshing materialized
@@ -967,7 +955,8 @@
        </para>
 
        <para>
-        Previously functions already run in the current session ignored changes
+        Previously functions already run in the current session ignored
+        search_path changes.
         (Bruce Momjian)
        </para>
       </listitem>
@@ -1266,7 +1255,8 @@
 
       <listitem>
        <para>
-        Add pg_dump --jobs to dump in parallel (Joachim Wieland)
+        Add pg_dump --jobs to dump in parallel when using directory
+        output format  (Joachim Wieland)
        </para>
       </listitem>
 
@@ -1351,18 +1341,30 @@
       <listitem>
        <para>
         Add infrastructure to better support plug-in background worker
-        processes  (AlvaroAacute;lvaro Herrera)
+        processes  (&Aacute;lvaro Herrera)
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        Create a centralized timeout API (Zolt&aacute;n B&ouml;sz&ouml;rm&eacute;nyi)
        </para>
       </listitem>
 
       <listitem>
        <para>
         Create libpgcommon and move pg_malloc() and other functions there
-        (AlvaroAacute;lvaro Herrera, Andres Freund)
+        (&Aacute;lvaro Herrera, Andres Freund)
        </para>
 
        <para>
         This allows libpgport to be used solely for porting code.
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        Standardize on naming of client-side memory allocation functions (Tom Lane)
        </para>
       </listitem>
 
@@ -1376,19 +1378,20 @@
 
       <listitem>
        <para>
+        Allow options to be passed to the regression test output comparison
+        utility via PG_REGRESS_DIFF_OPTS (Peter Eisentraut)
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        Add isolation tests for CREATE INDEX CONCURRENTLY (Abhijit Menon-Sen)
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
         Remove typedefs for int2/int4 as they are better represented as int16/int32 (Peter Eisentraut)
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        Create a centralized timeout API (Zoltán Böszörményi)
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        Rewrite pgindent in Perl (Andrew Dunstan)
        </para>
       </listitem>
 
@@ -1406,6 +1409,12 @@
 
       <listitem>
        <para>
+        Rewrite pgindent in Perl (Andrew Dunstan)
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
         Add emacs macro to match Postgres perltidy formatting (Peter
         Eisentraut)
        </para>
@@ -1414,12 +1423,6 @@
       <listitem>
        <para>
         Run tool to check the keyword list when the backend grammar is changed (Tom Lane)
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        Standardize on naming of client-side memory allocation functions (Tom Lane)
        </para>
       </listitem>
 
@@ -1452,13 +1455,6 @@
 
       <listitem>
        <para>
-        Allow options to be passed to the regression test output comparison
-        utility via PG_REGRESS_DIFF_OPTS (Peter Eisentraut)
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
         Invent pre-commit/pre-prepare/pre-subcommit events for transaction
         callbacks (Tom Lane)
        </para>
@@ -1472,7 +1468,13 @@
       <listitem>
        <para>
         Add function pg_identify_object() to dump an object in
-        machine-readable format (AlvaroAacute;lvaro Herrera)
+        machine-readable format (&Aacute;lvaro Herrera)
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        Add post-ALTER-object server hooks (KaiGai Kohei)
        </para>
       </listitem>
 
@@ -1491,12 +1493,6 @@
 
       <listitem>
        <para>
-        Add post-ALTER-object server hooks (KaiGai Kohei)
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
         Remove src/tool/backend, now that the content is on the Postgres
         wiki (Bruce Momjian)
        </para>
@@ -1504,8 +1500,8 @@
 
       <listitem>
        <para>
-        Split out WAL reading as an independent facility (Andres Freund, Heikki
-        Linnakangas)
+        Split out WAL reading as an independent facility (Heikki
+        Linnakangas, Andres Freund)
        </para>
       </listitem>
 
@@ -1533,6 +1529,37 @@
 
       <listitem>
        <para>
+        Add a Postgres foreign data wrapper contrib module (Shigeru
+        Hanada, KaiGai Kohei)
+       </para>
+
+       <para>
+        This foreign data wrapper allows writes;  potentially other
+        foreign data wrappers can now support writes.
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        Add pg_xlogdump contrib program (Andres Freund)
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        Add support for indexing of regular-expression searches in
+        contrib/pg_trgm (Alexander Korotkov)
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        Improve pg_trgm handling of multibyte characters (Tom Lane)
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
         Have oid2name, pgbench, and vacuumlo set fallback_application_name (Amit Kapila)
        </para>
       </listitem>
@@ -1545,53 +1572,17 @@
 
       <listitem>
        <para>
-        Improve pg_test_fsync output (Peter Geoghegan)
+        Improve output of pg_test_fsync (Peter Geoghegan)
        </para>
       </listitem>
 
       <listitem>
        <para>
-        Improve contrib/dblink option validator (Tom Lane)
+        Improve dblink option validator (Tom Lane)
        </para>
 
        <para>
         Details?
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        Add a Postgres foreign data wrapper contrib module (Shigeru Hanada)
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        Add pg_xlogdump contrib program (Andres Freund)
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        Allow write to Postgres foreign tables (KaiGai Kohei)
-       </para>
-
-       <para>
-        Other foreign data wrappers can now also potentially support write
-        operations.
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        Improve pg_trgm handling of multibyte characters (Tom Lane)
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        Add support for indexing of regular-expression searches in
-        contrib/pg_trgm (Alexander Korotkov)
        </para>
       </listitem>
 
@@ -1604,8 +1595,12 @@
 
       <listitem>
        <para>
-        Increase pg_upgrade logging content by showing executed command
-        (AlvaroAacute;lvaro Herrera)
+        Allow pg_upgrade --jobs to do parallelism (Bruce Momjian)
+       </para>
+
+       <para>
+        This allows parallel schema dump/restore of databases, as well as
+        parallel copy/link of data files per tablespace.
        </para>
       </listitem>
 
@@ -1636,18 +1631,14 @@
 
       <listitem>
        <para>
-        Improve pg_upgrade's status display during copy/link (Bruce Momjian)
+        Increase pg_upgrade logging content by showing executed command
+        (&Aacute;lvaro Herrera)
        </para>
       </listitem>
 
       <listitem>
        <para>
-        Allow pg_upgrade --jobs to do parallelism (Bruce Momjian)
-       </para>
-
-       <para>
-        This allows parallel schema dump/restore of databases, as well as
-        parallel copy/link of data files per tablespace.
+        Improve pg_upgrade's status display during copy/link (Bruce Momjian)
        </para>
       </listitem>
 
@@ -1659,6 +1650,7 @@
      <title><link linkend="pgbench"><application>pgbench</></link></title>
 
      <itemizedlist>
+
       <listitem>
        <para>
         Add --foreign-keys option to pgbench (Jeff Janes)
@@ -1672,8 +1664,8 @@
 
       <listitem>
        <para>
-        Reduce and improve the status message output of pgbench's
-        initialization mode (Robert Haas, Peter Eisentraut)
+        Allow pgbench to aggregate performance statistics and produce output
+        every --aggregate-interval specified seconds (Tomas Vondra)
        </para>
       </listitem>
 
@@ -1686,19 +1678,19 @@
 
       <listitem>
        <para>
+        Reduce and improve the status message output of pgbench's
+        initialization mode (Robert Haas, Peter Eisentraut)
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
         Add pgbench -q mode to print one output line every five seconds (Tomas Vondra)
        </para>
 
        <para>
         Output pgbench elapsed and estimated remaining time during
         initialization logging (Tomas Vondra)
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        Allow pgbench to aggregate performance statistics and produce output
-        every --aggregate-interval specified seconds (Tomas Vondra)
        </para>
       </listitem>
 
@@ -1721,14 +1713,7 @@
 
       <listitem>
        <para>
-        Improve WINDOW function documentation (Bruce Momjian, Tom Lane)
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        Add instructions for setting up the documentation tool chain on
-        Mac OS X (Peter Eisentraut)
+        Allow EPUB-format documentation to be created (Peter Eisentraut)
        </para>
       </listitem>
 
@@ -1740,7 +1725,14 @@
 
       <listitem>
        <para>
-        Allow EPUB-format documentation to be created (Peter Eisentraut)
+        Improve WINDOW function documentation (Bruce Momjian, Tom Lane)
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        Add instructions for setting up the documentation tool chain on
+        Mac OS X (Peter Eisentraut)
        </para>
       </listitem>
 
