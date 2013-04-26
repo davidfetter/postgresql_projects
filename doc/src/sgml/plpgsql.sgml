@@ -1694,13 +1694,13 @@ CREATE TABLE foo (fooid INT, foosubid INT, fooname TEXT);
 INSERT INTO foo VALUES (1, 2, 'three');
 INSERT INTO foo VALUES (4, 5, 'six');
 
-CREATE OR REPLACE FUNCTION getAllFoo() RETURNS SETOF foo AS
+CREATE OR REPLACE FUNCTION get_all_foo() RETURNS SETOF foo AS
 $BODY$
 DECLARE
     r foo%rowtype;
 BEGIN
-    FOR r IN SELECT * FROM foo
-    WHERE fooid &gt; 0
+    FOR r IN
+        SELECT * FROM foo WHERE fooid &gt; 0
     LOOP
         -- can do some processing here
         RETURN NEXT r; -- return current row of SELECT
@@ -1708,9 +1708,39 @@ BEGIN
     RETURN;
 END
 $BODY$
-LANGUAGE 'plpgsql' ;
+LANGUAGE plpgsql;
 
-SELECT * FROM getallfoo();
+SELECT * FROM get_all_foo();
+</programlisting>
+     </para>
+
+     <para>
+      Here is an example of a function using <command>RETURN
+      QUERY</command>:
+
+<programlisting>
+CREATE FUNCTION get_available_flightid(date) RETURNS SETOF integer AS
+$BODY$
+BEGIN
+    RETURN QUERY SELECT flightid
+                   FROM flight
+                  WHERE flightdate >= $1
+                    AND flightdate < ($1 + 1);
+
+    -- Since execution is not finished, we can check whether rows were returned
+    -- and raise exception if not.
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'No flight at %.', $1;
+    END IF;
+
+    RETURN;
+ END
+$BODY$
+LANGUAGE plpgsql;
+
+-- Returns available flights or raises exception if there are no
+-- available flights.
+SELECT * FROM get_available_flightid(CURRENT_DATE);
 </programlisting>
      </para>
 
