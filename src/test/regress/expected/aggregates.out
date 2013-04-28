@@ -1189,6 +1189,12 @@ having exists (select 1 from onek b where sum(distinct a.four) = b.four);
    8 |    
 (5 rows)
 
+select max(foo COLLATE "C") filter (where (bar collate "POSIX") > '0') from (values ('a', 'b')) AS v(foo,bar);
+ max 
+-----
+ a
+(1 row)
+
 -- outer-level aggregates
 select
   (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)) filter (where o.unique1 < 10))

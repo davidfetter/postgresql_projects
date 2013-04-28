@@ -454,6 +454,8 @@ select ten, sum(distinct four) filter (where four > 10) from onek a
 group by ten
 having exists (select 1 from onek b where sum(distinct a.four) = b.four);
 
+select max(foo COLLATE "C") filter (where (bar collate "POSIX") > '0') from (values ('a', 'b')) AS v(foo,bar);
+
 -- outer-level aggregates
 select
   (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)) filter (where o.unique1 < 10))
