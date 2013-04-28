@@ -447,6 +447,9 @@ drop table bytea_test_table;
 
 select min(unique1) filter (where unique1 > 100) from tenk1;
 
+select ten, sum(distinct four) filter (where four::text ~ '123') from onek a
+group by ten;
+
 select ten, sum(distinct four) filter (where four > 10) from onek a
 group by ten
 having exists (select 1 from onek b where sum(distinct a.four) = b.four);
