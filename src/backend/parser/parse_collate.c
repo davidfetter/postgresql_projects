@@ -575,6 +575,10 @@ assign_collations_walker(Node *node, assign_collations_context *context)
 							 * the case above for T_TargetEntry will apply
 							 * appropriate checks to agg ORDER BY items.
 							 *
+							 * Likewise, we assign collations for the (bool)
+							 * expression in agg_filter, independently of
+							 * any other args.
+							 *
 							 * We need not recurse into the aggorder or
 							 * aggdistinct lists, because those contain only
 							 * SortGroupClause nodes which we need not
@@ -595,6 +599,22 @@ assign_collations_walker(Node *node, assign_collations_context *context)
 									(void) assign_collations_walker((Node *) tle,
 																&loccontext);
 							}
+
+							assign_expr_collations(context->pstate, aggref->agg_filter);
+						}
+						break;
+					case T_WindowFunc:
+						{
+							/*
+							 * WindowFunc requires special processing only for
+							 * its agg_filter clause, as for aggregates.
+							 */
+							WindowFunc *wfunc = (WindowFunc *) node;
+
+							(void) assign_collations_walker((Node *) wfunc->args,
+															&loccontext);
+
+							assign_expr_collations(context->pstate, wfunc->agg_filter);
 						}
 						break;
 					case T_CaseExpr:
