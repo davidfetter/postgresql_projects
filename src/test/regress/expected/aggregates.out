@@ -1161,6 +1161,22 @@ select min(unique1) filter (where unique1 > 100) from tenk1;
  101
 (1 row)
 
+select ten, sum(distinct four) filter (where four::text ~ '123') from onek a
+group by ten;
+ ten | sum 
+-----+-----
+   0 |    
+   1 |    
+   2 |    
+   3 |    
+   4 |    
+   5 |    
+   6 |    
+   7 |    
+   8 |    
+   9 |    
+(10 rows)
+
 select ten, sum(distinct four) filter (where four > 10) from onek a
 group by ten
 having exists (select 1 from onek b where sum(distinct a.four) = b.four);
