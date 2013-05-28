@@ -78,9 +78,9 @@
  * that the potential for improvement was great enough to merit the cost of
  * supporting them.
  */
-#define AUTOVACUUM_TRUNCATE_LOCK_CHECK_INTERVAL		20	/* ms */
-#define AUTOVACUUM_TRUNCATE_LOCK_WAIT_INTERVAL		50	/* ms */
-#define AUTOVACUUM_TRUNCATE_LOCK_TIMEOUT			5000		/* ms */
+#define VACUUM_TRUNCATE_LOCK_CHECK_INTERVAL		20	/* ms */
+#define VACUUM_TRUNCATE_LOCK_WAIT_INTERVAL		50	/* ms */
+#define VACUUM_TRUNCATE_LOCK_TIMEOUT			5000		/* ms */
 
 /*
  * Guesstimation of number of dead tuples per page.  This is used to
@@ -285,17 +285,10 @@ lazy_vacuum_rel(Relation onerel, VacuumStmt *vacstmt,
 						new_frozen_xid,
 						new_min_multi);
 
-	/*
-	 * Report results to the stats collector, too. An early terminated
-	 * lazy_truncate_heap attempt suppresses the message and also cancels the
-	 * execution of ANALYZE, if that was ordered.
-	 */
-	if (!vacrelstats->lock_waiter_detected)
-		pgstat_report_vacuum(RelationGetRelid(onerel),
-							 onerel->rd_rel->relisshared,
-							 new_rel_tuples);
-	else
-		vacstmt->options &= ~VACOPT_ANALYZE;
+	/* report results to the stats collector, too */
+	pgstat_report_vacuum(RelationGetRelid(onerel),
+						  onerel->rd_rel->relisshared,
+						  new_rel_tuples);
 
 	/* and log the action if appropriate */
 	if (IsAutoVacuumWorkerProcess() && Log_autovacuum_min_duration >= 0)
@@ -901,26 +894,25 @@ lazy_scan_heap(Relation onerel, LVRelStats *vacrelstats,
 		freespace = PageGetHeapFreeSpace(page);
 
 		/* mark page all-visible, if appropriate */
-		if (all_visible)
+		if (all_visible && !all_visible_according_to_vm)
 		{
-			if (!PageIsAllVisible(page))
-			{
-				PageSetAllVisible(page);
-				MarkBufferDirty(buf);
-				visibilitymap_set(onerel, blkno, buf, InvalidXLogRecPtr,
-								  vmbuffer, visibility_cutoff_xid);
-			}
-			else if (!all_visible_according_to_vm)
-			{
-				/*
-				 * It should never be the case that the visibility map page is
-				 * set while the page-level bit is clear, but the reverse is
-				 * allowed.  Set the visibility map bit as well so that we get
-				 * back in sync.
-				 */
-				visibilitymap_set(onerel, blkno, buf, InvalidXLogRecPtr,
-								  vmbuffer, visibility_cutoff_xid);
-			}
+			/*
+			 * It should never be the case that the visibility map page is set
+			 * while the page-level bit is clear, but the reverse is allowed
+			 * (if checksums are not enabled).  Regardless, set the both bits
+			 * so that we get back in sync.
+			 *
+			 * NB: If the heap page is all-visible but the VM bit is not set,
+			 * we don't need to dirty the heap page.  However, if checksums are
+			 * enabled, we do need to make sure that the heap page is dirtied
+			 * before passing it to visibilitymap_set(), because it may be
+			 * logged.  Given that this situation should only happen in rare
+			 * cases after a crash, it is not worth optimizing.
+			 */
+			PageSetAllVisible(page);
+			MarkBufferDirty(buf);
+			visibilitymap_set(onerel, blkno, buf, InvalidXLogRecPtr,
+							  vmbuffer, visibility_cutoff_xid);
 		}
 
 		/*
@@ -1146,6 +1138,14 @@ lazy_vacuum_page(Relation onerel, BlockNumber blkno, Buffer buffer,
 	PageRepairFragmentation(page);
 
 	/*
+	 * Mark buffer dirty before we write WAL.
+	 *
+	 * If checksums are enabled, visibilitymap_set() may log the heap page, so
+	 * we must mark heap buffer dirty before calling visibilitymap_set().
+	 */
+	MarkBufferDirty(buffer);
+
+	/*
 	 * Now that we have removed the dead tuples from the page, once again check
 	 * if the page has become all-visible.
 	 */
@@ -1157,8 +1157,6 @@ lazy_vacuum_page(Relation onerel, BlockNumber blkno, Buffer buffer,
 		visibilitymap_set(onerel, blkno, buffer, InvalidXLogRecPtr, *vmbuffer,
 				visibility_cutoff_xid);
 	}
-
-	MarkBufferDirty(buffer);
 
 	/* XLOG stuff */
 	if (RelationNeedsWAL(onerel))
@@ -1347,28 +1345,21 @@ lazy_truncate_heap(Relation onerel, LVRelStats *vacrelstats)
 			 */
 			CHECK_FOR_INTERRUPTS();
 
-			if (++lock_retry > (AUTOVACUUM_TRUNCATE_LOCK_TIMEOUT /
-								AUTOVACUUM_TRUNCATE_LOCK_WAIT_INTERVAL))
+			if (++lock_retry > (VACUUM_TRUNCATE_LOCK_TIMEOUT /
+								VACUUM_TRUNCATE_LOCK_WAIT_INTERVAL))
 			{
 				/*
 				 * We failed to establish the lock in the specified number of
-				 * retries. This means we give up truncating. Suppress the
-				 * ANALYZE step. Doing an ANALYZE at this point will reset the
-				 * dead_tuple_count in the stats collector, so we will not get
-				 * called by the autovacuum launcher again to do the truncate.
+				 * retries. This means we give up truncating.
 				 */
 				vacrelstats->lock_waiter_detected = true;
-				ereport(LOG,
-						(errmsg("automatic vacuum of table \"%s.%s.%s\": "
-								"could not (re)acquire exclusive "
-								"lock for truncate scan",
-								get_database_name(MyDatabaseId),
-							get_namespace_name(RelationGetNamespace(onerel)),
+				ereport(elevel,
+						(errmsg("\"%s\": stopping truncate due to conflicting lock request",
 								RelationGetRelationName(onerel))));
 				return;
 			}
 
-			pg_usleep(AUTOVACUUM_TRUNCATE_LOCK_WAIT_INTERVAL);
+			pg_usleep(VACUUM_TRUNCATE_LOCK_WAIT_INTERVAL);
 		}
 
 		/*
@@ -1448,8 +1439,6 @@ count_nondeletable_pages(Relation onerel, LVRelStats *vacrelstats)
 {
 	BlockNumber blkno;
 	instr_time	starttime;
-	instr_time	currenttime;
-	instr_time	elapsed;
 
 	/* Initialize the starttime if we check for conflicting lock requests */
 	INSTR_TIME_SET_CURRENT(starttime);
@@ -1467,24 +1456,26 @@ count_nondeletable_pages(Relation onerel, LVRelStats *vacrelstats)
 		/*
 		 * Check if another process requests a lock on our relation. We are
 		 * holding an AccessExclusiveLock here, so they will be waiting. We
-		 * only do this in autovacuum_truncate_lock_check millisecond
-		 * intervals, and we only check if that interval has elapsed once
-		 * every 32 blocks to keep the number of system calls and actual
-		 * shared lock table lookups to a minimum.
+		 * only do this once per VACUUM_TRUNCATE_LOCK_CHECK_INTERVAL, and we
+		 * only check if that interval has elapsed once every 32 blocks to
+		 * keep the number of system calls and actual shared lock table
+		 * lookups to a minimum.
 		 */
 		if ((blkno % 32) == 0)
 		{
+			instr_time	currenttime;
+			instr_time	elapsed;
+
 			INSTR_TIME_SET_CURRENT(currenttime);
 			elapsed = currenttime;
 			INSTR_TIME_SUBTRACT(elapsed, starttime);
 			if ((INSTR_TIME_GET_MICROSEC(elapsed) / 1000)
-				>= AUTOVACUUM_TRUNCATE_LOCK_CHECK_INTERVAL)
+				>= VACUUM_TRUNCATE_LOCK_CHECK_INTERVAL)
 			{
 				if (LockHasWaitersRelation(onerel, AccessExclusiveLock))
 				{
 					ereport(elevel,
-							(errmsg("\"%s\": suspending truncate "
-									"due to conflicting lock request",
+							(errmsg("\"%s\": suspending truncate due to conflicting lock request",
 									RelationGetRelationName(onerel))));
 
 					vacrelstats->lock_waiter_detected = true;

@@ -299,8 +299,7 @@ PostgreSQL documentation
         directory output format because this is the only output format where multiple processes
         can write their data at the same time.
        </para>
-       <para>
-        <application>pg_dump</> will open <replaceable class="parameter">njobs</replaceable>
+       <para><application>pg_dump</> will open <replaceable class="parameter">njobs</replaceable>
         + 1 connections to the database, so make sure your <xref linkend="guc-max-connections">
         setting is high enough to accommodate all connections.
        </para>
@@ -324,10 +323,10 @@ PostgreSQL documentation
        <para>
         For a consistent backup, the database server needs to support synchronized snapshots,
         a feature that was introduced in <productname>PostgreSQL</productname> 9.2. With this
-        feature, database clients can ensure they see the same dataset even though they use
+        feature, database clients can ensure they see the same data set even though they use
         different connections. <command>pg_dump -j</command> uses multiple database 
         connections; it connects to the database once with the master process and
-        once again for each worker job. Without the sychronized snapshot feature, the
+        once again for each worker job. Without the synchronized snapshot feature, the
         different worker jobs wouldn't be guaranteed to see the same data in each connection,
         which could lead to an inconsistent backup.
        </para>

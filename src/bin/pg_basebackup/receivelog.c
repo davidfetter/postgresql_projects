@@ -32,10 +32,13 @@
 static int	walfile = -1;
 static char	current_walfile_name[MAXPGPATH] = "";
 
-static bool HandleCopyStream(PGconn *conn, XLogRecPtr startpos, uint32 timeline,
-				 char *basedir, stream_stop_callback stream_stop,
-				 int standby_message_timeout, char *partial_suffix,
-				 XLogRecPtr *stoppos);
+static PGresult *HandleCopyStream(PGconn *conn, XLogRecPtr startpos,
+				 uint32 timeline, char *basedir,
+				 stream_stop_callback stream_stop, int standby_message_timeout,
+				 char *partial_suffix, XLogRecPtr *stoppos);
+
+static bool ReadEndOfStreamingResult(PGresult *res, XLogRecPtr *startpos,
+						 uint32 *timeline);
 
 /*
  * Open a new WAL file in the specified directory.
@@ -615,9 +618,10 @@ ReceiveXlogStream(PGconn *conn, XLogRecPtr startpos, uint32 timeline,
 		PQclear(res);
 
 		/* Stream the WAL */
-		if (!HandleCopyStream(conn, startpos, timeline, basedir, stream_stop,
-							  standby_message_timeout, partial_suffix,
-							  &stoppos))
+		res = HandleCopyStream(conn, startpos, timeline, basedir, stream_stop,
+							   standby_message_timeout, partial_suffix,
+							   &stoppos);
+		if (res == NULL)
 			goto error;
 
 		/*
@@ -626,27 +630,44 @@ ReceiveXlogStream(PGconn *conn, XLogRecPtr startpos, uint32 timeline,
 		 * There are two possible reasons for that: a controlled shutdown,
 		 * or we reached the end of the current timeline. In case of
 		 * end-of-timeline, the server sends a result set after Copy has
-		 * finished, containing the next timeline's ID. Read that, and
-		 * restart streaming from the next timeline.
+		 * finished, containing information about the next timeline. Read
+		 * that, and restart streaming from the next timeline. In case of
+		 * controlled shutdown, stop here.
 		 */
-
-		res = PQgetResult(conn);
 		if (PQresultStatus(res) == PGRES_TUPLES_OK)
 		{
 			/*
-			 * End-of-timeline. Read the next timeline's ID.
+			 * End-of-timeline. Read the next timeline's ID and starting
+			 * position. Usually, the starting position will match the end of
+			 * the previous timeline, but there are corner cases like if the
+			 * server had sent us half of a WAL record, when it was promoted.
+			 * The new timeline will begin at the end of the last complete
+			 * record in that case, overlapping the partial WAL record on the
+			 * the old timeline.
 			 */
 			uint32		newtimeline;
+			bool		parsed;
 
-			newtimeline = atoi(PQgetvalue(res, 0, 0));
+			parsed = ReadEndOfStreamingResult(res, &startpos, &newtimeline);
 			PQclear(res);
+			if (!parsed)
+				goto error;
 
+			/* Sanity check the values the server gave us */
 			if (newtimeline <= timeline)
 			{
-				/* shouldn't happen */
 				fprintf(stderr,
-						"server reported unexpected next timeline %u, following timeline %u\n",
-						newtimeline, timeline);
+						_("%s: server reported unexpected next timeline %u, following timeline %u\n"),
+						progname, newtimeline, timeline);
+				goto error;
+			}
+			if (startpos > stoppos)
+			{
+				fprintf(stderr,
+						_("%s: server stopped streaming timeline %u at %X/%X, but reported next timeline %u to begin at %X/%X\n"),
+						progname,
+						timeline, (uint32) (stoppos >> 32), (uint32) stoppos,
+						newtimeline, (uint32) (startpos >> 32), (uint32) startpos);
 				goto error;
 			}
 
@@ -666,7 +687,7 @@ ReceiveXlogStream(PGconn *conn, XLogRecPtr startpos, uint32 timeline,
 			 * Always start streaming at the beginning of a segment.
 			 */
 			timeline = newtimeline;
-			startpos = stoppos - (stoppos % XLOG_SEG_SIZE);
+			startpos = startpos - (startpos % XLOG_SEG_SIZE);
 			continue;
 		}
 		else if (PQresultStatus(res) == PGRES_COMMAND_OK)
@@ -705,13 +726,58 @@ error:
 }
 
 /*
+ * Helper function to parse the result set returned by server after streaming
+ * has finished. On failure, prints an error to stderr and returns false.
+ */
+static bool
+ReadEndOfStreamingResult(PGresult *res, XLogRecPtr *startpos, uint32 *timeline)
+{
+	uint32		startpos_xlogid,
+				startpos_xrecoff;
+
+	/*----------
+	 * The result set consists of one row and two columns, e.g:
+	 *
+	 *  next_tli | next_tli_startpos
+	 * ----------+-------------------
+	 *         4 | 0/9949AE0
+	 *
+	 * next_tli is the timeline ID of the next timeline after the one that
+	 * just finished streaming. next_tli_startpos is the XLOG position where
+	 * the server switched to it.
+	 *----------
+	 */
+	if (PQnfields(res) < 2 || PQntuples(res) != 1)
+	{
+		fprintf(stderr,
+				_("%s: unexpected result set after end-of-timeline: got %d rows and %d fields, expected %d rows and %d fields\n"),
+				progname, PQntuples(res), PQnfields(res), 1, 2);
+		return false;
+	}
+
+	*timeline = atoi(PQgetvalue(res, 0, 0));
+	if (sscanf(PQgetvalue(res, 0, 1), "%X/%X", &startpos_xlogid,
+			   &startpos_xrecoff) != 2)
+	{
+		fprintf(stderr,
+				_("%s: could not parse next timeline's starting point \"%s\"\n"),
+				progname, PQgetvalue(res, 0, 1));
+		return false;
+	}
+	*startpos = ((uint64) startpos_xlogid << 32) | startpos_xrecoff;
+
+	return true;
+}
+
+/*
  * The main loop of ReceiveXLogStream. Handles the COPY stream after
  * initiating streaming with the START_STREAMING command.
  *
- * If the COPY ends normally, returns true and sets *stoppos to the last
- * byte written. On error, returns false.
+ * If the COPY ends (not necessarily successfully) due a message from the
+ * server, returns a PGresult and sets sets *stoppos to the last byte written.
+ * On any other sort of error, returns NULL.
  */
-static bool
+static PGresult *
 HandleCopyStream(PGconn *conn, XLogRecPtr startpos, uint32 timeline,
 				 char *basedir, stream_stop_callback stream_stop,
 				 int standby_message_timeout, char *partial_suffix,
@@ -832,9 +898,12 @@ HandleCopyStream(PGconn *conn, XLogRecPtr startpos, uint32 timeline,
 		}
 		if (r == -1)
 		{
+			PGresult   *res = PQgetResult(conn);
+
 			/*
-			 * The server closed its end of the copy stream. Close ours
-			 * if we haven't done so already, and exit.
+			 * The server closed its end of the copy stream.  If we haven't
+			 * closed ours already, we need to do so now, unless the server
+			 * threw an error, in which case we don't.
 			 */
 			if (still_sending)
 			{
@@ -843,18 +912,23 @@ HandleCopyStream(PGconn *conn, XLogRecPtr startpos, uint32 timeline,
 					/* Error message written in close_walfile() */
 					goto error;
 				}
-				if (PQputCopyEnd(conn, NULL) <= 0 || PQflush(conn))
+				if (PQresultStatus(res) == PGRES_COPY_IN)
 				{
-					fprintf(stderr, _("%s: could not send copy-end packet: %s"),
-							progname, PQerrorMessage(conn));
-					goto error;
+					if (PQputCopyEnd(conn, NULL) <= 0 || PQflush(conn))
+					{
+						fprintf(stderr,
+								_("%s: could not send copy-end packet: %s"),
+								progname, PQerrorMessage(conn));
+						goto error;
+					}
+					res = PQgetResult(conn);
 				}
 				still_sending = false;
 			}
 			if (copybuf != NULL)
 				PQfreemem(copybuf);
 			*stoppos = blockpos;
-			return true;
+			return res;
 		}
 		if (r == -2)
 		{
@@ -1030,5 +1104,5 @@ HandleCopyStream(PGconn *conn, XLogRecPtr startpos, uint32 timeline,
 error:
 	if (copybuf != NULL)
 		PQfreemem(copybuf);
-	return false;
+	return NULL;
 }

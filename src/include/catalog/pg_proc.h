@@ -1980,8 +1980,6 @@ DATA(insert OID = 3842 (  pg_view_is_insertable PGNSP PGUID 12 10 0 0 0 f f f f 
 DESCR("is a view insertable-into");
 DATA(insert OID = 3843 (  pg_view_is_updatable	PGNSP PGUID 12 10 0 0 0 f f f f t f s 1 0 16 "26" _null_ _null_ _null_ _null_ pg_view_is_updatable _null_ _null_ _null_ ));
 DESCR("is a view updatable");
-DATA(insert OID = 3846 (  pg_relation_is_scannable	PGNSP PGUID 12 10 0 0 0 f f f f t f s 1 0 16 "26" _null_ _null_ _null_ _null_ pg_relation_is_scannable _null_ _null_ _null_ ));
-DESCR("is a relation scannable");
 
 /* Deferrable unique constraint trigger */
 DATA(insert OID = 1250 (  unique_key_recheck	PGNSP PGUID 12 1 0 0 0 f f f f t f v 0 0 2279 "" _null_ _null_ _null_ _null_ unique_key_recheck _null_ _null_ _null_ ));
@@ -4702,15 +4700,15 @@ DATA(insert OID = 4026 (  spg_kd_inner_consistent	PGNSP PGUID 12 1 0 0 0 f f f f
 DESCR("SP-GiST support for k-d tree over point");
 
 DATA(insert OID = 4027 (  spg_text_config	PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2278 "2281 2281" _null_ _null_ _null_ _null_  spg_text_config _null_ _null_ _null_ ));
-DESCR("SP-GiST support for suffix tree over text");
+DESCR("SP-GiST support for radix tree over text");
 DATA(insert OID = 4028 (  spg_text_choose	PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2278 "2281 2281" _null_ _null_ _null_ _null_  spg_text_choose _null_ _null_ _null_ ));
-DESCR("SP-GiST support for suffix tree over text");
+DESCR("SP-GiST support for radix tree over text");
 DATA(insert OID = 4029 (  spg_text_picksplit	PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2278 "2281 2281" _null_ _null_ _null_ _null_  spg_text_picksplit _null_ _null_ _null_ ));
-DESCR("SP-GiST support for suffix tree over text");
+DESCR("SP-GiST support for radix tree over text");
 DATA(insert OID = 4030 (  spg_text_inner_consistent PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2278 "2281 2281" _null_ _null_ _null_ _null_  spg_text_inner_consistent _null_ _null_ _null_ ));
-DESCR("SP-GiST support for suffix tree over text");
+DESCR("SP-GiST support for radix tree over text");
 DATA(insert OID = 4031 (  spg_text_leaf_consistent	PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "2281 2281" _null_ _null_ _null_ _null_  spg_text_leaf_consistent _null_ _null_ _null_ ));
-DESCR("SP-GiST support for suffix tree over text");
+DESCR("SP-GiST support for radix tree over text");
 
 DATA(insert OID = 3469 (  spg_range_quad_config	PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2278 "2281 2281" _null_ _null_ _null_ _null_  spg_range_quad_config _null_ _null_ _null_ ));
 DESCR("SP-GiST support for quad tree over range");

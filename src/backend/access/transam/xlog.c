@@ -60,7 +60,7 @@
 #include "utils/timestamp.h"
 #include "pg_trace.h"
 
-extern bool bootstrap_data_checksums;
+extern uint32 bootstrap_data_checksum_version;
 
 /* File path names (all relative to $PGDATA) */
 #define RECOVERY_COMMAND_FILE	"recovery.conf"
@@ -3797,7 +3797,7 @@ bool
 DataChecksumsEnabled(void)
 {
 	Assert(ControlFile != NULL);
-	return ControlFile->data_checksums;
+	return (ControlFile->data_checksum_version > 0);
 }
 
 /*
@@ -4126,7 +4126,7 @@ BootStrapXLOG(void)
 	ControlFile->max_prepared_xacts = max_prepared_xacts;
 	ControlFile->max_locks_per_xact = max_locks_per_xact;
 	ControlFile->wal_level = wal_level;
-	ControlFile->data_checksums = bootstrap_data_checksums;
+	ControlFile->data_checksum_version = bootstrap_data_checksum_version;
 
 	/* some additional ControlFile fields are set in WriteControlFile() */
 
@@ -4932,10 +4932,14 @@ StartupXLOG(void)
 	RelationCacheInitFileRemove();
 
 	/*
-	 * Initialize on the assumption we want to recover to the same timeline
+	 * Initialize on the assumption we want to recover to the latest timeline
 	 * that's active according to pg_control.
 	 */
-	recoveryTargetTLI = ControlFile->checkPointCopy.ThisTimeLineID;
+	if (ControlFile->minRecoveryPointTLI >
+		ControlFile->checkPointCopy.ThisTimeLineID)
+		recoveryTargetTLI = ControlFile->minRecoveryPointTLI;
+	else
+		recoveryTargetTLI = ControlFile->checkPointCopy.ThisTimeLineID;
 
 	/*
 	 * Check for recovery control file, and if so set up state for offline
@@ -4971,22 +4975,6 @@ StartupXLOG(void)
 		else
 			ereport(LOG,
 					(errmsg("starting archive recovery")));
-	}
-	else if (ControlFile->minRecoveryPointTLI > 0)
-	{
-		/*
-		 * If the minRecoveryPointTLI is set when not in Archive Recovery
-		 * it means that we have crashed after ending recovery and
-		 * yet before we wrote a new checkpoint on the new timeline.
-		 * That means we are doing a crash recovery that needs to cross
-		 * timelines to get to our newly assigned timeline again.
-		 * The timeline we are headed for is exact and not 'latest'.
-		 * As soon as we hit a checkpoint, the minRecoveryPointTLI is
-		 * reset, so we will not enter crash recovery again.
-		 */
-		Assert(ControlFile->minRecoveryPointTLI != 1);
-		recoveryTargetTLI = ControlFile->minRecoveryPointTLI;
-		recoveryTargetIsLatest = false;
 	}
 
 	/*
@@ -5281,7 +5269,7 @@ StartupXLOG(void)
 			ereport(LOG,
 					(errmsg("database system was not properly shut down; "
 							"automatic recovery in progress")));
-			if (recoveryTargetTLI > 0)
+			if (recoveryTargetTLI > ControlFile->checkPointCopy.ThisTimeLineID)
 				ereport(LOG,
 					(errmsg("crash recovery starts in timeline %u "
 							"and has target timeline %u",
@@ -5982,6 +5970,17 @@ StartupXLOG(void)
 				if (record != NULL)
 				{
 					fast_promoted = true;
+
+					/*
+					 * Insert a special WAL record to mark the end of recovery,
+					 * since we aren't doing a checkpoint. That means that the
+					 * checkpointer process may likely be in the middle of a
+					 * time-smoothed restartpoint and could continue to be for
+					 * minutes after this. That sounds strange, but the effect
+					 * is roughly the same and it would be stranger to try to
+					 * come out of the restartpoint and then checkpoint.
+					 * We request a checkpoint later anyway, just for safety.
+					 */
 					CreateEndOfRecoveryRecord();
 				}
 			}
@@ -6105,7 +6104,7 @@ StartupXLOG(void)
 	 * than is appropriate now that we're not in standby mode anymore.
 	 */
 	if (fast_promoted)
-		RequestCheckpoint(0);
+		RequestCheckpoint(CHECKPOINT_FORCE);
 }
 
 /*
@@ -6866,7 +6865,7 @@ CreateCheckPoint(int flags)
 		XLogRecPtr	curInsert;
 
 		INSERT_RECPTR(curInsert, Insert, Insert->curridx);
-		if (curInsert == ControlFile->checkPoint + 
+		if (curInsert == ControlFile->checkPoint +
 			MAXALIGN(SizeOfXLogRecord + sizeof(CheckPoint)) &&
 			ControlFile->checkPoint == ControlFile->checkPointCopy.redo)
 		{
@@ -7477,7 +7476,16 @@ CreateRestartPoint(int flags)
 		 * after this, the pre-allocated WAL segments on this timeline will
 		 * not be used, and will go wasted until recycled on the next
 		 * restartpoint. We'll live with that.
+		 *
+		 * It's possible or perhaps even likely that we finish recovery while
+		 * a restartpoint is in progress. That means we may get to this point
+		 * some minutes afterwards. Setting ThisTimeLineID at that time would
+		 * actually set it backwards, so we don't want that to persist; if
+		 * we do reset it here, make sure to reset it back afterwards. This
+		 * doesn't look very clean or principled, but its the best of about
+		 * five different ways of handling this edge case.
 		 */
+		if (RecoveryInProgress())
 		(void) GetXLogReplayRecPtr(&ThisTimeLineID);
 
 		RemoveOldXlogFiles(_logSegNo, endptr);
@@ -7487,6 +7495,12 @@ CreateRestartPoint(int flags)
 		 * segments, since that may supply some of the needed files.)
 		 */
 		PreallocXlogFiles(endptr);
+
+		/*
+		 * Reset this always, in case we set ThisTimeLineID backwards above.
+		 * Requires no locking; see InitXLOGAccess()
+		 */
+		ThisTimeLineID = XLogCtl->ThisTimeLineID;
 	}
 
 	/*
@@ -9598,7 +9612,7 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 						}
 						else
 						{
-							ptr = RecPtr;
+							ptr = tliRecPtr;
 							tli = tliOfPointInHistory(tliRecPtr, expectedTLEs);
 
 							if (curFileTLI > 0 && tli < curFileTLI)
@@ -9607,7 +9621,8 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 									 tli, curFileTLI);
 						}
 						curFileTLI = tli;
-						RequestXLogStreaming(curFileTLI, ptr, PrimaryConnInfo);
+						RequestXLogStreaming(tli, ptr, PrimaryConnInfo);
+						receivedUpto = 0;
 					}
 					/*
 					 * Move to XLOG_FROM_STREAM state in either case. We'll get
