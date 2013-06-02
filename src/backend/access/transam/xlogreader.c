@@ -221,9 +221,9 @@ XLogReadRecord(XLogReaderState *state, XLogRecPtr RecPtr, char **errormsg)
 	targetRecOff = RecPtr % XLOG_BLCKSZ;
 
 	/*
-	 * Read the page containing the record into state->readBuf. Request
-	 * enough byte to cover the whole record header, or at least the part of
-	 * it that fits on the same page.
+	 * Read the page containing the record into state->readBuf. Request enough
+	 * byte to cover the whole record header, or at least the part of it that
+	 * fits on the same page.
 	 */
 	readOff = ReadPageInternal(state,
 							   targetPagePtr,
@@ -903,7 +903,7 @@ ValidXLogPageHeader(XLogReaderState *state, XLogRecPtr recptr,
 /*
  * Find the first record with at an lsn >= RecPtr.
  *
- * Useful for checking wether RecPtr is a valid xlog address for reading and to
+ * Useful for checking whether RecPtr is a valid xlog address for reading and to
  * find the first valid address after some address when dumping records for
  * debugging purposes.
  */

@@ -289,7 +289,7 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	if (errkind)
 		ereport(ERROR,
 				(errcode(ERRCODE_GROUPING_ERROR),
-				 /* translator: %s is name of a SQL construct, eg GROUP BY */
+		/* translator: %s is name of a SQL construct, eg GROUP BY */
 				 errmsg("aggregate functions are not allowed in %s",
 						ParseExprKindName(pstate->p_expr_kind)),
 				 parser_errposition(pstate, agg->location)));
@@ -564,7 +564,7 @@ transformWindowFuncCall(ParseState *pstate, WindowFunc *wfunc,
 	if (errkind)
 		ereport(ERROR,
 				(errcode(ERRCODE_WINDOWING_ERROR),
-				 /* translator: %s is name of a SQL construct, eg GROUP BY */
+		/* translator: %s is name of a SQL construct, eg GROUP BY */
 				 errmsg("window functions are not allowed in %s",
 						ParseExprKindName(pstate->p_expr_kind)),
 				 parser_errposition(pstate, wfunc->location)));
