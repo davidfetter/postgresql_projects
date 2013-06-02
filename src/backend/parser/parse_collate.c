@@ -600,7 +600,7 @@ assign_collations_walker(Node *node, assign_collations_context *context)
 																&loccontext);
 							}
 
-							assign_expr_collations(context->pstate, aggref->agg_filter);
+							assign_expr_collations(context->pstate, (Node *) aggref->agg_filter);
 						}
 						break;
 					case T_WindowFunc:
@@ -614,7 +614,7 @@ assign_collations_walker(Node *node, assign_collations_context *context)
 							(void) assign_collations_walker((Node *) wfunc->args,
 															&loccontext);
 
-							assign_expr_collations(context->pstate, wfunc->agg_filter);
+							assign_expr_collations(context->pstate, (Node *) wfunc->agg_filter);
 						}
 						break;
 					case T_CaseExpr:

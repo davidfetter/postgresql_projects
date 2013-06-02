@@ -498,8 +498,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		if (!wfunc->winagg && agg_filter)
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("FILTER is not implemented in non-aggregate window functions",
-					 parser_errposition(pstate, location))));
+					 errmsg("FILTER is not implemented in non-aggregate window functions"),
+					 parser_errposition(pstate, location)));
 
 		/*
 		 * ordered aggs not allowed in windows yet
