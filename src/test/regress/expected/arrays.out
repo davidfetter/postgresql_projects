@@ -1542,6 +1542,15 @@ select unnest(array[1,2,3,null,4,null,null,5,6]::text[]);
  6
 (9 rows)
 
+select abs(unnest(array[1,2,null,-3]));
+ abs 
+-----
+   1
+   2
+    
+   3
+(4 rows)
+
 select array_remove(array[1,2,2,3], 2);
  array_remove 
 --------------
@@ -1568,6 +1577,12 @@ select array_remove(array['A','CC','D','C','RR'], 'RR');
 
 select array_remove('{{1,2,2},{1,4,3}}', 2); -- not allowed
 ERROR:  removing elements from multidimensional arrays is not supported
+select array_remove(array['X','X','X'], 'X') = '{}';
+ ?column? 
+----------
+ t
+(1 row)
+
 select array_replace(array[1,2,5,4],5,3);
  array_replace 
 ---------------

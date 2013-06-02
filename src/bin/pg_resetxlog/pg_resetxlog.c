@@ -192,6 +192,7 @@ main(int argc, char *argv[])
 					fprintf(stderr, _("%s: multitransaction ID (-m) must not be 0\n"), progname);
 					exit(1);
 				}
+
 				/*
 				 * XXX It'd be nice to have more sanity checks here, e.g. so
 				 * that oldest is not wrapped around w.r.t. nextMulti.
@@ -624,8 +625,8 @@ PrintControlValues(bool guessed)
 		   (ControlFile.float4ByVal ? _("by value") : _("by reference")));
 	printf(_("Float8 argument passing:              %s\n"),
 		   (ControlFile.float8ByVal ? _("by value") : _("by reference")));
-	printf(_("Data page checksums:                  %s\n"),
-		   (ControlFile.data_checksums ? _("enabled") : _("disabled")));
+	printf(_("Data page checksum version:           %u\n"),
+		   ControlFile.data_checksum_version);
 }
 
 

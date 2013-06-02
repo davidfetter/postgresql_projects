@@ -173,7 +173,7 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 int
 GetIntoRelEFlags(IntoClause *intoClause)
 {
-	int		flags;
+	int			flags;
 
 	/*
 	 * We need to tell the executor whether it has to produce OIDs or not,
@@ -348,7 +348,7 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	if (is_matview)
 	{
 		/* StoreViewQuery scribbles on tree, so make a copy */
-		Query  *query = (Query *) copyObject(into->viewQuery);
+		Query	   *query = (Query *) copyObject(into->viewQuery);
 
 		StoreViewQuery(intoRelationId, query, false);
 		CommandCounterIncrement();
@@ -358,10 +358,6 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	 * Finally we can open the target table
 	 */
 	intoRelationDesc = heap_open(intoRelationId, AccessExclusiveLock);
-
-	if (is_matview && !into->skipData)
-		/* Make sure the heap looks good even if no rows are written. */
-		SetMatViewToPopulated(intoRelationDesc);
 
 	/*
 	 * Check INSERT permission on the constructed table.
@@ -380,6 +376,13 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 								attnum - FirstLowInvalidHeapAttributeNumber);
 
 	ExecCheckRTPerms(list_make1(rte), true);
+
+	/*
+	 * Tentatively mark the target as populated, if it's a matview and we're
+	 * going to fill it; otherwise, no change needed.
+	 */
+	if (is_matview && !into->skipData)
+		SetMatViewPopulatedState(intoRelationDesc, true);
 
 	/*
 	 * Fill private fields of myState for use by later routines

@@ -1258,7 +1258,7 @@ pg_get_constraintdef(PG_FUNCTION_ARGS)
 	prettyFlags = PRETTYFLAG_INDENT;
 	PG_RETURN_TEXT_P(string_to_text(pg_get_constraintdef_worker(constraintId,
 																false,
-																prettyFlags)));
+															  prettyFlags)));
 }
 
 Datum
@@ -1271,7 +1271,7 @@ pg_get_constraintdef_ext(PG_FUNCTION_ARGS)
 	prettyFlags = pretty ? PRETTYFLAG_PAREN | PRETTYFLAG_INDENT : PRETTYFLAG_INDENT;
 	PG_RETURN_TEXT_P(string_to_text(pg_get_constraintdef_worker(constraintId,
 																false,
-																prettyFlags)));
+															  prettyFlags)));
 }
 
 /* Internal version that returns a palloc'd C string; no pretty-printing */
@@ -2564,14 +2564,19 @@ set_deparse_for_query(deparse_namespace *dpns, Query *query,
 		dpns->rtable_columns = lappend(dpns->rtable_columns,
 									   palloc0(sizeof(deparse_columns)));
 
-	/* Detect whether global uniqueness of USING names is needed */
-	dpns->unique_using = has_unnamed_full_join_using((Node *) query->jointree);
+	/* If it's a utility query, it won't have a jointree */
+	if (query->jointree)
+	{
+		/* Detect whether global uniqueness of USING names is needed */
+		dpns->unique_using =
+			has_unnamed_full_join_using((Node *) query->jointree);
 
-	/*
-	 * Select names for columns merged by USING, via a recursive pass over the
-	 * query jointree.
-	 */
-	set_using_names(dpns, (Node *) query->jointree);
+		/*
+		 * Select names for columns merged by USING, via a recursive pass over
+		 * the query jointree.
+		 */
+		set_using_names(dpns, (Node *) query->jointree);
+	}
 
 	/*
 	 * Now assign remaining column aliases for each RTE.  We do this in a
@@ -4224,19 +4229,19 @@ get_select_query_def(Query *query, deparse_context *context,
 			{
 				case LCS_FORKEYSHARE:
 					appendContextKeyword(context, " FOR KEY SHARE",
-										 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
+									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
 					break;
 				case LCS_FORSHARE:
 					appendContextKeyword(context, " FOR SHARE",
-										 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
+									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
 					break;
 				case LCS_FORNOKEYUPDATE:
 					appendContextKeyword(context, " FOR NO KEY UPDATE",
-										 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
+									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
 					break;
 				case LCS_FORUPDATE:
 					appendContextKeyword(context, " FOR UPDATE",
-										 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
+									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
 					break;
 			}
 
@@ -5335,8 +5340,8 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 	/*
 	 * If it's an unnamed join, look at the expansion of the alias variable.
 	 * If it's a simple reference to one of the input vars, then recursively
-	 * print the name of that var instead.  When it's not a simple reference,
-	 * we have to just print the unqualified join column name.  (This can only
+	 * print the name of that var instead.	When it's not a simple reference,
+	 * we have to just print the unqualified join column name.	(This can only
 	 * happen with columns that were merged by USING or NATURAL clauses in a
 	 * FULL JOIN; we took pains previously to make the unqualified column name
 	 * unique in such cases.)
@@ -8547,7 +8552,7 @@ generate_relation_name(Oid relid, List *namespaces)
  * means a FuncExpr and not some other way of calling the function), then
  * was_variadic must specify whether VARIADIC appeared in the original call,
  * and *use_variadic_p will be set to indicate whether to print VARIADIC in
- * the output.  For non-FuncExpr cases, was_variadic should be FALSE and
+ * the output.	For non-FuncExpr cases, was_variadic should be FALSE and
  * use_variadic_p can be NULL.
  *
  * The result includes all necessary quoting and schema-prefixing.

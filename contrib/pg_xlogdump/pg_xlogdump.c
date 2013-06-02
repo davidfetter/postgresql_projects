@@ -73,7 +73,7 @@ fatal_error(const char *fmt,...)
 static void
 print_rmgr_list(void)
 {
-	int		i;
+	int			i;
 
 	for (i = 0; i < RM_MAX_ID + 1; i++)
 	{
@@ -88,7 +88,8 @@ print_rmgr_list(void)
 static bool
 verify_directory(const char *directory)
 {
-	DIR *dir = opendir(directory);
+	DIR		   *dir = opendir(directory);
+
 	if (dir == NULL)
 		return false;
 	closedir(dir);
@@ -113,7 +114,7 @@ split_path(const char *path, char **dir, char **fname)
 	if (sep != NULL)
 	{
 		*dir = pg_strdup(path);
-		(*dir)[(sep - path) + 1] = '\0';	/* no strndup */
+		(*dir)[(sep - path) + 1] = '\0';		/* no strndup */
 		*fname = pg_strdup(sep + 1);
 	}
 	/* local directory */
@@ -381,11 +382,8 @@ usage(void)
 	printf("%s decodes and displays PostgreSQL transaction logs for debugging.\n\n",
 		   progname);
 	printf("Usage:\n");
-	printf("  %s [OPTION] [STARTSEG [ENDSEG]] \n", progname);
-	printf("\nGeneral options:\n");
-	printf("  -V, --version          output version information, then exit\n");
-	printf("  -?, --help             show this help, then exit\n");
-	printf("\nContent options:\n");
+	printf("  %s [OPTION]... [STARTSEG [ENDSEG]] \n", progname);
+	printf("\nOptions:\n");
 	printf("  -b, --bkp-details      output detailed information about backup blocks\n");
 	printf("  -e, --end=RECPTR       stop reading at log position RECPTR\n");
 	printf("  -n, --limit=N          number of records to display\n");
@@ -396,7 +394,9 @@ usage(void)
 	printf("  -s, --start=RECPTR     start reading at log position RECPTR\n");
 	printf("  -t, --timeline=TLI     timeline from which to read log records\n");
 	printf("                         (default: 1 or the value used in STARTSEG)\n");
+	printf("  -V, --version          output version information, then exit\n");
 	printf("  -x, --xid=XID          only show records with TransactionId XID\n");
+	printf("  -?, --help             show this help, then exit\n");
 }
 
 int
@@ -597,7 +597,7 @@ main(int argc, char **argv)
 		else if (!XLByteInSeg(private.startptr, segno))
 		{
 			fprintf(stderr,
-					"%s: start log position %X/%X is not inside file \"%s\"\n",
+				  "%s: start log position %X/%X is not inside file \"%s\"\n",
 					progname,
 					(uint32) (private.startptr >> 32),
 					(uint32) private.startptr,
@@ -673,9 +673,9 @@ main(int argc, char **argv)
 					(uint32) private.startptr);
 
 	/*
-	 * Display a message that we're skipping data if `from` wasn't a pointer to
-	 * the start of a record and also wasn't a pointer to the beginning of a
-	 * segment (e.g. we were used in file mode).
+	 * Display a message that we're skipping data if `from` wasn't a pointer
+	 * to the start of a record and also wasn't a pointer to the beginning of
+	 * a segment (e.g. we were used in file mode).
 	 */
 	if (first_record != private.startptr && (private.startptr % XLogSegSize) != 0)
 		printf("first record is after %X/%X, at %X/%X, skipping over %u bytes\n",

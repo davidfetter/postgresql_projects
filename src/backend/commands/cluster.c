@@ -30,7 +30,6 @@
 #include "catalog/objectaccess.h"
 #include "catalog/toasting.h"
 #include "commands/cluster.h"
-#include "commands/matview.h"
 #include "commands/tablecmds.h"
 #include "commands/vacuum.h"
 #include "miscadmin.h"
@@ -388,7 +387,7 @@ cluster_rel(Oid tableOid, Oid indexOid, bool recheck, bool verbose,
 	 * database.
 	 */
 	if (OldHeap->rd_rel->relkind == RELKIND_MATVIEW &&
-		!OldHeap->rd_ispopulated)
+		!RelationIsPopulated(OldHeap))
 	{
 		relation_close(OldHeap, AccessExclusiveLock);
 		return;
@@ -571,7 +570,7 @@ rebuild_relation(Relation OldHeap, Oid indexOid,
 	bool		is_system_catalog;
 	bool		swap_toast_by_content;
 	TransactionId frozenXid;
-	MultiXactId	frozenMulti;
+	MultiXactId frozenMulti;
 
 	/* Mark the correct index as clustered */
 	if (OidIsValid(indexOid))
@@ -747,7 +746,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex,
 	bool		is_system_catalog;
 	TransactionId OldestXmin;
 	TransactionId FreezeXid;
-	MultiXactId	MultiXactFrzLimit;
+	MultiXactId MultiXactFrzLimit;
 	RewriteState rwstate;
 	bool		use_sort;
 	Tuplesortstate *tuplesort;
@@ -921,10 +920,6 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex,
 				(errmsg("vacuuming \"%s.%s\"",
 						get_namespace_name(RelationGetNamespace(OldHeap)),
 						RelationGetRelationName(OldHeap))));
-
-	if (OldHeap->rd_rel->relkind == RELKIND_MATVIEW)
-		/* Make sure the heap looks good even if no rows are written. */
-		SetMatViewToPopulated(NewHeap);
 
 	/*
 	 * Scan through the OldHeap, either in OldIndex order or sequentially;

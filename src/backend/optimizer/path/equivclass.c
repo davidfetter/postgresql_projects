@@ -285,11 +285,19 @@ process_equivalence(PlannerInfo *root, RestrictInfo *restrictinfo,
 		}
 
 		/*
-		 * Case 2: need to merge ec1 and ec2.  We add ec2's items to ec1, then
-		 * set ec2's ec_merged link to point to ec1 and remove ec2 from the
-		 * eq_classes list.  We cannot simply delete ec2 because that could
-		 * leave dangling pointers in existing PathKeys.  We leave it behind
-		 * with a link so that the merged EC can be found.
+		 * Case 2: need to merge ec1 and ec2.  This should never happen after
+		 * we've built any canonical pathkeys; if it did, those pathkeys might
+		 * be rendered non-canonical by the merge.
+		 */
+		if (root->canon_pathkeys != NIL)
+			elog(ERROR, "too late to merge equivalence classes");
+
+		/*
+		 * We add ec2's items to ec1, then set ec2's ec_merged link to point
+		 * to ec1 and remove ec2 from the eq_classes list.	We cannot simply
+		 * delete ec2 because that could leave dangling pointers in existing
+		 * PathKeys.  We leave it behind with a link so that the merged EC can
+		 * be found.
 		 */
 		ec1->ec_members = list_concat(ec1->ec_members, ec2->ec_members);
 		ec1->ec_sources = list_concat(ec1->ec_sources, ec2->ec_sources);
@@ -2075,9 +2083,9 @@ generate_implied_equalities_for_column(PlannerInfo *root,
 			continue;
 
 		/*
-		 * Scan members, looking for a match to the target column.  Note
-		 * that child EC members are considered, but only when they belong to
-		 * the target relation.  (Unlike regular members, the same expression
+		 * Scan members, looking for a match to the target column.	Note that
+		 * child EC members are considered, but only when they belong to the
+		 * target relation.  (Unlike regular members, the same expression
 		 * could be a child member of more than one EC.  Therefore, it's
 		 * potentially order-dependent which EC a child relation's target
 		 * column gets matched to.	This is annoying but it only happens in

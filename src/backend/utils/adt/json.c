@@ -46,7 +46,7 @@ typedef enum					/* contexts of JSON parser */
 	JSON_PARSE_OBJECT_NEXT,		/* saw object value, expecting ',' or '}' */
 	JSON_PARSE_OBJECT_COMMA,	/* saw object ',', expecting next label */
 	JSON_PARSE_END				/* saw the end of a document, expect nothing */
-}	JsonParseContext;
+} JsonParseContext;
 
 static inline void json_lex(JsonLexContext *lex);
 static inline void json_lex_string(JsonLexContext *lex);
@@ -721,7 +721,7 @@ json_lex_string(JsonLexContext *lex)
 					unicode_to_utf8(ch, (unsigned char *) utf8str);
 					utf8len = pg_utf_mblen((unsigned char *) utf8str);
 					utf8str[utf8len] = '\0';
-					converted = pg_any_to_server(utf8str, 1, PG_UTF8);
+					converted = pg_any_to_server(utf8str, utf8len, PG_UTF8);
 					appendStringInfoString(lex->strval, converted);
 					if (converted != utf8str)
 						pfree(converted);

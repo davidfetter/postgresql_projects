@@ -721,7 +721,7 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		 */
 		if (childrel->cheapest_total_path->param_info == NULL)
 			subpaths = accumulate_append_subpath(subpaths,
-											 childrel->cheapest_total_path);
+											  childrel->cheapest_total_path);
 		else
 			subpaths_valid = false;
 
@@ -1159,7 +1159,7 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	/*
 	 * It's possible that constraint exclusion proved the subquery empty. If
 	 * so, it's convenient to turn it back into a dummy path so that we will
-	 * recognize appropriate optimizations at this level.
+	 * recognize appropriate optimizations at this query level.
 	 */
 	if (is_dummy_plan(rel->subplan))
 	{

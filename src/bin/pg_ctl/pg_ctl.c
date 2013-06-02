@@ -85,7 +85,6 @@ static char *pg_config = NULL;
 static char *pgdata_opt = NULL;
 static char *post_opts = NULL;
 static const char *progname;
-static bool idempotent = false;
 static char *log_file = NULL;
 static char *exec_path = NULL;
 static char *register_servicename = "PostgreSQL";		/* FIXME: + version ID? */
@@ -286,7 +285,7 @@ readfile(const char *path)
 	int			i;
 	int			n;
 	int			len;
-	struct stat	statbuf;
+	struct stat statbuf;
 
 	/*
 	 * Slurp the file into memory.
@@ -345,8 +344,9 @@ readfile(const char *path)
 	{
 		if (buffer[i] == '\n')
 		{
-			int		slen = &buffer[i] - linebegin + 1;
-			char   *linebuf = pg_malloc(slen + 1);
+			int			slen = &buffer[i] - linebegin + 1;
+			char	   *linebuf = pg_malloc(slen + 1);
+
 			memcpy(linebuf, linebegin, slen);
 			linebuf[slen] = '\0';
 			result[n++] = linebuf;
@@ -774,15 +774,9 @@ do_start(void)
 	{
 		old_pid = get_pgpid();
 		if (old_pid != 0)
-		{
-			if (idempotent)
-				exit(0);
-			else
-			{
-				write_stderr(_("%s: another server might be running\n"), progname);
-				exit(1);
-			}
-		}
+			write_stderr(_("%s: another server might be running; "
+						   "trying to start server anyway\n"),
+						 progname);
 	}
 
 	read_post_opts();
@@ -866,8 +860,6 @@ do_stop(void)
 
 	if (pid == 0)				/* no pid file */
 	{
-		if (idempotent)
-			exit(0);
 		write_stderr(_("%s: PID file \"%s\" does not exist\n"), progname, pid_file);
 		write_stderr(_("Is server running?\n"));
 		exit(1);
@@ -1107,10 +1099,10 @@ do_promote(void)
 	}
 
 	/*
-	 * For 9.3 onwards, use fast promotion as the default option.
-	 * Promotion with a full checkpoint is still possible by writing
-	 * a file called "promote", e.g.
-	 * 	 snprintf(promote_file, MAXPGPATH, "%s/promote", pg_data);
+	 * For 9.3 onwards, use fast promotion as the default option. Promotion
+	 * with a full checkpoint is still possible by writing a file called
+	 * "promote", e.g. snprintf(promote_file, MAXPGPATH, "%s/promote",
+	 * pg_data);
 	 */
 	snprintf(promote_file, MAXPGPATH, "%s/fast_promote", pg_data);
 
@@ -1771,9 +1763,9 @@ do_help(void)
 	printf(_("%s is a utility to initialize, start, stop, or control a PostgreSQL server.\n\n"), progname);
 	printf(_("Usage:\n"));
 	printf(_("  %s init[db]               [-D DATADIR] [-s] [-o \"OPTIONS\"]\n"), progname);
-	printf(_("  %s start   [-w] [-t SECS] [-D DATADIR] [-s] [-I] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
-	printf(_("  %s stop    [-W] [-t SECS] [-D DATADIR] [-s] [-I] [-m SHUTDOWN-MODE]\n"), progname);
-	printf(_("  %s restart [-w] [-t SECS] [-D DATADIR] [-s]      [-m SHUTDOWN-MODE]\n"
+	printf(_("  %s start   [-w] [-t SECS] [-D DATADIR] [-s] [-l FILENAME] [-o \"OPTIONS\"]\n"), progname);
+	printf(_("  %s stop    [-W] [-t SECS] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"), progname);
+	printf(_("  %s restart [-w] [-t SECS] [-D DATADIR] [-s] [-m SHUTDOWN-MODE]\n"
 			 "                 [-o \"OPTIONS\"]\n"), progname);
 	printf(_("  %s reload  [-D DATADIR] [-s]\n"), progname);
 	printf(_("  %s status  [-D DATADIR]\n"), progname);
@@ -1806,8 +1798,6 @@ do_help(void)
 	printf(_("  -o OPTIONS             command line options to pass to postgres\n"
 	 "                         (PostgreSQL server executable) or initdb\n"));
 	printf(_("  -p PATH-TO-POSTGRES    normally not necessary\n"));
-	printf(_("\nOptions for start or stop:\n"));
-	printf(_("  -I, --idempotent       don't error if server already running or stopped\n"));
 	printf(_("\nOptions for stop, restart, or promote:\n"));
 	printf(_("  -m, --mode=MODE        MODE can be \"smart\", \"fast\", or \"immediate\"\n"));
 
@@ -1986,7 +1976,6 @@ main(int argc, char **argv)
 		{"silent", no_argument, NULL, 's'},
 		{"timeout", required_argument, NULL, 't'},
 		{"core-files", no_argument, NULL, 'c'},
-		{"idempotent", no_argument, NULL, 'I'},
 		{NULL, 0, NULL, 0}
 	};
 
@@ -2052,7 +2041,7 @@ main(int argc, char **argv)
 	/* process command-line options */
 	while (optind < argc)
 	{
-		while ((c = getopt_long(argc, argv, "cD:Il:m:N:o:p:P:sS:t:U:wW", long_options, &option_index)) != -1)
+		while ((c = getopt_long(argc, argv, "cD:l:m:N:o:p:P:sS:t:U:wW", long_options, &option_index)) != -1)
 		{
 			switch (c)
 			{
@@ -2078,9 +2067,6 @@ main(int argc, char **argv)
 								 pgdata_D);
 						break;
 					}
-				case 'I':
-					idempotent = true;
-					break;
 				case 'l':
 					log_file = pg_strdup(optarg);
 					break;

@@ -741,7 +741,7 @@ errcode_for_socket_access(void)
 		StringInfoData	buf; \
 		/* Internationalize the error format string */ \
 		if (!in_error_recursion_trouble()) \
-			fmt = dngettext((domain), fmt_singular, fmt_plural, n);	\
+			fmt = dngettext((domain), fmt_singular, fmt_plural, n); \
 		else \
 			fmt = (n == 1 ? fmt_singular : fmt_plural); \
 		/* Expand %m in format string */ \
@@ -1151,7 +1151,7 @@ err_generic_string(int field, const char *str)
 			break;
 	}
 
-	return 0;			/* return value does not matter */
+	return 0;					/* return value does not matter */
 }
 
 /*
@@ -2087,7 +2087,7 @@ log_line_prefix(StringInfo buf, ErrorData *edata)
 				}
 				break;
 			case 'c':
-				appendStringInfo(buf, "%lx.%04x", (long) (MyStartTime), MyProcPid);
+				appendStringInfo(buf, "%lx.%x", (long) (MyStartTime), MyProcPid);
 				break;
 			case 'p':
 				appendStringInfo(buf, "%d", MyProcPid);
@@ -2266,7 +2266,7 @@ write_csvlog(ErrorData *edata)
 	appendStringInfoChar(&buf, ',');
 
 	/* session id */
-	appendStringInfo(&buf, "%lx.%04x", (long) MyStartTime, MyProcPid);
+	appendStringInfo(&buf, "%lx.%x", (long) MyStartTime, MyProcPid);
 	appendStringInfoChar(&buf, ',');
 
 	/* Line number */

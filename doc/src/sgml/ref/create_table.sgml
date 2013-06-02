@@ -336,7 +336,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
      <para>
       Not-null constraints are always copied to the new table.
       <literal>CHECK</literal> constraints will be copied only if
-      <literal>INCLUDING CONSTRAINTS</literal> is specified. 
+      <literal>INCLUDING CONSTRAINTS</literal> is specified.
       Indexes, <literal>PRIMARY KEY</>, and <literal>UNIQUE</> constraints
       on the original table will be created on the new table only if the
       <literal>INCLUDING INDEXES</literal> clause is specified.
@@ -364,7 +364,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
       constraints copied by <literal>LIKE</> are not merged with similarly
       named columns and constraints.
       If the same name is specified explicitly or in another
-      <literal>LIKE</literal> clause, an error is signalled.
+      <literal>LIKE</literal> clause, an error is signaled.
      </para>
      <para>
       The <literal>LIKE</literal> clause can also be used to copy columns from

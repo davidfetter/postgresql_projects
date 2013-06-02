@@ -98,7 +98,7 @@ static void StoreRelCheck(Relation rel, char *ccname, Node *expr,
 			  bool is_validated, bool is_local, int inhcount,
 			  bool is_no_inherit, bool is_internal);
 static void StoreConstraints(Relation rel, List *cooked_constraints,
-							 bool is_internal);
+				 bool is_internal);
 static bool MergeWithExistingConstraint(Relation rel, char *ccname, Node *expr,
 							bool allow_merge, bool is_local,
 							bool is_no_inherit);
@@ -780,6 +780,7 @@ InsertPgClassTuple(Relation pg_class_desc,
 	values[Anum_pg_class_relhasrules - 1] = BoolGetDatum(rd_rel->relhasrules);
 	values[Anum_pg_class_relhastriggers - 1] = BoolGetDatum(rd_rel->relhastriggers);
 	values[Anum_pg_class_relhassubclass - 1] = BoolGetDatum(rd_rel->relhassubclass);
+	values[Anum_pg_class_relispopulated - 1] = BoolGetDatum(rd_rel->relispopulated);
 	values[Anum_pg_class_relfrozenxid - 1] = TransactionIdGetDatum(rd_rel->relfrozenxid);
 	values[Anum_pg_class_relminmxid - 1] = MultiXactIdGetDatum(rd_rel->relminmxid);
 	if (relacl != (Datum) 0)
@@ -869,6 +870,7 @@ AddNewRelationTuple(Relation pg_class_desc,
 		 * that will do.
 		 */
 		new_rel_reltup->relfrozenxid = RecentXmin;
+
 		/*
 		 * Similarly, initialize the minimum Multixact to the first value that
 		 * could possibly be stored in tuples in the table.  Running
@@ -1343,26 +1345,6 @@ heap_create_init_fork(Relation rel)
 	if (XLogIsNeeded())
 		log_smgrcreate(&rel->rd_smgr->smgr_rnode.node, INIT_FORKNUM);
 	smgrimmedsync(rel->rd_smgr, INIT_FORKNUM);
-}
-
-/*
- * Check whether a materialized view is in an initial, unloaded state.
- *
- * The check here must match what is set up in heap_create_init_fork().
- * Currently the init fork is an empty file.  A missing heap is also
- * considered to be unloaded.
- */
-bool
-heap_is_matview_init_state(Relation rel)
-{
-	Assert(rel->rd_rel->relkind == RELKIND_MATVIEW);
-
-	RelationOpenSmgr(rel);
-
-	if (!smgrexists(rel->rd_smgr, MAIN_FORKNUM))
-		return true;
-
-	return (smgrnblocks(rel->rd_smgr, MAIN_FORKNUM) < 1);
 }
 
 /*
@@ -1934,10 +1916,10 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 	/*
 	 * Post creation hook for attribute defaults.
 	 *
-	 * XXX. ALTER TABLE ALTER COLUMN SET/DROP DEFAULT is implemented
-	 * with a couple of deletion/creation of the attribute's default entry,
-	 * so the callee should check existence of an older version of this
-	 * entry if it needs to distinguish.
+	 * XXX. ALTER TABLE ALTER COLUMN SET/DROP DEFAULT is implemented with a
+	 * couple of deletion/creation of the attribute's default entry, so the
+	 * callee should check existence of an older version of this entry if it
+	 * needs to distinguish.
 	 */
 	InvokeObjectPostCreateHookArg(AttrDefaultRelationId,
 								  RelationGetRelid(rel), attnum, is_internal);
@@ -2037,7 +2019,7 @@ StoreRelCheck(Relation rel, char *ccname, Node *expr,
 						  is_local,		/* conislocal */
 						  inhcount,		/* coninhcount */
 						  is_no_inherit,		/* connoinherit */
-						  is_internal);	/* internally constructed? */
+						  is_internal); /* internally constructed? */
 
 	pfree(ccbin);
 	pfree(ccsrc);

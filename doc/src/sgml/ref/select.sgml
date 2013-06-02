@@ -532,8 +532,7 @@ SELECT * FROM unnest(ARRAY['a','b','c','d','e','f']) WITH ORDINALITY;
         <literal>FROM</> item.)
        </para>
 
-       <para>
-        <literal>LATERAL</literal> can also precede a function-call
+       <para><literal>LATERAL</literal> can also precede a function-call
         <literal>FROM</> item, but in this case it is a noise word, because
         the function expression can refer to earlier <literal>FROM</> items
         in any case.
@@ -1658,8 +1657,7 @@ FROM manufacturers m, LATERAL get_product_names(m.id) pname;
 <programlisting>
 SELECT m.name AS mname, pname
 FROM manufacturers m LEFT JOIN LATERAL get_product_names(m.id) pname ON true;
-</programlisting>
-  </para>
+</programlisting></para>
  </refsect1>
 
  <refsect1>

@@ -21,7 +21,7 @@
 
 
 /* Version identifier for this pg_control format */
-#define PG_CONTROL_VERSION	936
+#define PG_CONTROL_VERSION	937
 
 /*
  * Body of CheckPoint XLOG records.  This is declared here because we keep
@@ -43,7 +43,7 @@ typedef struct CheckPoint
 	MultiXactOffset nextMultiOffset;	/* next free MultiXact offset */
 	TransactionId oldestXid;	/* cluster-wide minimum datfrozenxid */
 	Oid			oldestXidDB;	/* database with minimum datfrozenxid */
-	MultiXactId	oldestMulti;	/* cluster-wide minimum datminmxid */
+	MultiXactId oldestMulti;	/* cluster-wide minimum datminmxid */
 	Oid			oldestMultiDB;	/* database with minimum datminmxid */
 	pg_time_t	time;			/* time stamp of checkpoint */
 
@@ -127,7 +127,7 @@ typedef struct ControlFileData
 
 	CheckPoint	checkPointCopy; /* copy of last check point record */
 
-	XLogRecPtr  unloggedLSN;	/* current fake LSN value, for unlogged rels */
+	XLogRecPtr	unloggedLSN;	/* current fake LSN value, for unlogged rels */
 
 	/*
 	 * These two values determine the minimum point we must recover up to
@@ -213,8 +213,8 @@ typedef struct ControlFileData
 	bool		float4ByVal;	/* float4 pass-by-value? */
 	bool		float8ByVal;	/* float8, int8, etc pass-by-value? */
 
-	/* Are data pages protected by checksums? */
-	bool		data_checksums;
+	/* Are data pages protected by checksums? Zero if no checksum version */
+	uint32		data_checksum_version;
 
 	/* CRC of all above ... MUST BE LAST! */
 	pg_crc32	crc;

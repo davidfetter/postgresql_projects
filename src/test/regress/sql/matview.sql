@@ -15,10 +15,10 @@ SELECT * FROM tv ORDER BY type;
 EXPLAIN (costs off)
   CREATE MATERIALIZED VIEW tm AS SELECT type, sum(amt) AS totamt FROM t GROUP BY type WITH NO DATA;
 CREATE MATERIALIZED VIEW tm AS SELECT type, sum(amt) AS totamt FROM t GROUP BY type WITH NO DATA;
-SELECT pg_relation_is_scannable('tm'::regclass);
+SELECT relispopulated FROM pg_class WHERE oid = 'tm'::regclass;
 SELECT * FROM tm;
 REFRESH MATERIALIZED VIEW tm;
-SELECT pg_relation_is_scannable('tm'::regclass);
+SELECT relispopulated FROM pg_class WHERE oid = 'tm'::regclass;
 CREATE UNIQUE INDEX tm_type ON tm (type);
 SELECT * FROM tm;
 
@@ -87,27 +87,10 @@ SELECT * FROM tvmm;
 SELECT * FROM tvvm;
 
 -- test diemv when the mv does not exist
-DROP MATERIALIZED VIEW IF EXISTS tum;
-
--- make sure that an unlogged materialized view works (in the absence of a crash)
-CREATE UNLOGGED MATERIALIZED VIEW tum AS SELECT type, sum(amt) AS totamt FROM t GROUP BY type WITH NO DATA;
-SELECT pg_relation_is_scannable('tum'::regclass);
-SELECT * FROM tum;
-REFRESH MATERIALIZED VIEW tum;
-SELECT pg_relation_is_scannable('tum'::regclass);
-SELECT * FROM tum;
-REFRESH MATERIALIZED VIEW tum WITH NO DATA;
-SELECT pg_relation_is_scannable('tum'::regclass);
-SELECT * FROM tum;
-REFRESH MATERIALIZED VIEW tum WITH DATA;
-SELECT pg_relation_is_scannable('tum'::regclass);
-SELECT * FROM tum;
+DROP MATERIALIZED VIEW IF EXISTS no_such_mv;
 
 -- test join of mv and view
 SELECT type, m.totamt AS mtot, v.totamt AS vtot FROM tm m LEFT JOIN tv v USING (type) ORDER BY type;
-
--- test diemv when the mv does exist
-DROP MATERIALIZED VIEW IF EXISTS tum;
 
 -- make sure that dependencies are reported properly when they block the drop
 DROP TABLE t;
@@ -126,6 +109,18 @@ CREATE VIEW v_test2 AS SELECT moo, 2*moo FROM v_test1 UNION ALL SELECT moo, 3*mo
 CREATE MATERIALIZED VIEW mv_test2 AS SELECT moo, 2*moo FROM v_test2 UNION ALL SELECT moo, 3*moo FROM v_test2;
 \d+ mv_test2
 CREATE MATERIALIZED VIEW mv_test3 AS SELECT * FROM mv_test2 WHERE moo = 12345;
-SELECT pg_relation_is_scannable('mv_test3'::regclass);
+SELECT relispopulated FROM pg_class WHERE oid = 'mv_test3'::regclass;
 
 DROP VIEW v_test1 CASCADE;
+
+-- test that vacuum does not make empty matview look unpopulated
+CREATE TABLE hoge (i int);
+INSERT INTO hoge VALUES (generate_series(1,100000));
+CREATE MATERIALIZED VIEW hogeview AS SELECT * FROM hoge WHERE i % 2 = 0;
+CREATE INDEX hogeviewidx ON hogeview (i);
+DELETE FROM hoge;
+REFRESH MATERIALIZED VIEW hogeview;
+SELECT * FROM hogeview WHERE i < 10;
+VACUUM ANALYZE;
+SELECT * FROM hogeview WHERE i < 10;
+DROP TABLE hoge CASCADE;

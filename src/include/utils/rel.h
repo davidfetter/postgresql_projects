@@ -77,7 +77,6 @@ typedef struct RelationData
 	BackendId	rd_backend;		/* owning backend id, if temporary relation */
 	bool		rd_islocaltemp; /* rel is a temp rel of this session */
 	bool		rd_isnailed;	/* rel is nailed in cache */
-	bool		rd_ispopulated;	/* matview has query results */
 	bool		rd_isvalid;		/* relcache entry is valid */
 	char		rd_indexvalid;	/* state of rd_indexlist: 0 = not valid, 1 =
 								 * valid, 2 = temporarily forced */
@@ -85,20 +84,15 @@ typedef struct RelationData
 	/*
 	 * rd_createSubid is the ID of the highest subtransaction the rel has
 	 * survived into; or zero if the rel was not created in the current top
-	 * transaction.  This can be now be relied on, whereas previously it
-	 * could be "forgotten" in earlier releases.
-	 * Likewise, rd_newRelfilenodeSubid is the ID of the highest
-	 * subtransaction the relfilenode change has survived into, or zero if not
-	 * changed in the current transaction (or we have forgotten changing it).
-	 * rd_newRelfilenodeSubid can be forgotten when a relation has multiple
-	 * new relfilenodes within a single transaction, with one of them occuring
-	 * in a subsequently aborted subtransaction, e.g.
-	 * 		BEGIN;
-	 * 		TRUNCATE t;
-	 * 		SAVEPOINT save;
-	 * 		TRUNCATE t;
-	 * 		ROLLBACK TO save;
-	 * 		-- rd_newRelfilenode is now forgotten
+	 * transaction.  This can be now be relied on, whereas previously it could
+	 * be "forgotten" in earlier releases. Likewise, rd_newRelfilenodeSubid is
+	 * the ID of the highest subtransaction the relfilenode change has
+	 * survived into, or zero if not changed in the current transaction (or we
+	 * have forgotten changing it). rd_newRelfilenodeSubid can be forgotten
+	 * when a relation has multiple new relfilenodes within a single
+	 * transaction, with one of them occuring in a subsequently aborted
+	 * subtransaction, e.g. BEGIN; TRUNCATE t; SAVEPOINT save; TRUNCATE t;
+	 * ROLLBACK TO save; -- rd_newRelfilenode is now forgotten
 	 */
 	SubTransactionId rd_createSubid;	/* rel was created in current xact */
 	SubTransactionId rd_newRelfilenodeSubid;	/* new relfilenode assigned in
@@ -163,7 +157,7 @@ typedef struct RelationData
 	 * foreign-table support
 	 *
 	 * rd_fdwroutine must point to a single memory chunk palloc'd in
-	 * CacheMemoryContext.  It will be freed and reset to NULL on a relcache
+	 * CacheMemoryContext.	It will be freed and reset to NULL on a relcache
 	 * reset.
 	 */
 
@@ -404,11 +398,19 @@ typedef struct StdRdOptions
 
 /*
  * RelationIsScannable
- * 		Currently can only be false for a materialized view which has not been
- * 		populated by its query.  This is likely to get more complicated later,
- * 		so use a macro which looks like a function.
+ *		Currently can only be false for a materialized view which has not been
+ *		populated by its query.  This is likely to get more complicated later,
+ *		so use a macro which looks like a function.
  */
-#define RelationIsScannable(relation) ((relation)->rd_ispopulated)
+#define RelationIsScannable(relation) ((relation)->rd_rel->relispopulated)
+
+/*
+ * RelationIsPopulated
+ *		Currently, we don't physically distinguish the "populated" and
+ *		"scannable" properties of matviews, but that may change later.
+ *		Hence, use the appropriate one of these macros in code tests.
+ */
+#define RelationIsPopulated(relation) ((relation)->rd_rel->relispopulated)
 
 
 /* routines in utils/cache/relcache.c */
