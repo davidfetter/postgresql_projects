@@ -247,8 +247,10 @@ typedef struct Aggref
 	List	   *args;			/* arguments and sort expressions */
 	List	   *aggorder;		/* ORDER BY (list of SortGroupClause) */
 	List	   *aggdistinct;	/* DISTINCT (list of SortGroupClause) */
+	List	   *orddirectargs;	/* Direct arguments for ordered set functions */
 	Expr	   *agg_filter;		/* FILTER expression */
 	bool		aggstar;		/* TRUE if argument list was really '*' */
+	bool		isordset;	/* If node is from an ordered set function */
 	Index		agglevelsup;	/* > 0 if agg belongs to outer query */
 	int			location;		/* token location, or -1 if unknown */
 } Aggref;

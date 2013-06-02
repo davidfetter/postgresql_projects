@@ -27,6 +27,7 @@
 #include "parser/parse_relation.h"
 #include "parser/parse_target.h"
 #include "parser/parse_type.h"
+#include "parser/parse_expr.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
@@ -62,7 +63,7 @@ static Node *ParseComplexProjection(ParseState *pstate, char *funcname,
 Node *
 ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 				  List *agg_order, bool agg_star, bool agg_distinct,
-				  bool func_variadic,
+				  bool func_variadic, bool agg_within_group,
 				  Expr *agg_filter, WindowDef *over, bool is_column, int location)
 {
 	Oid			rettype;
@@ -80,6 +81,14 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	bool		retset;
 	int			nvargs;
 	FuncDetailCode fdresult;
+
+	/* Check if the function has WITHIN GROUP as well as distinct. */
+	if(agg_within_group && agg_distinct)
+	{
+		ereport(ERROR,
+			(errcode(ERRCODE_SYNTAX_ERROR),
+		 errmsg("WITHIN GROUP and distinct not allowed together")));
+	}
 
 	/*
 	 * Most of the rest of the parser just assumes that functions do not have
@@ -162,12 +171,38 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		}
 	}
 
+	if(agg_within_group && argnames)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+			errmsg("Named arguments not allowed in WITHIN GROUP")));
+	}
+
 	if (fargs)
 	{
 		first_arg = linitial(fargs);
 		Assert(first_arg != NULL);
 	}
 
+	/* If WITHIN GROUP is present, we need to call transformExpr on each 
+	 * SortBy node in agg_order, then call exprType and append to
+	 * actual_arg_types, in order to get the types of values in
+	 * WITHIN BY clause.
+	 */
+	if(agg_within_group)
+	{
+		Assert(agg_order != NULL);
+
+		foreach(l, agg_order)
+		{
+			SortBy	   *arg = (SortBy *) lfirst(l);
+			arg->node = transformExpr(pstate, (arg->node), EXPR_KIND_ORDER_BY);
+			Oid	   argtype = exprType(arg->node);
+
+			actual_arg_types[nargs++] = argtype;
+		}
+	}
+ 
 	/*
 	 * Check for column projection: if function has one argument, and that
 	 * argument is of complex type, and function name is not qualified, then
@@ -263,6 +298,25 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 					 errmsg("OVER specified, but %s is not a window function nor an aggregate function",
 							NameListToString(funcname)),
 					 parser_errposition(pstate, location)));
+	}
+	else if(fdresult == FUNCDETAIL_ORDERED)
+	{
+		if(!agg_within_group)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("Ordered set function specified, but WITHIN GROUP not present"),
+					 parser_errposition(pstate, location)));
+		}
+
+		if(over)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Window function in ordered set function not supported"),
+					 parser_errposition(pstate, location)));
+		}
+
 	}
 	else if (!(fdresult == FUNCDETAIL_AGGREGATE ||
 			   fdresult == FUNCDETAIL_WINDOWFUNC))
@@ -402,6 +456,12 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	{
 		/* aggregate function */
 		Aggref	   *aggref = makeNode(Aggref);
+		if(agg_within_group)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("WITHIN GROUP cannot be specified in aggregate functions")));
+		}
 
 		aggref->aggfnoid = funcid;
 		aggref->aggtype = rettype;
@@ -447,11 +507,38 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 		retval = (Node *) aggref;
 	}
+	else if(fdresult == FUNCDETAIL_ORDERED)
+	{
+		Aggref *aggref = makeNode(Aggref);
+		aggref->aggfnoid = funcid;
+		aggref->aggtype = rettype;
+		aggref->isordset = TRUE;
+		aggref->orddirectargs = fargs;
+		/* aggcollid and inputcollid will be set by parse_collate.c */
+		/* args, aggorder, aggdistinct will be set by transformAggregateCall */
+		aggref->aggstar = agg_star;
+		/* filter */
+		aggref->agg_filter = agg_filter;
+		/* agglevelsup will be set by transformAggregateCall */
+		aggref->location = location;
+
+		transformAggregateCall(pstate, aggref, fargs, agg_order, agg_distinct);
+
+		retval = (Node *) aggref;
+	}
 	else
 	{
 		/* window function */
 		WindowFunc *wfunc = makeNode(WindowFunc);
 
+		if(agg_within_group)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("WITHIN GROUP not allowed in window functions"),
+					 parser_errposition(pstate, location)));
+		}
+	
 		/*
 		 * True window functions must be called with a window definition.
 		 */
@@ -1321,7 +1408,9 @@ func_get_detail(List *funcname,
 				*argdefaults = defaults;
 			}
 		}
-		if (pform->proisagg)
+		if (pform->proisordsetfunc)
+			result = FUNCDETAIL_ORDERED;
+		else if (pform->proisagg)
 			result = FUNCDETAIL_AGGREGATE;
 		else if (pform->proiswindow)
 			result = FUNCDETAIL_WINDOWFUNC;
