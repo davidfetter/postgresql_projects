@@ -31,18 +31,18 @@
  */
 typedef enum ParseExprKind
 {
-	EXPR_KIND_NONE = 0,				/* "not in an expression" */
-	EXPR_KIND_OTHER,				/* reserved for extensions */
-	EXPR_KIND_JOIN_ON,				/* JOIN ON */
-	EXPR_KIND_JOIN_USING,			/* JOIN USING */
-	EXPR_KIND_FROM_SUBSELECT,		/* sub-SELECT in FROM clause */
-	EXPR_KIND_FROM_FUNCTION,		/* function in FROM clause */
-	EXPR_KIND_WHERE,				/* WHERE */
-	EXPR_KIND_HAVING,				/* HAVING */
-	EXPR_KIND_FILTER,				/* FILTER */
-	EXPR_KIND_WINDOW_PARTITION,		/* window definition PARTITION BY */
-	EXPR_KIND_WINDOW_ORDER,			/* window definition ORDER BY */
-	EXPR_KIND_WINDOW_FRAME_RANGE,	/* window frame clause with RANGE */
+	EXPR_KIND_NONE = 0,			/* "not in an expression" */
+	EXPR_KIND_OTHER,			/* reserved for extensions */
+	EXPR_KIND_JOIN_ON,			/* JOIN ON */
+	EXPR_KIND_JOIN_USING,		/* JOIN USING */
+	EXPR_KIND_FROM_SUBSELECT,	/* sub-SELECT in FROM clause */
+	EXPR_KIND_FROM_FUNCTION,	/* function in FROM clause */
+	EXPR_KIND_WHERE,			/* WHERE */
+	EXPR_KIND_HAVING,			/* HAVING */
+	EXPR_KIND_FILTER,			/* FILTER */
+	EXPR_KIND_WINDOW_PARTITION,	/* window definition PARTITION BY */
+	EXPR_KIND_WINDOW_ORDER,		/* window definition ORDER BY */
+	EXPR_KIND_WINDOW_FRAME_RANGE,		/* window frame clause with RANGE */
 	EXPR_KIND_WINDOW_FRAME_ROWS,	/* window frame clause with ROWS */
 	EXPR_KIND_SELECT_TARGET,	/* SELECT target list item */
 	EXPR_KIND_INSERT_TARGET,	/* INSERT target list item */
