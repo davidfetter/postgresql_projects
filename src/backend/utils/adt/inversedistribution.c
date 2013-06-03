@@ -26,3 +26,11 @@ percentile_disc(PG_FUNCTION_ARGS)
 	elog(ERROR, "not implemented yet");
 }
 
+/*
+ * percentile_cont(float8)  - continuous (nearest) percentile
+ */
+Datum
+percentile_cont(PG_FUNCTION_ARGS)
+{
+	elog(ERROR, "not implemented yet");
+}
