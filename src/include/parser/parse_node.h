@@ -40,7 +40,7 @@ typedef enum ParseExprKind
 	EXPR_KIND_WHERE,			/* WHERE */
 	EXPR_KIND_HAVING,			/* HAVING */
 	EXPR_KIND_FILTER,			/* FILTER */
-	EXPR_KIND_WINDOW_PARTITION,	/* window definition PARTITION BY */
+	EXPR_KIND_WINDOW_PARTITION, /* window definition PARTITION BY */
 	EXPR_KIND_WINDOW_ORDER,		/* window definition ORDER BY */
 	EXPR_KIND_WINDOW_FRAME_RANGE,		/* window frame clause with RANGE */
 	EXPR_KIND_WINDOW_FRAME_ROWS,	/* window frame clause with ROWS */
