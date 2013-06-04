@@ -168,6 +168,15 @@ scanNameSpaceForRefname(ParseState *pstate, const char *refname, int location)
 			result = rte;
 		}
 	}
+	if (!result && strcmp("before", refname) == 0){
+		ereport(LOG, (errmsg_internal("valid before")));
+	}
+	if (!result && strcmp("after", refname) == 0){
+		ParseNamespaceItem *nsitem = (ParseNamespaceItem *) lfirst(pstate->p_namespace->head);
+		RangeTblEntry *rte = nsitem->p_rte;
+		result = rte;
+		ereport(LOG, (errmsg_internal("valid after")));
+	}
 	return result;
 }
 
