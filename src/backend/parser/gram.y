@@ -491,6 +491,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <str>		opt_existing_window_name
 %type <boolean> opt_if_not_exists
 %type <node>    filter_clause
+%type <node> 	within_group_clause
 
 /*
  * Non-keyword token types.  These are hard-wired into the "flex" lexer.
@@ -593,7 +594,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	VACUUM VALID VALIDATE VALIDATOR VALUE_P VALUES VARCHAR VARIADIC VARYING
 	VERBOSE VERSION_P VIEW VOLATILE
 
-	WHEN WHERE WHITESPACE_P WINDOW WITH WITHOUT WORK WRAPPER WRITE
+	WHEN WHERE WITHIN WHITESPACE_P WINDOW WITH WITHOUT WORK WRAPPER WRITE
 
 	XML_P XMLATTRIBUTES XMLCONCAT XMLELEMENT XMLEXISTS XMLFOREST XMLPARSE
 	XMLPI XMLROOT XMLSERIALIZE
@@ -9396,6 +9397,11 @@ sortby:		a_expr USING qual_all_Op opt_nulls_order
 		;
 
 
+within_group_clause:
+             WITHIN GROUP_P '(' sort_clause ')'       { $$ = $4; }
+             | /*EMPTY*/                            { $$ = NULL; }
+         ;
+
 select_limit:
 			limit_clause offset_clause			{ $$ = list_make2($2, $1); }
 			| offset_clause limit_clause		{ $$ = list_make2($1, $2); }
@@ -11088,64 +11094,76 @@ c_expr:		columnref								{ $$ = $1; }
  * (Note that many of the special SQL functions wouldn't actually make any
  * sense as functional index entries, but we ignore that consideration here.)
  */
-func_expr:	func_name '(' ')' filter_clause over_clause
+func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 				{
 					FuncCall *n = makeNode(FuncCall);
 					n->funcname = $1;
 					n->args = NIL;
-					n->agg_order = NIL;
+					n->agg_order = $4;
 					n->agg_star = FALSE;
 					n->agg_distinct = FALSE;
 					n->func_variadic = FALSE;
-					n->agg_filter = $4;
-					n->over = $5;
-					n->location = @1;
-					$$ = (Node *)n;
-				}
-			| func_name '(' func_arg_list ')' filter_clause over_clause
-				{
-					FuncCall *n = makeNode(FuncCall);
-					n->funcname = $1;
-					n->args = $3;
-					n->agg_order = NIL;
-					n->agg_star = FALSE;
-					n->agg_distinct = FALSE;
-					n->func_variadic = FALSE;
+					n->has_within_group = $4 ? TRUE: FALSE;
 					n->agg_filter = $5;
 					n->over = $6;
 					n->location = @1;
 					$$ = (Node *)n;
 				}
-			| func_name '(' VARIADIC func_arg_expr ')' filter_clause over_clause
+			| func_name '(' func_arg_list ')' within_group_clause filter_clause over_clause
 				{
 					FuncCall *n = makeNode(FuncCall);
 					n->funcname = $1;
-					n->args = list_make1($4);
-					n->agg_order = NIL;
+					n->args = $3;
+					n->agg_order = $5;
 					n->agg_star = FALSE;
 					n->agg_distinct = FALSE;
-					n->func_variadic = TRUE;
+					n->func_variadic = FALSE;
+					n->has_within_group = $5 ? TRUE : FALSE;
 					n->agg_filter = $6;
 					n->over = $7;
 					n->location = @1;
 					$$ = (Node *)n;
 				}
-			| func_name '(' func_arg_list ',' VARIADIC func_arg_expr ')' filter_clause over_clause
+			| func_name '(' VARIADIC func_arg_expr ')' within_group_clause filter_clause over_clause
+				{
+					FuncCall *n = makeNode(FuncCall);
+					n->funcname = $1;
+					n->args = list_make1($4);
+					n->agg_order = $6;
+					n->agg_star = FALSE;
+					n->agg_distinct = FALSE;
+					n->func_variadic = TRUE;
+					n->has_within_group = $6 ? TRUE: FALSE;
+					n->agg_filter = $7;
+					n->over = $8;
+					n->location = @1;
+					$$ = (Node *)n;
+				}
+			| func_name '(' func_arg_list ',' VARIADIC func_arg_expr ')' within_group_clause filter_clause over_clause
 				{
 					FuncCall *n = makeNode(FuncCall);
 					n->funcname = $1;
 					n->args = lappend($3, $6);
-					n->agg_order = NIL;
+					n->agg_order = $8;
 					n->agg_star = FALSE;
 					n->agg_distinct = FALSE;
 					n->func_variadic = TRUE;
-					n->agg_filter = $8;
-					n->over = $9;
+					n->has_within_group = $8 ? TRUE: FALSE;
+					n->agg_filter = $9;
+					n->over = $10;
 					n->location = @1;
 					$$ = (Node *)n;
 				}
-			| func_name '(' func_arg_list sort_clause ')' filter_clause over_clause
+			| func_name '(' func_arg_list sort_clause ')' within_group_clause filter_clause over_clause
 				{
+					if($4 && $6)
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
+							parser_errposition(@5)));
+					}
+
 					FuncCall *n = makeNode(FuncCall);
 					n->funcname = $1;
 					n->args = $3;
@@ -11153,17 +11171,26 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					n->agg_star = FALSE;
 					n->agg_distinct = FALSE;
 					n->func_variadic = FALSE;
-					n->agg_filter = $6;
-					n->over = $7;
+					n->has_within_group = $6 ? TRUE: FALSE;
+					n->agg_filter = $7;
+					n->over = $8;
 					n->location = @1;
 					$$ = (Node *)n;
 				}
-			| func_name '(' ALL func_arg_list opt_sort_clause ')' filter_clause over_clause
+			| func_name '(' ALL func_arg_list opt_sort_clause ')' within_group_clause filter_clause over_clause
 				{
+					if($5 && $7)
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
+							parser_errposition(@5)));
+					}
+
 					FuncCall *n = makeNode(FuncCall);
 					n->funcname = $1;
 					n->args = $4;
-					n->agg_order = $5;
+					n->agg_order = $5 ? $5 : $7;
 					n->agg_star = FALSE;
 					n->agg_distinct = FALSE;
 					/* Ideally we'd mark the FuncCall node to indicate
@@ -11171,26 +11198,36 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					 * for that in FuncCall at the moment.
 					 */
 					n->func_variadic = FALSE;
-					n->agg_filter = $7;
-					n->over = $8;
+					n->has_within_group = $7 ? TRUE: FALSE;
+					n->agg_filter = $8;
+					n->over = $9;
 					n->location = @1;
 					$$ = (Node *)n;
 				}
-			| func_name '(' DISTINCT func_arg_list opt_sort_clause ')' filter_clause over_clause
+			| func_name '(' DISTINCT func_arg_list opt_sort_clause ')' within_group_clause filter_clause over_clause
 				{
+					if($5 && $7)
+					{
+						ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
+							parser_errposition(@5)));
+					}
+
 					FuncCall *n = makeNode(FuncCall);
 					n->funcname = $1;
 					n->args = $4;
-					n->agg_order = $5;
+					n->agg_order = $5 ? $5 : $7;
 					n->agg_star = FALSE;
 					n->agg_distinct = TRUE;
 					n->func_variadic = FALSE;
-					n->agg_filter = $7;
-					n->over = $8;
+					n->has_within_group = $7 ? TRUE: FALSE;
+					n->agg_filter = $8;
+					n->over = $9;
 					n->location = @1;
 					$$ = (Node *)n;
 				}
-			| func_name '(' '*' ')' filter_clause over_clause
+			| func_name '(' '*' ')' within_group_clause filter_clause over_clause
 				{
 					/*
 					 * We consider AGGREGATE(*) to invoke a parameterless
@@ -11205,12 +11242,13 @@ func_expr:	func_name '(' ')' filter_clause over_clause
 					FuncCall *n = makeNode(FuncCall);
 					n->funcname = $1;
 					n->args = NIL;
-					n->agg_order = NIL;
+					n->agg_order = $5;
 					n->agg_star = TRUE;
 					n->agg_distinct = FALSE;
 					n->func_variadic = FALSE;
-					n->agg_filter = $5;
-					n->over = $6;
+					n->has_within_group = $5 ? TRUE: FALSE;
+					n->agg_filter = $6;
+					n->over = $7;
 					n->location = @1;
 					$$ = (Node *)n;
 				}
@@ -13012,6 +13050,7 @@ type_func_name_keyword:
 			| RIGHT
 			| SIMILAR
 			| VERBOSE
+			| WITHIN
 		;
 
 /* Reserved keyword --- these keywords are usable only as a ColLabel.

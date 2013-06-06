@@ -235,6 +235,8 @@ DATA(insert ( 3545	bytea_string_agg_transfn	bytea_string_agg_finalfn		0	2281	_nu
 /* json */
 DATA(insert ( 3175	json_agg_transfn	json_agg_finalfn		0	2281	_null_ ));
 
+/* ordered set function */
+DATA(insert ( 3931 	- 			percentile_disc_final		0 	0 	_null_));
 /*
  * prototypes for functions in pg_aggregate.c
  */

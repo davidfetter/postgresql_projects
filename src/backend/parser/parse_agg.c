@@ -93,12 +93,15 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	 */
 	tlist = NIL;
 	attno = 1;
-	foreach(lc, args)
+	if(!(agg->isordset))
 	{
-		Expr	   *arg = (Expr *) lfirst(lc);
-		TargetEntry *tle = makeTargetEntry(arg, attno++, NULL, false);
+		foreach(lc, args)
+		{
+			Expr	   *arg = (Expr *) lfirst(lc);
+			TargetEntry *tle = makeTargetEntry(arg, attno++, NULL, false);
 
-		tlist = lappend(tlist, tle);
+			tlist = lappend(tlist, tle);
+		}
 	}
 
 	/*

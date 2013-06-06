@@ -17,6 +17,7 @@
 #include "access/htup_details.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
+#include "catalog/pg_aggregate.h"
 #include "funcapi.h"
 #include "lib/stringinfo.h"
 #include "nodes/makefuncs.h"
@@ -27,6 +28,7 @@
 #include "parser/parse_relation.h"
 #include "parser/parse_target.h"
 #include "parser/parse_type.h"
+#include "parser/parse_expr.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
@@ -62,7 +64,7 @@ static Node *ParseComplexProjection(ParseState *pstate, char *funcname,
 Node *
 ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 				  List *agg_order, bool agg_star, bool agg_distinct,
-				  bool func_variadic,
+				  bool func_variadic, bool agg_within_group,
 				  Expr *agg_filter, WindowDef *over, bool is_column, int location)
 {
 	Oid			rettype;
@@ -80,6 +82,17 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	bool		retset;
 	int			nvargs;
 	FuncDetailCode fdresult;
+	HeapTuple 	tup;
+	Oid 		aggfinalfn;
+	int 		number_of_args;
+
+	/* Check if the function has WITHIN GROUP as well as distinct. */
+	if(agg_within_group && agg_distinct)
+	{
+		ereport(ERROR,
+			(errcode(ERRCODE_SYNTAX_ERROR),
+		 errmsg("WITHIN GROUP and distinct not allowed together")));
+	}
 
 	/*
 	 * Most of the rest of the parser just assumes that functions do not have
@@ -162,12 +175,38 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		}
 	}
 
+	if(agg_within_group && argnames)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+			errmsg("Named arguments not allowed in WITHIN GROUP")));
+	}
+
 	if (fargs)
 	{
 		first_arg = linitial(fargs);
 		Assert(first_arg != NULL);
 	}
 
+	/* If WITHIN GROUP is present, we need to call transformExpr on each
+	 * SortBy node in agg_order, then call exprType and append to
+	 * actual_arg_types, in order to get the types of values in
+	 * WITHIN BY clause.
+	 */
+	if(agg_within_group)
+	{
+		Assert(agg_order != NULL);
+
+		foreach(l, agg_order)
+		{
+			SortBy	   *arg = (SortBy *) lfirst(l);
+			arg->node = transformExpr(pstate, (arg->node), EXPR_KIND_ORDER_BY);
+			Oid	   argtype = exprType(arg->node);
+
+			actual_arg_types[nargs++] = argtype;
+		}
+	}
+ 
 	/*
 	 * Check for column projection: if function has one argument, and that
 	 * argument is of complex type, and function name is not qualified, then
@@ -264,6 +303,25 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 							NameListToString(funcname)),
 					 parser_errposition(pstate, location)));
 	}
+	else if(fdresult == FUNCDETAIL_ORDERED)
+	{
+		if(!agg_within_group)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("Ordered set function specified, but WITHIN GROUP not present"),
+					 parser_errposition(pstate, location)));
+		}
+
+		if(over)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Window function in ordered set function not supported"),
+					 parser_errposition(pstate, location)));
+		}
+
+	}
 	else if (!(fdresult == FUNCDETAIL_AGGREGATE ||
 			   fdresult == FUNCDETAIL_WINDOWFUNC))
 	{
@@ -349,7 +407,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 											   false);
 
 	/* perform the necessary typecasting of arguments */
-	make_fn_arguments(pstate, fargs, actual_arg_types, declared_arg_types);
+	make_fn_arguments(pstate, fargs, (fdresult==FUNCDETAIL_ORDERED) ? agg_order : NIL, actual_arg_types, declared_arg_types);
 
 	/*
 	 * If it's a variadic function call, transform the last nvargs arguments
@@ -398,10 +456,17 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 		retval = (Node *) funcexpr;
 	}
-	else if (fdresult == FUNCDETAIL_AGGREGATE && !over)
+	else if ((fdresult == FUNCDETAIL_AGGREGATE && !over) || fdresult == FUNCDETAIL_ORDERED)
 	{
 		/* aggregate function */
 		Aggref	   *aggref = makeNode(Aggref);
+		if(agg_within_group && fdresult == FUNCDETAIL_AGGREGATE)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("%s is not an ordered set function",func_signature_string(funcname, nargs,
+											  NIL, actual_arg_types))));
+		}
 
 		aggref->aggfnoid = funcid;
 		aggref->aggtype = rettype;
@@ -412,6 +477,28 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		aggref->agg_filter = agg_filter;
 		/* agglevelsup will be set by transformAggregateCall */
 		aggref->location = location;
+
+		if (fdresult == FUNCDETAIL_ORDERED)
+		{
+			Form_pg_aggregate classForm;
+			aggref->isordset = TRUE;
+			aggref->orddirectargs = fargs;
+			tup = SearchSysCache1(AGGFNOID, ObjectIdGetDatum(funcid));
+			if (!HeapTupleIsValid(tup)) /* should not happen */
+				elog(ERROR, "cache lookup failed for type %u", funcid);
+
+			classForm = (Form_pg_aggregate) GETSTRUCT(tup);
+			aggfinalfn = classForm->aggfinalfn;
+			number_of_args = get_func_nargs(aggfinalfn);
+			if (number_of_args != list_length(fargs))
+			{
+				ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("Number of arguments does not match fargs")));
+			}
+
+			ReleaseSysCache(tup);
+		}
 
 		/*
 		 * Reject attempt to call a parameterless aggregate without (*)
@@ -451,6 +538,14 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	{
 		/* window function */
 		WindowFunc *wfunc = makeNode(WindowFunc);
+
+		if(agg_within_group)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("WITHIN GROUP not allowed in window functions"),
+					 parser_errposition(pstate, location)));
+		}
 
 		/*
 		 * True window functions must be called with a window definition.
@@ -1321,7 +1416,9 @@ func_get_detail(List *funcname,
 				*argdefaults = defaults;
 			}
 		}
-		if (pform->proisagg)
+		if (pform->proisordsetfunc)
+			result = FUNCDETAIL_ORDERED;
+		else if (pform->proisagg)
 			result = FUNCDETAIL_AGGREGATE;
 		else if (pform->proiswindow)
 			result = FUNCDETAIL_WINDOWFUNC;
@@ -1351,10 +1448,12 @@ func_get_detail(List *funcname,
 void
 make_fn_arguments(ParseState *pstate,
 				  List *fargs,
+				  List *agg_order,
 				  Oid *actual_arg_types,
 				  Oid *declared_arg_types)
 {
 	ListCell   *current_fargs;
+	ListCell   *current_aoargs;
 	int			i = 0;
 
 	foreach(current_fargs, fargs)
@@ -1392,6 +1491,25 @@ make_fn_arguments(ParseState *pstate,
 								   -1);
 				lfirst(current_fargs) = node;
 			}
+		}
+		i++;
+	}
+
+	foreach(current_aoargs, agg_order)
+	{
+		if (actual_arg_types[i] != declared_arg_types[i])
+		{
+			SortBy	   *node = (SortBy *) lfirst(current_aoargs);
+			SortBy     *temp = NULL;
+
+			temp = coerce_type(pstate,
+							node->node,
+							actual_arg_types[i],
+							declared_arg_types[i], -1,
+							COERCION_IMPLICIT,
+							COERCE_IMPLICIT_CAST,
+							-1);
+			node->node = temp;
 		}
 		i++;
 	}

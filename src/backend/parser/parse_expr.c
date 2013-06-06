@@ -463,7 +463,7 @@ transformIndirection(ParseState *pstate, Node *basenode, List *indirection)
 			newresult = ParseFuncOrColumn(pstate,
 										  list_make1(n),
 										  list_make1(result),
-										  NIL, false, false, false,
+										  NIL, false, false, false, false,
 										  NULL, NULL, true, location);
 			if (newresult == NULL)
 				unknown_attribute(pstate, result, strVal(n), location);
@@ -631,7 +631,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 					node = ParseFuncOrColumn(pstate,
 											 list_make1(makeString(colname)),
 											 list_make1(node),
-											 NIL, false, false, false,
+											 NIL, false, false, false, false,
 											 NULL, NULL, true, cref->location);
 				}
 				break;
@@ -676,7 +676,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 					node = ParseFuncOrColumn(pstate,
 											 list_make1(makeString(colname)),
 											 list_make1(node),
-											 NIL, false, false, false,
+											 NIL, false, false, false, false,
 											 NULL, NULL, true, cref->location);
 				}
 				break;
@@ -734,7 +734,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 					node = ParseFuncOrColumn(pstate,
 											 list_make1(makeString(colname)),
 											 list_make1(node),
-											 NIL, false, false, false,
+											 NIL, false, false, false, false,
 											 NULL, NULL, true, cref->location);
 				}
 				break;
@@ -1248,8 +1248,7 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 	targs = NIL;
 	foreach(args, fn->args)
 	{
-		targs = lappend(targs, transformExprRecurse(pstate,
-													(Node *) lfirst(args)));
+		targs = lappend(targs, transformExprRecurse(pstate, (Node *) lfirst(args)));
 	}
 
 	/* Transform the aggregate filter using transformWhereClause, to
@@ -1266,6 +1265,7 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 							 fn->agg_star,
 							 fn->agg_distinct,
 							 fn->func_variadic,
+							 fn->has_within_group,
 							 tagg_filter,
 							 fn->over,
 							 false,

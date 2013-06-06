@@ -38,14 +38,15 @@ typedef enum
 	FUNCDETAIL_NORMAL,			/* found a matching regular function */
 	FUNCDETAIL_AGGREGATE,		/* found a matching aggregate function */
 	FUNCDETAIL_WINDOWFUNC,		/* found a matching window function */
-	FUNCDETAIL_COERCION			/* it's a type coercion request */
+	FUNCDETAIL_COERCION,			/* it's a type coercion request */
+	FUNCDETAIL_ORDERED		/* ordered function */
 } FuncDetailCode;
 
 
 extern Node *ParseFuncOrColumn(ParseState *pstate,
 				  List *funcname, List *fargs,
 				  List *agg_order, bool agg_star, bool agg_distinct,
-				  bool func_variadic,
+				  bool func_variadic, bool agg_within_group,
 				  Expr *agg_filter, WindowDef *over, bool is_column, int location);
 
 extern FuncDetailCode func_get_detail(List *funcname,
@@ -67,6 +68,7 @@ extern FuncCandidateList func_select_candidate(int nargs,
 
 extern void make_fn_arguments(ParseState *pstate,
 				  List *fargs,
+				  List *agg_order,
 				  Oid *actual_arg_types,
 				  Oid *declared_arg_types);
 
