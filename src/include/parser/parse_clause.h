@@ -44,5 +44,6 @@ extern List *transformDistinctOnClause(ParseState *pstate, List *distinctlist,
 
 extern Index assignSortGroupRef(TargetEntry *tle, List *tlist);
 extern bool targetIsInSortList(TargetEntry *tle, Oid sortop, List *sortList);
+extern void addAliases(ParseState *pstate);
 
 #endif   /* PARSE_CLAUSE_H */

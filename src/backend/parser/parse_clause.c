@@ -85,7 +85,50 @@ static WindowClause *findWindowClause(List *wclist, const char *name);
 static Node *transformFrameOffset(ParseState *pstate, int frameOptions,
 					 Node *clause);
 
+extern void addAliases(ParseState *pstate);
 
+void addAliases(ParseState *pstate){
+	int     rtindex;
+	int		i;
+	List	*namespace;
+	const int noal = 2;
+	char	*aliases[] = {"before","after"};
+	ListCell   *l;
+	RangeTblEntry *rte = NULL;
+
+	foreach(l, pstate->p_namespace)
+	{
+		ParseNamespaceItem *nsitem = (ParseNamespaceItem *) lfirst(l);
+		RangeTblEntry *rte = nsitem->p_rte;
+
+		/* Ignore columns-only items */
+		if (!nsitem->p_rel_visible)
+			continue;
+		/* If not inside LATERAL, ignore lateral-only items */
+		if (nsitem->p_lateral_only && !pstate->p_lateral_active)
+			continue;
+
+		for(i=0 ; i<noal; i++){
+			if (aliases[i])
+			if (strcmp(rte->eref->aliasname, aliases[i]) == 0)
+			{
+				aliases[i] = NULL;
+			}
+		}
+	}
+
+	for(i=0 ; i<noal; i++){
+		if (aliases[i])
+		{
+			rte = makeNode(RangeTblEntry);
+			rte->eref = makeAlias(aliases[i], NIL);
+			rte->inh = INH_DEFAULT;
+			rtindex = list_length(pstate->p_rtable);
+			namespace = list_make1(makeNamespaceItem(rte, true, true, false, true));
+			pstate->p_namespace = list_concat(pstate->p_namespace, namespace);
+		}
+	}
+}
 /*
  * transformFromClause -
  *	  Process the FROM clause and add items to the query's range table,
