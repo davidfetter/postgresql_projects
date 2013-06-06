@@ -8671,6 +8671,7 @@ explain_option_elem:
 
 explain_option_name:
 			NonReservedWord			{ $$ = $1; }
+			| analyze_keyword		{ $$ = "analyze"; }
 		;
 
 explain_option_arg:
