@@ -123,9 +123,8 @@ void addAliases(ParseState *pstate){
 			rte = makeNode(RangeTblEntry);
 			rte->eref = makeAlias(aliases[i], NIL);
 			rte->inh = INH_DEFAULT;
-			rtindex = list_length(pstate->p_rtable);
-			namespace = list_make1(makeNamespaceItem(rte, true, true, false, true));
-			pstate->p_namespace = list_concat(pstate->p_namespace, namespace);
+			addRTEtoQuery(pstate, rte, false, true, true);
+			pstate->p_rtable = lappend(pstate->p_rtable, rte);
 		}
 	}
 }
