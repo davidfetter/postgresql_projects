@@ -16,10 +16,6 @@
 #include "fmgr.h"
 #include <string.h>
 
-#ifdef PG_MODULE_MAGIC
-PG_MODULE_MAGIC;
-#endif
-
 /*
  * percentile_disc(float8)  - discrete (nearest) percentile
  */
