@@ -68,6 +68,7 @@ extern FuncCandidateList func_select_candidate(int nargs,
 
 extern void make_fn_arguments(ParseState *pstate,
 				  List *fargs,
+				  List *agg_order,
 				  Oid *actual_arg_types,
 				  Oid *declared_arg_types);
 

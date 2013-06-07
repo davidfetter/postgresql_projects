@@ -823,7 +823,7 @@ make_op(ParseState *pstate, List *opname, Node *ltree, Node *rtree,
 											   false);
 
 	/* perform the necessary typecasting of arguments */
-	make_fn_arguments(pstate, args, actual_arg_types, declared_arg_types);
+	make_fn_arguments(pstate, args, NULL, actual_arg_types, declared_arg_types);
 
 	/* and build the expression node */
 	result = makeNode(OpExpr);
@@ -953,7 +953,7 @@ make_scalar_array_op(ParseState *pstate, List *opname,
 	declared_arg_types[1] = res_atypeId;
 
 	/* perform the necessary typecasting of arguments */
-	make_fn_arguments(pstate, args, actual_arg_types, declared_arg_types);
+	make_fn_arguments(pstate, args, NULL, actual_arg_types, declared_arg_types);
 
 	/* and build the expression node */
 	result = makeNode(ScalarArrayOpExpr);

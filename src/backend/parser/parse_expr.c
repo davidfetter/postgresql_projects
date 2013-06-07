@@ -1248,8 +1248,7 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 	targs = NIL;
 	foreach(args, fn->args)
 	{
-		targs = lappend(targs, transformExprRecurse(pstate,
-													(Node *) lfirst(args)));
+		targs = lappend(targs, transformExprRecurse(pstate, (Node *) lfirst(args)));
 	}
 
 	/* Transform the aggregate filter using transformWhereClause, to

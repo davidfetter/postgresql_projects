@@ -11210,8 +11210,8 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 					{
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
- 								errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
-							parser_errposition(@5)));
+								errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
+								parser_errposition(@5)));
 					}
 
 					FuncCall *n = makeNode(FuncCall);
