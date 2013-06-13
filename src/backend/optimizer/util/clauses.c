@@ -486,6 +486,7 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 			costs->numOrderedAggs++;
 
 		/* add component function execution costs to appropriate totals */
+		if (OidIsValid(aggtransfn))
 		costs->transCost.per_tuple += get_func_cost(aggtransfn) * cpu_operator_cost;
 		if (OidIsValid(aggfinalfn))
 			costs->finalCost += get_func_cost(aggfinalfn) * cpu_operator_cost;
@@ -507,7 +508,7 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		}
 
 		/* resolve actual type of transition state, if polymorphic */
-		if (IsPolymorphicType(aggtranstype))
+		if (OidIsValid(aggtranstype) && IsPolymorphicType(aggtranstype))
 		{
 			/* have to fetch the agg's declared input types... */
 			Oid		   *declaredArgTypes;
@@ -530,7 +531,7 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		 * pass-by-reference then we have to add the estimated size of the
 		 * value itself, plus palloc overhead.
 		 */
-		if (!get_typbyval(aggtranstype))
+		if (OidIsValid(aggtranstype) && !get_typbyval(aggtranstype))
 		{
 			int32		aggtranstypmod;
 			int32		avgwidth;

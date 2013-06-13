@@ -82,17 +82,9 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	bool		retset;
 	int			nvargs;
 	FuncDetailCode fdresult;
-	HeapTuple 	tup;
-	Oid 		aggfinalfn;
-	int 		number_of_args;
-
-	/* Check if the function has WITHIN GROUP as well as distinct. */
-	if(agg_within_group && agg_distinct)
-	{
-		ereport(ERROR,
-			(errcode(ERRCODE_SYNTAX_ERROR),
-		 errmsg("WITHIN GROUP and distinct not allowed together")));
-	}
+	HeapTuple	tup;
+	Oid			aggfinalfn;
+	int			number_of_args;
 
 	/* Check if the function has WITHIN GROUP as well as distinct. */
 	if(agg_within_group && agg_distinct)
@@ -214,7 +206,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 			actual_arg_types[nargs++] = argtype;
 		}
 	}
- 
+
 	/*
 	 * Check for column projection: if function has one argument, and that
 	 * argument is of complex type, and function name is not qualified, then
@@ -489,8 +481,6 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		if (fdresult == FUNCDETAIL_ORDERED)
 		{
 			Form_pg_aggregate classForm;
-			aggref->isordset = TRUE;
-			aggref->orddirectargs = fargs;
 			tup = SearchSysCache1(AGGFNOID, ObjectIdGetDatum(funcid));
 			if (!HeapTupleIsValid(tup)) /* should not happen */
 				elog(ERROR, "cache lookup failed for type %u", funcid);
@@ -538,7 +528,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 					 parser_errposition(pstate, location)));
 
 		/* parse_agg.c does additional aggregate-specific processing */
-		transformAggregateCall(pstate, aggref, fargs, agg_order, agg_distinct);
+		transformAggregateCall(pstate, aggref, fargs, agg_order, agg_distinct, agg_within_group);
 
 		retval = (Node *) aggref;
 	}

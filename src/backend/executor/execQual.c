@@ -4411,6 +4411,7 @@ ExecInitExpr(Expr *node, PlanState *parent)
 					astate->args = (List *) ExecInitExpr((Expr *) aggref->args,
 														 parent);
 					astate->agg_filter = ExecInitExpr(aggref->agg_filter, parent);
+					astate->orddirectargs = (List *) ExecInitExpr((Expr *) aggref->orddirectargs, parent);
 
 					/*
 					 * Complain if the aggregate's arguments contain any

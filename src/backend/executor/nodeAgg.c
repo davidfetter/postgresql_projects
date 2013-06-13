@@ -384,7 +384,7 @@ advance_transition_function(AggState *aggstate,
 	Datum		newVal;
 	int			i;
 
-	if (peraggstate->transfn.fn_strict)
+	if (OidIsValid(peraggstate->transfn_oid) && peraggstate->transfn.fn_strict)
 	{
 		/*
 		 * For a strict transfn, nothing happens when there's a NULL input; we
@@ -515,7 +515,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 			 * not numInputs, since nullity in columns used only for sorting
 			 * is not relevant here.
 			 */
-			if (peraggstate->transfn.fn_strict)
+			if (OidIsValid(peraggstate->transfn_oid) && peraggstate->transfn.fn_strict)
 			{
 				for (i = 0; i < nargs; i++)
 				{
@@ -746,6 +746,8 @@ finalize_aggregate(AggState *aggstate,
 				   Datum *resultVal, bool *resultIsNull)
 {
 	MemoryContext oldContext;
+	ListCell *lc;
+	int i = 0;
 
 	oldContext = MemoryContextSwitchTo(aggstate->ss.ps.ps_ExprContext->ecxt_per_tuple_memory);
 
@@ -759,8 +761,21 @@ finalize_aggregate(AggState *aggstate,
 		InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
 								 peraggstate->aggCollation,
 								 (void *) aggstate, NULL);
-		fcinfo.arg[0] = pergroupstate->transValue;
-		fcinfo.argnull[0] = pergroupstate->transValueIsNull;
+		if (!(peraggstate->aggref->isordset))
+		{
+			fcinfo.arg[0] = pergroupstate->transValue;
+			fcinfo.argnull[0] = pergroupstate->transValueIsNull;
+		}
+		else
+		{
+			foreach (lc, peraggstate->aggref->orddirectargs)
+			{
+				elog(WARNING,"in loop");
+				fcinfo.arg[i] = ExecEvalExpr(lc, aggstate->ss.ps.ps_ExprContext,  &fcinfo.argnull[i], NULL);
+				++i;
+			}
+		}
+
 		if (fcinfo.flinfo->fn_strict && pergroupstate->transValueIsNull)
 		{
 			/* don't call a strict function with NULL inputs */
@@ -1742,7 +1757,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		 * transValue.	This should have been checked at agg definition time,
 		 * but just in case...
 		 */
-		if (peraggstate->transfn.fn_strict && peraggstate->initValueIsNull)
+		if (OidIsValid(peraggstate->transfn_oid) && peraggstate->transfn.fn_strict && peraggstate->initValueIsNull)
 		{
 			if (numArguments < 1 ||
 				!IsBinaryCoercible(inputTypes[0], aggtranstype))

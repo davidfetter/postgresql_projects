@@ -296,7 +296,7 @@ typedef struct FuncCall
 	bool		agg_distinct;	/* arguments were labeled DISTINCT */
 	bool		func_variadic;	/* last argument was labeled VARIADIC */
 	Node	   *agg_filter;		/* FILTER clause, if any */
-	bool 	   has_within_group;   /* WITHIN GROUP clause,if any */
+	bool		has_within_group;	/* WITHIN GROUP clause,if any */
 	struct WindowDef *over;		/* OVER clause, if any */
 	int			location;		/* token location, or -1 if unknown */
 } FuncCall;
