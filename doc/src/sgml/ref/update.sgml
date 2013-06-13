@@ -207,10 +207,11 @@ UPDATE [ ONLY ] <replaceable class="PARAMETER">table_name</replaceable> [ * ] [ 
       the expression.
      </para>
      <warning><para>
-     Mixing table names or aliases named before or after with
-     the above will result in confusion and suffering.  If you happen
-     to have a table called before or after, alias it to something
-     else when using RETURNING.
+     Mixing table names or aliases named before or after with the
+     above will result in confusion and suffering.  If you happen to
+     have a table called <literal>before</literal> or
+     <literal>after</literal>, alias it to something else when using
+     RETURNING.
      </para></warning>
 
     </listitem>
