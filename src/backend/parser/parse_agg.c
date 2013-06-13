@@ -44,7 +44,7 @@ typedef struct
 	int			sublevels_up;
 } check_ungrouped_columns_context;
 
-static int	check_agg_arguments(ParseState *pstate, List *args, Expr *filter);
+static int	check_agg_arguments(ParseState *pstate, List *args, List *agg_ordset, Expr *filter);
 static bool check_agg_arguments_walker(Node *node,
 						   check_agg_arguments_context *context);
 static void check_ungrouped_columns(Node *node, ParseState *pstate, Query *qry,
@@ -75,7 +75,7 @@ static bool check_ungrouped_columns_walker(Node *node,
  */
 void
 transformAggregateCall(ParseState *pstate, Aggref *agg,
-					   List *args, List *aggorder, bool agg_distinct)
+					   List *args, List *aggorder, bool agg_distinct, bool agg_within_group)
 {
 	List	   *tlist;
 	List	   *torder;
@@ -152,6 +152,12 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 		}
 	}
 
+	if (agg_within_group)
+	{
+		agg->isordset = TRUE;
+		agg->orddirectargs = args;
+	}
+
 	/* Update the Aggref with the transformation results */
 	agg->args = tlist;
 	agg->aggorder = torder;
@@ -163,7 +169,7 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	 * Check the arguments to compute the aggregate's level and detect
 	 * improper nesting.
 	 */
-	min_varlevel = check_agg_arguments(pstate, agg->args, agg->agg_filter);
+	min_varlevel = check_agg_arguments(pstate, agg->args, agg->orddirectargs, agg->agg_filter);
 	agg->agglevelsup = min_varlevel;
 
 	/* Mark the correct pstate level as having aggregates */
@@ -315,7 +321,7 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
  * which we can't know until we finish scanning the arguments.
  */
 static int
-check_agg_arguments(ParseState *pstate, List *args, Expr *filter)
+check_agg_arguments(ParseState *pstate, List *args, List *agg_ordset, Expr *filter)
 {
 	int			agglevel;
 	check_agg_arguments_context context;
@@ -331,6 +337,9 @@ check_agg_arguments(ParseState *pstate, List *args, Expr *filter)
 
 	(void) expression_tree_walker((Node *) filter,
 								  check_agg_arguments_walker,
+								  (void *) &context);
+
+	(void) expression_tree_walker((Node *) agg_ordset,	  check_agg_arguments_walker,
 								  (void *) &context);
 
 	/*
@@ -827,8 +836,15 @@ check_ungrouped_columns_walker(Node *node,
 	 * aggregates of lower levels, however.
 	 */
 	if (IsA(node, Aggref) &&
-		(int) ((Aggref *) node)->agglevelsup >= context->sublevels_up)
+		(int) ((Aggref *) node)->agglevelsup > context->sublevels_up)
+	{
 		return false;
+	}
+	else if (IsA(node, Aggref) &&
+			(int) ((Aggref *) node)->agglevelsup == context->sublevels_up)
+	{
+		return check_ungrouped_columns_walker(((Aggref *)node)->orddirectargs, context);
+	}
 
 	/*
 	 * If we have any GROUP BY items that are not simple Vars, check to see if
