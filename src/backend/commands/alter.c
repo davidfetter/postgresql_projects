@@ -168,6 +168,7 @@ AlterObjectRename_internal(Relation rel, Oid objectId, const char *new_name)
 	Datum	   *values;
 	bool	   *nulls;
 	bool	   *replaces;
+	NameData	nameattrdata;
 
 	oldtup = SearchSysCache1(oidCacheId, ObjectIdGetDatum(objectId));
 	if (!HeapTupleIsValid(oldtup))
@@ -230,7 +231,7 @@ AlterObjectRename_internal(Relation rel, Oid objectId, const char *new_name)
 		Form_pg_proc proc = (Form_pg_proc) GETSTRUCT(oldtup);
 
 		IsThereFunctionInNamespace(new_name, proc->pronargs,
-								   proc->proargtypes, proc->pronamespace);
+								   &proc->proargtypes, proc->pronamespace);
 	}
 	else if (classId == CollationRelationId)
 	{
@@ -273,7 +274,8 @@ AlterObjectRename_internal(Relation rel, Oid objectId, const char *new_name)
 	values = palloc0(RelationGetNumberOfAttributes(rel) * sizeof(Datum));
 	nulls = palloc0(RelationGetNumberOfAttributes(rel) * sizeof(bool));
 	replaces = palloc0(RelationGetNumberOfAttributes(rel) * sizeof(bool));
-	values[Anum_name - 1] = PointerGetDatum(new_name);
+	namestrcpy(&nameattrdata, new_name);
+	values[Anum_name - 1] = NameGetDatum(&nameattrdata);
 	replaces[Anum_name - 1] = true;
 	newtup = heap_modify_tuple(oldtup, RelationGetDescr(rel),
 							   values, nulls, replaces);
@@ -609,7 +611,7 @@ AlterObjectNamespace_internal(Relation rel, Oid objid, Oid nspOid)
 		Form_pg_proc proc = (Form_pg_proc) GETSTRUCT(tup);
 
 		IsThereFunctionInNamespace(NameStr(proc->proname), proc->pronargs,
-								   proc->proargtypes, nspOid);
+								   &proc->proargtypes, nspOid);
 	}
 	else if (classId == CollationRelationId)
 	{
