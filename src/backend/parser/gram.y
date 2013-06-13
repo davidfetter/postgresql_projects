@@ -491,7 +491,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <str>		opt_existing_window_name
 %type <boolean> opt_if_not_exists
 %type <node>    filter_clause
-%type <node> 	within_group_clause
+%type <list> 	within_group_clause
 
 /*
  * Non-keyword token types.  These are hard-wired into the "flex" lexer.
@@ -9398,8 +9398,8 @@ sortby:		a_expr USING qual_all_Op opt_nulls_order
 
 
 within_group_clause:
-             WITHIN GROUP_P '(' sort_clause ')'       { $$ = $4; }
-             | /*EMPTY*/                            { $$ = NULL; }
+			WITHIN GROUP_P '(' sort_clause ')'  { $$ = $4; }
+			| /*EMPTY*/                         { $$ = NULL; }
          ;
 
 select_limit:
@@ -11156,6 +11156,7 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 				}
 			| func_name '(' func_arg_list sort_clause ')' within_group_clause filter_clause over_clause
 				{
+					FuncCall *n = makeNode(FuncCall);
 					if($4 && $6)
 					{
 						ereport(ERROR,
@@ -11163,8 +11164,6 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 								errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
 								parser_errposition(@5)));
 					}
-
-					FuncCall *n = makeNode(FuncCall);
 					n->funcname = $1;
 					n->args = $3;
 					n->agg_order = $4;
@@ -11179,6 +11178,7 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 				}
 			| func_name '(' ALL func_arg_list opt_sort_clause ')' within_group_clause filter_clause over_clause
 				{
+					FuncCall *n = makeNode(FuncCall);
 					if($5 && $7)
 					{
 						ereport(ERROR,
@@ -11186,8 +11186,6 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 								errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
 								parser_errposition(@5)));
 					}
-
-					FuncCall *n = makeNode(FuncCall);
 					n->funcname = $1;
 					n->args = $4;
 					n->agg_order = $5 ? $5 : $7;
@@ -11206,6 +11204,7 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 				}
 			| func_name '(' DISTINCT func_arg_list opt_sort_clause ')' within_group_clause filter_clause over_clause
 				{
+					FuncCall *n = makeNode(FuncCall);
 					if($5 && $7)
 					{
 						ereport(ERROR,
@@ -11213,8 +11212,6 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 								errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
 								parser_errposition(@5)));
 					}
-
-					FuncCall *n = makeNode(FuncCall);
 					n->funcname = $1;
 					n->args = $4;
 					n->agg_order = $5 ? $5 : $7;

@@ -28,7 +28,7 @@ percentile_disc(PG_FUNCTION_ARGS)
 	elog(ERROR, "not implemented yet");
 }
 
-PG_FUNCTION_INFO_V1(percentile_disc);
+Datum percentile_disc_final(PG_FUNCTION_ARGS);
 
 Datum
 percentile_disc_final(PG_FUNCTION_ARGS)
@@ -51,7 +51,7 @@ percentile_cont(PG_FUNCTION_ARGS)
 	elog(ERROR, "not implemented yet");
 }
 
-PG_FUNCTION_INFO_V1(percentile_disc);
+Datum percentile_cont_final(PG_FUNCTION_ARGS);
 
 Datum
 percentile_cont_final(PG_FUNCTION_ARGS)

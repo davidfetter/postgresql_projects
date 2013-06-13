@@ -547,7 +547,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		/* agglevelsup will be set by transformAggregateCall */
 		aggref->location = location;
 
-		transformAggregateCall(pstate, aggref, fargs, agg_order, agg_distinct);
+		transformAggregateCall(pstate, aggref, fargs, agg_order, agg_distinct, agg_within_group);
 
 		retval = (Node *) aggref;
 	}

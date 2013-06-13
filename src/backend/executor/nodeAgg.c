@@ -768,10 +768,11 @@ finalize_aggregate(AggState *aggstate,
 		}
 		else
 		{
-			foreach (lc, peraggstate->aggref->orddirectargs)
+			foreach (lc, peraggstate->aggrefstate->orddirectargs)
 			{
+				ExprState *expr = (ExprState *) lfirst(lc);
 				elog(WARNING,"in loop");
-				fcinfo.arg[i] = ExecEvalExpr(lc, aggstate->ss.ps.ps_ExprContext,  &fcinfo.argnull[i], NULL);
+				fcinfo.arg[i] = ExecEvalExpr(expr, aggstate->ss.ps.ps_ExprContext,  &fcinfo.argnull[i], NULL);
 				++i;
 			}
 		}
