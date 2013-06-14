@@ -747,6 +747,7 @@ finalize_aggregate(AggState *aggstate,
 {
 	MemoryContext oldContext;
 	ListCell *lc;
+	ExprState *expr;
 	int i = 0;
 
 	oldContext = MemoryContextSwitchTo(aggstate->ss.ps.ps_ExprContext->ecxt_per_tuple_memory);
@@ -1189,14 +1190,17 @@ agg_retrieve_direct(AggState *aggstate)
 
 			if (peraggstate->numSortCols > 0)
 			{
-				if (peraggstate->numInputs == 1)
-					process_ordered_aggregate_single(aggstate,
+					if (!(peraggstate->aggref->isordset))
+					{
+						if (peraggstate->numInputs == 1)
+							process_ordered_aggregate_single(aggstate,
 													 peraggstate,
 													 pergroupstate);
-				else
-					process_ordered_aggregate_multi(aggstate,
+						else
+							process_ordered_aggregate_multi(aggstate,
 													peraggstate,
 													pergroupstate);
+					}
 			}
 
 			finalize_aggregate(aggstate, peraggstate, pergroupstate,
@@ -1672,12 +1676,21 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			aggOwner = ((Form_pg_proc) GETSTRUCT(procTuple))->proowner;
 			ReleaseSysCache(procTuple);
 
-			aclresult = pg_proc_aclcheck(transfn_oid, aggOwner,
-										 ACL_EXECUTE);
-			if (aclresult != ACLCHECK_OK)
+			if (OidIsValid(transfn_oid))
+			{
+				aclresult = pg_proc_aclcheck(transfn_oid, aggOwner,
+									         ACL_EXECUTE);
+			}
+
+			if (aclresult != ACLCHECK_OK && OidIsValid(transfn_oid))
 				aclcheck_error(aclresult, ACL_KIND_PROC,
 							   get_func_name(transfn_oid));
-			InvokeFunctionExecuteHook(transfn_oid);
+
+			if (OidIsValid(transfn_oid))
+			{
+				InvokeFunctionExecuteHook(transfn_oid);
+			}
+
 			if (OidIsValid(finalfn_oid))
 			{
 				aclresult = pg_proc_aclcheck(finalfn_oid, aggOwner,
@@ -1691,7 +1704,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 		/* resolve actual type of transition state, if polymorphic */
 		aggtranstype = aggform->aggtranstype;
-		if (IsPolymorphicType(aggtranstype))
+		if (IsPolymorphicType(aggtranstype) && OidIsValid(aggtranstype))
 		{
 			/* have to fetch the agg's declared input types... */
 			Oid		   *declaredArgTypes;
@@ -1719,7 +1732,11 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 								&transfnexpr,
 								&finalfnexpr);
 
-		fmgr_info(transfn_oid, &peraggstate->transfn);
+		if (OidIsValid(transfn_oid))
+		{
+			fmgr_info(transfn_oid, &peraggstate->transfn);
+		}
+
 		fmgr_info_set_expr((Node *) transfnexpr, &peraggstate->transfn);
 
 		if (OidIsValid(finalfn_oid))
@@ -1733,9 +1750,12 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		get_typlenbyval(aggref->aggtype,
 						&peraggstate->resulttypeLen,
 						&peraggstate->resulttypeByVal);
-		get_typlenbyval(aggtranstype,
-						&peraggstate->transtypeLen,
-						&peraggstate->transtypeByVal);
+		if (OidIsValid(aggtranstype))
+		{
+			get_typlenbyval(aggtranstype,
+							&peraggstate->transtypeLen,
+							&peraggstate->transtypeByVal);
+		}
 
 		/*
 		 * initval is potentially null, so don't try to access it as a struct

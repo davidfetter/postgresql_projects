@@ -585,7 +585,6 @@ typedef struct AggrefExprState
 	ExprState	xprstate;
 	List	   *args;			/* states of argument expressions */
 	ExprState  *agg_filter;		/* FILTER expression */
-	List	   *orddirectargs;	/* direct arguments for ordered set functions */
 	int			aggno;			/* ID number for agg within its plan node */
 } AggrefExprState;
 

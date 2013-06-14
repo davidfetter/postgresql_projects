@@ -83,8 +83,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	int			nvargs;
 	FuncDetailCode fdresult;
 	HeapTuple	tup;
-	Oid			aggfinalfn;
-	int			number_of_args;
+	Oid		aggfinalfn;
+	int		number_of_args;
 
 	/* Check if the function has WITHIN GROUP as well as distinct. */
 	if(agg_within_group && agg_distinct)

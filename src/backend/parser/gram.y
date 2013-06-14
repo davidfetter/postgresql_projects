@@ -11160,9 +11160,9 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 					if($4 && $6)
 					{
 						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
-								parser_errposition(@5)));
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
+							parser_errposition(@5)));
 					}
 					n->funcname = $1;
 					n->args = $3;
@@ -11182,9 +11182,9 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 					if($5 && $7)
 					{
 						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
-								parser_errposition(@5)));
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
+							parser_errposition(@5)));
 					}
 					n->funcname = $1;
 					n->args = $4;
@@ -11208,9 +11208,9 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 					if($5 && $7)
 					{
 						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
-								parser_errposition(@5)));
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
+							parser_errposition(@5)));
 					}
 					n->funcname = $1;
 					n->args = $4;
