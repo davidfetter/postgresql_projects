@@ -1,6 +1,6 @@
 /*-------------------------------------------------------------------------
  *
- * nodeAgg.c
+ * nodeAgg hi!
  *	  Routines to handle aggregate nodes.
  *
  *	  ExecAgg evaluates each aggregate in the following steps:
