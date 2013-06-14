@@ -1978,7 +1978,7 @@ DESCR("type of the argument");
 DATA(insert OID = 3162 (  pg_collation_for		PGNSP PGUID 12 1 0 0 0 f f f f f f f s 1 0   25 "2276" _null_ _null_ _null_ _null_  pg_collation_for _null_ _null_ _null_ ));
 DESCR("collation of the argument; implementation of the COLLATION FOR expression");
 
-DATA(insert OID = 3842 (  pg_relation_is_updateable PGNSP PGUID 12 10 0 0 0 f f f f f t f s 2 0 23 "2205 16" _null_ _null_ _null_ _null_ pg_relation_is_updatable _null_ _null_ _null_ ));
+DATA(insert OID = 3842 (  pg_relation_is_updatable PGNSP PGUID 12 10 0 0 0 f f f f f t f s 2 0 23 "2205 16" _null_ _null_ _null_ _null_ pg_relation_is_updatable _null_ _null_ _null_ ));
 DESCR("is a relation insertable/updatable/deletable");
 DATA(insert OID = 3843 (  pg_column_is_updatable	PGNSP PGUID 12 10 0 0 0 f f f f f t f s 3 0 16 "2205 21 16" _null_ _null_ _null_ _null_ pg_column_is_updatable _null_ _null_ _null_ ));
 DESCR("is a column updatable");
