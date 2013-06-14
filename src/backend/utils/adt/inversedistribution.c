@@ -33,11 +33,11 @@ Datum percentile_disc_final(PG_FUNCTION_ARGS);
 Datum
 percentile_disc_final(PG_FUNCTION_ARGS)
 {
-	text *test_text;
-	elog(WARNING,"test percentile_disc");
+	float8 testf;
 
-	test_text = PG_GETARG_TEXT_P(0);
-	PG_RETURN_TEXT_P(test_text);
+	testf = PG_GETARG_FLOAT8(0);
+	elog(WARNING,"test percentile_disc %f",testf);
+	PG_RETURN_FLOAT8(testf);
 }
 
 /*
