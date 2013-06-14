@@ -4729,16 +4729,16 @@ DATA(insert OID = 3566 (  pg_event_trigger_dropped_objects		PGNSP PGUID 12 10 10
 DESCR("list objects dropped by the current command");
 
 /* inverse distribution functions */
-DATA(insert OID = 3931 (  percentile_disc			PGNSP PGUID 12 1 0 0 0 t f t f f f f i 2 0 701 "701 701" _null_ _null_ _null_ _null_ percentile_disc _null_ _null_ _null_ ));
+DATA(insert OID = 3931 (  percentile_disc			PGNSP PGUID 12 1 0 0 0 t f t f f f f i 2 0 701 "701" _null_ _null_ _null_ _null_ percentile_disc _null_ _null_ _null_ ));
 DESCR("percentile_disc");
 
-DATA(insert OID = 3932 (  percentile_disc_final			PGNSP PGUID 12 1 0 0 0 t f t f f f f i 2 0 701 "701 701" _null_ _null_ _null_ _null_ percentile_disc_final _null_ _null_ _null_ ));
+DATA(insert OID = 3932 (  percentile_disc_final			PGNSP PGUID 12 1 0 0 0 t f t f f f f i 1 0 701 "701" _null_ _null_ _null_ _null_ percentile_disc_final _null_ _null_ _null_ ));
 DESCR("percentile_disc_final");
 
-DATA(insert OID = 3933 (  percentile_cont			PGNSP PGUID 12 1 0 0 0 t f t f f f f i 2 0 701 "701 701" _null_ _null_ _null_ _null_ percentile_cont _null_ _null_ _null_ ));
+DATA(insert OID = 3935 (  percentile_cont			PGNSP PGUID 12 1 0 0 0 t f t f f f f i 2 0 701 "701" _null_ _null_ _null_ _null_ percentile_cont _null_ _null_ _null_ ));
 DESCR("percentile_cont");
 
-DATA(insert OID = 3934 (  percentile_cont_final			PGNSP PGUID 12 1 0 0 0 t f t f f f f i 2 0 701 "701 701" _null_ _null_ _null_ _null_ percentile_cont_final _null_ _null_ _null_ ));
+DATA(insert OID = 3936 (  percentile_cont_final			PGNSP PGUID 12 1 0 0 0 t f t f f f f i 1 0 701 "701" _null_ _null_ _null_ _null_ percentile_cont_final _null_ _null_ _null_ ));
 DESCR("percentile_cont_final");
 
 /*
