@@ -1,6 +1,6 @@
 /*-------------------------------------------------------------------------
  *
- * nodeAgg hi!
+ * nodeAgg.c
  *	  Routines to handle aggregate nodes.
  *
  *	  ExecAgg evaluates each aggregate in the following steps:
@@ -772,7 +772,6 @@ finalize_aggregate(AggState *aggstate,
 			foreach (lc, peraggstate->aggrefstate->orddirectargs)
 			{
 				ExprState *expr = (ExprState *) lfirst(lc);
-				elog(WARNING,"in loop");
 				fcinfo.arg[i] = ExecEvalExpr(expr, aggstate->ss.ps.ps_ExprContext,  &fcinfo.argnull[i], NULL);
 				++i;
 			}
