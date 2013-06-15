@@ -105,6 +105,8 @@
  */
 typedef struct AggStatePerAggData
 {
+	NodeTag type;
+	AggState *parent_node;
 	/*
 	 * These values are set up during ExecInitAgg() and do not change
 	 * thereafter:
@@ -759,9 +761,21 @@ finalize_aggregate(AggState *aggstate,
 	{
 		FunctionCallInfoData fcinfo;
 
-		InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
-								 peraggstate->aggCollation,
-								 (void *) aggstate, NULL);
+		if (!(peraggstate->aggref->isordset))
+		{
+			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
+								 	peraggstate->aggCollation,
+								 	(void *) aggstate, NULL);
+		}
+		else
+		{
+			peraggstate->type = T_AggStatePerAggData;
+			peraggstate->parent_node = aggstate;
+			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
+								 	peraggstate->aggCollation,
+								 	(void *) peraggstate, NULL);
+		}
+
 		if (!(peraggstate->aggref->isordset))
 		{
 			fcinfo.arg[0] = pergroupstate->transValue;
@@ -771,7 +785,7 @@ finalize_aggregate(AggState *aggstate,
 		{
 			foreach (lc, peraggstate->aggrefstate->orddirectargs)
 			{
-				ExprState *expr = (ExprState *) lfirst(lc);
+				expr = (ExprState *) lfirst(lc);
 				fcinfo.arg[i] = ExecEvalExpr(expr, aggstate->ss.ps.ps_ExprContext,  &fcinfo.argnull[i], NULL);
 				++i;
 			}
@@ -2071,6 +2085,13 @@ AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
 		if (aggcontext)
 			*aggcontext = ((WindowAggState *) fcinfo->context)->aggcontext;
 		return AGG_CONTEXT_WINDOW;
+	}
+
+	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
+	{
+		if (aggcontext)
+			*aggcontext = ((AggStatePerAggData *) fcinfo->context)->parent_node->aggcontext;
+		return AGG_CONTEXT_ORDERED;
 	}
 
 	/* this is just to prevent "uninitialized variable" warnings */
