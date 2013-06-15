@@ -1137,8 +1137,10 @@ _copyAggref(const Aggref *from)
 	COPY_NODE_FIELD(args);
 	COPY_NODE_FIELD(aggorder);
 	COPY_NODE_FIELD(aggdistinct);
+	COPY_NODE_FIELD(orddirectargs);
 	COPY_NODE_FIELD(agg_filter);
 	COPY_SCALAR_FIELD(aggstar);
+	COPY_SCALAR_FIELD(isordset);
 	COPY_SCALAR_FIELD(agglevelsup);
 	COPY_LOCATION_FIELD(location);
 

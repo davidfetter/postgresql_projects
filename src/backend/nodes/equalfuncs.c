@@ -196,8 +196,10 @@ _equalAggref(const Aggref *a, const Aggref *b)
 	COMPARE_NODE_FIELD(args);
 	COMPARE_NODE_FIELD(aggorder);
 	COMPARE_NODE_FIELD(aggdistinct);
+	COMPARE_NODE_FIELD(orddirectargs);
 	COMPARE_NODE_FIELD(agg_filter);
 	COMPARE_SCALAR_FIELD(aggstar);
+	COMPARE_SCALAR_FIELD(isordset);
 	COMPARE_SCALAR_FIELD(agglevelsup);
 	COMPARE_LOCATION_FIELD(location);
 

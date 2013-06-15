@@ -1202,18 +1202,18 @@ agg_retrieve_direct(AggState *aggstate)
 					}
 			}
 
+			/*
+		 	* Use the representative input tuple for any references to
+		 	* non-aggregated input columns in the qual and tlist.	(If we are not
+		 	* grouping, and there are no input rows at all, we will come here
+		 	* with an empty firstSlot ... but if not grouping, there can't be any
+		 	* references to non-aggregated input columns, so no problem.)
+		 	*/
+			econtext->ecxt_outertuple = firstSlot;
+
 			finalize_aggregate(aggstate, peraggstate, pergroupstate,
 							   &aggvalues[aggno], &aggnulls[aggno]);
 		}
-
-		/*
-		 * Use the representative input tuple for any references to
-		 * non-aggregated input columns in the qual and tlist.	(If we are not
-		 * grouping, and there are no input rows at all, we will come here
-		 * with an empty firstSlot ... but if not grouping, there can't be any
-		 * references to non-aggregated input columns, so no problem.)
-		 */
-		econtext->ecxt_outertuple = firstSlot;
 
 		/*
 		 * Check the qual (HAVING clause); if the group does not match, ignore

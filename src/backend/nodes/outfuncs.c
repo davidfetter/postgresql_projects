@@ -958,8 +958,10 @@ _outAggref(StringInfo str, const Aggref *node)
 	WRITE_NODE_FIELD(args);
 	WRITE_NODE_FIELD(aggorder);
 	WRITE_NODE_FIELD(aggdistinct);
+	WRITE_NODE_FIELD(orddirectargs);
 	WRITE_NODE_FIELD(agg_filter);
 	WRITE_BOOL_FIELD(aggstar);
+	WRITE_BOOL_FIELD(isordset);
 	WRITE_UINT_FIELD(agglevelsup);
 	WRITE_LOCATION_FIELD(location);
 }
@@ -2086,6 +2088,7 @@ _outFuncCall(StringInfo str, const FuncCall *node)
 	WRITE_BOOL_FIELD(agg_distinct);
 	WRITE_BOOL_FIELD(func_variadic);
 	WRITE_NODE_FIELD(agg_filter);
+	WRITE_BOOL_FIELD(has_within_group);
 	WRITE_NODE_FIELD(over);
 	WRITE_LOCATION_FIELD(location);
 }
