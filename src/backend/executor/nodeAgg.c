@@ -2134,3 +2134,31 @@ AggSetGetRowCount(FunctionCallInfo fcinfo)
 	elog(ERROR, "Called AggSetGetRowCount on non ordered set function");
 	return -1;
 }
+
+/* AggSetGetSortInfo - Get the sort state in the case of 
+ * ordered set functions.
+ */
+void
+AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate *sortstate, TupleDesc *tupdesc, TupleTableSlot *tupslot, Oid datumtype)
+{
+	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
+	{
+		sortstate = ((AggStatePerAggData *)fcinfo->context)->sortstate;
+		if (((AggStatePerAggData *)fcinfo->context)->numInputs == 1)
+		{
+			tupdesc = NULL;
+			datumtype = ((AggStatePerAggData *)fcinfo->context)->evaldesc->attrs[0]->atttypid;
+		}
+		else
+		{
+			tupdesc = &(((AggStatePerAggData *)fcinfo->context)->evaldesc);
+			datumtype = InvalidOid;
+		}
+
+		tupslot = ((AggStatePerAggData *)fcinfo->context)->evalslot;
+	}
+	else
+	{
+		elog(ERROR, "AggSetSortInfo called on non ordered set function");
+	}
+}
