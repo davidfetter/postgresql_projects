@@ -107,6 +107,7 @@ typedef struct AggStatePerAggData
 {
 	NodeTag type;
 	AggState *parent_node;
+	int number_of_rows;
 	/*
 	 * These values are set up during ExecInitAgg() and do not change
 	 * thereafter:
@@ -535,6 +536,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 								   slot->tts_isnull[0]);
 			else
 				tuplesort_puttupleslot(peraggstate->sortstate, slot);
+			++peraggstate->number_of_rows;
 		}
 		else
 		{
@@ -2116,4 +2118,18 @@ aggregate_dummy(PG_FUNCTION_ARGS)
 	elog(ERROR, "aggregate function %u called as normal function",
 		 fcinfo->flinfo->fn_oid);
 	return (Datum) 0;			/* keep compiler quiet */
+}
+
+/* AggSetGetRowCount - Get the number of rows in case of ordered set
+ * functions.
+ */
+int
+AggSetGetRowCount(FunctionCallInfo fcinfo)
+{
+	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
+	{
+		return ((AggStatePerAggData *)fcinfo->context)->number_of_rows;
+	}
+
+	return -1;
 }
