@@ -2139,11 +2139,11 @@ AggSetGetRowCount(FunctionCallInfo fcinfo)
  * ordered set functions.
  */
 void
-AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate *sortstate, TupleDesc *tupdesc, TupleTableSlot *tupslot, Oid datumtype)
+AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate **sortstate, TupleDesc *tupdesc, TupleTableSlot **tupslot, Oid datumtype)
 {
 	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
 	{
-		sortstate = ((AggStatePerAggData *)fcinfo->context)->sortstate;
+		*sortstate = ((AggStatePerAggData *)fcinfo->context)->sortstate;
 		if (((AggStatePerAggData *)fcinfo->context)->numInputs == 1)
 		{
 			tupdesc = NULL;
@@ -2151,11 +2151,11 @@ AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate *sortstate, TupleDesc 
 		}
 		else
 		{
-			tupdesc = &(((AggStatePerAggData *)fcinfo->context)->evaldesc);
+			*tupdesc = ((AggStatePerAggData *)fcinfo->context)->evaldesc;
 			datumtype = InvalidOid;
 		}
 
-		tupslot = ((AggStatePerAggData *)fcinfo->context)->evalslot;
+		*tupslot = ((AggStatePerAggData *)fcinfo->context)->evalslot;
 	}
 	else
 	{
