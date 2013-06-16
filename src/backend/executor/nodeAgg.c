@@ -2131,5 +2131,6 @@ AggSetGetRowCount(FunctionCallInfo fcinfo)
 		return ((AggStatePerAggData *)fcinfo->context)->number_of_rows;
 	}
 
+	elog(ERROR, "Called AggSetGetRowCount on non ordered set function");
 	return -1;
 }
