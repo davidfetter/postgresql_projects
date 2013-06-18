@@ -107,7 +107,7 @@ typedef struct AggStatePerAggData
 {
 	NodeTag type;
 	AggState *parent_node;
-	int number_of_rows;
+	int64 number_of_rows;
 	/*
 	 * These values are set up during ExecInitAgg() and do not change
 	 * thereafter:
@@ -298,6 +298,7 @@ initialize_aggregates(AggState *aggstate,
 {
 	int			aggno;
 
+	peragg->number_of_rows = 0;
 	for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 	{
 		AggStatePerAgg peraggstate = &peragg[aggno];
@@ -2123,7 +2124,7 @@ aggregate_dummy(PG_FUNCTION_ARGS)
 /* AggSetGetRowCount - Get the number of rows in case of ordered set
  * functions.
  */
-int
+int64
 AggSetGetRowCount(FunctionCallInfo fcinfo)
 {
 	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))

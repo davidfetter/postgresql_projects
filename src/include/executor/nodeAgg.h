@@ -25,4 +25,7 @@ extern Size hash_agg_entry_size(int numAggs);
 
 extern Datum aggregate_dummy(PG_FUNCTION_ARGS);
 
+extern int64 AggSetGetRowCount(FunctionCallInfo fcinfo);
+
+
 #endif   /* NODEAGG_H */

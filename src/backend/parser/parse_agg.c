@@ -93,6 +93,13 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	 */
 	tlist = NIL;
 	attno = 1;
+
+	if (agg_within_group)
+	{
+		agg->isordset = TRUE;
+		agg->orddirectargs = args;
+	}
+
 	if(!(agg->isordset))
 	{
 		foreach(lc, args)
@@ -150,12 +157,6 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 						 parser_errposition(pstate, exprLocation(expr))));
 			}
 		}
-	}
-
-	if (agg_within_group)
-	{
-		agg->isordset = TRUE;
-		agg->orddirectargs = args;
 	}
 
 	/* Update the Aggref with the transformation results */
