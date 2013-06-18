@@ -303,7 +303,7 @@ initialize_aggregates(AggState *aggstate,
 		AggStatePerAgg peraggstate = &peragg[aggno];
 		AggStatePerGroup pergroupstate = &pergroup[aggno];
 
-		peragg->number_of_rows = 0;
+		peraggstate->number_of_rows = 0;
 
 		/*
 		 * Start a fresh sort operation for each DISTINCT/ORDER BY aggregate.
