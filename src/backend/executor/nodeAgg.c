@@ -105,6 +105,9 @@
  */
 typedef struct AggStatePerAggData
 {
+	NodeTag type;
+	AggState *parent_node;
+	int number_of_rows;
 	/*
 	 * These values are set up during ExecInitAgg() and do not change
 	 * thereafter:
@@ -533,6 +536,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 								   slot->tts_isnull[0]);
 			else
 				tuplesort_puttupleslot(peraggstate->sortstate, slot);
+			++peraggstate->number_of_rows;
 		}
 		else
 		{
@@ -759,9 +763,21 @@ finalize_aggregate(AggState *aggstate,
 	{
 		FunctionCallInfoData fcinfo;
 
-		InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
-								 peraggstate->aggCollation,
-								 (void *) aggstate, NULL);
+		if (!(peraggstate->aggref->isordset))
+		{
+			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
+								 	peraggstate->aggCollation,
+								 	(void *) aggstate, NULL);
+		}
+		else
+		{
+			peraggstate->type = T_AggStatePerAggData;
+			peraggstate->parent_node = aggstate;
+			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
+								 	peraggstate->aggCollation,
+								 	(void *) peraggstate, NULL);
+		}
+
 		if (!(peraggstate->aggref->isordset))
 		{
 			fcinfo.arg[0] = pergroupstate->transValue;
@@ -771,7 +787,7 @@ finalize_aggregate(AggState *aggstate,
 		{
 			foreach (lc, peraggstate->aggrefstate->orddirectargs)
 			{
-				ExprState *expr = (ExprState *) lfirst(lc);
+				expr = (ExprState *) lfirst(lc);
 				fcinfo.arg[i] = ExecEvalExpr(expr, aggstate->ss.ps.ps_ExprContext,  &fcinfo.argnull[i], NULL);
 				++i;
 			}
@@ -1202,18 +1218,18 @@ agg_retrieve_direct(AggState *aggstate)
 					}
 			}
 
+			/*
+		 	* Use the representative input tuple for any references to
+		 	* non-aggregated input columns in the qual and tlist.	(If we are not
+		 	* grouping, and there are no input rows at all, we will come here
+		 	* with an empty firstSlot ... but if not grouping, there can't be any
+		 	* references to non-aggregated input columns, so no problem.)
+		 	*/
+			econtext->ecxt_outertuple = firstSlot;
+
 			finalize_aggregate(aggstate, peraggstate, pergroupstate,
 							   &aggvalues[aggno], &aggnulls[aggno]);
 		}
-
-		/*
-		 * Use the representative input tuple for any references to
-		 * non-aggregated input columns in the qual and tlist.	(If we are not
-		 * grouping, and there are no input rows at all, we will come here
-		 * with an empty firstSlot ... but if not grouping, there can't be any
-		 * references to non-aggregated input columns, so no problem.)
-		 */
-		econtext->ecxt_outertuple = firstSlot;
 
 		/*
 		 * Check the qual (HAVING clause); if the group does not match, ignore
@@ -2073,6 +2089,13 @@ AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
 		return AGG_CONTEXT_WINDOW;
 	}
 
+	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
+	{
+		if (aggcontext)
+			*aggcontext = ((AggStatePerAggData *) fcinfo->context)->parent_node->aggcontext;
+		return AGG_CONTEXT_ORDERED;
+	}
+
 	/* this is just to prevent "uninitialized variable" warnings */
 	if (aggcontext)
 		*aggcontext = NULL;
@@ -2095,4 +2118,47 @@ aggregate_dummy(PG_FUNCTION_ARGS)
 	elog(ERROR, "aggregate function %u called as normal function",
 		 fcinfo->flinfo->fn_oid);
 	return (Datum) 0;			/* keep compiler quiet */
+}
+
+/* AggSetGetRowCount - Get the number of rows in case of ordered set
+ * functions.
+ */
+int
+AggSetGetRowCount(FunctionCallInfo fcinfo)
+{
+	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
+	{
+		return ((AggStatePerAggData *)fcinfo->context)->number_of_rows;
+	}
+
+	elog(ERROR, "Called AggSetGetRowCount on non ordered set function");
+	return -1;
+}
+
+/* AggSetGetSortInfo - Get the sort state in the case of 
+ * ordered set functions.
+ */
+void
+AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate **sortstate, TupleDesc *tupdesc, TupleTableSlot **tupslot, Oid datumtype)
+{
+	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
+	{
+		*sortstate = ((AggStatePerAggData *)fcinfo->context)->sortstate;
+		if (((AggStatePerAggData *)fcinfo->context)->numInputs == 1)
+		{
+			tupdesc = NULL;
+			datumtype = ((AggStatePerAggData *)fcinfo->context)->evaldesc->attrs[0]->atttypid;
+		}
+		else
+		{
+			*tupdesc = ((AggStatePerAggData *)fcinfo->context)->evaldesc;
+			datumtype = InvalidOid;
+		}
+
+		*tupslot = ((AggStatePerAggData *)fcinfo->context)->evalslot;
+	}
+	else
+	{
+		elog(ERROR, "AggSetSortInfo called on non ordered set function");
+	}
 }

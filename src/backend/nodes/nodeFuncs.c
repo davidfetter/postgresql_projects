@@ -2085,6 +2085,7 @@ expression_tree_mutator(Node *node,
 				MUTATE(newnode->args, aggref->args, List *);
 				MUTATE(newnode->aggorder, aggref->aggorder, List *);
 				MUTATE(newnode->aggdistinct, aggref->aggdistinct, List *);
+				MUTATE(newnode->orddirectargs, aggref->orddirectargs, List *);
 				MUTATE(newnode->agg_filter, aggref->agg_filter, Expr *);
 				return (Node *) newnode;
 			}

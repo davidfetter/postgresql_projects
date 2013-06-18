@@ -479,8 +479,10 @@ _readAggref(void)
 	READ_NODE_FIELD(args);
 	READ_NODE_FIELD(aggorder);
 	READ_NODE_FIELD(aggdistinct);
+	READ_NODE_FIELD(orddirectargs);
 	READ_NODE_FIELD(agg_filter);
 	READ_BOOL_FIELD(aggstar);
+	READ_BOOL_FIELD(isordset);
 	READ_UINT_FIELD(agglevelsup);
 	READ_LOCATION_FIELD(location);
 
