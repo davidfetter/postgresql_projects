@@ -304,6 +304,7 @@ initialize_aggregates(AggState *aggstate,
 		AggStatePerGroup pergroupstate = &pergroup[aggno];
 
 		peraggstate->number_of_rows = 0;
+		
 
 		/*
 		 * Start a fresh sort operation for each DISTINCT/ORDER BY aggregate.
@@ -1568,9 +1569,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	peragg = (AggStatePerAgg) palloc0(sizeof(AggStatePerAggData) * numaggs);
 	aggstate->peragg = peragg;
 
-	peragg->type = T_AggStatePerAggData;
-	peragg->parent_node = aggstate;
-
 	if (node->aggstrategy == AGG_HASHED)
 	{
 		build_hash_table(aggstate);
@@ -1647,6 +1645,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		numInputs = list_length(aggref->args);
 		peraggstate->numInputs = numInputs;
 		peraggstate->sortstate = NULL;
+		peraggstate->type = T_AggStatePerAggData;
+		peraggstate->parent_node = aggstate;
 
 		/*
 		 * Get actual datatypes of the inputs.	These could be different from
