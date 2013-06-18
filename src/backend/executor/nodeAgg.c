@@ -298,11 +298,14 @@ initialize_aggregates(AggState *aggstate,
 {
 	int			aggno;
 
-	peragg->number_of_rows = 0;
 	for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 	{
 		AggStatePerAgg peraggstate = &peragg[aggno];
 		AggStatePerGroup pergroupstate = &pergroup[aggno];
+
+		peragg->number_of_rows = 0;
+		peraggstate->type = T_AggStatePerAggData;
+		peraggstate->parent_node = aggstate;
 
 		/*
 		 * Start a fresh sort operation for each DISTINCT/ORDER BY aggregate.
@@ -772,8 +775,6 @@ finalize_aggregate(AggState *aggstate,
 		}
 		else
 		{
-			peraggstate->type = T_AggStatePerAggData;
-			peraggstate->parent_node = aggstate;
 			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
 								 	peraggstate->aggCollation,
 								 	(void *) peraggstate, NULL);
