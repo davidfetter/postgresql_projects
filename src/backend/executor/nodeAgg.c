@@ -1857,7 +1857,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			/* If we have only one input, we need its len/byval info. */
 			if (numInputs == 1)
 			{
-				get_typlenbyval(inputTypes[0],
+				get_typlenbyval(peraggstate->evaldesc->attrs[0]->atttypid,
 								&peraggstate->inputtypeLen,
 								&peraggstate->inputtypeByVal);
 			}
