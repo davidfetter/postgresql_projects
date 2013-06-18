@@ -298,13 +298,11 @@ initialize_aggregates(AggState *aggstate,
 {
 	int			aggno;
 
+	peragg->number_of_rows = 0;
 	for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 	{
 		AggStatePerAgg peraggstate = &peragg[aggno];
 		AggStatePerGroup pergroupstate = &pergroup[aggno];
-
-		peraggstate->number_of_rows = 0;
-		
 
 		/*
 		 * Start a fresh sort operation for each DISTINCT/ORDER BY aggregate.
@@ -774,6 +772,8 @@ finalize_aggregate(AggState *aggstate,
 		}
 		else
 		{
+			peraggstate->type = T_AggStatePerAggData;
+			peraggstate->parent_node = aggstate;
 			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
 								 	peraggstate->aggCollation,
 								 	(void *) peraggstate, NULL);
@@ -1645,8 +1645,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		numInputs = list_length(aggref->args);
 		peraggstate->numInputs = numInputs;
 		peraggstate->sortstate = NULL;
-		peraggstate->type = T_AggStatePerAggData;
-		peraggstate->parent_node = aggstate;
 
 		/*
 		 * Get actual datatypes of the inputs.	These could be different from
@@ -1857,7 +1855,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			/* If we have only one input, we need its len/byval info. */
 			if (numInputs == 1)
 			{
-				get_typlenbyval(peraggstate->evaldesc->attrs[0]->atttypid,
+				get_typlenbyval(inputTypes[0],
 								&peraggstate->inputtypeLen,
 								&peraggstate->inputtypeByVal);
 			}
@@ -2142,23 +2140,28 @@ AggSetGetRowCount(FunctionCallInfo fcinfo)
  * ordered set functions.
  */
 void
-AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate **sortstate, TupleDesc *tupdesc, TupleTableSlot **tupslot, Oid datumtype)
+AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate **sortstate, TupleDesc *tupdesc, TupleTableSlot **tupslot, Oid *datumtype)
 {
 	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
 	{
-		*sortstate = ((AggStatePerAggData *)fcinfo->context)->sortstate;
-		if (((AggStatePerAggData *)fcinfo->context)->numInputs == 1)
+		AggStatePerAggData *peraggstate = (AggStatePerAggData *) fcinfo->context;
+
+		*sortstate = peraggstate->sortstate;
+		if (peraggstate->numInputs == 1)
 		{
-			tupdesc = NULL;
-			datumtype = ((AggStatePerAggData *)fcinfo->context)->evaldesc->attrs[0]->atttypid;
+			if (tupdesc)
+				*tupdesc = NULL;
+			*datumtype = peraggstate->evaldesc->attrs[0]->atttypid;
 		}
 		else
 		{
-			*tupdesc = ((AggStatePerAggData *)fcinfo->context)->evaldesc;
-			datumtype = InvalidOid;
+			if (tupdesc)
+				*tupdesc = peraggstate->evaldesc;
+			*datumtype = InvalidOid;
 		}
-
-		*tupslot = ((AggStatePerAggData *)fcinfo->context)->evalslot;
+		
+		if (tupslot)
+			*tupslot = peraggstate->evalslot;
 	}
 	else
 	{
