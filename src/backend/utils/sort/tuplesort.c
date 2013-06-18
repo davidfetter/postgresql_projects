@@ -1402,23 +1402,29 @@ tuplesort_performsort(Tuplesortstate *state)
  * Internal routine to fetch the next tuple in either forward or back
  * direction into *stup.  Returns FALSE if no more tuples.
  * If *should_free is set, the caller must pfree stup.tuple when done with it.
+ * stup may be null to move without fetching.
  */
 static bool
 tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
 						  SortTuple *stup, bool *should_free)
 {
 	unsigned int tuplen;
+	SortTuple dummy;
+	SortTuple *ptup = stup ? stup : &dummy;
 
 	switch (state->status)
 	{
 		case TSS_SORTEDINMEM:
 			Assert(forward || state->randomAccess);
-			*should_free = false;
+			if (should_free)
+				*should_free = false;
 			if (forward)
 			{
 				if (state->current < state->memtupcount)
 				{
-					*stup = state->memtuples[state->current++];
+					if (stup)
+						*stup = state->memtuples[state->current];
+					state->current++;
 					return true;
 				}
 				state->eof_reached = true;
@@ -1450,21 +1456,25 @@ tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
 					if (state->current <= 0)
 						return false;
 				}
-				*stup = state->memtuples[state->current - 1];
+				if (stup)
+					*stup = state->memtuples[state->current - 1];
 				return true;
 			}
 			break;
 
 		case TSS_SORTEDONTAPE:
 			Assert(forward || state->randomAccess);
-			*should_free = true;
+			if (should_free)
+				*should_free = true;
 			if (forward)
 			{
 				if (state->eof_reached)
 					return false;
 				if ((tuplen = getlen(state, state->result_tape, true)) != 0)
 				{
-					READTUP(state, stup, state->result_tape, tuplen);
+					READTUP(state, ptup, state->result_tape, tuplen);
+					if (!stup && dummy.tuple)
+						pfree(dummy.tuple);
 					return true;
 				}
 				else
@@ -1537,12 +1547,15 @@ tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
 									  state->result_tape,
 									  tuplen))
 				elog(ERROR, "bogus tuple length in backward scan");
-			READTUP(state, stup, state->result_tape, tuplen);
+			READTUP(state, ptup, state->result_tape, tuplen);
+			if (!stup && dummy.tuple)
+				pfree(dummy.tuple);
 			return true;
 
 		case TSS_FINALMERGE:
 			Assert(forward);
-			*should_free = true;
+			if (should_free)
+				*should_free = true;
 
 			/*
 			 * This code should match the inner loop of mergeonerun().
@@ -1554,11 +1567,11 @@ tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
 				int			tupIndex;
 				SortTuple  *newtup;
 
-				*stup = state->memtuples[0];
+				*ptup = state->memtuples[0];
 				/* returned tuple is no longer counted in our memory space */
-				if (stup->tuple)
+				if (ptup->tuple)
 				{
-					tuplen = GetMemoryChunkSpace(stup->tuple);
+					tuplen = GetMemoryChunkSpace(ptup->tuple);
 					state->availMem += tuplen;
 					state->mergeavailmem[srcTape] += tuplen;
 				}
@@ -1589,6 +1602,8 @@ tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
 				newtup->tupindex = state->mergefreelist;
 				state->mergefreelist = tupIndex;
 				state->mergeavailslots[srcTape]++;
+				if (!stup && dummy.tuple)
+					pfree(dummy.tuple);
 				return true;
 			}
 			return false;
@@ -1611,20 +1626,22 @@ tuplesort_gettupleslot(Tuplesortstate *state, bool forward,
 	MemoryContext oldcontext = MemoryContextSwitchTo(state->sortcontext);
 	SortTuple	stup;
 	bool		should_free;
+	bool        found;
 
-	if (!tuplesort_gettuple_common(state, forward, &stup, &should_free))
-		stup.tuple = NULL;
+	found = tuplesort_gettuple_common(state, forward, (slot ? &stup : NULL), &should_free);
 
 	MemoryContextSwitchTo(oldcontext);
 
-	if (stup.tuple)
+	if (found)
 	{
-		ExecStoreMinimalTuple((MinimalTuple) stup.tuple, slot, should_free);
+		if (slot)
+			ExecStoreMinimalTuple((MinimalTuple) stup.tuple, slot, should_free);
 		return true;
 	}
 	else
 	{
-		ExecClearTuple(slot);
+		if (slot)
+			ExecClearTuple(slot);
 		return false;
 	}
 }
@@ -1683,24 +1700,27 @@ tuplesort_getdatum(Tuplesortstate *state, bool forward,
 	SortTuple	stup;
 	bool		should_free;
 
-	if (!tuplesort_gettuple_common(state, forward, &stup, &should_free))
+	if (!tuplesort_gettuple_common(state, forward, (val ? &stup : NULL), &should_free))
 	{
 		MemoryContextSwitchTo(oldcontext);
 		return false;
 	}
 
-	if (stup.isnull1 || state->datumTypeByVal)
+	if (val)
 	{
-		*val = stup.datum1;
-		*isNull = stup.isnull1;
-	}
-	else
-	{
-		if (should_free)
+		if (stup.isnull1 || state->datumTypeByVal)
+		{
 			*val = stup.datum1;
+			*isNull = stup.isnull1;
+		}
 		else
-			*val = datumCopy(stup.datum1, false, state->datumTypeLen);
-		*isNull = false;
+		{
+			if (should_free)
+				*val = stup.datum1;
+			else
+				*val = datumCopy(stup.datum1, false, state->datumTypeLen);
+			*isNull = false;
+		}
 	}
 
 	MemoryContextSwitchTo(oldcontext);
