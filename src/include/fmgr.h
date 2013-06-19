@@ -651,6 +651,18 @@ extern void **find_rendezvous_variable(const char *varName);
 
 extern int AggCheckCallContext(FunctionCallInfo fcinfo,
 					MemoryContext *aggcontext);
+extern int64 AggSetGetRowCount(FunctionCallInfo fcinfo);
+
+typedef struct Tuplesortstate fmTuplesortstate;
+typedef struct tupleDesc *fmTupleDesc;
+typedef struct TupleTableSlot fmTupleTableSlot;
+
+extern void AggSetGetSortInfo(FunctionCallInfo fcinfo,
+							  fmTuplesortstate **sortstate,
+							  fmTupleDesc *tupdesc,
+							  fmTupleTableSlot **tupslot,
+							  Oid *datumtype);
+
 
 /*
  * We allow plugin modules to hook function entry/exit.  This is intended
