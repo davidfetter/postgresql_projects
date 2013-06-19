@@ -13273,9 +13273,26 @@ postgres=# SELECT * FROM unnest2(ARRAY[[1,2],[3,4]]);
        3
        4
 (4 rows)
+</programlisting>
+  </para>
 
--- unnest WITH ORDINALITY
-postgres@postgres:5493=# select * FROM pg_ls_dir('.') WITH ORDINALITY AS t(ls,n);
+  <indexterm>
+   <primary>ordinality</primary>
+  </indexterm>
+
+  <para>
+  When a function in the <literal>FROM</literal> clause is suffixed by
+  <literal>WITH ORDINALITY</literal>, an integer column is appended to
+  the output which starts from 1 and increments by 1 for each row of
+  the function's output.  This is more useful in the case of
+  set-returning functions than of others.  This functionality is
+  available for functions returning composite types or using
+  <literal>OUT</literal> parameters, but not when using a function
+  returning <literal>RECORD</literal> with an explicit column definition list.
+
+<programlisting>
+-- SRF WITH ORDINALITY
+postgres=# SELECT * FROM pg_ls_dir('.') WITH ORDINALITY AS t(ls,n);
        ls        | n  
 -----------------+----
  pg_serial       |  1

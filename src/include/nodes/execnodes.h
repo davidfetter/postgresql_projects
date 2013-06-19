@@ -1398,10 +1398,10 @@ typedef struct FunctionScanState
 {
 	ScanState	ss;				/* its first field is NodeTag */
 	int			eflags;
-	int64       ordinal;
-	TupleDesc	scan_tupdesc;
-	TupleDesc	func_tupdesc;
-	TupleTableSlot *func_slot;
+	int64       ordinal;        /* column for WITH ORDINALITY */
+	TupleDesc	scan_tupdesc;   /* Scan tuple descriptor */
+	TupleDesc	func_tupdesc;   /* Function tuple descriptor */
+	TupleTableSlot *func_slot;	/* Function slot */
 	Tuplestorestate *tuplestorestate;
 	ExprState  *funcexpr;
 } FunctionScanState;

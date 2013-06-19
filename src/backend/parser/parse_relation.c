@@ -1311,7 +1311,7 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	 * permissions mechanism).
 	 */
 	rte->lateral = lateral;
-	rte->ordinality = rangefunc->ordinality;
+	rte->funcordinality = rangefunc->ordinality;
 	rte->inh = false;			/* never true for functions */
 	rte->inFromCl = inFromCl;
 
@@ -1810,7 +1810,7 @@ expandRTE(RangeTblEntry *rte, int rtindex, int sublevels_up,
 				}
 
 				/* tack on the extra ordinality column if present */
-				if (rte->ordinality)
+				if (rte->funcordinality)
 				{
 					if (colnames)
 						*colnames = lappend(*colnames, llast(rte->eref->colnames));
@@ -2221,7 +2221,7 @@ get_rte_attribute_type(RangeTblEntry *rte, AttrNumber attnum,
 
 					Assert(tupdesc);
 
-					if (rte->ordinality && attnum == (tupdesc->natts + 1))
+					if (rte->funcordinality && attnum == (tupdesc->natts + 1))
 					{
 						*vartype = INT8OID;
 						*vartypmod = -1;
@@ -2256,7 +2256,7 @@ get_rte_attribute_type(RangeTblEntry *rte, AttrNumber attnum,
 				}
 				else if (functypclass == TYPEFUNC_SCALAR)
 				{
-					if (rte->ordinality && attnum == 2)
+					if (rte->funcordinality && attnum == 2)
 					{
 						*vartype = INT8OID;
 						*vartypmod = -1;
@@ -2390,7 +2390,7 @@ get_rte_attribute_is_dropped(RangeTblEntry *rte, AttrNumber attnum)
 				Oid			funcrettype = exprType(rte->funcexpr);
 				Oid			funcrelid = typeidTypeRelid(funcrettype);
 
-				if (rte->ordinality && attnum == list_length(rte->eref->colnames))
+				if (rte->funcordinality && attnum == list_length(rte->eref->colnames))
 				{
 					result = false;
 				}

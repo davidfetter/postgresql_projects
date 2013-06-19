@@ -504,11 +504,11 @@ _copyFunctionScan(const FunctionScan *from)
 	 * copy remainder of node
 	 */
 	COPY_NODE_FIELD(funcexpr);
-	COPY_SCALAR_FIELD(funcordinality);
 	COPY_NODE_FIELD(funccolnames);
 	COPY_NODE_FIELD(funccoltypes);
 	COPY_NODE_FIELD(funccoltypmods);
 	COPY_NODE_FIELD(funccolcollations);
+	COPY_SCALAR_FIELD(funcordinality);
 
 	return newnode;
 }
@@ -1981,6 +1981,7 @@ _copyRangeTblEntry(const RangeTblEntry *from)
 	COPY_NODE_FIELD(funccoltypes);
 	COPY_NODE_FIELD(funccoltypmods);
 	COPY_NODE_FIELD(funccolcollations);
+	COPY_SCALAR_FIELD(funcordinality);
 	COPY_NODE_FIELD(values_lists);
 	COPY_NODE_FIELD(values_collations);
 	COPY_STRING_FIELD(ctename);
@@ -1992,7 +1993,6 @@ _copyRangeTblEntry(const RangeTblEntry *from)
 	COPY_NODE_FIELD(alias);
 	COPY_NODE_FIELD(eref);
 	COPY_SCALAR_FIELD(lateral);
-	COPY_SCALAR_FIELD(ordinality);
 	COPY_SCALAR_FIELD(inh);
 	COPY_SCALAR_FIELD(inFromCl);
 	COPY_SCALAR_FIELD(requiredPerms);
@@ -2282,8 +2282,8 @@ _copyRangeFunction(const RangeFunction *from)
 {
 	RangeFunction *newnode = makeNode(RangeFunction);
 
-	COPY_SCALAR_FIELD(lateral);
 	COPY_SCALAR_FIELD(ordinality);
+	COPY_SCALAR_FIELD(lateral);
 	COPY_NODE_FIELD(funccallnode);
 	COPY_NODE_FIELD(alias);
 	COPY_NODE_FIELD(coldeflist);
