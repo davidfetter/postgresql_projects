@@ -88,18 +88,17 @@ static Node *transformFrameOffset(ParseState *pstate, int frameOptions,
 extern void addAliases(ParseState *pstate);
 
 void addAliases(ParseState *pstate){
-	int     rtindex;
-	int		i;
-	List	*namespace;
 	const int noal = 2;
 	char	*aliases[] = {"before","after"};
+	int		i;
 	ListCell   *l;
+	ParseNamespaceItem *nsitem;
 	RangeTblEntry *rte = NULL;
 
 	foreach(l, pstate->p_namespace)
 	{
-		ParseNamespaceItem *nsitem = (ParseNamespaceItem *) lfirst(l);
-		RangeTblEntry *rte = nsitem->p_rte;
+		nsitem = (ParseNamespaceItem *) lfirst(l);
+		rte = nsitem->p_rte;
 
 		/* Ignore columns-only items */
 		if (!nsitem->p_rel_visible)
@@ -117,12 +116,17 @@ void addAliases(ParseState *pstate){
 		}
 	}
 
+	l = pstate->p_namespace->head;
+	nsitem = (ParseNamespaceItem *) lfirst(l);
+
 	for(i=0 ; i<noal; i++){
 		if (aliases[i])
 		{
 			rte = makeNode(RangeTblEntry);
 			rte->eref = makeAlias(aliases[i], NIL);
-			rte->inh = INH_DEFAULT;
+			rte->inh = INH_NO;
+			rte->alias = nsitem->p_rte;
+			rte->relkind = RELKIND_BEFORE;
 			addRTEtoQuery(pstate, rte, false, true, true);
 			pstate->p_rtable = lappend(pstate->p_rtable, rte);
 		}
