@@ -1389,7 +1389,10 @@ typedef struct SubqueryScanState
  *		function appearing in FROM (typically a function returning set).
  *
  *		eflags				node's capability flags
- *		tupdesc				expected return tuple description
+ *		ordinal				column for WITH ORDINALITY
+ *		scan_tupdesc		scan tuple descriptor 
+ *		func_tupdesc		function tuple descriptor 
+ *		func_slot			function slot
  *		tuplestorestate		private state of tuplestore.c
  *		funcexpr			state for function expression being evaluated
  * ----------------
@@ -1398,10 +1401,10 @@ typedef struct FunctionScanState
 {
 	ScanState	ss;				/* its first field is NodeTag */
 	int			eflags;
-	int64       ordinal;        /* column for WITH ORDINALITY */
-	TupleDesc	scan_tupdesc;   /* Scan tuple descriptor */
-	TupleDesc	func_tupdesc;   /* Function tuple descriptor */
-	TupleTableSlot *func_slot;	/* Function slot */
+	int64       ordinal;
+	TupleDesc	scan_tupdesc;
+	TupleDesc	func_tupdesc;
+	TupleTableSlot *func_slot;
 	Tuplestorestate *tuplestorestate;
 	ExprState  *funcexpr;
 } FunctionScanState;

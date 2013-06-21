@@ -367,8 +367,7 @@ TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ]
        <para>
         Function calls can appear in the <literal>FROM</literal>
         clause.  (This is especially useful for functions that return
-        result sets, but any function except those that return
-        <literal>[SETOF] RECORD</literal> can be used.)  This acts as
+        result sets, but any function can be used.)  This acts as
         though its output were created as a temporary table for the
         duration of this single <command>SELECT</command> command.
         When the optional <command>WITH ORDINALITY</command> is
