@@ -461,6 +461,10 @@ select
   (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)) filter (where o.unique1 < 10))
 from tenk1 o;
 
+-- non-standard-conforming FILTER clause containing subquery
+
+select array_agg(unique1) FILTER (WHERE unique1 IN (SELECT unique1 FROM onek where unique1 < 100)) FROM tenk1;
+
 -- exercise lots of aggregate parts with FILTER
 
 select aggfns(distinct a,b,c order by a,c using ~<~,b) filter (where a > 1)
