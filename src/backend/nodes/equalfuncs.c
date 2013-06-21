@@ -1999,6 +1999,7 @@ _equalFuncCall(const FuncCall *a, const FuncCall *b)
 	COMPARE_SCALAR_FIELD(agg_star);
 	COMPARE_SCALAR_FIELD(agg_distinct);
 	COMPARE_SCALAR_FIELD(func_variadic);
+	COMPARE_SCALAR_FIELD(has_within_group);
 	COMPARE_NODE_FIELD(agg_filter);
 	COMPARE_NODE_FIELD(over);
 	COMPARE_LOCATION_FIELD(location);
