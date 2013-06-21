@@ -463,7 +463,7 @@ from tenk1 o;
 
 -- non-standard-conforming FILTER clause containing subquery
 
-select array_agg(unique1) FILTER (WHERE unique1 IN (SELECT unique1 FROM onek where unique1 < 100)) FROM tenk1;
+select sum(unique1) FILTER (WHERE unique1 IN (SELECT unique1 FROM onek where unique1 < 100)) FROM tenk1;
 
 -- exercise lots of aggregate parts with FILTER
 
