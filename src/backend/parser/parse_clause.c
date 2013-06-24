@@ -127,7 +127,7 @@ void addAliases(ParseState *pstate){
 			rte->inh = INH_NO;
 			rte->relid = nsitem->p_rte->relid;
 			pstate->p_rtable = lappend(pstate->p_rtable, rte);
-			addRTEtoQuery(pstate, rte, true, true, true);
+			addRTEtoQuery(pstate, rte, true, true, false);
 		}
 	}
 }
