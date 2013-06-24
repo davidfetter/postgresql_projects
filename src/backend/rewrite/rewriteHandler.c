@@ -1611,13 +1611,6 @@ fireRIRrules(Query *parsetree, List *activeRIRs, bool forUpdatePushedDown)
 			rt_index != origResultRelation)
 			continue;
 
-
-		/* 
-		 * If it is only alias to core table, ignore
-		 */
-		if (rte->relid == 0 &&
-				rte->alias)
-			continue;
 		/*
 		 * We can use NoLock here since either the parser or
 		 * AcquireRewriteLocks should have locked the rel already.

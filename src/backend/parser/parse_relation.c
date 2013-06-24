@@ -1659,13 +1659,6 @@ expandRTE(RangeTblEntry *rte, int rtindex, int sublevels_up,
 	{
 		case RTE_RELATION:
 			/* Ordinary relation RTE */
-			if(rte->relid == 0 && rte->alias){
-				expandRelation(((RangeTblEntry *)rte->alias)->relid, rte->eref,
-						   rtindex, sublevels_up, location,
-						   include_dropped, colnames, colvars);
-
-			}
-			else
 			expandRelation(rte->relid, rte->eref,
 						   rtindex, sublevels_up, location,
 						   include_dropped, colnames, colvars);

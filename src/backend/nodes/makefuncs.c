@@ -141,7 +141,6 @@ makeWholeRowVar(RangeTblEntry *rte,
 		case RTE_RELATION:
 			/* relation: the rowtype is a named composite type */
 			toid = get_rel_type_id(rte->relid);
-			if(toid == 0 && rte->alias) toid = get_rel_type_id(((RangeTblEntry *)rte->alias)->relid);
 			if (!OidIsValid(toid))
 				elog(ERROR, "could not find type OID for relation %u",
 					 rte->relid);

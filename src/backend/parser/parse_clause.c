@@ -126,7 +126,6 @@ void addAliases(ParseState *pstate){
 			rte->eref = makeAlias(aliases[i], nsitem->p_rte->eref->colnames);
 			rte->inh = INH_NO;
 			rte->relid = nsitem->p_rte->relid;
-			rte->relkind = RELKIND_BEFORE;
 			pstate->p_rtable = lappend(pstate->p_rtable, rte);
 			addRTEtoQuery(pstate, rte, true, true, true);
 		}
