@@ -123,12 +123,12 @@ void addAliases(ParseState *pstate){
 		if (aliases[i])
 		{
 			rte = makeNode(RangeTblEntry);
-			rte->eref = makeAlias(aliases[i], NIL);
+			rte->eref = makeAlias(aliases[i], nsitem->p_rte->eref->colnames);
 			rte->inh = INH_NO;
-			rte->alias = nsitem->p_rte;
+			rte->relid = nsitem->p_rte->relid;
 			rte->relkind = RELKIND_BEFORE;
-			addRTEtoQuery(pstate, rte, false, true, true);
 			pstate->p_rtable = lappend(pstate->p_rtable, rte);
+			addRTEtoQuery(pstate, rte, true, true, true);
 		}
 	}
 }
