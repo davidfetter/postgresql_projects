@@ -402,6 +402,8 @@ static char *generate_function_name(Oid funcid, int nargs,
 static char *generate_operator_name(Oid operid, Oid arg1, Oid arg2);
 static text *string_to_text(char *str);
 static char *flatten_reloptions(Oid relid);
+static void get_aggstd_expr(Aggref *aggref, deparse_context *context);
+static void get_ordset_expr(Aggref *aggref, deparse_context *context);
 
 #define only_marker(rte)  ((rte)->inh ? "" : "ONLY ")
 
@@ -7383,6 +7385,71 @@ get_func_expr(FuncExpr *expr, deparse_context *context,
 static void
 get_agg_expr(Aggref *aggref, deparse_context *context)
 {
+	if (aggref->isordset)
+	{
+		get_ordset_expr(aggref, context);
+	}
+	else
+	{
+		get_agg_normal(aggref, context);
+	}
+
+	if (aggref->agg_filter != NULL)
+	{
+		appendStringInfoString(buf, ") FILTER (WHERE ");
+		get_rule_expr((Node *)aggref->agg_filter, context, false);
+	}
+}
+
+static void
+get_ordset_expr(Aggref *aggref, deparse_context *context)
+{
+	StringInfo	buf = context->buf;
+	Oid			argtypes[FUNC_MAX_ARGS];
+	List	   *arglist;
+	int			nargs;
+	ListCell   *l;
+
+	/* Extract the regular arguments, ignoring resjunk stuff for the moment */
+	arglist = NIL;
+	nargs = 0;
+	foreach(l, aggref->orddirectargs)
+	{
+		Node	   *arg = (Node *)(lfirst(l)->expr);
+
+		Assert(!IsA(arg, NamedArgExpr));
+		if (nargs >= FUNC_MAX_ARGS)		/* paranoia */
+			ereport(ERROR,
+					(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
+					 errmsg("too many arguments")));
+		argtypes[nargs] = exprType(arg);
+		nargs++;
+	}
+
+	/* For direct arguments in case of ordered set functions */
+	foreach(l, aggref->args)
+	{
+		TargetEntry *tle = (TargetEntry *) lfirst(l);
+		Node	   *arg = (Node *) tle->expr;
+
+		Assert(!IsA(arg, NamedArgExpr));
+		if (tle->resjunk)
+			continue;
+		if (nargs >= FUNC_MAX_ARGS)		/* paranoia */
+			ereport(ERROR,
+					(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
+					 errmsg("too many arguments")));
+		argtypes[nargs] = exprType(arg);
+		arglist = lappend(arglist, arg);
+		nargs++;
+	}
+
+	get_rule_expr((Node *)aggref->orddirectargs, context, true);
+	
+}
+static void
+get_aggstd_expr(Aggref *aggref, deparse_context *context)
+{
 	StringInfo	buf = context->buf;
 	Oid			argtypes[FUNC_MAX_ARGS];
 	List	   *arglist;
@@ -7424,15 +7491,6 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 		appendStringInfoString(buf, " ORDER BY ");
 		get_rule_orderby(aggref->aggorder, aggref->args, false, context);
 	}
-
-	if (aggref->agg_filter != NULL)
-	{
-		appendStringInfoString(buf, ") FILTER (WHERE ");
-		get_rule_expr((Node *)aggref->agg_filter, context, false);
-	}
-
-	appendStringInfoChar(buf, ')');
-
 }
 
 /*
