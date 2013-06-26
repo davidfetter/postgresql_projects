@@ -7387,6 +7387,8 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 {
 	if (aggref->isordset)
 	{
+		appendStringInfoString(buf, "WITHIN GROUP (ORDER BY");
+		get_rule_orderby((Node *)aggref->agg_filter, context, false);
 		get_ordset_expr(aggref, context);
 	}
 	else
