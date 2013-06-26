@@ -7401,6 +7401,8 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 		appendStringInfoString(buf, ") FILTER (WHERE ");
 		get_rule_expr((Node *)aggref->agg_filter, context, false);
 	}
+
+	appendStringInfoString(buf, ")");
 }
 
 static void
