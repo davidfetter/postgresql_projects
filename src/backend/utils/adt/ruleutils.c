@@ -7390,8 +7390,6 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 	if (aggref->isordset)
 	{
 		get_ordset_expr(aggref, context);
-		//appendStringInfoString(buf, ") WITHIN GROUP (ORDER BY ");
-		//get_rule_orderby(aggref->aggorder, aggref->args, false, context);
 	}
 	else
 	{
