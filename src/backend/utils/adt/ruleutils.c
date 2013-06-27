@@ -7390,8 +7390,8 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 	if (aggref->isordset)
 	{
 		get_ordset_expr(aggref, context);
-		appendStringInfoString(buf, ") WITHIN GROUP (ORDER BY ");
-		get_rule_orderby(aggref->aggorder, aggref->args, false, context);
+		//appendStringInfoString(buf, ") WITHIN GROUP (ORDER BY ");
+		//get_rule_orderby(aggref->aggorder, aggref->args, false, context);
 	}
 	else
 	{
@@ -7457,6 +7457,8 @@ get_ordset_expr(Aggref *aggref, deparse_context *context)
 											false, NULL));
 
 	get_rule_expr((Node *)aggref->orddirectargs, context, true);
+	appendStringInfoString(buf, ") WITHIN GROUP (ORDER BY ");
+	get_rule_orderby(aggref->aggorder, aggref->args, false, context);
 	
 }
 static void
