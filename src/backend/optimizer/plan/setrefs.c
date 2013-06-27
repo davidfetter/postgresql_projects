@@ -1892,6 +1892,34 @@ fix_upper_expr_mutator(Node *node, fix_upper_expr_context *context)
  *
  * Note: resultRelation is not yet adjusted by rtoffset.
  */
+
+void fix_varno_varattno(List *rlist, int begin, int bef, int aft){
+	ListCell   *temp;
+	ListCell   *temp2;
+	Var *var;
+	foreach(temp, rlist){
+		TargetEntry *tle = (TargetEntry *)lfirst(temp);
+
+		if(IsA(tle, TargetEntry)){
+			var = (Var*)tle->expr;
+		}else if(IsA(tle, Var)) var=(Var*)tle;
+		if( IsA(var, Var) ){
+			if(var->varnoold == bef){
+				var->varno = OUTER_VAR;
+				var->varattno = var->varoattno + begin;
+			}
+			else if(var->varnoold == aft)
+			{
+				 var->varno = OUTER_VAR;
+                 var->varattno = var->varoattno;
+			}
+		}
+		else if( IsA(var, OpExpr )){
+			fix_varno_varattno(((OpExpr*)var)->args, begin, bef, aft);
+		}
+	}
+}
+
 static List *
 set_returning_clause_references(PlannerInfo *root,
 								List *rlist,
@@ -1900,6 +1928,47 @@ set_returning_clause_references(PlannerInfo *root,
 								int rtoffset)
 {
 	indexed_tlist *itlist;
+	int before_index=0, after_index=0, var_index=0;
+	Query      *parse = root->parse;
+
+	RangeTblEntry *rte = (RangeTblEntry *) list_nth(parse->rtable, (resultRelation)-1);
+	ListCell   *rt;
+	RangeTblEntry *bef;
+
+	TargetEntry *tr;
+
+	int index_rel=1;
+	int index_var=0;
+
+	foreach(rt, topplan->targetlist)
+	{
+		Var *var;
+		tr = (TargetEntry*)lfirst(rt);
+		var = tr->expr;
+		if(IsA(var,Var))
+		{
+			if(var->varno == resultRelation && var->varattno == 1)
+			{
+				var_index = index_var;
+			}
+		}
+
+		index_var++;
+	}
+
+	foreach(rt,parse->rtable)
+	{
+		bef = (RangeTblEntry *)lfirst(rt);
+		if(strcmp(bef->eref->aliasname,"before") == 0 && rte->relid == bef->relid && index_rel != resultRelation)
+		{
+			before_index = index_rel;
+		}
+		else if(strcmp(bef->eref->aliasname,"after") == 0 && rte->relid == bef->relid && index_rel != resultRelation)
+		{
+			after_index = index_rel;
+		}
+		index_rel++;
+	}
 
 	/*
 	 * We can perform the desired Var fixup by abusing the fix_join_expr
@@ -1924,6 +1993,9 @@ set_returning_clause_references(PlannerInfo *root,
 						  resultRelation,
 						  rtoffset);
 
+
+
+	fix_varno_varattno(rlist, var_index, before_index, after_index);
 	pfree(itlist);
 
 	return rlist;
