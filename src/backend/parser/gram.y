@@ -11161,8 +11161,8 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 					{
 						ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
-						errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
-							parser_errposition(@5)));
+						errmsg("Cannot have multiple ORDER BY clauses in WITHIN GROUP"),
+							parser_errposition(@4)));
 					}
 					n->funcname = $1;
 					n->args = $3;
@@ -11184,7 +11184,7 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 						ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
-							parser_errposition(@5)));
+							parser_errposition(@4)));
 					}
 					n->funcname = $1;
 					n->args = $4;
@@ -11205,11 +11205,11 @@ func_expr:	func_name '(' ')' within_group_clause filter_clause over_clause
 			| func_name '(' DISTINCT func_arg_list opt_sort_clause ')' within_group_clause filter_clause over_clause
 				{
 					FuncCall *n = makeNode(FuncCall);
-					if($5 && $7)
+					if ($7)
 					{
 						ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
-						errmsg("Cannot have WITHIN GROUP and ORDER BY together"),
+						errmsg("Cannot have DISTINCT and WITHIN GROUP together"),
 							parser_errposition(@5)));
 					}
 					n->funcname = $1;

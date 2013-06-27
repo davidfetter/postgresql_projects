@@ -87,12 +87,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	int		number_of_args;
 
 	/* Check if the function has WITHIN GROUP as well as distinct. */
-	if(agg_within_group && agg_distinct)
-	{
-		ereport(ERROR,
-			(errcode(ERRCODE_SYNTAX_ERROR),
-		 errmsg("WITHIN GROUP and distinct not allowed together")));
-	}
+	Assert(!(agg_within_group && agg_distinct));
 
 	/*
 	 * Most of the rest of the parser just assumes that functions do not have
@@ -200,8 +195,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		foreach(l, agg_order)
 		{
 			SortBy	   *arg = (SortBy *) lfirst(l);
+			Oid argtype;
 			arg->node = transformExpr(pstate, (arg->node), EXPR_KIND_ORDER_BY);
-			Oid	   argtype = exprType(arg->node);
 
 			actual_arg_types[nargs++] = argtype;
 		}
@@ -284,6 +279,12 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 			errmsg("DISTINCT specified, but %s is not an aggregate function",
 				   NameListToString(funcname)),
 					 parser_errposition(pstate, location)));
+		if (agg_within_group)
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+			errmsg("WITHIN GROUP specified, but %s is not an ordered set function",
+				   NameListToString(funcname)),
+					 parser_errposition(pstate, location)));
 		if (agg_order != NIL)
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
@@ -302,25 +303,6 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 					 errmsg("OVER specified, but %s is not a window function nor an aggregate function",
 							NameListToString(funcname)),
 					 parser_errposition(pstate, location)));
-	}
-	else if(fdresult == FUNCDETAIL_ORDERED)
-	{
-		if(!agg_within_group)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("Ordered set function specified, but WITHIN GROUP not present"),
-					 parser_errposition(pstate, location)));
-		}
-
-		if(over)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("Window function in ordered set function not supported"),
-					 parser_errposition(pstate, location)));
-		}
-
 	}
 	else if (!(fdresult == FUNCDETAIL_AGGREGATE ||
 			   fdresult == FUNCDETAIL_WINDOWFUNC))
@@ -407,7 +389,9 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 											   false);
 
 	/* perform the necessary typecasting of arguments */
-	make_fn_arguments(pstate, fargs, (fdresult==FUNCDETAIL_ORDERED) ? agg_order : NIL, actual_arg_types, declared_arg_types);
+	make_fn_arguments(pstate, fargs, (fdresult==FUNCDETAIL_ORDERED) ? agg_order : NIL, 
+				actual_arg_types, 
+				declared_arg_types);
 
 	/*
 	 * If it's a variadic function call, transform the last nvargs arguments

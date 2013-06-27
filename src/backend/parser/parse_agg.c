@@ -98,10 +98,7 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	{
 		agg->isordset = TRUE;
 		agg->orddirectargs = args;
-	}
 
-	if(!(agg->isordset))
-	{
 		foreach(lc, args)
 		{
 			Expr	   *arg = (Expr *) lfirst(lc);
@@ -109,6 +106,10 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 
 			tlist = lappend(tlist, tle);
 		}
+	}
+	else
+	{
+		agg->isordset = FALSE;
 	}
 
 	/*
@@ -366,8 +367,8 @@ check_agg_arguments(ParseState *pstate, List *args, List *agg_ordset, Expr *filt
 				(errcode(ERRCODE_GROUPING_ERROR),
 				 errmsg("aggregate function calls cannot be nested"),
 				 parser_errposition(pstate,
-									locate_agg_of_level((Node *) args,
-														agglevel))));
+								locate_agg_of_level((Node *) args,
+								agglevel))));
 
 	return agglevel;
 }
@@ -1026,12 +1027,19 @@ build_aggregate_fnexprs(Oid *agg_input_types,
 		args = lappend(args, argp);
 	}
 
-	*transfnexpr = (Expr *) makeFuncExpr(transfn_oid,
-										 agg_state_type,
-										 args,
-										 InvalidOid,
-										 agg_input_collation,
-										 COERCE_EXPLICIT_CALL);
+	if (OidIsValid(transfn_oid))
+	{
+		*transfnexpr = (Expr *) makeFuncExpr(transfn_oid,
+										agg_state_type,
+										args,
+										InvalidOid,
+										agg_input_collation,
+										COERCE_EXPLICIT_CALL);
+	}
+	else
+	{
+		transfnexpr = NULL;
+	}
 
 	/* see if we have a final function */
 	if (!OidIsValid(finalfn_oid))

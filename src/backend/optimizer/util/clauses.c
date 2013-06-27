@@ -487,7 +487,7 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 
 		/* add component function execution costs to appropriate totals */
 		if (OidIsValid(aggtransfn))
-		costs->transCost.per_tuple += get_func_cost(aggtransfn) * cpu_operator_cost;
+			costs->transCost.per_tuple += get_func_cost(aggtransfn) * cpu_operator_cost;
 		if (OidIsValid(aggfinalfn))
 			costs->finalCost += get_func_cost(aggfinalfn) * cpu_operator_cost;
 

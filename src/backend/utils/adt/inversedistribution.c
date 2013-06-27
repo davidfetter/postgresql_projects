@@ -15,6 +15,7 @@
 #include "postgres.h"
 #include "fmgr.h"
 #include <string.h>
+#include <math.h>
 
 #include "utils/tuplesort.h"
 #include "catalog/pg_type.h"
