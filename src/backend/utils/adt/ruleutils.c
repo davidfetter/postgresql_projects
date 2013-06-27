@@ -7385,15 +7385,15 @@ get_func_expr(FuncExpr *expr, deparse_context *context,
 static void
 get_agg_expr(Aggref *aggref, deparse_context *context)
 {
+	StringInfo	buf = context->buf;
+
 	if (aggref->isordset)
 	{
-		appendStringInfoString(buf, "WITHIN GROUP (ORDER BY");
-		get_rule_orderby((Node *)aggref->agg_filter, context, false);
 		get_ordset_expr(aggref, context);
 	}
 	else
 	{
-		get_agg_normal(aggref, context);
+		get_aggstd_expr(aggref, context);
 	}
 
 	if (aggref->agg_filter != NULL)
@@ -7417,9 +7417,10 @@ get_ordset_expr(Aggref *aggref, deparse_context *context)
 	/* Extract the regular arguments, ignoring resjunk stuff for the moment */
 	arglist = NIL;
 	nargs = 0;
+
 	foreach(l, aggref->orddirectargs)
 	{
-		Node	   *arg = (Node *)(lfirst(l)->expr);
+		Node	   *arg = (Node *) lfirst(l);
 
 		Assert(!IsA(arg, NamedArgExpr));
 		if (nargs >= FUNC_MAX_ARGS)		/* paranoia */
@@ -7448,7 +7449,14 @@ get_ordset_expr(Aggref *aggref, deparse_context *context)
 		nargs++;
 	}
 
+	appendStringInfo(buf, "%s(",
+					 generate_function_name(aggref->aggfnoid, nargs,
+											NIL, argtypes,
+											false, NULL));
+
 	get_rule_expr((Node *)aggref->orddirectargs, context, true);
+	appendStringInfoString(buf, ") WITHIN GROUP (ORDER BY ");
+	get_rule_orderby(aggref->aggorder, aggref->args, false, context);
 	
 }
 static void

@@ -106,8 +106,7 @@
 typedef struct AggStatePerAggData
 {
 	NodeTag type;
-	AggState *parent_node;
-	int64 number_of_rows;
+	
 	/*
 	 * These values are set up during ExecInitAgg() and do not change
 	 * thereafter:
@@ -116,6 +115,9 @@ typedef struct AggStatePerAggData
 	/* Links to Aggref expr and state nodes this working state is for */
 	AggrefExprState *aggrefstate;
 	Aggref	   *aggref;
+
+	/* Pointer to parent AggState node */
+	AggState   *aggstate;
 
 	/* number of input arguments for aggregate function proper */
 	int			numArguments;
@@ -207,6 +209,9 @@ typedef struct AggStatePerAggData
 	 */
 
 	Tuplesortstate *sortstate;	/* sort object, if DISTINCT or ORDER BY */
+
+	int64 number_of_rows;		/* number of rows */
+
 }	AggStatePerAggData;
 
 /*
@@ -298,11 +303,12 @@ initialize_aggregates(AggState *aggstate,
 {
 	int			aggno;
 
-	peragg->number_of_rows = 0;
 	for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 	{
 		AggStatePerAgg peraggstate = &peragg[aggno];
 		AggStatePerGroup pergroupstate = &pergroup[aggno];
+
+		peraggstate->number_of_rows = 0;
 
 		/*
 		 * Start a fresh sort operation for each DISTINCT/ORDER BY aggregate.
@@ -388,7 +394,9 @@ advance_transition_function(AggState *aggstate,
 	Datum		newVal;
 	int			i;
 
-	if (OidIsValid(peraggstate->transfn_oid) && peraggstate->transfn.fn_strict)
+	Assert(OidIsValid(peraggstate->transfn_oid));
+
+	if (peraggstate->transfn.fn_strict)
 	{
 		/*
 		 * For a strict transfn, nothing happens when there's a NULL input; we
@@ -751,9 +759,6 @@ finalize_aggregate(AggState *aggstate,
 				   Datum *resultVal, bool *resultIsNull)
 {
 	MemoryContext oldContext;
-	ListCell *lc;
-	ExprState *expr;
-	int i = 0;
 
 	oldContext = MemoryContextSwitchTo(aggstate->ss.ps.ps_ExprContext->ecxt_per_tuple_memory);
 
@@ -763,38 +768,40 @@ finalize_aggregate(AggState *aggstate,
 	if (OidIsValid(peraggstate->finalfn_oid))
 	{
 		FunctionCallInfoData fcinfo;
+		bool isnull = false;
 
 		if (!(peraggstate->aggref->isordset))
 		{
 			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
 								 	peraggstate->aggCollation,
 								 	(void *) aggstate, NULL);
+
+			fcinfo.arg[0] = pergroupstate->transValue;
+			fcinfo.argnull[0] = isnull = pergroupstate->transValueIsNull;
 		}
 		else
 		{
-			peraggstate->type = T_AggStatePerAggData;
-			peraggstate->parent_node = aggstate;
-			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
+			List     *args = peraggstate->aggrefstate->orddirectargs;
+			ListCell *lc;
+			int i = 0;
+
+			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), list_length(args),
 								 	peraggstate->aggCollation,
 								 	(void *) peraggstate, NULL);
-		}
 
-		if (!(peraggstate->aggref->isordset))
-		{
-			fcinfo.arg[0] = pergroupstate->transValue;
-			fcinfo.argnull[0] = pergroupstate->transValueIsNull;
-		}
-		else
-		{
-			foreach (lc, peraggstate->aggrefstate->orddirectargs)
+			foreach (lc, args)
 			{
-				expr = (ExprState *) lfirst(lc);
+				ExprState *expr = (ExprState *) lfirst(lc);
+
 				fcinfo.arg[i] = ExecEvalExpr(expr, aggstate->ss.ps.ps_ExprContext,  &fcinfo.argnull[i], NULL);
+				if (fcinfo.argnull[i])
+					isnull = true;
+
 				++i;
 			}
 		}
 
-		if (fcinfo.flinfo->fn_strict && pergroupstate->transValueIsNull)
+		if (isnull && fcinfo.flinfo->fn_strict)
 		{
 			/* don't call a strict function with NULL inputs */
 			*resultVal = (Datum) 0;
@@ -1196,6 +1203,17 @@ agg_retrieve_direct(AggState *aggstate)
 		}
 
 		/*
+		 * Use the representative input tuple for any references to
+		 * non-aggregated input columns in the qual and tlist.	(If we are not
+		 * grouping, and there are no input rows at all, we will come here
+		 * with an empty firstSlot ... but if not grouping, there can't be any
+		 * references to non-aggregated input columns, so no problem.)
+		 * We do this before finalizing because for ordered set functions,
+		 * finalize_aggregates can evaluate arguments referencing the tuple.
+		 */
+		econtext->ecxt_outertuple = firstSlot;
+
+		/*
 		 * Done scanning input tuple group. Finalize each aggregate
 		 * calculation, and stash results in the per-output-tuple context.
 		 */
@@ -1206,27 +1224,18 @@ agg_retrieve_direct(AggState *aggstate)
 
 			if (peraggstate->numSortCols > 0)
 			{
-					if (!(peraggstate->aggref->isordset))
-					{
-						if (peraggstate->numInputs == 1)
-							process_ordered_aggregate_single(aggstate,
-													 peraggstate,
-													 pergroupstate);
-						else
-							process_ordered_aggregate_multi(aggstate,
-													peraggstate,
-													pergroupstate);
-					}
+				if (!(peraggstate->aggref->isordset))
+				{
+					if (peraggstate->numInputs == 1)
+						process_ordered_aggregate_single(aggstate,
+														 peraggstate,
+														 pergroupstate);
+					else
+						process_ordered_aggregate_multi(aggstate,
+														peraggstate,
+														pergroupstate);
+				}
 			}
-
-			/*
-		 	* Use the representative input tuple for any references to
-		 	* non-aggregated input columns in the qual and tlist.	(If we are not
-		 	* grouping, and there are no input rows at all, we will come here
-		 	* with an empty firstSlot ... but if not grouping, there can't be any
-		 	* references to non-aggregated input columns, so no problem.)
-		 	*/
-			econtext->ecxt_outertuple = firstSlot;
 
 			finalize_aggregate(aggstate, peraggstate, pergroupstate,
 							   &aggvalues[aggno], &aggnulls[aggno]);
@@ -1636,6 +1645,9 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		/* Nope, so assign a new PerAgg record */
 		peraggstate = &peragg[++aggno];
 
+		peraggstate->type = T_AggStatePerAggData;
+		peraggstate->aggstate = aggstate;
+
 		/* Mark Aggref state node with assigned index in the result array */
 		aggrefstate->aggno = aggno;
 
@@ -1696,14 +1708,9 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			{
 				aclresult = pg_proc_aclcheck(transfn_oid, aggOwner,
 									         ACL_EXECUTE);
-			}
-
-			if (aclresult != ACLCHECK_OK && OidIsValid(transfn_oid))
+				if (aclresult != ACLCHECK_OK && OidIsValid(transfn_oid))
 				aclcheck_error(aclresult, ACL_KIND_PROC,
 							   get_func_name(transfn_oid));
-
-			if (OidIsValid(transfn_oid))
-			{
 				InvokeFunctionExecuteHook(transfn_oid);
 			}
 
@@ -1720,7 +1727,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 		/* resolve actual type of transition state, if polymorphic */
 		aggtranstype = aggform->aggtranstype;
-		if (IsPolymorphicType(aggtranstype) && OidIsValid(aggtranstype))
+		if (OidIsValid(aggtranstype) && IsPolymorphicType(aggtranstype))
 		{
 			/* have to fetch the agg's declared input types... */
 			Oid		   *declaredArgTypes;
@@ -1751,9 +1758,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		if (OidIsValid(transfn_oid))
 		{
 			fmgr_info(transfn_oid, &peraggstate->transfn);
+			fmgr_info_set_expr((Node *) transfnexpr, &peraggstate->transfn);
 		}
-
-		fmgr_info_set_expr((Node *) transfnexpr, &peraggstate->transfn);
 
 		if (OidIsValid(finalfn_oid))
 		{
@@ -2093,7 +2099,7 @@ AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
 	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
 	{
 		if (aggcontext)
-			*aggcontext = ((AggStatePerAggData *) fcinfo->context)->parent_node->aggcontext;
+			*aggcontext = ((AggStatePerAggData *) fcinfo->context)->aggstate->aggcontext;
 		return AGG_CONTEXT_ORDERED;
 	}
 
