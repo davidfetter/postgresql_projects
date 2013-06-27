@@ -116,6 +116,9 @@ typedef struct AggStatePerAggData
 	AggrefExprState *aggrefstate;
 	Aggref	   *aggref;
 
+	/* Pointer to parent AggState node */
+	AggState   *aggstate;
+
 	/* number of input arguments for aggregate function proper */
 	int			numArguments;
 
@@ -193,9 +196,6 @@ typedef struct AggStatePerAggData
 	TupleTableSlot *evalslot;	/* current input tuple */
 	TupleTableSlot *uniqslot;	/* used for multi-column DISTINCT */
 
-	/* Pointer to parent AggStatenode in case of ordered set functions */
-	AggState *aggstate;
-
 	/*
 	 * These values are working state that is initialized at the start of an
 	 * input tuple group and updated for each input tuple.
@@ -211,6 +211,7 @@ typedef struct AggStatePerAggData
 	Tuplesortstate *sortstate;	/* sort object, if DISTINCT or ORDER BY */
 
 	int64 number_of_rows;		/* number of rows */
+
 }	AggStatePerAggData;
 
 /*
@@ -308,6 +309,7 @@ initialize_aggregates(AggState *aggstate,
 		AggStatePerGroup pergroupstate = &pergroup[aggno];
 
 		peraggstate->number_of_rows = 0;
+
 		/*
 		 * Start a fresh sort operation for each DISTINCT/ORDER BY aggregate.
 		 */
@@ -392,7 +394,7 @@ advance_transition_function(AggState *aggstate,
 	Datum		newVal;
 	int			i;
 
-	Assert (OidIsValid(peraggstate->transfn_oid));
+	Assert(OidIsValid(peraggstate->transfn_oid));
 
 	if (peraggstate->transfn.fn_strict)
 	{
@@ -757,9 +759,6 @@ finalize_aggregate(AggState *aggstate,
 				   Datum *resultVal, bool *resultIsNull)
 {
 	MemoryContext oldContext;
-	ListCell *lc;
-	ExprState *expr;
-	int i = 0;
 
 	oldContext = MemoryContextSwitchTo(aggstate->ss.ps.ps_ExprContext->ecxt_per_tuple_memory);
 
@@ -769,6 +768,7 @@ finalize_aggregate(AggState *aggstate,
 	if (OidIsValid(peraggstate->finalfn_oid))
 	{
 		FunctionCallInfoData fcinfo;
+		bool isnull = false;
 
 		if (!(peraggstate->aggref->isordset))
 		{
@@ -777,23 +777,31 @@ finalize_aggregate(AggState *aggstate,
 								 	(void *) aggstate, NULL);
 
 			fcinfo.arg[0] = pergroupstate->transValue;
-			fcinfo.argnull[0] = pergroupstate->transValueIsNull;
+			fcinfo.argnull[0] = isnull = pergroupstate->transValueIsNull;
 		}
 		else
 		{
-			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
+			List     *args = peraggstate->aggrefstate->orddirectargs;
+			ListCell *lc;
+			int i = 0;
+
+			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), list_length(args),
 								 	peraggstate->aggCollation,
 								 	(void *) peraggstate, NULL);
 
-			foreach (lc, peraggstate->aggrefstate->orddirectargs)
+			foreach (lc, args)
 			{
-				expr = (ExprState *) lfirst(lc);
+				ExprState *expr = (ExprState *) lfirst(lc);
+
 				fcinfo.arg[i] = ExecEvalExpr(expr, aggstate->ss.ps.ps_ExprContext,  &fcinfo.argnull[i], NULL);
+				if (fcinfo.argnull[i])
+					isnull = true;
+
 				++i;
 			}
 		}
 
-		if (fcinfo.flinfo->fn_strict && pergroupstate->transValueIsNull)
+		if (isnull && fcinfo.flinfo->fn_strict)
 		{
 			/* don't call a strict function with NULL inputs */
 			*resultVal = (Datum) 0;
@@ -1195,6 +1203,17 @@ agg_retrieve_direct(AggState *aggstate)
 		}
 
 		/*
+		 * Use the representative input tuple for any references to
+		 * non-aggregated input columns in the qual and tlist.	(If we are not
+		 * grouping, and there are no input rows at all, we will come here
+		 * with an empty firstSlot ... but if not grouping, there can't be any
+		 * references to non-aggregated input columns, so no problem.)
+		 * We do this before finalizing because for ordered set functions,
+		 * finalize_aggregates can evaluate arguments referencing the tuple.
+		 */
+		econtext->ecxt_outertuple = firstSlot;
+
+		/*
 		 * Done scanning input tuple group. Finalize each aggregate
 		 * calculation, and stash results in the per-output-tuple context.
 		 */
@@ -1205,30 +1224,21 @@ agg_retrieve_direct(AggState *aggstate)
 
 			if (peraggstate->numSortCols > 0)
 			{
-					if (!(peraggstate->aggref->isordset))
-					{
-						if (peraggstate->numInputs == 1)
-							process_ordered_aggregate_single(aggstate,
-													 peraggstate,
-													 pergroupstate);
-						else
-							process_ordered_aggregate_multi(aggstate,
-													peraggstate,
-													pergroupstate);
-					}
-
-				/*
-		 		* Use the representative input tuple for any references to
-		 		* non-aggregated input columns in the qual and tlist.	(If we are not
-		 		* grouping, and there are no input rows at all, we will come here
-		 		* with an empty firstSlot ... but if not grouping, there can't be any
-		 		* references to non-aggregated input columns, so no problem.)
-		 		*/
-				econtext->ecxt_outertuple = firstSlot;
-
-				finalize_aggregate(aggstate, peraggstate, pergroupstate,
-								   &aggvalues[aggno], &aggnulls[aggno]);
+				if (!(peraggstate->aggref->isordset))
+				{
+					if (peraggstate->numInputs == 1)
+						process_ordered_aggregate_single(aggstate,
+														 peraggstate,
+														 pergroupstate);
+					else
+						process_ordered_aggregate_multi(aggstate,
+														peraggstate,
+														pergroupstate);
+				}
 			}
+
+			finalize_aggregate(aggstate, peraggstate, pergroupstate,
+							   &aggvalues[aggno], &aggnulls[aggno]);
 		}
 
 		/*
@@ -1635,6 +1645,9 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		/* Nope, so assign a new PerAgg record */
 		peraggstate = &peragg[++aggno];
 
+		peraggstate->type = T_AggStatePerAggData;
+		peraggstate->aggstate = aggstate;
+
 		/* Mark Aggref state node with assigned index in the result array */
 		aggrefstate->aggno = aggno;
 
@@ -1644,8 +1657,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		numInputs = list_length(aggref->args);
 		peraggstate->numInputs = numInputs;
 		peraggstate->sortstate = NULL;
-		peraggstate->type = T_AggStatePerAggData;
-		peraggstate->aggstate = aggstate;
 
 		/*
 		 * Get actual datatypes of the inputs.	These could be different from
@@ -1700,10 +1711,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				if (aclresult != ACLCHECK_OK && OidIsValid(transfn_oid))
 				aclcheck_error(aclresult, ACL_KIND_PROC,
 							   get_func_name(transfn_oid));
-			}
-
-			if (OidIsValid(transfn_oid))
-			{
 				InvokeFunctionExecuteHook(transfn_oid);
 			}
 
