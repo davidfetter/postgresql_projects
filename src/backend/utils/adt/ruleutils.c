@@ -7389,10 +7389,9 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 
 	if (aggref->isordset)
 	{
-		appendStringInfoString(buf, "WITHIN GROUP (ORDER BY");
-		get_rule_orderby(aggref->aggorder, aggref->args, false, context);
-
 		get_ordset_expr(aggref, context);
+		appendStringInfoString(buf, ") WITHIN GROUP (ORDER BY ");
+		get_rule_orderby(aggref->aggorder, aggref->args, false, context);
 	}
 	else
 	{
@@ -7452,13 +7451,12 @@ get_ordset_expr(Aggref *aggref, deparse_context *context)
 		nargs++;
 	}
 
-	get_rule_expr((Node *)aggref->orddirectargs, context, true);
-
-	appendStringInfo(buf, "%s(%s",
+	appendStringInfo(buf, "%s(",
 					 generate_function_name(aggref->aggfnoid, nargs,
 											NIL, argtypes,
-											false, NULL),
-					 "(");
+											false, NULL));
+
+	get_rule_expr((Node *)aggref->orddirectargs, context, true);
 	
 }
 static void
