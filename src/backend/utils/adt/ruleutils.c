@@ -7411,6 +7411,7 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 static void
 get_ordset_expr(Aggref *aggref, deparse_context *context)
 {
+	StringInfo	buf = context->buf;
 	Oid			argtypes[FUNC_MAX_ARGS];
 	List	   *arglist;
 	int			nargs;
@@ -7452,6 +7453,12 @@ get_ordset_expr(Aggref *aggref, deparse_context *context)
 	}
 
 	get_rule_expr((Node *)aggref->orddirectargs, context, true);
+
+	appendStringInfo(buf, "%s(%s",
+					 generate_function_name(aggref->aggfnoid, nargs,
+											NIL, argtypes,
+											false, NULL),
+					 "(");
 	
 }
 static void
