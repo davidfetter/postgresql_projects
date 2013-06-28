@@ -304,6 +304,24 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 							NameListToString(funcname)),
 					 parser_errposition(pstate, location)));
 	}
+	else if (fdresult == FUNCDETAIL_ORDERED)
+	{
+		if(!agg_within_group)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("Ordered set function specified, but WITHIN GROUP not present"),
+					 parser_errposition(pstate, location)));
+		}
+		
+		if(over)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("OVER clause in ordered set function not supported"),
+					 parser_errposition(pstate, location)));
+		}
+	}
 	else if (!(fdresult == FUNCDETAIL_AGGREGATE ||
 			   fdresult == FUNCDETAIL_WINDOWFUNC))
 	{
@@ -467,7 +485,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 			Form_pg_aggregate classForm;
 			tup = SearchSysCache1(AGGFNOID, ObjectIdGetDatum(funcid));
 			if (!HeapTupleIsValid(tup)) /* should not happen */
-				elog(ERROR, "cache lookup failed for type %u", funcid);
+				elog(ERROR, "cache lookup failed for aggregate %u", funcid);
 
 			classForm = (Form_pg_aggregate) GETSTRUCT(tup);
 			aggfinalfn = classForm->aggfinalfn;
@@ -512,25 +530,6 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 					 parser_errposition(pstate, location)));
 
 		/* parse_agg.c does additional aggregate-specific processing */
-		transformAggregateCall(pstate, aggref, fargs, agg_order, agg_distinct, agg_within_group);
-
-		retval = (Node *) aggref;
-	}
-	else if(fdresult == FUNCDETAIL_ORDERED)
-	{
-		Aggref *aggref = makeNode(Aggref);
-		aggref->aggfnoid = funcid;
-		aggref->aggtype = rettype;
-		aggref->isordset = TRUE;
-		aggref->orddirectargs = fargs;
-		/* aggcollid and inputcollid will be set by parse_collate.c */
-		/* args, aggorder, aggdistinct will be set by transformAggregateCall */
-		aggref->aggstar = agg_star;
-		/* filter */
-		aggref->agg_filter = agg_filter;
-		/* agglevelsup will be set by transformAggregateCall */
-		aggref->location = location;
-
 		transformAggregateCall(pstate, aggref, fargs, agg_order, agg_distinct, agg_within_group);
 
 		retval = (Node *) aggref;
