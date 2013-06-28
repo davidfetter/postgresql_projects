@@ -60,10 +60,6 @@ percentile_disc_final(PG_FUNCTION_ARGS)
 	tuplesort_performsort(sorter);
 
 	/*
-	 * percentile_disc is defined in terms of cume_dist(), but this seems
-	 * to be entirely superfluous. Just counting rows instead should give
-	 * the same result in all cases (even in the presence of peer rows).
-	 *
 	 * We need the smallest K such that (K/N) >= percentile. K starts at 1.
 	 * Therefore K >= N*percentile
 	 * Therefore K = ceil(N*percentile)
@@ -90,6 +86,8 @@ percentile_disc_final(PG_FUNCTION_ARGS)
 		PG_RETURN_DATUM(val);
 }
 
+
+
 /*
  * percentile_cont(float8)  - continuous (nearest) percentile
  */
@@ -106,9 +104,71 @@ Datum percentile_cont_final(PG_FUNCTION_ARGS);
 Datum
 percentile_cont_final(PG_FUNCTION_ARGS)
 {
-	text *test_text;
-	elog(WARNING,"test percentile_cont");
+	float8 percentile = PG_GETARG_FLOAT8(0);
+	int64 rowcount = AggSetGetRowCount(fcinfo);
+	Tuplesortstate *sorter;
+	Oid datumtype;
+	Datum val;
+	Datum first_row;
+	Datum second_row;
+	float8 first_row_val;
+	float8 second_row_val;
+	float8 proportion;
+	bool isnull;
+	int64 skiprows;
+	int64 lower_row = 0;
+	int64 higher_row = 0;
 
-	test_text = PG_GETARG_TEXT_P(0);
-	PG_RETURN_TEXT_P(test_text);
+	AggSetGetSortInfo(fcinfo, &sorter, NULL, NULL, &datumtype);
+
+	Assert(datumtype == FLOAT8OID);
+
+	if (percentile < 0 || percentile > 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+				 errmsg("percentile value %g is not between 0 and 1", percentile)));
+
+	if (rowcount < 1)
+		PG_RETURN_NULL();
+
+	tuplesort_performsort(sorter);
+
+	lower_row = floor(percentile * (rowcount -1));
+	higher_row = ceil(percentile * (rowcount -1));
+
+	if (lower_row == higher_row)
+	{
+
+		Assert(lower_row < rowcount);
+
+		for (skiprows = lower_row; skiprows > 0; --skiprows)
+			if (!tuplesort_getdatum(sorter, true, NULL, NULL))
+				elog(ERROR,"missing row in percentile_cont");
+
+		if (!tuplesort_getdatum(sorter, true, &val, &isnull))
+			elog(ERROR,"missing row in percentile_cont");
+	}
+	else
+	{
+		if (!tuplesort_getdatum(sorter, true, &first_row, &isnull))
+			elog(ERROR,"missing row in percentile_cont");
+
+		if (!tuplesort_getdatum(sorter, true, &second_row, &isnull))
+			elog(ERROR,"missing row in percentile_cont");
+
+		if (isnull)
+			PG_RETURN_NULL();
+
+		proportion = percentile * (rowcount-1) - lower_row;
+		first_row_val = DatumGetFloat8(first_row);
+		second_row_val = DatumGetFloat8(second_row);
+		val = Float8GetDatum(first_row_val + proportion *(second_row_val - first_row_val));
+	}
+
+	if (isnull)
+		PG_RETURN_NULL();
+	else
+		PG_RETURN_DATUM(val);
 }
+
+
