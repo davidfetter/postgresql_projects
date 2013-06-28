@@ -142,6 +142,62 @@ preprocess_targetlist(PlannerInfo *root, List *tlist)
 	}
 
 	/*
+	 * We have to add whole columns additionally because of returning before
+	 */
+	if (parse->returningList && list_length(parse->rtable) > 1)
+	{
+		RangeTblEntry *rte = rt_fetch(result_relation, range_table);
+		if(strcmp(rte->eref->aliasname,"before"))
+		{
+			Relation    rel;
+			TargetEntry *tle;
+			int			attrno,	numattrs;
+			rel = heap_open(getrelid(result_relation, range_table), NoLock);
+
+			numattrs = RelationGetNumberOfAttributes(rel);
+
+			for (attrno = 1; attrno <= numattrs; attrno++)
+			{
+				Form_pg_attribute att_tup = rel->rd_att->attrs[attrno - 1];
+
+				Oid			atttype = att_tup->atttypid;
+				int32		atttypmod = att_tup->atttypmod;
+				Oid			attcollation = att_tup->attcollation;
+				Node	   *new_expr;
+
+				if (!att_tup->attisdropped)
+				{
+					new_expr = (Node *) makeVar(result_relation,
+							attrno,
+							atttype,
+							atttypmod,
+							attcollation,
+							0);
+				}
+				else
+				{
+					/* Insert NULL for dropped column */
+					new_expr = (Node *) makeConst(INT4OID,
+							-1,
+							InvalidOid,
+							sizeof(int32),
+							(Datum) 0,
+							true,		/* isnull */
+							true /* byval */ );
+				}
+
+				tle = makeTargetEntry((Expr *) new_expr,
+						list_length(tlist) + 1,
+						NULL,
+						true);
+				tlist = lappend(tlist, tle);
+
+			}
+			heap_close(rel, NoLock);
+		}
+	}
+
+	/*
 	 * If the query has a RETURNING list, add resjunk entries for any Vars
 	 * used in RETURNING that belong to other relations.  We need to do this
 	 * to make these Vars available for the RETURNING calculation.	Vars that
