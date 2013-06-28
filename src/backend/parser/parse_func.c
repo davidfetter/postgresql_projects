@@ -195,10 +195,10 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		foreach(l, agg_order)
 		{
 			SortBy	   *arg = (SortBy *) lfirst(l);
-			Oid argtype;
-			arg->node = transformExpr(pstate, (arg->node), EXPR_KIND_ORDER_BY);
 
-			actual_arg_types[nargs++] = argtype;
+			arg->node = transformExpr(pstate, arg->node, EXPR_KIND_ORDER_BY);
+
+			actual_arg_types[nargs++] = exprType(arg->node);
 		}
 	}
 
