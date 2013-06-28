@@ -98,7 +98,9 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	{
 		agg->isordset = TRUE;
 		agg->orddirectargs = args;
-
+	}
+	else
+	{
 		foreach(lc, args)
 		{
 			Expr	   *arg = (Expr *) lfirst(lc);
@@ -106,10 +108,9 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 
 			tlist = lappend(tlist, tle);
 		}
-	}
-	else
-	{
+
 		agg->isordset = FALSE;
+		agg->orddirectargs = NIL;
 	}
 
 	/*
