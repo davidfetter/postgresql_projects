@@ -1917,6 +1917,9 @@ void fix_varno_varattno(List *rlist, int begin, int bef, int aft){
 		else if( IsA(var, OpExpr )){
 			fix_varno_varattno(((OpExpr*)var)->args, begin, bef, aft);
 		}
+		else if( IsA(var, FuncExpr )){
+			fix_varno_varattno(((FuncExpr*)var)->args, begin, bef, aft);
+		}
 	}
 }
 
