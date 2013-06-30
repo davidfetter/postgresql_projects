@@ -148,9 +148,6 @@ percentile_cont_final(PG_FUNCTION_ARGS)
 	if (lower_row == higher_row)
 	{
 
-		/*if (!tuplesort_getdatum(sorter, true, &val, &isnull))
-			elog(ERROR,"missing row in percentile_cont");*/
-
 		val = first_row;
 	}
 	else
