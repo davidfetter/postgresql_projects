@@ -12786,6 +12786,7 @@ unreserved_keyword:
 			| EXTENSION
 			| EXTERNAL
 			| FAMILY
+			| FILTER
 			| FIRST_P
 			| FOLLOWING
 			| FORCE
@@ -13041,7 +13042,6 @@ type_func_name_keyword:
 			| CONCURRENTLY
 			| CROSS
 			| CURRENT_SCHEMA
-			| FILTER
 			| FREEZE
 			| FULL
 			| ILIKE
