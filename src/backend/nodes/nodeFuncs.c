@@ -1582,8 +1582,7 @@ expression_tree_walker(Node *node,
 				if (expression_tree_walker((Node *) expr->args,
 										   walker, context))
 					return true;
-				if (expression_tree_walker((Node *) expr->agg_filter,
-										   walker, context))
+				if (walker((Node *) expr->agg_filter, context))
 					return true;
 			}
 			break;

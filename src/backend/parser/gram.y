@@ -11790,7 +11790,7 @@ xmlexists_argument:
 window_clause:
 			WINDOW window_definition_list			{ $$ = $2; }
 			| /*EMPTY*/								{ $$ = NIL; }
-		 ;
+		;
 
 window_definition_list:
 			window_definition						{ $$ = list_make1($1); }
