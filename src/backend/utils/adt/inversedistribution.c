@@ -152,10 +152,6 @@ percentile_cont_final(PG_FUNCTION_ARGS)
 	}
 	else
 	{
-		for (skiprows = (higher_row - lower_row) -1; skiprows > 0; --skiprows)
-			if (!tuplesort_getdatum(sorter, true, NULL, NULL))
-			elog(ERROR,"missing row in percentile_cont");
-
 		if (!tuplesort_getdatum(sorter, true, &second_row, &isnull))
 			elog(ERROR,"missing row in percentile_cont");
 
