@@ -136,21 +136,27 @@ percentile_cont_final(PG_FUNCTION_ARGS)
 	lower_row = floor(percentile * (rowcount -1));
 	higher_row = ceil(percentile * (rowcount -1));
 
+	Assert(lower_row < rowcount);
+
+	for (skiprows = lower_row; skiprows > 0; --skiprows)
+		if (!tuplesort_getdatum(sorter, true, NULL, NULL))
+			elog(ERROR,"missing row in percentile_cont");
+
+	if (!tuplesort_getdatum(sorter, true, &first_row, &isnull))
+			elog(ERROR,"missing row in percentile_cont");
+
 	if (lower_row == higher_row)
 	{
 
-		Assert(lower_row < rowcount);
+		/*if (!tuplesort_getdatum(sorter, true, &val, &isnull))
+			elog(ERROR,"missing row in percentile_cont");*/
 
-		for (skiprows = lower_row; skiprows > 0; --skiprows)
-			if (!tuplesort_getdatum(sorter, true, NULL, NULL))
-				elog(ERROR,"missing row in percentile_cont");
-
-		if (!tuplesort_getdatum(sorter, true, &val, &isnull))
-			elog(ERROR,"missing row in percentile_cont");
+		val = first_row;
 	}
 	else
 	{
-		if (!tuplesort_getdatum(sorter, true, &first_row, &isnull))
+		for (skiprows = (higher_row - lower_row) -1; skiprows > 0; --skiprows)
+			if (!tuplesort_getdatum(sorter, true, NULL, NULL))
 			elog(ERROR,"missing row in percentile_cont");
 
 		if (!tuplesort_getdatum(sorter, true, &second_row, &isnull))
@@ -159,10 +165,10 @@ percentile_cont_final(PG_FUNCTION_ARGS)
 		if (isnull)
 			PG_RETURN_NULL();
 
-		proportion = percentile * (rowcount-1) - lower_row;
+		proportion = (percentile * (rowcount-1)) - lower_row;
 		first_row_val = DatumGetFloat8(first_row);
-		second_row_val = DatumGetFloat8(second_row);
-		val = Float8GetDatum(first_row_val + proportion *(second_row_val - first_row_val));
+		second_row_val = DatumGetFloat8(second_row); 
+		val = Float8GetDatum(first_row_val + (proportion *(second_row_val - first_row_val)));
 	}
 
 	if (isnull)
