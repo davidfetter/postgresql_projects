@@ -238,6 +238,7 @@ DATA(insert ( 3175	json_agg_transfn	json_agg_finalfn		0	2281	_null_ ));
 /* ordered set function */
 DATA(insert ( 3931 	- 			percentile_disc_final		0 	0 	_null_));
 DATA(insert ( 3935 	- 			percentile_cont_final		0 	0 	_null_));
+DATA(insert ( 3939 	- 			percentile_interval_cont_final	0 	0 	_null_));
 /*
  * prototypes for functions in pg_aggregate.c
  */

@@ -4741,6 +4741,12 @@ DESCR("percentile_cont");
 DATA(insert OID = 3936 (  percentile_cont_final			PGNSP PGUID 12 1 0 0 0 t f t f f f f i 1 0 701 "701" _null_ _null_ _null_ _null_ percentile_cont_final _null_ _null_ _null_ ));
 DESCR("percentile_cont_final");
 
+DATA(insert OID = 3939 (  percentile_cont			PGNSP PGUID 12 1 0 0 0 t f t f f f f i 2 0 1186 "701 1186" _null_ _null_ _null_ _null_ percentile_interval_cont _null_ _null_ _null_ ));
+DESCR("percentile_interval_cont");
+
+DATA(insert OID = 3940 (  percentile_interval_cont_final	PGNSP PGUID 12 1 0 0 0 t f t f f f f i 1 0 1186 "701" _null_ _null_ _null_ _null_ percentile_interval_cont_final _null_ _null_ _null_ ));
+DESCR("percentile_interval_cont_final");
+
 /*
  * Symbolic values for provolatile column: these indicate whether the result
  * of a function is dependent *only* on the values of its explicit arguments,
