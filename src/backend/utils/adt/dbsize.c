@@ -332,7 +332,7 @@ pg_relation_size(PG_FUNCTION_ARGS)
 }
 
 /*
- * Calculate total on-disk size of a TOAST relation, including its index.
+ * Calculate total on-disk size of a TOAST relation, including its indexes.
  * Must not be applied to non-TOAST relations.
  */
 static int64
@@ -340,8 +340,9 @@ calculate_toast_table_size(Oid toastrelid)
 {
 	int64		size = 0;
 	Relation	toastRel;
-	Relation	toastIdxRel;
 	ForkNumber	forkNum;
+	ListCell   *lc;
+	List	   *indexlist;
 
 	toastRel = relation_open(toastrelid, AccessShareLock);
 
@@ -351,12 +352,21 @@ calculate_toast_table_size(Oid toastrelid)
 										toastRel->rd_backend, forkNum);
 
 	/* toast index size, including FSM and VM size */
-	toastIdxRel = relation_open(toastRel->rd_rel->reltoastidxid, AccessShareLock);
-	for (forkNum = 0; forkNum <= MAX_FORKNUM; forkNum++)
-		size += calculate_relation_size(&(toastIdxRel->rd_node),
-										toastIdxRel->rd_backend, forkNum);
+	indexlist = RelationGetIndexList(toastRel);
 
-	relation_close(toastIdxRel, AccessShareLock);
+	/* Size is calculated using all the indexes available */
+	foreach(lc, indexlist)
+	{
+		Relation	toastIdxRel;
+		toastIdxRel = relation_open(lfirst_oid(lc),
+									AccessShareLock);
+		for (forkNum = 0; forkNum <= MAX_FORKNUM; forkNum++)
+			size += calculate_relation_size(&(toastIdxRel->rd_node),
+											toastIdxRel->rd_backend, forkNum);
+
+		relation_close(toastIdxRel, AccessShareLock);
+	}
+	list_free(indexlist);
 	relation_close(toastRel, AccessShareLock);
 
 	return size;
@@ -697,7 +707,7 @@ pg_size_pretty_numeric(PG_FUNCTION_ARGS)
  * That leads to a couple of choices.  We work from the pg_class row alone
  * rather than actually opening each relation, for efficiency.	We don't
  * fail if we can't find the relation --- some rows might be visible in
- * the query's MVCC snapshot but already dead according to SnapshotNow.
+ * the query's MVCC snapshot even though the relations have been dropped.
  * (Note: we could avoid using the catcache, but there's little point
  * because the relation mapper also works "in the now".)  We also don't
  * fail if the relation doesn't have storage.  In all these cases it
