@@ -1934,7 +1934,6 @@ set_returning_clause_references(PlannerInfo *root,
 	int before_index=0, after_index=0, var_index=0;
 	Query      *parse = root->parse;
 
-	RangeTblEntry *rte = (RangeTblEntry *) list_nth(parse->rtable, (resultRelation)-1);
 	ListCell   *rt;
 	RangeTblEntry *bef;
 
@@ -1943,6 +1942,21 @@ set_returning_clause_references(PlannerInfo *root,
 	int index_rel=1;
 	int index_var=0;
 
+
+	foreach(rt,parse->rtable)
+	{
+		bef = (RangeTblEntry *)lfirst(rt);
+		if(strcmp(bef->eref->aliasname,"before") == 0 && bef->rtekind == RTE_BEFORE )
+		{
+			before_index = index_rel;
+		}
+		else if(strcmp(bef->eref->aliasname,"after") == 0 && bef->rtekind == RTE_BEFORE )
+		{
+			after_index = index_rel;
+		}
+		index_rel++;
+	}
+
 	foreach(rt, topplan->targetlist)
 	{
 		Var *var;
@@ -1950,29 +1964,15 @@ set_returning_clause_references(PlannerInfo *root,
 		var = tr->expr;
 		if(IsA(var,Var))
 		{
-			if(var->varno == resultRelation && var->varattno == 1)
+			if(var->varno == before_index && var->varattno == 1)
 			{
 				var_index = index_var;
+				break;
 			}
 		}
 
 		index_var++;
 	}
-
-	foreach(rt,parse->rtable)
-	{
-		bef = (RangeTblEntry *)lfirst(rt);
-		if(strcmp(bef->eref->aliasname,"before") == 0 && rte->relid == bef->relid && index_rel != resultRelation)
-		{
-			before_index = index_rel;
-		}
-		else if(strcmp(bef->eref->aliasname,"after") == 0 && rte->relid == bef->relid && index_rel != resultRelation)
-		{
-			after_index = index_rel;
-		}
-		index_rel++;
-	}
-
 	/*
 	 * We can perform the desired Var fixup by abusing the fix_join_expr
 	 * machinery that formerly handled inner indexscan fixup.  We search the

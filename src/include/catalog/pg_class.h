@@ -154,6 +154,7 @@ DESCR("");
 #define		  RELKIND_COMPOSITE_TYPE  'c'		/* composite type */
 #define		  RELKIND_FOREIGN_TABLE   'f'		/* foreign table */
 #define		  RELKIND_MATVIEW		  'm'		/* materialized view */
+#define		  RELKIND_BEFORE		  'b'		/* virtual table for before/after statements */
 
 #define		  RELPERSISTENCE_PERMANENT	'p'		/* regular table */
 #define		  RELPERSISTENCE_UNLOGGED	'u'		/* unlogged permanent table */

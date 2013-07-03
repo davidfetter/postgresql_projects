@@ -51,6 +51,7 @@ preprocess_targetlist(PlannerInfo *root, List *tlist)
 {
 	Query	   *parse = root->parse;
 	int			result_relation = parse->resultRelation;
+	int			before_rel;
 	List	   *range_table = parse->rtable;
 	CmdType		command_type = parse->commandType;
 	ListCell   *lc;
@@ -144,9 +145,22 @@ preprocess_targetlist(PlannerInfo *root, List *tlist)
 	/*
 	 * We have to add whole columns additionally because of returning before
 	 */
-	if (parse->returningList && list_length(parse->rtable) > 1)
+	if ( parse->returningList && list_length(parse->rtable) > 1 && command_type == CMD_UPDATE )
 	{
+		ListCell *rt;
 		RangeTblEntry *rte = rt_fetch(result_relation, range_table);
+		RangeTblEntry *bef;
+		int index_rel=1;
+		foreach(rt,parse->rtable)
+		{
+			bef = (RangeTblEntry *)lfirst(rt);
+			if(strcmp(bef->eref->aliasname,"before") == 0 && bef->rtekind == RTE_BEFORE )
+			{
+				before_rel = index_rel;
+				break;
+			}
+			index_rel++;
+		}
 		if(strcmp(rte->eref->aliasname,"before"))
 		{
 			Relation    rel;
@@ -167,7 +181,7 @@ preprocess_targetlist(PlannerInfo *root, List *tlist)
 
 				if (!att_tup->attisdropped)
 				{
-					new_expr = (Node *) makeVar(result_relation,
+					new_expr = (Node *) makeVar(before_rel,
 							attrno,
 							atttype,
 							atttypmod,

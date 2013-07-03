@@ -135,6 +135,8 @@ build_simple_rel(PlannerInfo *root, int relid, RelOptKind reloptkind)
 			/* Table --- retrieve statistics from the system catalogs */
 			get_relation_info(root, rte->relid, rte->inh, rel);
 			break;
+		case RTE_BEFORE:
+			break;
 		case RTE_SUBQUERY:
 		case RTE_FUNCTION:
 		case RTE_VALUES:
