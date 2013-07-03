@@ -1341,6 +1341,8 @@ func_get_detail(List *funcname,
 
 		ftup = SearchSysCache1(PROCOID,
 							   ObjectIdGetDatum(best_candidate->oid));
+
+		
 		if (!HeapTupleIsValid(ftup))	/* should not happen */
 			elog(ERROR, "cache lookup failed for function %u",
 				 best_candidate->oid);
@@ -1416,10 +1418,24 @@ func_get_detail(List *funcname,
 				*argdefaults = defaults;
 			}
 		}
-		if (pform->proisordsetfunc)
-			result = FUNCDETAIL_ORDERED;
-		else if (pform->proisagg)
-			result = FUNCDETAIL_AGGREGATE;
+		if (pform->proisagg)
+		{
+			Form_pg_aggregate pfagg;
+			HeapTuple	ftup_agg;
+
+			ftup_agg = SearchSysCache1(AGGFNOID, ObjectIdGetDatum(best_candidate->oid));
+			pfagg = (Form_pg_aggregate) GETSTRUCT(ftup_agg);
+			if (pfagg->aggisordsetfunc)
+			{
+				result = FUNCDETAIL_ORDERED;
+			}
+			else
+			{
+				result = FUNCDETAIL_AGGREGATE;
+			}
+
+			ReleaseSysCache(ftup_agg);
+		}
 		else if (pform->proiswindow)
 			result = FUNCDETAIL_WINDOWFUNC;
 		else
