@@ -2092,8 +2092,8 @@ relation_is_updatable(Oid reloid, bool include_triggers)
 	/*
 	 * If the relation doesn't exist, return zero rather than throwing an
 	 * error.  This is helpful since scanning an information_schema view under
-	 * MVCC rules can result in referencing rels that were just deleted
-	 * according to a SnapshotNow probe.
+	 * MVCC rules can result in referencing rels that have actually been
+	 * deleted already.
 	 */
 	if (rel == NULL)
 		return 0;
@@ -2387,6 +2387,13 @@ rewriteTargetView(Query *parsetree, Relation view)
 	new_rte = (RangeTblEntry *) copyObject(base_rte);
 	parsetree->rtable = lappend(parsetree->rtable, new_rte);
 	new_rt_index = list_length(parsetree->rtable);
+
+	/*
+	 * INSERTs never inherit.  For UPDATE/DELETE, we use the view query's
+	 * inheritance flag for the base relation.
+	 */
+	if (parsetree->commandType == CMD_INSERT)
+		new_rte->inh = false;
 
 	/*
 	 * Make a copy of the view's targetlist, adjusting its Vars to reference

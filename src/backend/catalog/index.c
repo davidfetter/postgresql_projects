@@ -103,7 +103,7 @@ static void UpdateIndexRelation(Oid indexoid, Oid heapoid,
 					bool isvalid);
 static void index_update_stats(Relation rel,
 				   bool hasindex, bool isprimary,
-				   Oid reltoastidxid, double reltuples);
+				   double reltuples);
 static void IndexCheckExclusion(Relation heapRelation,
 					Relation indexRelation,
 					IndexInfo *indexInfo);
@@ -1072,7 +1072,6 @@ index_create(Relation heapRelation,
 		index_update_stats(heapRelation,
 						   true,
 						   isprimary,
-						   InvalidOid,
 						   -1.0);
 		/* Make the above update visible */
 		CommandCounterIncrement();
@@ -1254,7 +1253,6 @@ index_constraint_create(Relation heapRelation,
 		index_update_stats(heapRelation,
 						   true,
 						   true,
-						   InvalidOid,
 						   -1.0);
 
 	/*
@@ -1764,8 +1762,6 @@ FormIndexDatum(IndexInfo *indexInfo,
  *
  * hasindex: set relhasindex to this value
  * isprimary: if true, set relhaspkey true; else no change
- * reltoastidxid: if not InvalidOid, set reltoastidxid to this value;
- *		else no change
  * reltuples: if >= 0, set reltuples to this value; else no change
  *
  * If reltuples >= 0, relpages and relallvisible are also updated (using
@@ -1781,8 +1777,9 @@ FormIndexDatum(IndexInfo *indexInfo,
  */
 static void
 index_update_stats(Relation rel,
-				   bool hasindex, bool isprimary,
-				   Oid reltoastidxid, double reltuples)
+				   bool hasindex,
+				   bool isprimary,
+				   double reltuples)
 {
 	Oid			relid = RelationGetRelid(rel);
 	Relation	pg_class;
@@ -1845,7 +1842,7 @@ index_update_stats(Relation rel,
 					BTEqualStrategyNumber, F_OIDEQ,
 					ObjectIdGetDatum(relid));
 
-		pg_class_scan = heap_beginscan(pg_class, SnapshotNow, 1, key);
+		pg_class_scan = heap_beginscan_catalog(pg_class, 1, key);
 		tuple = heap_getnext(pg_class_scan, ForwardScanDirection);
 		tuple = heap_copytuple(tuple);
 		heap_endscan(pg_class_scan);
@@ -1873,15 +1870,6 @@ index_update_stats(Relation rel,
 		if (!rd_rel->relhaspkey)
 		{
 			rd_rel->relhaspkey = true;
-			dirty = true;
-		}
-	}
-	if (OidIsValid(reltoastidxid))
-	{
-		Assert(rd_rel->relkind == RELKIND_TOASTVALUE);
-		if (rd_rel->reltoastidxid != reltoastidxid)
-		{
-			rd_rel->reltoastidxid = reltoastidxid;
 			dirty = true;
 		}
 	}
@@ -2072,14 +2060,11 @@ index_build(Relation heapRelation,
 	index_update_stats(heapRelation,
 					   true,
 					   isprimary,
-					   (heapRelation->rd_rel->relkind == RELKIND_TOASTVALUE) ?
-					   RelationGetRelid(indexRelation) : InvalidOid,
 					   stats->heap_tuples);
 
 	index_update_stats(indexRelation,
 					   false,
 					   false,
-					   InvalidOid,
 					   stats->index_tuples);
 
 	/* Make the updated catalog row versions visible */
@@ -2181,15 +2166,10 @@ IndexBuildHeapScan(Relation heapRelation,
 	 * Prepare for scan of the base relation.  In a normal index build, we use
 	 * SnapshotAny because we must retrieve all tuples and do our own time
 	 * qual checks (because we have to index RECENTLY_DEAD tuples). In a
-	 * concurrent build, we take a regular MVCC snapshot and index whatever's
-	 * live according to that.	During bootstrap we just use SnapshotNow.
+	 * concurrent build, or during bootstrap, we take a regular MVCC snapshot
+	 * and index whatever's live according to that.
 	 */
-	if (IsBootstrapProcessingMode())
-	{
-		snapshot = SnapshotNow;
-		OldestXmin = InvalidTransactionId;		/* not used */
-	}
-	else if (indexInfo->ii_Concurrent)
+	if (IsBootstrapProcessingMode() || indexInfo->ii_Concurrent)
 	{
 		snapshot = RegisterSnapshot(GetTransactionSnapshot());
 		OldestXmin = InvalidTransactionId;		/* not used */
@@ -2500,7 +2480,7 @@ IndexBuildHeapScan(Relation heapRelation,
 	heap_endscan(scan);
 
 	/* we can now forget our snapshot, if set */
-	if (indexInfo->ii_Concurrent)
+	if (IsBootstrapProcessingMode() || indexInfo->ii_Concurrent)
 		UnregisterSnapshot(snapshot);
 
 	ExecDropSingleTupleTableSlot(slot);
@@ -2520,10 +2500,10 @@ IndexBuildHeapScan(Relation heapRelation,
  *
  * When creating an exclusion constraint, we first build the index normally
  * and then rescan the heap to check for conflicts.  We assume that we only
- * need to validate tuples that are live according to SnapshotNow, and that
- * these were correctly indexed even in the presence of broken HOT chains.
- * This should be OK since we are holding at least ShareLock on the table,
- * meaning there can be no uncommitted updates from other transactions.
+ * need to validate tuples that are live according to an up-to-date snapshot,
+ * and that these were correctly indexed even in the presence of broken HOT
+ * chains.  This should be OK since we are holding at least ShareLock on the
+ * table, meaning there can be no uncommitted updates from other transactions.
  * (Note: that wouldn't necessarily work for system catalogs, since many
  * operations release write lock early on the system catalogs.)
  */
@@ -2540,6 +2520,7 @@ IndexCheckExclusion(Relation heapRelation,
 	TupleTableSlot *slot;
 	EState	   *estate;
 	ExprContext *econtext;
+	Snapshot	snapshot;
 
 	/*
 	 * If we are reindexing the target index, mark it as no longer being
@@ -2568,8 +2549,9 @@ IndexCheckExclusion(Relation heapRelation,
 	/*
 	 * Scan all live tuples in the base relation.
 	 */
+	snapshot = RegisterSnapshot(GetLatestSnapshot());
 	scan = heap_beginscan_strat(heapRelation,	/* relation */
-								SnapshotNow,	/* snapshot */
+								snapshot,		/* snapshot */
 								0,		/* number of keys */
 								NULL,	/* scan key */
 								true,	/* buffer access strategy OK */
@@ -2612,6 +2594,7 @@ IndexCheckExclusion(Relation heapRelation,
 	}
 
 	heap_endscan(scan);
+	UnregisterSnapshot(snapshot);
 
 	ExecDropSingleTupleTableSlot(slot);
 
