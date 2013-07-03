@@ -648,6 +648,9 @@ pull_up_subqueries_recurse(PlannerInfo *root, Node *jtnode,
 		int			varno = ((RangeTblRef *) jtnode)->rtindex;
 		RangeTblEntry *rte = rt_fetch(varno, root->parse->rtable);
 
+		if (rte->rtekind == RTE_BEFORE)
+			return NULL;
+
 		/*
 		 * Is this a subquery RTE, and if so, is the subquery simple enough to
 		 * pull up?

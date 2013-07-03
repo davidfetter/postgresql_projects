@@ -174,9 +174,16 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
 		if (IsA(node, Var))
 		{
 			Var		   *var = (Var *) node;
-			RelOptInfo *rel = find_base_rel(root, var->varno);
+			RelOptInfo *rel;
 			int			attno = var->varattno;
+			RangeTblEntry *rte;
 
+			if (root->parse->commandType == CMD_UPDATE){
+				rte = ((RangeTblEntry *) list_nth(root->parse->rtable, (var->varno)-1));
+				if(rte->rtekind == RTE_BEFORE)
+					continue;
+			}
+			rel = find_base_rel(root, var->varno);
 			Assert(attno >= rel->min_attr && attno <= rel->max_attr);
 			attno -= rel->min_attr;
 			if (rel->attr_needed[attno] == NULL)

@@ -1989,6 +1989,9 @@ preprocess_rowmarks(PlannerInfo *root)
 		if (rte->relkind == RELKIND_FOREIGN_TABLE)
 			continue;
 
+		if (rte->relkind == RELKIND_BEFORE)
+			continue;
+
 		rels = bms_del_member(rels, rc->rti);
 
 		newrc = makeNode(PlanRowMark);
@@ -2026,6 +2029,9 @@ preprocess_rowmarks(PlannerInfo *root)
 
 		i++;
 		if (!bms_is_member(i, rels))
+			continue;
+
+		if (rte->relkind == RELKIND_BEFORE)
 			continue;
 
 		newrc = makeNode(PlanRowMark);
