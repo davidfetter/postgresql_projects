@@ -23,6 +23,7 @@
 
 #include "utils/guc.h"
 #include "utils/relcache.h"
+#include "utils/snapshot.h"
 
 /* ----------------
  *		pg_db_role_setting definition.	cpp turns this into
@@ -62,7 +63,7 @@ typedef FormData_pg_db_role_setting *Form_pg_db_role_setting;
  */
 extern void AlterSetting(Oid databaseid, Oid roleid, VariableSetStmt *setstmt);
 extern void DropSetting(Oid databaseid, Oid roleid);
-extern void ApplySetting(Oid databaseid, Oid roleid, Relation relsetting,
-			 GucSource source);
+extern void ApplySetting(Snapshot snapshot, Oid databaseid, Oid roleid,
+			 Relation relsetting, GucSource source);
 
 #endif   /* PG_DB_ROLE_SETTING_H */
