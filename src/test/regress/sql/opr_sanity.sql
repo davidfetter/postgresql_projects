@@ -564,10 +564,18 @@ SELECT * FROM funcdescs
 -- **************** pg_aggregate ****************
 
 -- Look for illegal values in pg_aggregate fields.
+-- ordered set functions can't have transfns, and must
+-- have finalfns, but may or may not have transtypes.
+-- other aggs must have transfns and transtypes with
+-- optional finalfns.
 
 SELECT ctid, aggfnoid::oid
 FROM pg_aggregate as p1
-WHERE aggfnoid = 0 OR aggtransfn = 0 OR aggtranstype = 0;
+WHERE aggfnoid = 0
+   OR CASE WHEN aggisordsetfunc
+           THEN aggtransfn <> 0 OR aggfinalfn = 0
+           ELSE aggtransfn = 0 OR aggtranstype = 0
+      END;
 
 -- Make sure the matching pg_proc entry is sensible, too.
 
@@ -618,8 +626,9 @@ WHERE a.aggfnoid = p.oid AND
     a.aggfinalfn = pfn.oid AND
     (pfn.proretset
      OR NOT binary_coercible(pfn.prorettype, p.prorettype)
-     OR pfn.pronargs != 1
-     OR NOT binary_coercible(a.aggtranstype, pfn.proargtypes[0]));
+     OR (aggisordsetfunc IS FALSE
+         AND (pfn.pronargs != 1
+              OR NOT binary_coercible(a.aggtranstype, pfn.proargtypes[0]))));
 
 -- If transfn is strict then either initval should be non-NULL, or
 -- input type should match transtype so that the first non-null input
