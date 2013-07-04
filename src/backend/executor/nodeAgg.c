@@ -131,11 +131,21 @@ typedef struct AggStatePerAggData
 
 	/*
 	 * fmgr lookup data for transfer functions --- only valid when
-	 * corresponding oid is not InvalidOid.  Note in particular that fn_strict
-	 * flags are kept here.
+	 * corresponding oid is not InvalidOid.
 	 */
 	FmgrInfo	transfn;
 	FmgrInfo	finalfn;
+
+	/*
+	 * If >0, aggregate as a whole is strict (skips null input)
+	 * The value specifies how many columns to check; normal aggs
+	 * only check numArguments, while ordered set functions check
+	 * numInputs.
+	 *
+	 * Ordered set functions have a separate strictness state for
+	 * the finalfn, which is tested separately.
+	 */
+	int         numStrict;
 
 	/* Input collation derived for aggregate */
 	Oid			aggCollation;
@@ -393,16 +403,17 @@ advance_transition_function(AggState *aggstate,
 	MemoryContext oldContext;
 	Datum		newVal;
 	int			i;
+	int         numStrict = peraggstate->numStrict;
 
 	Assert(OidIsValid(peraggstate->transfn_oid));
 
-	if (peraggstate->transfn.fn_strict)
+	if (numStrict > 0)
 	{
 		/*
 		 * For a strict transfn, nothing happens when there's a NULL input; we
 		 * just keep the prior transValue.
 		 */
-		for (i = 1; i <= numArguments; i++)
+		for (i = 1; i <= numStrict; i++)
 		{
 			if (fcinfo->argnull[i])
 				return;
@@ -517,24 +528,24 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 
 		if (peraggstate->numSortCols > 0)
 		{
+			int numStrict = peraggstate->numStrict;
+
 			/* DISTINCT and/or ORDER BY case */
 			Assert(slot->tts_nvalid == peraggstate->numInputs);
 
 			/*
 			 * If the transfn is strict, we want to check for nullity before
 			 * storing the row in the sorter, to save space if there are a lot
-			 * of nulls.  Note that we must only check numArguments columns,
-			 * not numInputs, since nullity in columns used only for sorting
-			 * is not relevant here.
+			 * of nulls.
 			 */
-			if (OidIsValid(peraggstate->transfn_oid) && peraggstate->transfn.fn_strict)
+			if (numStrict > 0)
 			{
-				for (i = 0; i < nargs; i++)
+				for (i = 0; i < numStrict; i++)
 				{
 					if (slot->tts_isnull[i])
 						break;
 				}
-				if (i < nargs)
+				if (i < numStrict)
 					continue;
 			}
 
@@ -545,6 +556,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 								   slot->tts_isnull[0]);
 			else
 				tuplesort_puttupleslot(peraggstate->sortstate, slot);
+
 			++peraggstate->number_of_rows;
 		}
 		else
@@ -1624,6 +1636,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		Datum		textInitVal;
 		int			i;
 		ListCell   *lc;
+        bool        is_strict;
 
 		/* Planner should have assigned aggregate to correct level */
 		Assert(aggref->agglevelsup == 0);
@@ -1691,17 +1704,25 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		peraggstate->transfn_oid = transfn_oid = aggform->aggtransfn;
 		peraggstate->finalfn_oid = finalfn_oid = aggform->aggfinalfn;
 
-		/* Check that aggregate owner has permission to call component fns */
+		/*
+		 * Check that aggregate owner has permission to call component fns
+		 * In passing, fetch the proisstrict flag for the aggregate proper,
+		 * which subs for the transfn's strictness flag in cases where there
+		 * is no transfn.
+		 */
 		{
 			HeapTuple	procTuple;
 			Oid			aggOwner;
+			Form_pg_proc procp;
 
 			procTuple = SearchSysCache1(PROCOID,
 										ObjectIdGetDatum(aggref->aggfnoid));
 			if (!HeapTupleIsValid(procTuple))
 				elog(ERROR, "cache lookup failed for function %u",
 					 aggref->aggfnoid);
-			aggOwner = ((Form_pg_proc) GETSTRUCT(procTuple))->proowner;
+			procp = (Form_pg_proc) GETSTRUCT(procTuple);
+			aggOwner = procp->proowner;
+			is_strict = procp->proisstrict;
 			ReleaseSysCache(procTuple);
 
 			if (OidIsValid(transfn_oid))
@@ -1759,6 +1780,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		{
 			fmgr_info(transfn_oid, &peraggstate->transfn);
 			fmgr_info_set_expr((Node *) transfnexpr, &peraggstate->transfn);
+
+			is_strict = peraggstate->transfn.fn_strict;
 		}
 
 		if (OidIsValid(finalfn_oid))
@@ -1766,6 +1789,13 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			fmgr_info(finalfn_oid, &peraggstate->finalfn);
 			fmgr_info_set_expr((Node *) finalfnexpr, &peraggstate->finalfn);
 		}
+
+		if (is_strict)
+		{
+			peraggstate->numStrict = (peraggstate->aggref->isordset ? numInputs : numArguments);
+		}
+		else
+			peraggstate->numStrict = 0;
 
 		peraggstate->aggCollation = aggref->inputcollid;
 
@@ -1800,7 +1830,9 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		 * transValue.	This should have been checked at agg definition time,
 		 * but just in case...
 		 */
-		if (OidIsValid(peraggstate->transfn_oid) && peraggstate->transfn.fn_strict && peraggstate->initValueIsNull)
+		if (OidIsValid(peraggstate->transfn_oid)
+			&& peraggstate->transfn.fn_strict
+			&& peraggstate->initValueIsNull)
 		{
 			if (numArguments < 1 ||
 				!IsBinaryCoercible(inputTypes[0], aggtranstype))
