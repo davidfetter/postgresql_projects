@@ -1554,6 +1554,10 @@ sqrt(2)
     <secondary>invocation</secondary>
    </indexterm>
 
+   <indexterm zone="syntax-aggregates">
+    <primary>filter</primary>
+   </indexterm>
+
    <para>
     An <firstterm>aggregate expression</firstterm> represents the
     application of an aggregate function across the rows selected by a
@@ -1570,18 +1574,17 @@ sqrt(2)
 
     where <replaceable>aggregate_name</replaceable> is a previously
     defined aggregate (possibly qualified with a schema name),
-    <replaceable>expression</replaceable> is any value expression that
-    does not itself contain an aggregate expression or a window
-    function call, <replaceable>order_by_clause</replaceable> is a
-    optional <literal>ORDER BY</> clause as described below.  The
-    <replaceable>aggregate_name</replaceable> can also be suffixed
-    with <literal>FILTER</literal> as described below.
+    <replaceable>expression</replaceable> is
+    any value expression that does not itself contain an aggregate
+    expression or a window function call, and
+    <replaceable>order_by_clause</replaceable> and
+    <replaceable>filter_clause</replaceable> are optional
+    <literal>ORDER BY</literal> and <literal>FILTER</literal> clauses as described below.
    </para>
 
    <para>
     The first form of aggregate expression invokes the aggregate once
-    for each input row, or when a FILTER clause is present, each row
-    matching same.
+    for each input row, each row matching same.
     The second form is the same as the first, since
     <literal>ALL</literal> is the default.
     The third form invokes the aggregate once for each distinct value
@@ -1609,8 +1612,10 @@ sqrt(2)
    </para>
 
    <para>
-    Adding a FILTER clause to an aggregate specifies which values of
-    the expression being aggregated to evaluate.  For example:
+    If <literal>FILTER</literal> is specified, then only the input
+    rows for which the <replaceable>filter_clause</replaceable>
+    evaluates to true are fed to the aggregate function; other rows
+    are discarded.  For example:
 <programlisting>
 SELECT
     count(*) AS unfiltered,
