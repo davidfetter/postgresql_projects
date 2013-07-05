@@ -134,6 +134,7 @@ static List *set_returning_clause_references(PlannerInfo *root,
 static bool fix_opfuncids_walker(Node *node, void *context);
 static bool extract_query_dependencies_walker(Node *node,
 								  PlannerInfo *context);
+static void fix_varno_varattno(List *rlist, int aft);
 
 
 /*****************************************************************************
@@ -1899,32 +1900,30 @@ fix_upper_expr_mutator(Node *node, fix_upper_expr_context *context)
  * Note: resultRelation is not yet adjusted by rtoffset.
  */
 
-void fix_varno_varattno(List *rlist, int begin, int bef, int aft){
+void fix_varno_varattno(List *rlist, int aft){
 	ListCell   *temp;
-	ListCell   *temp2;
-	Var *var;
+	Var *var = NULL;
 	foreach(temp, rlist){
 		TargetEntry *tle = (TargetEntry *)lfirst(temp);
 
+		var = NULL;
 		if(IsA(tle, TargetEntry)){
 			var = (Var*)tle->expr;
 		}else if(IsA(tle, Var)) var=(Var*)tle;
-		if( IsA(var, Var) ){
-			if(var->varnoold == bef){
-//				var->varno = OUTER_VAR;
-//				var->varattno = var->varoattno + begin;
+		if(var){
+			if( IsA(var, Var) ){
+				if(var->varnoold == aft)
+				{
+					var->varno = OUTER_VAR;
+					var->varattno = var->varoattno;
+				}
 			}
-			else if(var->varnoold == aft)
-			{
-				 var->varno = OUTER_VAR;
-                 var->varattno = var->varoattno;
+			else if( IsA(var, OpExpr )){
+				fix_varno_varattno(((OpExpr*)var)->args, aft);
 			}
-		}
-		else if( IsA(var, OpExpr )){
-			fix_varno_varattno(((OpExpr*)var)->args, begin, bef, aft);
-		}
-		else if( IsA(var, FuncExpr )){
-			fix_varno_varattno(((FuncExpr*)var)->args, begin, bef, aft);
+			else if( IsA(var, FuncExpr )){
+				fix_varno_varattno(((FuncExpr*)var)->args, aft);
+			}
 		}
 	}
 }
@@ -1937,47 +1936,23 @@ set_returning_clause_references(PlannerInfo *root,
 								int rtoffset)
 {
 	indexed_tlist *itlist;
-	int before_index=0, after_index=0, var_index=0;
+	int after_index=0;
 	Query      *parse = root->parse;
 
 	ListCell   *rt;
 	RangeTblEntry *bef;
 
-	TargetEntry *tr;
-
 	int index_rel=1;
-	int index_var=0;
-
 
 	foreach(rt,parse->rtable)
 	{
 		bef = (RangeTblEntry *)lfirst(rt);
-		if(strcmp(bef->eref->aliasname,"before") == 0 && bef->rtekind == RTE_BEFORE )
-		{
-			before_index = index_rel;
-		}
-		else if(strcmp(bef->eref->aliasname,"after") == 0 && bef->rtekind == RTE_BEFORE )
+		if(strcmp(bef->eref->aliasname,"after") == 0 && bef->rtekind == RTE_BEFORE )
 		{
 			after_index = index_rel;
+			break;
 		}
 		index_rel++;
-	}
-
-	foreach(rt, topplan->targetlist)
-	{
-		Var *var;
-		tr = (TargetEntry*)lfirst(rt);
-		var = tr->expr;
-		if(IsA(var,Var))
-		{
-			if(var->varnoold == before_index && var->varattno == 1)
-			{
-				var_index = index_var;
-				break;
-			}
-		}
-
-		index_var++;
 	}
 	/*
 	 * We can perform the desired Var fixup by abusing the fix_join_expr
@@ -2002,9 +1977,7 @@ set_returning_clause_references(PlannerInfo *root,
 						  resultRelation,
 						  rtoffset);
 
-
-
-	fix_varno_varattno(rlist, var_index, before_index, after_index);
+	fix_varno_varattno(rlist, after_index);
 	pfree(itlist);
 
 	return rlist;

@@ -103,6 +103,7 @@ static void substitute_multiple_relids(Node *node,
 static void fix_append_rel_relids(List *append_rel_list, int varno,
 					  Relids subrelids);
 static Node *find_jointree_node_for_rel(Node *jtnode, int relid);
+static void prepare_returning_before(PlannerInfo *root, List *ret, int varno);
 
 
 /*
@@ -1014,6 +1015,7 @@ pull_up_simple_subquery(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte,
 				case RTE_RELATION:
 				case RTE_JOIN:
 				case RTE_CTE:
+				case RTE_BEFORE:
 					/* these can't contain any lateral references */
 					break;
 			}
@@ -1547,6 +1549,7 @@ replace_vars_in_jointree(Node *jtnode,
 					case RTE_RELATION:
 					case RTE_JOIN:
 					case RTE_CTE:
+					case RTE_BEFORE:
 						/* these shouldn't be marked LATERAL */
 						Assert(false);
 						break;
