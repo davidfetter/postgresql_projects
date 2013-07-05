@@ -1700,9 +1700,12 @@ pullup_replace_vars_callback(Var *var,
 		/* Make a copy of the tlist item to return */
 		newnode = copyObject(tle->expr);
 
-		if(IsA(newnode,Var)){
-			((Var*)newnode)->varoattno = ((Var*)var)->varoattno;
-			((Var*)newnode)->varnoold = ((Var*)var)->varnoold;
+		if(IsA(newnode,Var) && rcon->root->parse->commandType == CMD_UPDATE){
+			RangeTblEntry *rte = (RangeTblEntry*)list_nth(rcon->root->parse->rtable, ((Var*)var)->varnoold-1);
+			if(rte->rtekind == RTE_BEFORE){
+				((Var*)newnode)->varoattno = ((Var*)var)->varoattno;
+				((Var*)newnode)->varnoold = ((Var*)var)->varnoold;
+			}
 		}
 
 		/* Insert PlaceHolderVar if needed */

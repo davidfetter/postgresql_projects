@@ -688,10 +688,11 @@ flatten_join_alias_vars_mutator(Node *node,
 		Assert(var->varattno > 0);
 		newvar = (Node *) list_nth(rte->joinaliasvars, var->varattno - 1);
 		newvar = copyObject(newvar);
-				if(IsA(newvar,Var)){
-					            ((Var*)newvar)->varoattno = ((Var*)var)->varoattno;
-								            ((Var*)newvar)->varnoold = ((Var*)var)->varnoold;
-											        }
+		if(IsA(newvar,Var) && context->root->parse->commandType == CMD_UPDATE){
+			RangeTblEntry *rt = rt_fetch(var->varno, context->root->parse->rtable);
+			((Var*)newvar)->varoattno = ((Var*)var)->varoattno;
+			((Var*)newvar)->varnoold = ((Var*)var)->varnoold;
+		}
 
 		/*
 		 * If we are expanding an alias carried down from an upper query, must
