@@ -1691,7 +1691,12 @@ fix_join_expr_mutator(Node *node, fix_join_expr_context *context)
 	if (IsA(node, Var))
 	{
 		Var		   *var = (Var *) node;
-		if (context->root->parse->commandType == CMD_UPDATE && var->varno>1 && context->root->simple_rte_array[var->varno]->rtekind == RTE_BEFORE && context->root->simple_rte_array[var->varno-1]->rtekind == RTE_BEFORE) var->varno-=1;
+		if (var->varno<=list_length(context->root->parse->rtable) && var->varno>1 && context->root->parse->commandType == CMD_UPDATE){
+			RangeTblEntry *rte_a,*rte_b;
+			rte_a = (RangeTblEntry *)list_nth(context->root->parse->rtable,var->varno-1);
+			rte_b = (RangeTblEntry *)list_nth(context->root->parse->rtable,var->varno-2);
+			if (rte_a->rtekind == RTE_BEFORE && rte_b->rtekind == RTE_BEFORE) var->varno-=1;
+		}
 
 		/* First look for the var in the input tlists */
 		newvar = search_indexed_tlist_for_var(var,
