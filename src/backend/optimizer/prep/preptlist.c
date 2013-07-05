@@ -51,7 +51,6 @@ preprocess_targetlist(PlannerInfo *root, List *tlist)
 {
 	Query	   *parse = root->parse;
 	int			result_relation = parse->resultRelation;
-	int			before_rel;
 	List	   *range_table = parse->rtable;
 	CmdType		command_type = parse->commandType;
 	ListCell   *lc;
@@ -139,75 +138,6 @@ preprocess_targetlist(PlannerInfo *root, List *tlist)
 								  pstrdup(resname),
 								  true);
 			tlist = lappend(tlist, tle);
-		}
-	}
-
-	/*
-	 * We have to add whole columns additionally because of returning before
-	 */
-	if ( parse->returningList && list_length(parse->rtable) > 1 && command_type == CMD_UPDATE )
-	{
-		ListCell *rt;
-		RangeTblEntry *rte = rt_fetch(result_relation, range_table);
-		RangeTblEntry *bef;
-		int index_rel=1;
-		foreach(rt,parse->rtable)
-		{
-			bef = (RangeTblEntry *)lfirst(rt);
-			if(strcmp(bef->eref->aliasname,"before") == 0 && bef->rtekind == RTE_BEFORE )
-			{
-				before_rel = index_rel;
-				break;
-			}
-			index_rel++;
-		}
-		if(strcmp(rte->eref->aliasname,"before"))
-		{
-			Relation    rel;
-			TargetEntry *tle;
-			int			attrno,	numattrs;
-			rel = heap_open(getrelid(result_relation, range_table), NoLock);
-
-			numattrs = RelationGetNumberOfAttributes(rel);
-
-			for (attrno = 1; attrno <= numattrs; attrno++)
-			{
-				Form_pg_attribute att_tup = rel->rd_att->attrs[attrno - 1];
-
-				Oid			atttype = att_tup->atttypid;
-				int32		atttypmod = att_tup->atttypmod;
-				Oid			attcollation = att_tup->attcollation;
-				Node	   *new_expr;
-
-				if (!att_tup->attisdropped)
-				{
-					new_expr = (Node *) makeVar(before_rel,
-							attrno,
-							atttype,
-							atttypmod,
-							attcollation,
-							0);
-				}
-				else
-				{
-					/* Insert NULL for dropped column */
-					new_expr = (Node *) makeConst(INT4OID,
-							-1,
-							InvalidOid,
-							sizeof(int32),
-							(Datum) 0,
-							true,		/* isnull */
-							true /* byval */ );
-				}
-
-				tle = makeTargetEntry((Expr *) new_expr,
-						list_length(tlist) + 1,
-						NULL,
-						true);
-				tlist = lappend(tlist, tle);
-
-			}
-			heap_close(rel, NoLock);
 		}
 	}
 

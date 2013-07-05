@@ -2351,6 +2351,7 @@ _outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
 	switch (node->rtekind)
 	{
 		case RTE_RELATION:
+		case RTE_BEFORE:
 			WRITE_OID_FIELD(relid);
 			WRITE_CHAR_FIELD(relkind);
 			break;

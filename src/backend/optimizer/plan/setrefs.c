@@ -1691,6 +1691,7 @@ fix_join_expr_mutator(Node *node, fix_join_expr_context *context)
 	if (IsA(node, Var))
 	{
 		Var		   *var = (Var *) node;
+		if (context->root->parse->commandType == CMD_UPDATE && var->varno>1 && context->root->simple_rte_array[var->varno]->rtekind == RTE_BEFORE && context->root->simple_rte_array[var->varno-1]->rtekind == RTE_BEFORE) var->varno-=1;
 
 		/* First look for the var in the input tlists */
 		newvar = search_indexed_tlist_for_var(var,
@@ -1964,7 +1965,7 @@ set_returning_clause_references(PlannerInfo *root,
 		var = tr->expr;
 		if(IsA(var,Var))
 		{
-			if(var->varno == before_index && var->varattno == 1)
+			if(var->varnoold == before_index && var->varattno == 1)
 			{
 				var_index = index_var;
 				break;

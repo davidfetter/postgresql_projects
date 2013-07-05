@@ -756,6 +756,35 @@ pull_up_subqueries_recurse(PlannerInfo *root, Node *jtnode,
 	return jtnode;
 }
 
+void prepare_returning_before(PlannerInfo *root, List *ret, int varno)
+{
+	ListCell *v;
+	Var *var;
+	List *rtable = root->parse->rtable;
+	RangeTblEntry *rte;
+	TargetEntry *target;
+	foreach(v,ret)
+	{
+		target = (TargetEntry*)lfirst(v);
+		if(IsA(target,TargetEntry))
+		{
+			var = (Var*)target->expr;
+			if(IsA(var,Var))
+			{
+				if (var->varno <= list_length(rtable))
+				{
+					rte = (RangeTblEntry*)list_nth(rtable,var->varno-1);
+					if(rte->rtekind == RTE_BEFORE)
+					{
+						var->varno=varno;
+					}
+				}
+
+			}
+		}
+	}
+}
+
 /*
  * pull_up_simple_subquery
  *		Attempt to pull up a single simple subquery.
@@ -915,6 +944,8 @@ pull_up_simple_subquery(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte,
 	 */
 	parse->targetList = (List *)
 		pullup_replace_vars((Node *) parse->targetList, &rvcontext);
+
+	prepare_returning_before(root,parse->returningList,varno);
 	parse->returningList = (List *)
 		pullup_replace_vars((Node *) parse->returningList, &rvcontext);
 	replace_vars_in_jointree((Node *) parse->jointree, &rvcontext,
