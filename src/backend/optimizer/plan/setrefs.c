@@ -1692,7 +1692,10 @@ fix_join_expr_mutator(Node *node, fix_join_expr_context *context)
 	if (IsA(node, Var))
 	{
 		Var		   *var = (Var *) node;
-		if (var->varno<=list_length(context->root->parse->rtable) && var->varno>1 && context->root->parse->commandType == CMD_UPDATE){
+		if (var->varno<=list_length(context->root->parse->rtable) && 
+			var->varno>1 && 
+			context->root->parse->commandType == CMD_UPDATE)
+		{
 			RangeTblEntry *rte_a,*rte_b;
 			rte_a = (RangeTblEntry *)list_nth(context->root->parse->rtable,var->varno-1);
 			rte_b = (RangeTblEntry *)list_nth(context->root->parse->rtable,var->varno-2);
@@ -1900,28 +1903,36 @@ fix_upper_expr_mutator(Node *node, fix_upper_expr_context *context)
  * Note: resultRelation is not yet adjusted by rtoffset.
  */
 
-void fix_varno_varattno(List *rlist, int aft){
+void fix_varno_varattno(List *rlist, int aft)
+{
 	ListCell   *temp;
 	Var *var = NULL;
 	foreach(temp, rlist){
 		TargetEntry *tle = (TargetEntry *)lfirst(temp);
 
 		var = NULL;
-		if(IsA(tle, TargetEntry)){
+		if(IsA(tle, TargetEntry))
+		{
 			var = (Var*)tle->expr;
-		}else if(IsA(tle, Var)) var=(Var*)tle;
-		if(var){
-			if( IsA(var, Var) ){
+		}
+		else if(IsA(tle, Var)) 
+			var=(Var*)tle;
+		if(var)
+		{
+			if( IsA(var, Var) )
+			{
 				if(var->varnoold == aft)
 				{
 					var->varno = OUTER_VAR;
 					var->varattno = var->varoattno;
 				}
 			}
-			else if( IsA(var, OpExpr )){
+			else if( IsA(var, OpExpr ))
+			{
 				fix_varno_varattno(((OpExpr*)var)->args, aft);
 			}
-			else if( IsA(var, FuncExpr )){
+			else if( IsA(var, FuncExpr ))
+			{
 				fix_varno_varattno(((FuncExpr*)var)->args, aft);
 			}
 		}

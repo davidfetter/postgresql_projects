@@ -178,7 +178,8 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
 			int			attno = var->varattno;
 			RangeTblEntry *rte;
 
-			if (root->parse->commandType == CMD_UPDATE){
+			if (root->parse->commandType == CMD_UPDATE)
+			{
 				rte = ((RangeTblEntry *) list_nth(root->parse->rtable, (var->varno)-1));
 				if(rte->rtekind == RTE_BEFORE)
 					continue;

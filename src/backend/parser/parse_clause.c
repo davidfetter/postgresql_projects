@@ -87,7 +87,8 @@ static Node *transformFrameOffset(ParseState *pstate, int frameOptions,
 
 extern void addAliases(ParseState *pstate);
 
-void addAliases(ParseState *pstate){
+void addAliases(ParseState *pstate)
+{
 	const int noal = 2;
 	char	*aliases[] = {"before","after"};
 	int		i;
@@ -107,19 +108,21 @@ void addAliases(ParseState *pstate){
 		if (nsitem->p_lateral_only && !pstate->p_lateral_active)
 			continue;
 
-		for(i=0 ; i<noal; i++){
+		for(i=0 ; i<noal; i++)
+		{
 			if (aliases[i])
-			if (strcmp(rte->eref->aliasname, aliases[i]) == 0)
-			{
-				aliases[i] = NULL;
-			}
+				if (strcmp(rte->eref->aliasname, aliases[i]) == 0)
+				{
+					aliases[i] = NULL;
+				}
 		}
 	}
 
 	l = pstate->p_namespace->head;
 	nsitem = (ParseNamespaceItem *) lfirst(l);
 
-	for(i=0 ; i<noal; i++){
+	for(i=0 ; i<noal; i++)
+	{
 		if (aliases[i])
 		{
 			rte = makeNode(RangeTblEntry);
