@@ -200,11 +200,12 @@ UPDATE [ ONLY ] <replaceable class="PARAMETER">table_name</replaceable> [ * ] [ 
       respectively) each row is updated.  The expression can use any
       column names of the table named by <replaceable
       class="PARAMETER">table_name</replaceable> or table(s) listed in
-      <literal>FROM</>.  Write <literal>AFTER.*</literal> (or for
-      legacy reasons, <literal>*</>) to return all columns after the
-      update.  Write <literal>BEFORE.*</literal> for all columns
-      before the update.  You may combine BEFORE and AFTER columns in
-      the expression.
+      <literal>FROM</>.  Write <literal>AFTER.*</literal> to return all 
+      columns after the update. Write <literal>BEFORE.*</literal> for all
+      columns before the update. Write <literal>*</literal> to return all
+      columns after update and all triggers fired (these values are in table
+      after command). You may combine BEFORE, AFTER and raw columns in the
+      expression.
      </para>
      <warning><para>
      Mixing table names or aliases named before or after with the
