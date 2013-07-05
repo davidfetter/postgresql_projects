@@ -688,6 +688,10 @@ flatten_join_alias_vars_mutator(Node *node,
 		Assert(var->varattno > 0);
 		newvar = (Node *) list_nth(rte->joinaliasvars, var->varattno - 1);
 		newvar = copyObject(newvar);
+				if(IsA(newvar,Var)){
+					            ((Var*)newvar)->varoattno = ((Var*)var)->varoattno;
+								            ((Var*)newvar)->varnoold = ((Var*)var)->varnoold;
+											        }
 
 		/*
 		 * If we are expanding an alias carried down from an upper query, must

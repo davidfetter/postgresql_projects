@@ -1911,8 +1911,8 @@ void fix_varno_varattno(List *rlist, int begin, int bef, int aft){
 		}else if(IsA(tle, Var)) var=(Var*)tle;
 		if( IsA(var, Var) ){
 			if(var->varnoold == bef){
-				var->varno = OUTER_VAR;
-				var->varattno = var->varoattno + begin;
+//				var->varno = OUTER_VAR;
+//				var->varattno = var->varoattno + begin;
 			}
 			else if(var->varnoold == aft)
 			{

@@ -1700,6 +1700,11 @@ pullup_replace_vars_callback(Var *var,
 		/* Make a copy of the tlist item to return */
 		newnode = copyObject(tle->expr);
 
+		if(IsA(newnode,Var)){
+			((Var*)newnode)->varoattno = ((Var*)var)->varoattno;
+			((Var*)newnode)->varnoold = ((Var*)var)->varnoold;
+		}
+
 		/* Insert PlaceHolderVar if needed */
 		if (rcon->need_phvs)
 		{
