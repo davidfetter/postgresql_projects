@@ -470,3 +470,17 @@ select sum(unique1) FILTER (WHERE unique1 IN (SELECT unique1 FROM onek where uni
 select aggfns(distinct a,b,c order by a,c using ~<~,b) filter (where a > 1)
     from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c),
     generate_series(1,2) i;
+
+-- ordered set functions
+
+select p, percentile_cont(p) within group (order by x::float8) from generate_series(1,5) x, 
+	(values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) 
+	group by p order by p;
+select p, percentile_cont(p order by p) within group (order by x::float8) 
+	from generate_series(1,5) x, (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) 
+	group by p order by x;
+select p, sum() within group (order by x::float8) 
+	from generate_series(1,5) x, 
+	(values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p;
+select p, percentile_cont(p,p) from generate_series(1,5) x, 
+	(values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p;
