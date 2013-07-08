@@ -688,10 +688,17 @@ flatten_join_alias_vars_mutator(Node *node,
 		Assert(var->varattno > 0);
 		newvar = (Node *) list_nth(rte->joinaliasvars, var->varattno - 1);
 		newvar = copyObject(newvar);
-		if(IsA(newvar,Var) && context->root->parse->commandType == CMD_UPDATE){
-			RangeTblEntry *rt = rt_fetch(var->varno, context->root->parse->rtable);
-			((Var*)newvar)->varoattno = ((Var*)var)->varoattno;
-			((Var*)newvar)->varnoold = ((Var*)var)->varnoold;
+		if(IsA(newvar,Var) && context->root->parse->commandType == CMD_UPDATE)
+		{
+			if(var->varno <= list_length(context->root->parse->rtable))
+			{
+				RangeTblEntry *rt = rt_fetch(var->varno, context->root->parse->rtable);
+				if(rt->rtekind == RTE_BEFORE)
+				{
+					((Var*)newvar)->varoattno = ((Var*)var)->varoattno;
+					((Var*)newvar)->varnoold = ((Var*)var)->varnoold;
+				}
+			}
 		}
 
 		/*
