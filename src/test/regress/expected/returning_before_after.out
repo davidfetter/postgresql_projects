@@ -35,6 +35,21 @@ UPDATE foo SET bar1=bar1+after.bar1 RETURNING after.*;
 ERROR:  missing FROM-clause entry for table "after"
 LINE 1: UPDATE foo SET bar1=bar1+after.bar1 RETURNING after.*;
                                  ^
+-- test before/after aliases
+UPDATE foo AS before SET bar1=bar1+1 RETURNING before.*,after.*;
+ bar1 | bar2 | bar1 | bar2 
+------+------+------+------
+    3 | xz   |    3 | xz
+    4 | yz   |    4 | yz
+(2 rows)
+
+UPDATE foo AS after SET bar1=bar1-1 RETURNING before.*,after.*;
+ bar1 | bar2 | bar1 | bar2 
+------+------+------+------
+    3 | xz   |    2 | xz
+    4 | yz   |    3 | yz
+(2 rows)
+
 -- test inheritance
 CREATE TABLE foo2 (bar INTEGER) INHERITS(foo);
 INSERT INTO foo2 VALUES (1,'b',5);

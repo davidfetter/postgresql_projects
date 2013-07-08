@@ -19,6 +19,9 @@ UPDATE foo SET bar1=bar1+1, bar2=bar2 || 'z' RETURNING before.*, after.*;
 UPDATE foo SET bar1=bar1+before.bar1 RETURNING before.*;
 UPDATE foo SET bar1=bar1+after.bar1 RETURNING after.*;
 
+-- test before/after aliases
+UPDATE foo AS before SET bar1=bar1+1 RETURNING before.*,after.*;
+UPDATE foo AS after SET bar1=bar1-1 RETURNING before.*,after.*;
 
 -- test inheritance
 CREATE TABLE foo2 (bar INTEGER) INHERITS(foo);
