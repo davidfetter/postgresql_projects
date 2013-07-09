@@ -1252,3 +1252,27 @@ select p, percentile_cont(p,p) from generate_series(1,5) x,
 ERROR:  Ordered set function specified, but WITHIN GROUP not present
 LINE 1: select p, percentile_cont(p,p) from generate_series(1,5) x, 
                   ^
+select percentile_cont(0.5) within group (order by b) from aggtest;
+ percentile_cont  
+------------------
+ 53.4485001564026
+(1 row)
+
+select percentile_cont(0.5) within group (order by b),sum(b) from aggtest;
+ percentile_cont  |   sum   
+------------------+---------
+ 53.4485001564026 | 431.773
+(1 row)
+
+select percentile_cont(0.5) within group (order by thousand) from tenk1;
+ percentile_cont 
+-----------------
+           499.5
+(1 row)
+
+select percentile_disc(0.5) within group (order by thousand) from tenk1;
+ percentile_disc 
+-----------------
+             499
+(1 row)
+
