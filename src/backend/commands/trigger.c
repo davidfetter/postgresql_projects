@@ -2335,7 +2335,7 @@ ExecASUpdateTriggers(EState *estate, ResultRelInfo *relinfo)
 TupleTableSlot *
 ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 					 ResultRelInfo *relinfo,
-					 ItemPointer tupleid, TupleTableSlot *slot)
+					 ItemPointer tupleid, TupleTableSlot *slot, TupleTableSlot **planSlot)
 {
 	TriggerDesc *trigdesc = relinfo->ri_TrigDesc;
 	HeapTuple	slottuple = ExecMaterializeSlot(slot);
@@ -2381,6 +2381,7 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	if (newSlot != NULL)
 	{
 		slot = ExecFilterJunk(relinfo->ri_junkFilter, newSlot);
+		*planSlot = newSlot;
 		slottuple = ExecMaterializeSlot(slot);
 		newtuple = slottuple;
 	}
