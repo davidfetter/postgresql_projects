@@ -733,6 +733,7 @@ lreplace:;
 										   hufd.xmax);
 					if (!TupIsNull(epqslot))
 					{
+						planSlot = epqslot;
 						*tupleid = hufd.ctid;
 						slot = ExecFilterJunk(resultRelInfo->ri_junkFilter, epqslot);
 						tuple = ExecMaterializeSlot(slot);
