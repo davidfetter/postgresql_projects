@@ -1220,3 +1220,59 @@ select aggfns(distinct a,b,c order by a,c using ~<~,b) filter (where a > 1)
  {"(2,2,bar)","(3,1,baz)"}
 (1 row)
 
+-- ordered set functions
+select p, percentile_cont(p) within group (order by x::float8) from generate_series(1,5) x, 
+	(values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) 
+	group by p order by p;
+  p   | percentile_cont 
+------+-----------------
+    0 |               1
+  0.1 |             1.4
+ 0.25 |               2
+  0.4 |             2.6
+  0.5 |               3
+  0.6 |             3.4
+ 0.75 |               4
+  0.9 |             4.6
+    1 |               5
+(9 rows)
+
+select p, percentile_cont(p order by p) within group (order by x::float8) 
+	from generate_series(1,5) x, (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) 
+	group by p order by x;
+ERROR:  Cannot have multiple ORDER BY clauses with WITHIN GROUP
+LINE 1: select p, percentile_cont(p order by p) within group (order ...
+                                                ^
+select p, sum() within group (order by x::float8) 
+	from generate_series(1,5) x, 
+	(values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p;
+ERROR:  sum(double precision) is not an ordered set function
+select p, percentile_cont(p,p) from generate_series(1,5) x, 
+	(values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p;
+ERROR:  Ordered set function specified, but WITHIN GROUP not present
+LINE 1: select p, percentile_cont(p,p) from generate_series(1,5) x, 
+                  ^
+select percentile_cont(0.5) within group (order by b) from aggtest;
+ percentile_cont  
+------------------
+ 53.4485001564026
+(1 row)
+
+select percentile_cont(0.5) within group (order by b),sum(b) from aggtest;
+ percentile_cont  |   sum   
+------------------+---------
+ 53.4485001564026 | 431.773
+(1 row)
+
+select percentile_cont(0.5) within group (order by thousand) from tenk1;
+ percentile_cont 
+-----------------
+           499.5
+(1 row)
+
+select percentile_disc(0.5) within group (order by thousand) from tenk1;
+ percentile_disc 
+-----------------
+             499
+(1 row)
+
