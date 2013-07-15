@@ -190,6 +190,7 @@ static const char *show_tcp_keepalives_idle(void);
 static const char *show_tcp_keepalives_interval(void);
 static const char *show_tcp_keepalives_count(void);
 static bool check_maxconnections(int *newval, void **extra, GucSource source);
+static bool check_max_worker_processes(int *newval, void **extra, GucSource source);
 static bool check_autovacuum_max_workers(int *newval, void **extra, GucSource source);
 static bool check_effective_io_concurrency(int *newval, void **extra, GucSource source);
 static void assign_effective_io_concurrency(int newval, void *extra);
@@ -590,6 +591,8 @@ const char *const config_group_names[] =
 	gettext_noop("Client Connection Defaults / Statement Behavior"),
 	/* CLIENT_CONN_LOCALE */
 	gettext_noop("Client Connection Defaults / Locale and Formatting"),
+	/* CLIENT_CONN_PRELOAD */
+	gettext_noop("Client Connection Defaults / Shared Library Preloading"),
 	/* CLIENT_CONN_OTHER */
 	gettext_noop("Client Connection Defaults / Other Defaults"),
 	/* LOCK_MANAGEMENT */
@@ -2037,6 +2040,17 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
+		{"xloginsert_slots", PGC_POSTMASTER, WAL_SETTINGS,
+			gettext_noop("Sets the number of slots for concurrent xlog insertions."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&num_xloginsert_slots,
+		8, 1, 1000,
+		NULL, NULL, NULL
+	},
+
+	{
 		/* see max_connections */
 		{"max_wal_senders", PGC_POSTMASTER, REPLICATION_SENDING,
 			gettext_noop("Sets the maximum number of simultaneously running WAL sender processes."),
@@ -2156,6 +2170,18 @@ static struct config_int ConfigureNamesInt[] =
 		0, 0, 0,
 #endif
 		check_effective_io_concurrency, assign_effective_io_concurrency, NULL
+	},
+
+	{
+		{"max_worker_processes",
+			PGC_POSTMASTER,
+			RESOURCES_ASYNCHRONOUS,
+			gettext_noop("Maximum number of concurrent worker processes."),
+			NULL,
+		},
+		&max_worker_processes,
+		8, 1, MAX_BACKENDS,
+		check_max_worker_processes, NULL, NULL
 	},
 
 	{
@@ -2746,7 +2772,18 @@ static struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"shared_preload_libraries", PGC_POSTMASTER, RESOURCES_KERNEL,
+		{"session_preload_libraries", PGC_SUSET, CLIENT_CONN_PRELOAD,
+			gettext_noop("Lists shared libraries to preload into each backend."),
+			NULL,
+			GUC_LIST_INPUT | GUC_LIST_QUOTE | GUC_SUPERUSER_ONLY
+		},
+		&session_preload_libraries_string,
+		"",
+		NULL, NULL, NULL
+	},
+
+	{
+		{"shared_preload_libraries", PGC_POSTMASTER, CLIENT_CONN_PRELOAD,
 			gettext_noop("Lists shared libraries to preload into server."),
 			NULL,
 			GUC_LIST_INPUT | GUC_LIST_QUOTE | GUC_SUPERUSER_ONLY
@@ -2757,8 +2794,8 @@ static struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"local_preload_libraries", PGC_BACKEND, CLIENT_CONN_OTHER,
-			gettext_noop("Lists shared libraries to preload into each backend."),
+		{"local_preload_libraries", PGC_BACKEND, CLIENT_CONN_PRELOAD,
+			gettext_noop("Lists unprivileged shared libraries to preload into each backend."),
 			NULL,
 			GUC_LIST_INPUT | GUC_LIST_QUOTE
 		},
@@ -8667,8 +8704,8 @@ show_tcp_keepalives_count(void)
 static bool
 check_maxconnections(int *newval, void **extra, GucSource source)
 {
-	if (*newval + GetNumShmemAttachedBgworkers() + autovacuum_max_workers + 1 >
-		MAX_BACKENDS)
+	if (*newval + autovacuum_max_workers + 1 +
+		max_worker_processes > MAX_BACKENDS)
 		return false;
 	return true;
 }
@@ -8676,8 +8713,15 @@ check_maxconnections(int *newval, void **extra, GucSource source)
 static bool
 check_autovacuum_max_workers(int *newval, void **extra, GucSource source)
 {
-	if (MaxConnections + *newval + 1 + GetNumShmemAttachedBgworkers() >
-		MAX_BACKENDS)
+	if (MaxConnections + *newval + 1 + max_worker_processes > MAX_BACKENDS)
+		return false;
+	return true;
+}
+
+static bool
+check_max_worker_processes(int *newval, void **extra, GucSource source)
+{
+	if (MaxConnections + autovacuum_max_workers + 1 + *newval > MAX_BACKENDS)
 		return false;
 	return true;
 }
