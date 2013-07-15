@@ -7425,14 +7425,13 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 		get_rule_orderby(aggref->aggorder, aggref->args, false, context);
 	}
 
-	if (aggref->agg_filter != NULL)
+	if (aggref->aggfilter != NULL)
 	{
 		appendStringInfoString(buf, ") FILTER (WHERE ");
-		get_rule_expr((Node *)aggref->agg_filter, context, false);
+		get_rule_expr((Node *) aggref->aggfilter, context, false);
 	}
 
 	appendStringInfoChar(buf, ')');
-
 }
 
 /*
@@ -7470,10 +7469,10 @@ get_windowfunc_expr(WindowFunc *wfunc, deparse_context *context)
 	else
 		get_rule_expr((Node *) wfunc->args, context, true);
 
-	if (wfunc->agg_filter != NULL)
+	if (wfunc->aggfilter != NULL)
 	{
 		appendStringInfoString(buf, ") FILTER (WHERE ");
-		get_rule_expr((Node *)wfunc->agg_filter, context, false);
+		get_rule_expr((Node *) wfunc->aggfilter, context, false);
 	}
 
 	appendStringInfoString(buf, ") OVER ");

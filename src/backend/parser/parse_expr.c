@@ -463,8 +463,8 @@ transformIndirection(ParseState *pstate, Node *basenode, List *indirection)
 			newresult = ParseFuncOrColumn(pstate,
 										  list_make1(n),
 										  list_make1(result),
-										  NIL, false, false, false,
-										  NULL, NULL, true, location);
+										  NIL, NULL, false, false, false,
+										  NULL, true, location);
 			if (newresult == NULL)
 				unknown_attribute(pstate, result, strVal(n), location);
 			result = newresult;
@@ -631,8 +631,8 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 					node = ParseFuncOrColumn(pstate,
 											 list_make1(makeString(colname)),
 											 list_make1(node),
-											 NIL, false, false, false,
-											 NULL, NULL, true, cref->location);
+											 NIL, NULL, false, false, false,
+											 NULL, true, cref->location);
 				}
 				break;
 			}
@@ -676,8 +676,8 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 					node = ParseFuncOrColumn(pstate,
 											 list_make1(makeString(colname)),
 											 list_make1(node),
-											 NIL, false, false, false,
-											 NULL, NULL, true, cref->location);
+											 NIL, NULL, false, false, false,
+											 NULL, true, cref->location);
 				}
 				break;
 			}
@@ -734,8 +734,8 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 					node = ParseFuncOrColumn(pstate,
 											 list_make1(makeString(colname)),
 											 list_make1(node),
-											 NIL, false, false, false,
-											 NULL, NULL, true, cref->location);
+											 NIL, NULL, false, false, false,
+											 NULL, true, cref->location);
 				}
 				break;
 			}
@@ -1252,21 +1252,25 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 													(Node *) lfirst(args)));
 	}
 
-	/* Transform the aggregate filter using transformWhereClause, to
-	 * which FILTER is virually identical... */
+	/*
+	 * Transform the aggregate filter using transformWhereClause(), to which
+	 * FILTER is virtually identical...
+	 */
 	tagg_filter = NULL;
 	if (fn->agg_filter != NULL)
-		tagg_filter = (Expr *)transformWhereClause(pstate, (Node *)fn->agg_filter, EXPR_KIND_FILTER, "FILTER");
+		tagg_filter = (Expr *)
+			transformWhereClause(pstate, (Node *) fn->agg_filter,
+								 EXPR_KIND_FILTER, "FILTER");
 
 	/* ... and hand off to ParseFuncOrColumn */
 	return ParseFuncOrColumn(pstate,
 							 fn->funcname,
 							 targs,
 							 fn->agg_order,
+							 tagg_filter,
 							 fn->agg_star,
 							 fn->agg_distinct,
 							 fn->func_variadic,
-							 tagg_filter,
 							 fn->over,
 							 false,
 							 fn->location);

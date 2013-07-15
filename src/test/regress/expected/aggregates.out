@@ -1189,23 +1189,52 @@ having exists (select 1 from onek b where sum(distinct a.four) = b.four);
    8 |    
 (5 rows)
 
-select max(foo COLLATE "C") filter (where (bar collate "POSIX") > '0') from (values ('a', 'b')) AS v(foo,bar);
+select max(foo COLLATE "C") filter (where (bar collate "POSIX") > '0')
+from (values ('a', 'b')) AS v(foo,bar);
  max 
 -----
  a
 (1 row)
 
--- outer-level aggregates
+-- outer reference in FILTER (PostgreSQL extension)
+select (select count(*)
+        from (values (1)) t0(inner_c))
+from (values (2),(3)) t1(outer_c); -- inner query is aggregation query
+ count 
+-------
+     1
+     1
+(2 rows)
+
+select (select count(*) filter (where outer_c <> 0)
+        from (values (1)) t0(inner_c))
+from (values (2),(3)) t1(outer_c); -- outer query is aggregation query
+ count 
+-------
+     2
+(1 row)
+
+select (select count(inner_c) filter (where outer_c <> 0)
+        from (values (1)) t0(inner_c))
+from (values (2),(3)) t1(outer_c); -- inner query is aggregation query
+ count 
+-------
+     1
+     1
+(2 rows)
+
 select
-  (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)) filter (where o.unique1 < 10))
-from tenk1 o;
+  (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1))
+     filter (where o.unique1 < 10))
+from tenk1 o;					-- outer query is aggregation query
  max  
 ------
  9998
 (1 row)
 
--- non-standard-conforming FILTER clause containing subquery
-select sum(unique1) FILTER (WHERE unique1 IN (SELECT unique1 FROM onek where unique1 < 100)) FROM tenk1;
+-- subquery in FILTER clause (PostgreSQL extension)
+select sum(unique1) FILTER (WHERE
+  unique1 IN (SELECT unique1 FROM onek where unique1 < 100)) FROM tenk1;
  sum  
 ------
  4950
