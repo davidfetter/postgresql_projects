@@ -314,14 +314,26 @@ find_minmax_aggs_walker(Node *node, List **context)
 		ListCell   *l;
 
 		Assert(aggref->agglevelsup == 0);
-		if (list_length(aggref->args) != 1 || aggref->aggorder != NIL)
+		if (list_length(aggref->args) != 1)
 			return true;		/* it couldn't be MIN/MAX */
-		/* note: we do not care if DISTINCT is mentioned ... */
-		curTarget = (TargetEntry *) linitial(aggref->args);
+
+		/*
+		 * We might implement the optimization when a FILTER clause is present
+		 * by adding the filter to the quals of the generated subquery.
+		 */
+		if (aggref->aggfilter != NULL)
+			return true;
+
+		/*
+		 * Ignore ORDER BY and DISTINCT, which are valid but pointless on
+		 * MIN/MAX.  They do not change its result.
+		 */
 
 		aggsortop = fetch_agg_sort_op(aggref->aggfnoid);
 		if (!OidIsValid(aggsortop))
 			return true;		/* not a MIN/MAX aggregate */
+
+		curTarget = (TargetEntry *) linitial(aggref->args);
 
 		if (contain_mutable_functions((Node *) curTarget->expr))
 			return true;		/* not potentially indexable */
