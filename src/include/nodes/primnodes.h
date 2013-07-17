@@ -248,7 +248,7 @@ typedef struct Aggref
 	List	   *aggorder;		/* ORDER BY (list of SortGroupClause) */
 	List	   *aggdistinct;	/* DISTINCT (list of SortGroupClause) */
 	List	   *orddirectargs;	/* Direct arguments for ordered set functions */
-	Expr	   *agg_filter;		/* FILTER expression */
+	Expr	   *aggfilter;		/* FILTER expression */
 	bool		aggstar;		/* TRUE if argument list was really '*' */
 	bool		isordset;	/* If node is from an ordered set function */
 	Index		agglevelsup;	/* > 0 if agg belongs to outer query */
@@ -266,7 +266,7 @@ typedef struct WindowFunc
 	Oid			wincollid;		/* OID of collation of result */
 	Oid			inputcollid;	/* OID of collation that function should use */
 	List	   *args;			/* arguments to the window function */
-	Expr	   *agg_filter;		/* FILTER expression */
+	Expr	   *aggfilter;		/* FILTER expression */
 	Index		winref;			/* index of associated WindowClause */
 	bool		winstar;		/* TRUE if argument list was really '*' */
 	bool		winagg;			/* is function a simple aggregate? */

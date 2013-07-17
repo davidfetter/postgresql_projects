@@ -526,10 +526,10 @@ makeFuncCall(List *name, List *args, int location)
 	n->args = args;
 	n->location = location;
 	n->agg_order = NIL;
+	n->agg_filter = NULL;
 	n->agg_star = FALSE;
 	n->agg_distinct = FALSE;
 	n->func_variadic = FALSE;
-	n->agg_filter = NULL;
 	n->has_within_group = FALSE;
 	n->over = NULL;
 	return n;

@@ -584,8 +584,8 @@ typedef struct AggrefExprState
 {
 	ExprState	xprstate;
 	List	   *args;			/* states of argument expressions */
-	ExprState  *agg_filter;		/* FILTER expression */
 	List	   *orddirectargs;	/* Ordered direct arguments */
+	ExprState  *aggfilter;		/* FILTER expression */
 	int			aggno;			/* ID number for agg within its plan node */
 } AggrefExprState;
 
@@ -597,7 +597,7 @@ typedef struct WindowFuncExprState
 {
 	ExprState	xprstate;
 	List	   *args;			/* states of argument expressions */
-	ExprState  *agg_filter;		/* FILTER expression */
+	ExprState  *aggfilter;		/* FILTER expression */
 	int			wfuncno;		/* ID number for wfunc within its plan node */
 } WindowFuncExprState;
 

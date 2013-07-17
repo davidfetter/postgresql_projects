@@ -576,8 +576,8 @@ assign_collations_walker(Node *node, assign_collations_context *context)
 							 * appropriate checks to agg ORDER BY items.
 							 *
 							 * Likewise, we assign collations for the (bool)
-							 * expression in agg_filter, independently of
-							 * any other args.
+							 * expression in aggfilter, independently of any
+							 * other args.
 							 *
 							 * We need not recurse into the aggorder or
 							 * aggdistinct lists, because those contain only
@@ -600,21 +600,23 @@ assign_collations_walker(Node *node, assign_collations_context *context)
 																&loccontext);
 							}
 
-							assign_expr_collations(context->pstate, (Node *) aggref->agg_filter);
+							assign_expr_collations(context->pstate,
+												 (Node *) aggref->aggfilter);
 						}
 						break;
 					case T_WindowFunc:
 						{
 							/*
 							 * WindowFunc requires special processing only for
-							 * its agg_filter clause, as for aggregates.
+							 * its aggfilter clause, as for aggregates.
 							 */
 							WindowFunc *wfunc = (WindowFunc *) node;
 
 							(void) assign_collations_walker((Node *) wfunc->args,
 															&loccontext);
 
-							assign_expr_collations(context->pstate, (Node *) wfunc->agg_filter);
+							assign_expr_collations(context->pstate,
+												   (Node *) wfunc->aggfilter);
 						}
 						break;
 					case T_CaseExpr:
