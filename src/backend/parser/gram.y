@@ -4147,32 +4147,34 @@ AlterForeignServerStmt: ALTER SERVER name foreign_server_version alter_generic_o
 CreateForeignTableStmt:
 		CREATE FOREIGN TABLE qualified_name
 			'(' OptTableElementList ')'
+			OptInherit
 			SERVER name create_generic_options
 				{
 					CreateForeignTableStmt *n = makeNode(CreateForeignTableStmt);
 					$4->relpersistence = RELPERSISTENCE_PERMANENT;
 					n->base.relation = $4;
 					n->base.tableElts = $6;
-					n->base.inhRelations = NIL;
+					n->base.inhRelations = $8;
 					n->base.if_not_exists = false;
 					/* FDW-specific data */
-					n->servername = $9;
-					n->options = $10;
+					n->servername = $10;
+					n->options = $11;
 					$$ = (Node *) n;
 				}
 		| CREATE FOREIGN TABLE IF_P NOT EXISTS qualified_name
 			'(' OptTableElementList ')'
+			OptInherit
 			SERVER name create_generic_options
 				{
 					CreateForeignTableStmt *n = makeNode(CreateForeignTableStmt);
 					$7->relpersistence = RELPERSISTENCE_PERMANENT;
 					n->base.relation = $7;
 					n->base.tableElts = $9;
-					n->base.inhRelations = NIL;
+					n->base.inhRelations = $11;
 					n->base.if_not_exists = true;
 					/* FDW-specific data */
-					n->servername = $12;
-					n->options = $13;
+					n->servername = $13;
+					n->options = $14;
 					$$ = (Node *) n;
 				}
 		;

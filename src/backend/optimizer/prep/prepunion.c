@@ -1342,6 +1342,7 @@ expand_inherited_rtentry(PlannerInfo *root, RangeTblEntry *rte, Index rti)
 		 */
 		childrte = copyObject(rte);
 		childrte->relid = childOID;
+		childrte->relkind = newrelation->rd_rel->relkind;
 		childrte->inh = false;
 		childrte->requiredPerms = 0;
 		parse->rtable = lappend(parse->rtable, childrte);

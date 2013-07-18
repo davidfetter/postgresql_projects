@@ -1698,6 +1698,8 @@ typedef struct AlterForeignServerStmt
 typedef struct CreateForeignTableStmt
 {
 	CreateStmt	base;
+	List	   *inhRelations;	/* relations to inherit from (list of
+								 * inhRelation) */
 	char	   *servername;
 	List	   *options;
 } CreateForeignTableStmt;
