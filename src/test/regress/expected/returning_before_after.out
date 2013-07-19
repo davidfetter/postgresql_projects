@@ -26,6 +26,22 @@ UPDATE foo SET bar1=bar1+1, bar2=bar2 || 'z' RETURNING before.*, after.*;
     2 | y    |    3 | yz
 (2 rows)
 
+-- check single after
+UPDATE foo SET bar1=bar1+1, bar2=bar2 || 'a' RETURNING after.*;
+ bar1 | bar2 
+------+------
+    3 | xza
+    4 | yza
+(2 rows)
+
+-- check single before
+UPDATE foo SET bar1=bar1+1, bar2=bar2 || 'b' RETURNING before.*;
+ bar1 | bar2 
+------+------
+    3 | xza
+    4 | yza
+(2 rows)
+
 -- it should fail
 UPDATE foo SET bar1=bar1+before.bar1 RETURNING before.*;
 ERROR:  missing FROM-clause entry for table "before"
@@ -39,15 +55,15 @@ LINE 1: UPDATE foo SET bar1=bar1+after.bar1 RETURNING after.*;
 UPDATE foo AS before SET bar1=bar1+1 RETURNING before.*,after.*;
  bar1 | bar2 | bar1 | bar2 
 ------+------+------+------
-    3 | xz   |    3 | xz
-    4 | yz   |    4 | yz
+    5 | xzab |    5 | xzab
+    6 | yzab |    6 | yzab
 (2 rows)
 
 UPDATE foo AS after SET bar1=bar1-1 RETURNING before.*,after.*;
  bar1 | bar2 | bar1 | bar2 
 ------+------+------+------
-    3 | xz   |    2 | xz
-    4 | yz   |    3 | yz
+    5 | xzab |    4 | xzab
+    6 | yzab |    5 | yzab
 (2 rows)
 
 -- test inheritance
@@ -64,8 +80,8 @@ CREATE VIEW view_foo AS SELECT * FROM foo;
 UPDATE foo SET bar1=bar1+1 RETURNING before.*, bar1, bar2;
  bar1 | bar2 | bar1 | bar2 
 ------+------+------+------
-    2 | xz   |    3 | xz
-    3 | yz   |    4 | yz
+    4 | xzab |    5 | xzab
+    5 | yzab |    6 | yzab
     2 | 15   |    3 | 15
 (3 rows)
 
@@ -88,12 +104,26 @@ DROP TABLE foo2 CASCADE;
 NOTICE:  drop cascades to view view_join
 CREATE TRIGGER bef_foo BEFORE UPDATE ON foo FOR EACH ROW EXECUTE PROCEDURE returning_trig();
 UPDATE foo SET bar1=bar1+1, bar2=bar2 || 'z' RETURNING before.*, after.*, *;
- bar1 | bar2 | bar1 | bar2 | bar1 | bar2 
-------+------+------+------+------+------
-    3 | xz   |    4 | xzz  |   16 | xzz
-    4 | yz   |    5 | yzz  |   25 | yzz
+ bar1 | bar2 | bar1 | bar2  | bar1 | bar2  
+------+------+------+-------+------+-------
+    5 | xzab |    6 | xzabz |   36 | xzabz
+    6 | yzab |    7 | yzabz |   49 | yzabz
 (2 rows)
 
 DROP TABLE foo CASCADE;
 NOTICE:  drop cascades to view view_foo
 DROP TABLE foo3 CASCADE;
+-- check WITH statement 
+CREATE TABLE t1 (x int, y int, z int);
+CREATE TABLE t2 (x int, y int, z int);
+INSERT INTO t1 VALUES (1,2,3);
+INSERT INTO t1 VALUES (4,5,6);
+WITH foo AS (UPDATE t1 SET x=x*2, y=y+1, z=x+y+z RETURNING BEFORE.x, BEFORE.y, AFTER.z) INSERT INTO t2 (x,y,z) SELECT x, y, z FROM foo RETURNING *;
+ x | y | z  
+---+---+----
+ 1 | 2 |  6
+ 4 | 5 | 15
+(2 rows)
+
+DROP TABLE t1;
+DROP TABLE t2;
