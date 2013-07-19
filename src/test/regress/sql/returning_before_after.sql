@@ -14,6 +14,13 @@ UPDATE foo SET bar1=bar1-1 RETURNING after.bar1, before.bar1*2;
 
 UPDATE foo SET bar1=bar1+1, bar2=bar2 || 'z' RETURNING before.*, after.*;
 
+-- check single after
+
+UPDATE foo SET bar1=bar1+1, bar2=bar2 || 'a' RETURNING after.*;
+
+-- check single before
+
+UPDATE foo SET bar1=bar1+1, bar2=bar2 || 'b' RETURNING before.*;
 
 -- it should fail
 UPDATE foo SET bar1=bar1+before.bar1 RETURNING before.*;
@@ -61,4 +68,14 @@ UPDATE foo SET bar1=bar1+1, bar2=bar2 || 'z' RETURNING before.*, after.*, *;
 DROP TABLE foo CASCADE;
 DROP TABLE foo3 CASCADE;
 
+-- check WITH statement 
+CREATE TABLE t1 (x int, y int, z int);
+CREATE TABLE t2 (x int, y int, z int);
 
+INSERT INTO t1 VALUES (1,2,3);
+INSERT INTO t1 VALUES (4,5,6);
+
+WITH foo AS (UPDATE t1 SET x=x*2, y=y+1, z=x+y+z RETURNING BEFORE.x, BEFORE.y, AFTER.z) INSERT INTO t2 (x,y,z) SELECT x, y, z FROM foo RETURNING *;
+
+DROP TABLE t1;
+DROP TABLE t2;

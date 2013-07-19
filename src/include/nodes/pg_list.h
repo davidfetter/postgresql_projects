@@ -209,6 +209,7 @@ extern List *list_truncate(List *list, int new_size);
 extern void *list_nth(const List *list, int n);
 extern int	list_nth_int(const List *list, int n);
 extern Oid	list_nth_oid(const List *list, int n);
+extern ListCell *list_nth_cell(const List *list, int n);
 
 extern bool list_member(const List *list, const void *datum);
 extern bool list_member_ptr(const List *list, const void *datum);
