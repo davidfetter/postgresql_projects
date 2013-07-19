@@ -25,14 +25,6 @@
  * percentile_disc(float8)  - discrete (nearest) percentile
  */
 
-Datum percentile_disc(PG_FUNCTION_ARGS);
-
-Datum
-percentile_disc(PG_FUNCTION_ARGS)
-{
-	elog(ERROR, "not implemented yet");
-}
-
 Datum percentile_disc_final(PG_FUNCTION_ARGS);
 
 Datum
@@ -92,13 +84,6 @@ percentile_disc_final(PG_FUNCTION_ARGS)
 /*
  * percentile_cont(float8)  - continuous (nearest) percentile
  */
-Datum percentile_cont(PG_FUNCTION_ARGS);
-
-Datum
-percentile_cont(PG_FUNCTION_ARGS)
-{
-	elog(ERROR, "not implemented yet");
-}
 
 Datum percentile_cont_final(PG_FUNCTION_ARGS);
 
@@ -170,16 +155,10 @@ percentile_cont_final(PG_FUNCTION_ARGS)
 	else
 		PG_RETURN_DATUM(val);
 }
+
 /*
  * percentile_interval_cont(Interval)  - continuous (nearest) percentile for Interval
  */
-Datum percentile_interval_cont(PG_FUNCTION_ARGS);
-
-Datum
-percentile_interval_cont(PG_FUNCTION_ARGS)
-{
-	elog(ERROR, "not implemented yet");
-}
 
 Datum percentile_interval_cont_final(PG_FUNCTION_ARGS);
 
@@ -243,7 +222,7 @@ percentile_interval_cont_final(PG_FUNCTION_ARGS)
 
 		proportion = (percentile * (rowcount-1)) - lower_row;
 
-		diff_result = DirectFunctionCall2(interval_mi, second_row, IntervalPGetDatum(first_row));
+		diff_result = DirectFunctionCall2(interval_mi, second_row, first_row);
 		mul_result = DirectFunctionCall2(interval_mul, diff_result, Float8GetDatumFast(proportion));
 		add_result = DirectFunctionCall2(interval_pl, mul_result, first_row);
 		val = add_result;
