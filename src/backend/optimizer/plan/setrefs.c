@@ -1697,27 +1697,19 @@ fix_join_expr_mutator(Node *node, fix_join_expr_context *context)
 			context->root->parse->commandType == CMD_UPDATE)
 		{
 			RangeTblEntry *rte_a, *rte_r;
+			ListCell *rte_c;
 			rte_a = (RangeTblEntry *)list_nth(context->root->parse->rtable,var->varno-1);
 			if (rte_a->rtekind == RTE_BEFORE && strcmp(rte_a->eref->aliasname,"after") == 0)
 			{
-				if (var->varno > 2)
+				var->varno = 1;
+				foreach(rte_c, context->root->parse->rtable)
 				{
-					rte_r = (RangeTblEntry *)list_nth(context->root->parse->rtable,var->varno-3);
+					rte_r = (RangeTblEntry *)lfirst(rte_c);
 					if(rte_r->rtekind == RTE_RELATION && rte_r->relid == rte_a->relid)
-						var->varno -= 2;
-
-					else
 					{
-						rte_r = (RangeTblEntry *)list_nth(context->root->parse->rtable,var->varno-2);
-						if(rte_r->rtekind == RTE_RELATION && rte_r->relid == rte_a->relid)
-							var->varno -= 1;
+						break;
 					}
-				}
-				else
-				{
-					rte_r = (RangeTblEntry *)list_nth(context->root->parse->rtable,var->varno-2);
-					if(rte_r->rtekind == RTE_RELATION && rte_r->relid == rte_a->relid)
-						var->varno -= 1;
+					var->varno++;
 				}
 			}
 		}
