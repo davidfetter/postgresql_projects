@@ -3541,7 +3541,8 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 			heap_close(OldHeap, NoLock);
 
 			/* Create transient table that will receive the modified data */
-			OIDNewHeap = make_new_heap(tab->relid, NewTableSpace);
+			OIDNewHeap = make_new_heap(tab->relid, NewTableSpace, false,
+									   AccessExclusiveLock);
 
 			/*
 			 * Copy the heap data into the new table with the desired
@@ -8771,6 +8772,42 @@ ATExecSetRelOptions(Relation rel, List *defList, AlterTableType operation,
 					 errmsg("\"%s\" is not a table, view, materialized view, index, or TOAST table",
 							RelationGetRelationName(rel))));
 			break;
+	}
+
+	/* Special-case validation of view options */
+	if (rel->rd_rel->relkind == RELKIND_VIEW)
+	{
+		Query	   *view_query = get_view_query(rel);
+		List	   *view_options = untransformRelOptions(newOptions);
+		ListCell   *cell;
+		bool		check_option = false;
+		bool		security_barrier = false;
+
+		foreach(cell, view_options)
+		{
+			DefElem    *defel = (DefElem *) lfirst(cell);
+
+			if (pg_strcasecmp(defel->defname, "check_option") == 0)
+				check_option = true;
+			if (pg_strcasecmp(defel->defname, "security_barrier") == 0)
+				security_barrier = defGetBoolean(defel);
+		}
+
+		/*
+		 * If the check option is specified, look to see if the view is
+		 * actually auto-updatable or not.
+		 */
+		if (check_option)
+		{   
+			const char *view_updatable_error =
+				view_query_is_auto_updatable(view_query, security_barrier);
+
+			if (view_updatable_error)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("WITH CHECK OPTION is supported only on auto-updatable views"),
+						errhint("%s", view_updatable_error)));
+		}
 	}
 
 	/*
