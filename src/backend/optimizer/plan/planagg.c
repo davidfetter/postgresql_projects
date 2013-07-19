@@ -316,18 +316,26 @@ find_minmax_aggs_walker(Node *node, List **context)
 		Assert(aggref->agglevelsup == 0);
 		if (list_length(aggref->args) != 1)
 			return true;		/* it couldn't be MIN/MAX */
-
+		/*
+		 * ORDER BY is usually irrelevant for MIN/MAX, but it can change the
+		 * outcome if the aggsortop's operator class recognizes non-identical
+		 * values as equal.  For example, 4.0 and 4.00 are equal according to
+		 * numeric_ops, yet distinguishable.  If MIN() receives more than one
+		 * value equal to 4.0 and no value less than 4.0, it is unspecified
+		 * which of those equal values MIN() returns.  An ORDER BY expression
+		 * that differs for each of those equal values of the argument
+		 * expression makes the result predictable once again.  This is a
+		 * niche requirement, and we do not implement it with subquery paths.
+		 */
+		if (aggref->aggorder != NIL)
+			return true;
 		/*
 		 * We might implement the optimization when a FILTER clause is present
 		 * by adding the filter to the quals of the generated subquery.
 		 */
 		if (aggref->aggfilter != NULL)
 			return true;
-
-		/*
-		 * Ignore ORDER BY and DISTINCT, which are valid but pointless on
-		 * MIN/MAX.  They do not change its result.
-		 */
+		/* note: we do not care if DISTINCT is mentioned ... */
 
 		aggsortop = fetch_agg_sort_op(aggref->aggfnoid);
 		if (!OidIsValid(aggsortop))
