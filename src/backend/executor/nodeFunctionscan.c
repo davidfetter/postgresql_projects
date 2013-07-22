@@ -105,6 +105,11 @@ FunctionNext(FunctionScanState *node)
 
 	ExecClearTuple(scanslot);
 
+	if (ScanDirectionIsForward(direction))
+		node->ordinal++;
+	else
+		node->ordinal--;
+
 	if (!TupIsNull(funcslot))
 	{
 		int     natts = funcslot->tts_tupleDescriptor->natts;
@@ -117,8 +122,6 @@ FunctionNext(FunctionScanState *node)
 			scanslot->tts_values[i] = funcslot->tts_values[i];
 			scanslot->tts_isnull[i] = funcslot->tts_isnull[i];
 		}
-
-		node->ordinal++;
 
 		scanslot->tts_values[natts] = Int64GetDatumFast(node->ordinal);
 		scanslot->tts_isnull[natts] = false;

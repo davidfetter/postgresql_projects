@@ -87,6 +87,62 @@ select definition from pg_views where viewname='vw_ord';
 (1 row)
 
 drop view vw_ord;
+-- ordinality vs. rewind and reverse scan
+begin;
+declare foo scroll cursor for select * from generate_series(1,5) with ordinality as g(i,o);
+fetch all from foo;
+ i | o 
+---+---
+ 1 | 1
+ 2 | 2
+ 3 | 3
+ 4 | 4
+ 5 | 5
+(5 rows)
+
+fetch backward all from foo;
+ i | o 
+---+---
+ 5 | 5
+ 4 | 4
+ 3 | 3
+ 2 | 2
+ 1 | 1
+(5 rows)
+
+fetch all from foo;
+ i | o 
+---+---
+ 1 | 1
+ 2 | 2
+ 3 | 3
+ 4 | 4
+ 5 | 5
+(5 rows)
+
+fetch next from foo;
+ i | o 
+---+---
+(0 rows)
+
+fetch next from foo;
+ i | o 
+---+---
+(0 rows)
+
+fetch prior from foo;
+ i | o 
+---+---
+ 5 | 5
+(1 row)
+
+fetch absolute 1 from foo;
+ i | o 
+---+---
+ 1 | 1
+(1 row)
+
+commit;
 -- function with implicit LATERAL
 select * from foo2, foot(foo2.fooid) z where foo2.f2 = z.f2;
  fooid | f2  | fooid | f2  

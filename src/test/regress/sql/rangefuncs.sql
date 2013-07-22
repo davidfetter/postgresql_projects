@@ -21,6 +21,17 @@ create temporary view vw_ord as select * from (values (1)) v(n) join foot(1) wit
 select * from vw_ord;
 select definition from pg_views where viewname='vw_ord';
 drop view vw_ord;
+-- ordinality vs. rewind and reverse scan
+begin;
+declare foo scroll cursor for select * from generate_series(1,5) with ordinality as g(i,o);
+fetch all from foo;
+fetch backward all from foo;
+fetch all from foo;
+fetch next from foo;
+fetch next from foo;
+fetch prior from foo;
+fetch absolute 1 from foo;
+commit;
 
 -- function with implicit LATERAL
 select * from foo2, foot(foo2.fooid) z where foo2.f2 = z.f2;
