@@ -199,7 +199,14 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
 							varno++;
 						}
 					}
-					else continue;
+					else
+					{
+						Var *var2 = copyObject(var);
+						var2->varno = varno;
+						rel->reltargetlist = lappend(rel->reltargetlist,
+											 var2);
+						continue;
+					}
 				}
 			}
 			rel = find_base_rel(root, varno);

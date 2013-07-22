@@ -505,6 +505,12 @@ build_joinrel_tlist(PlannerInfo *root, RelOptInfo *joinrel,
 				 (int) nodeTag(var));
 
 		/* Get the Var's original base rel */
+		{
+			RangeTblEntry *rte;
+			rte = ((RangeTblEntry *) list_nth(root->parse->rtable, (var->varno)-1));
+			if(rte->rtekind == RTE_BEFORE)
+				continue;
+		}
 		baserel = find_base_rel(root, var->varno);
 
 		/* Is it still needed above this joinrel? */
