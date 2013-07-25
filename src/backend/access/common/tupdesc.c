@@ -161,7 +161,12 @@ CreateTupleDescCopy(TupleDesc tupdesc)
  * CreateTupleDescCopyExtend
  *		This function creates a new TupleDesc by copying from an existing
  *		TupleDesc, but adding space for more columns. The new tupdesc is
- *      not regarded as the same record type as the old one.
+ *      not regarded as the same record type as the old one (and therefore
+ *      does not inherit its typeid/typmod, which instead are left as an
+ *      anonymous record type).
+ *
+ *      The additional column slots are not initialized in any way;
+ *      callers must do their own TupleDescInitEntry on each.
  *
  * !!! Constraints and defaults are not copied !!!
  */

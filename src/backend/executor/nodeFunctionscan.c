@@ -51,8 +51,12 @@ FunctionNext(FunctionScanState *node)
 	if (node->func_slot)
 	{
 		/*
-		 * ORDINALITY case: FUNCSLOT is the function return,
-		 * SCANSLOT the scan result
+		 * ORDINALITY case:
+		 *
+		 * We fetch the function result into FUNCSLOT (which matches the
+		 * function return type), and then copy the values to SCANSLOT
+		 * (which matches the scan result type), setting the ordinal
+		 * column in the process.
 		 */
 
 		funcslot = node->func_slot;
@@ -60,6 +64,12 @@ FunctionNext(FunctionScanState *node)
 	}
 	else
 	{
+		/*
+		 * non-ORDINALITY case: the function return type and scan result
+		 * type are the same, so we fetch the function result straight
+		 * into the scan result slot.
+		 */
+
 		funcslot = node->ss.ss_ScanTupleSlot;
 		scanslot = NULL;
 	}
@@ -104,6 +114,13 @@ FunctionNext(FunctionScanState *node)
 	 */
 
 	ExecClearTuple(scanslot);
+
+	/*
+	 * increment or decrement before checking for end-of-data, so that we can
+	 * move off either end of the result by 1 (and no more than 1) without
+	 * losing correct count. See PortalRunSelect for why we assume that we
+	 * won't be called repeatedly in the end-of-data state.
+	 */
 
 	if (ScanDirectionIsForward(direction))
 		node->ordinal++;
