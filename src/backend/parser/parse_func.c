@@ -506,7 +506,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 			classForm = (Form_pg_aggregate) GETSTRUCT(tup);
 			aggfinalfn = classForm->aggfinalfn;
-			number_of_args = get_func_nargs(aggfinalfn);
+			number_of_args = classForm->aggordnargs;
 			if (number_of_args != list_length(fargs))
 			{
 				ereport(ERROR,
