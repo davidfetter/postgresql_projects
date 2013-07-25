@@ -202,6 +202,11 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	ExecInitResultTupleSlot(estate, &scanstate->ss.ps);
 	ExecInitScanTupleSlot(estate, &scanstate->ss);
 
+	/*
+	 * We only need a separate slot for the function result if we are doing
+	 * ordinality; otherwise, we fetch function results directly into the
+	 * scan slot.
+	 */
 	if (node->funcordinality)
 		scanstate->func_slot = ExecInitExtraTupleSlot(estate);
 	else
@@ -218,8 +223,10 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 					 (PlanState *) scanstate);
 
 	/*
-	 * Now determine if the function returns a simple or composite type, and
-	 * build an appropriate tupdesc.
+	 * Now determine if the function returns a simple or composite
+	 * type, and build an appropriate tupdesc. This tupdesc
+	 * (func_tupdesc) is the one that matches the shape of the
+	 * function result, no extra columns.
 	 */
 	functypclass = get_expr_result_type(node->funcexpr,
 										&funcrettype,
@@ -279,6 +286,14 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	 */
 	BlessTupleDesc(func_tupdesc);
 
+	/*
+	 * If doing ordinality, we need a new tupdesc with one additional column
+	 * tacked on, always of type "bigint". The name to use has already been
+	 * recorded by the parser as the last element of funccolnames.
+	 *
+	 * Without ordinality, the scan result tupdesc is the same as the
+	 * function result tupdesc. (No need to make a copy.)
+	 */
 	if (node->funcordinality)
 	{
 		int natts = func_tupdesc->natts;
@@ -293,8 +308,6 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 						   0);
 
 		BlessTupleDesc(scan_tupdesc);
-
-		ExecSetSlotDescriptor(scanstate->func_slot, func_tupdesc);
 	}
 	else
 		scan_tupdesc = func_tupdesc;
@@ -303,11 +316,15 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	scanstate->func_tupdesc = func_tupdesc;
 	ExecAssignScanType(&scanstate->ss, scan_tupdesc);
 
+	if (scanstate->func_slot)
+		ExecSetSlotDescriptor(scanstate->func_slot, func_tupdesc);
+
 	/*
 	 * Other node-specific setup
 	 */
 	scanstate->ordinal = 0;
 	scanstate->tuplestorestate = NULL;
+
 	scanstate->funcexpr = ExecInitExpr((Expr *) node->funcexpr,
 									   (PlanState *) scanstate);
 
