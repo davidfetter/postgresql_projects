@@ -13295,7 +13295,7 @@ SELECT * FROM unnest2(ARRAY[[1,2],[3,4]]);
 
   <para>
   When a function in the <literal>FROM</literal> clause is suffixed by
-  <literal>WITH ORDINALITY</literal>, an integer column is appended to
+  <literal>WITH ORDINALITY</literal>, a <type>bigint</type> column is appended to
   the output which starts from 1 and increments by 1 for each row of
   the function's output.  This is more useful in the case of
   set-returning functions than of others.  This functionality is
