@@ -40,8 +40,6 @@ percentile_disc_final(PG_FUNCTION_ARGS)
 
 	AggSetGetSortInfo(fcinfo, &sorter, NULL, NULL, &datumtype);
 
-	Assert(datumtype == FLOAT8OID);
-
 	if (percentile < 0 || percentile > 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
