@@ -797,10 +797,13 @@ finalize_aggregate(AggState *aggstate,
 			List     *args = peraggstate->aggrefstate->orddirectargs;
 			ListCell *lc;
 			int i = 0;
+			int numArguments = 0;
 
-			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), list_length(args),
+			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), peraggstate->numArguments,
 								 	peraggstate->aggCollation,
 								 	(void *) peraggstate, NULL);
+
+			numArguments = peraggstate->numArguments;
 
 			foreach (lc, args)
 			{
@@ -811,6 +814,12 @@ finalize_aggregate(AggState *aggstate,
 					isnull = true;
 
 				++i;
+			}
+
+			for(; i < numArguments; i++)
+			{
+				fcinfo.arg[i] = (Datum) 0;
+				fcinfo.argnull[i] = true;
 			}
 		}
 
@@ -1638,6 +1647,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		int			i;
 		ListCell   *lc;
         bool        is_strict;
+		Oid			inputCollations[FUNC_MAX_ARGS];
 
 		/* Planner should have assigned aggregate to correct level */
 		Assert(aggref->agglevelsup == 0);
@@ -1678,13 +1688,35 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		 * polymorphic type.
 		 */
 		numArguments = 0;
-		foreach(lc, aggref->args)
+		if (!(aggref->isordset))
 		{
-			TargetEntry *tle = (TargetEntry *) lfirst(lc);
+			foreach(lc, aggref->args)
+			{
+				TargetEntry *tle = (TargetEntry *) lfirst(lc);
 
-			if (!tle->resjunk)
-				inputTypes[numArguments++] = exprType((Node *) tle->expr);
+				if (!tle->resjunk)
+					inputTypes[numArguments++] = exprType((Node *) tle->expr);
+			}
 		}
+		else
+		{
+			foreach(lc, aggref->orddirectargs)
+			{
+				Expr *expr_orddirectargs = (Expr *) lfirst(lc);
+				inputTypes[numArguments] = exprType((Node *) expr_orddirectargs);
+				inputCollations[numArguments] = exprCollation((Node *) expr_orddirectargs);
+				++numArguments;
+			}
+
+			foreach(lc, aggref->args)
+			{
+				TargetEntry *tle = (TargetEntry *) lfirst(lc);
+				inputTypes[numArguments] = exprType((Node *) tle->expr);
+				inputCollations[numArguments] = exprCollation((Node *) tle->expr);
+				++numArguments;
+			}
+		}
+
 		peraggstate->numArguments = numArguments;
 
 		aggTuple = SearchSysCache1(AGGFNOID,
@@ -1766,6 +1798,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			pfree(declaredArgTypes);
 		}
 
+		if (!aggref->isordset)
+		{
 		/* build expression trees using actual argument & result types */
 		build_aggregate_fnexprs(inputTypes,
 								numArguments,
@@ -1776,6 +1810,17 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 								finalfn_oid,
 								&transfnexpr,
 								&finalfnexpr);
+		}
+		else
+		{
+			build_orderedset_fnexprs(inputTypes,
+								numArguments,
+								aggref->aggtype,
+								aggref->inputcollid,
+								inputCollations,
+								finalfn_oid,
+								&finalfnexpr);
+		}
 
 		if (OidIsValid(transfn_oid))
 		{

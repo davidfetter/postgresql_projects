@@ -1067,3 +1067,47 @@ build_aggregate_fnexprs(Oid *agg_input_types,
 										 agg_input_collation,
 										 COERCE_EXPLICIT_CALL);
 }
+
+void
+build_orderedset_fnexprs(Oid *agg_input_types,
+						int agg_num_inputs,
+						Oid agg_result_type,
+						Oid agg_input_collation,
+						Oid *agg_input_collation_array,
+						Oid finalfn_oid,
+						Expr **finalfnexpr)
+{
+
+	Param	   *argp;
+	List	   *args;
+	int			i = 0;
+
+	/*
+	 * Build arg list to use in the finalfn FuncExpr node. We really only care
+	 * that finalfn can discover the actual argument types at runtime using
+	 * get_fn_expr_argtype(), so it's okay to use Param nodes that don't
+	 * correspond to any real Param.
+	 */
+	
+
+	args = NIL;
+
+	for (i = 0; i < agg_num_inputs; i++)
+	{
+		argp = makeNode(Param);
+		argp->paramkind = PARAM_EXEC;
+		argp->paramid = -1;
+		argp->paramtype = agg_input_types[i];
+		argp->paramtypmod = -1;
+		argp->paramcollid = agg_input_collation_array[i];
+		argp->location = -1;
+		args = lappend(args, argp);
+	}
+
+	*finalfnexpr = (Expr *) makeFuncExpr(finalfn_oid,
+										 agg_result_type,
+										 args,
+										 InvalidOid,
+										 agg_input_collation,
+										 COERCE_EXPLICIT_CALL);
+}

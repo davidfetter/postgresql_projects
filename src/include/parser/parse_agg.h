@@ -33,4 +33,13 @@ extern void build_aggregate_fnexprs(Oid *agg_input_types,
 						Expr **transfnexpr,
 						Expr **finalfnexpr);
 
+void
+build_orderedset_fnexprs(Oid *agg_input_types,
+					int agg_num_inputs,
+					Oid agg_result_type,
+					Oid agg_input_collation,
+					Oid *agg_input_collation_array,
+					Oid finalfn_oid,
+					Expr **finalfnexpr);
+
 #endif   /* PARSE_AGG_H */
