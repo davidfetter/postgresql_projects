@@ -487,6 +487,7 @@ build_joinrel_tlist(PlannerInfo *root, RelOptInfo *joinrel,
 		Var		   *var = (Var *) lfirst(vars);
 		RelOptInfo *baserel;
 		int			ndx;
+		RangeTblEntry *rte;
 
 		/*
 		 * Ignore PlaceHolderVars in the input tlists; we'll make our own
@@ -504,13 +505,11 @@ build_joinrel_tlist(PlannerInfo *root, RelOptInfo *joinrel,
 			elog(ERROR, "unexpected node type in reltargetlist: %d",
 				 (int) nodeTag(var));
 
+		rte = ((RangeTblEntry *) list_nth(root->parse->rtable, (var->varno)-1));
+		if(rte->rtekind == RTE_BEFORE)
+			continue;
+
 		/* Get the Var's original base rel */
-		{
-			RangeTblEntry *rte;
-			rte = ((RangeTblEntry *) list_nth(root->parse->rtable, (var->varno)-1));
-			if(rte->rtekind == RTE_BEFORE)
-				continue;
-		}
 		baserel = find_base_rel(root, var->varno);
 
 		/* Is it still needed above this joinrel? */
