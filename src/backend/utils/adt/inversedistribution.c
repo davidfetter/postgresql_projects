@@ -30,6 +30,11 @@ Datum percentile_disc_final(PG_FUNCTION_ARGS);
 Datum
 percentile_disc_final(PG_FUNCTION_ARGS)
 {
+	if (PG_ARGISNULL(0))
+	{
+		PG_RETURN_NULL();
+	}
+
 	float8 percentile = PG_GETARG_FLOAT8(0);
 	int64 rowcount = AggSetGetRowCount(fcinfo);
 	Tuplesortstate *sorter;
@@ -88,6 +93,11 @@ Datum percentile_cont_final(PG_FUNCTION_ARGS);
 Datum
 percentile_cont_final(PG_FUNCTION_ARGS)
 {
+	if (PG_ARGISNULL(0))
+	{
+		PG_RETURN_NULL();
+	}
+
 	float8 percentile = PG_GETARG_FLOAT8(0);
 	int64 rowcount = AggSetGetRowCount(fcinfo);
 	Tuplesortstate *sorter;
@@ -163,6 +173,11 @@ Datum percentile_interval_cont_final(PG_FUNCTION_ARGS);
 Datum
 percentile_interval_cont_final(PG_FUNCTION_ARGS)
 {
+	if (PG_ARGISNULL(0))
+	{
+		PG_RETURN_NULL();
+	}
+
 	float8 percentile = PG_GETARG_FLOAT8(0);
 	int64 rowcount = AggSetGetRowCount(fcinfo);
 	Tuplesortstate *sorter;
