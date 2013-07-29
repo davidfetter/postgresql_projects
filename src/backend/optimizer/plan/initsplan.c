@@ -176,6 +176,7 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
 		{
 			Var		   *var = (Var *) node;
 			RelOptInfo *rel;
+			Index		varno = var->varno;
 			int			attno = var->varattno;
 			RangeTblEntry *rte;
 
@@ -183,17 +184,43 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
 			{
 				rte = ((RangeTblEntry *) list_nth(root->parse->rtable, (var->varno)-1));
 				if(rte->rtekind == RTE_BEFORE)
-					continue;
+				{
+					if(strcmp(rte->eref->aliasname,"after") == 0)
+					{
+						RangeTblEntry *rte_b;
+						ListCell *rte_c;
+						varno = 1;
+						foreach(rte_c, root->parse->rtable)
+						{
+							rte_b = (RangeTblEntry *)lfirst(rte_c);
+							if(rte_b->rtekind == RTE_RELATION && rte_b->relid == rte->relid)
+							{
+								break;
+							}
+							varno++;
+						}
+					}
+					else
+					{
+						Var *var2 = copyObject(var);
+						var2->varno = varno;
+						rel->reltargetlist = lappend(rel->reltargetlist,
+											 var2);
+						continue;
+					}
+				}
 			}
-			rel = find_base_rel(root, var->varno);
+			rel = find_base_rel(root, varno);
 			Assert(attno >= rel->min_attr && attno <= rel->max_attr);
 			attno -= rel->min_attr;
 			if (rel->attr_needed[attno] == NULL)
 			{
 				/* Variable not yet requested, so add to reltargetlist */
 				/* XXX is copyObject necessary here? */
+				Var *var2 = copyObject(var);
+				var2->varno = varno;
 				rel->reltargetlist = lappend(rel->reltargetlist,
-											 copyObject(var));
+											 var2);
 			}
 			rel->attr_needed[attno] = bms_add_members(rel->attr_needed[attno],
 													  where_needed);
