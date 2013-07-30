@@ -869,7 +869,7 @@ buildRelationAliases(TupleDesc tupdesc, Alias *alias, Alias *eref, bool ordinali
 		}
 		else
 		{
-			attrname = makeString(pstrdup("?column?"));
+			attrname = makeString(pstrdup("ordinality"));
 		}
 
 		eref->colnames = lappend(eref->colnames, attrname);
@@ -945,7 +945,7 @@ buildScalarFunctionAlias(Node *funcexpr, char *funcname,
 
 	/* If we don't have a name for the ordinality column yet, supply a default. */
 	if (ordinality && list_length(eref->colnames) < 2)
-		eref->colnames = lappend(eref->colnames, makeString(pstrdup("?column?")));
+		eref->colnames = lappend(eref->colnames, makeString(pstrdup("ordinality")));
 
 	return;
 }

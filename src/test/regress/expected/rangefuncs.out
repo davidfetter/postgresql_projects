@@ -1549,10 +1549,10 @@ SELECT * FROM get_users();
 (2 rows)
 
 SELECT * FROM get_users() WITH ORDINALITY;   -- make sure ordinality copes
- userid | email  | enabled | ?column? 
---------+--------+---------+----------
- id     | email  | t       |        1
- id2    | email2 | t       |        2
+ userid | email  | enabled | ordinality 
+--------+--------+---------+------------
+ id     | email  | t       |          1
+ id2    | email2 | t       |          2
 (2 rows)
 
 drop function get_first_user();

@@ -376,7 +376,7 @@ TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ]
         For example:
 <programlisting>
 SELECT * FROM unnest(ARRAY['a','b','c','d','e','f']) WITH ORDINALITY;
- unnest | ?column? 
+ unnest | ordinality 
 --------+----------
  a      |        1
  b      |        2
@@ -389,7 +389,8 @@ SELECT * FROM unnest(ARRAY['a','b','c','d','e','f']) WITH ORDINALITY;
         An alias can also be used. If an alias is written, a column
         alias list can also be written to provide substitute names for
         one or more attributes of the function's composite return
-        type, including the column added by <literal>ORDINALITY</literal> if present.
+        type, including the column added by <literal>ORDINALITY</literal>
+        if present.
       </para>
 
       <para>
