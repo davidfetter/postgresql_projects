@@ -1687,35 +1687,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		 * the agg's declared input types, when the agg accepts ANY or a
 		 * polymorphic type.
 		 */
-		/*numArguments = 0;
-		if (!(aggref->isordset))
-		{
-			foreach(lc, aggref->args)
-			{
-				TargetEntry *tle = (TargetEntry *) lfirst(lc);
-
-				if (!tle->resjunk)
-					inputTypes[numArguments++] = exprType((Node *) tle->expr);
-			}
-		}
-		else
-		{
-			foreach(lc, aggref->orddirectargs)
-			{
-				Expr *expr_orddirectargs = (Expr *) lfirst(lc);
-				inputTypes[numArguments] = exprType((Node *) expr_orddirectargs);
-				inputCollations[numArguments] = exprCollation((Node *) expr_orddirectargs);
-				++numArguments;
-			}
-
-			foreach(lc, aggref->args)
-			{
-				TargetEntry *tle = (TargetEntry *) lfirst(lc);
-				inputTypes[numArguments] = exprType((Node *) tle->expr);
-				inputCollations[numArguments] = exprCollation((Node *) tle->expr);
-				++numArguments;
-			}
-		}*/
 
 		numArguments = get_aggregate_argtype(aggref, inputTypes, inputCollations);
 
