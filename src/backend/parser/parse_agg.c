@@ -1111,3 +1111,44 @@ build_orderedset_fnexprs(Oid *agg_input_types,
 										 agg_input_collation,
 										 COERCE_EXPLICIT_CALL);
 }
+
+int get_aggregate_argtype(Aggref *aggref, Oid *inputTypes, Oid *inputCollations)
+{
+	int numArguments = 0;
+	ListCell   *lc;
+
+	if (!(aggref->isordset))
+		{
+			foreach(lc, aggref->args)
+			{
+				TargetEntry *tle = (TargetEntry *) lfirst(lc);
+
+				if (!tle->resjunk)
+					inputTypes[numArguments++] = exprType((Node *) tle->expr);
+			}
+		}
+		else
+		{
+			foreach(lc, aggref->orddirectargs)
+			{
+				Expr *expr_orddirectargs = (Expr *) lfirst(lc);
+				inputTypes[numArguments] = exprType((Node *) expr_orddirectargs);
+				if (inputCollations != NULL)
+					inputCollations[numArguments] = exprCollation((Node *) expr_orddirectargs);
+
+				++numArguments;
+			}
+
+			foreach(lc, aggref->args)
+			{
+				TargetEntry *tle = (TargetEntry *) lfirst(lc);
+				inputTypes[numArguments] = exprType((Node *) tle->expr);
+				if (inputCollations != NULL)
+					inputCollations[numArguments] = exprCollation((Node *) tle->expr);
+
+				++numArguments;
+			}
+		}
+
+	return numArguments;
+}

@@ -1687,7 +1687,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		 * the agg's declared input types, when the agg accepts ANY or a
 		 * polymorphic type.
 		 */
-		numArguments = 0;
+		/*numArguments = 0;
 		if (!(aggref->isordset))
 		{
 			foreach(lc, aggref->args)
@@ -1715,7 +1715,9 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				inputCollations[numArguments] = exprCollation((Node *) tle->expr);
 				++numArguments;
 			}
-		}
+		}*/
+
+		numArguments = get_aggregate_argtype(aggref, inputTypes, inputCollations);
 
 		peraggstate->numArguments = numArguments;
 

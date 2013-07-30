@@ -508,13 +508,15 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		/* extract argument types (ignoring any ORDER BY expressions) */
 		inputTypes = (Oid *) palloc(sizeof(Oid) * list_length(aggref->args));
 		numArguments = 0;
-		foreach(l, aggref->args)
+		/*foreach(l, aggref->args)
 		{
 			TargetEntry *tle = (TargetEntry *) lfirst(l);
 
 			if (!tle->resjunk)
 				inputTypes[numArguments++] = exprType((Node *) tle->expr);
-		}
+		}*/
+
+		numArguments = get_aggregate_argtype(aggref, inputTypes, NULL);
 
 		/* resolve actual type of transition state, if polymorphic */
 		if (OidIsValid(aggtranstype) && IsPolymorphicType(aggtranstype))
