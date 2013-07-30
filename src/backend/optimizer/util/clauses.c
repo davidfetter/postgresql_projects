@@ -506,7 +506,7 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		costs->transCost.per_tuple += argcosts.per_tuple;
 
 		/* extract argument types (ignoring any ORDER BY expressions) */
-		inputTypes = (Oid *) palloc(sizeof(Oid) * list_length(aggref->args));
+		inputTypes = (Oid *) palloc(sizeof(Oid) * FUNC_MAX_ARGS);
 		numArguments = 0;
 
 		numArguments = get_aggregate_argtype(aggref, inputTypes, NULL);
