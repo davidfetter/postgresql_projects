@@ -4749,6 +4749,14 @@ DESCR("percentile_interval_cont");
 DATA(insert OID = 3940 ( percentile_interval_cont_final	PGNSP PGUID 12 1 0 0 0 f f f f f f i 1 0 1186 "701 1186" _null_ _null_ _null_ _null_ percentile_interval_cont_final _null_ _null_ _null_ ));
 DESCR("percentile_interval_cont_final");
 
+/* hypothetical set functions */
+DATA(insert OID = 3968 ( rank		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 0 "20" "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
+DESCR("hypothetical rank");
+
+DATA(insert OID = 3969 ( rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 0 "20" "{2276}" "{v}" _null_ _null_	hypothetical_rank_final _null_ _null_ _null_ ));
+DESCR("hypothetical_rank_final");
+
+
 /*
  * Symbolic values for provolatile column: these indicate whether the result
  * of a function is dependent *only* on the values of its explicit arguments,
