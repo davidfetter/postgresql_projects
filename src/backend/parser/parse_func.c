@@ -84,8 +84,10 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	Oid			vatype;
 	FuncDetailCode fdresult;
 	HeapTuple	tup;
-	Oid		aggfinalfn;
 	int		number_of_args;
+	Form_pg_aggregate classForm;
+	bool		isordsetfunc = false;
+	bool		ishypotheticalsetfunc = false;
 
 	/* Check if the function has WITHIN GROUP as well as distinct. */
 	Assert(!(agg_within_group && agg_distinct));
@@ -306,24 +308,42 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 							NameListToString(funcname)),
 					 parser_errposition(pstate, location)));
 	}
-	else if (fdresult == FUNCDETAIL_ORDERED)
+	else if (fdresult == FUNCDETAIL_AGGREGATE)
 	{
-		if(!agg_within_group)
+		tup = SearchSysCache1(AGGFNOID, ObjectIdGetDatum(funcid));
+		if (!HeapTupleIsValid(tup)) /* should not happen */
+			elog(ERROR, "cache lookup failed for aggregate %u", funcid);
+
+		classForm = (Form_pg_aggregate) GETSTRUCT(tup);
+		isordsetfunc = classForm->aggisordsetfunc;
+
+		if (isordsetfunc)
 		{
-			ereport(ERROR,
-					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("Ordered set function specified, but WITHIN GROUP not present"),
-					 parser_errposition(pstate, location)));
-		}
+			if ((classForm->aggordnargs) == -2)
+			{
+				ishypotheticalsetfunc = true;
+			}
+
+			if(!agg_within_group)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+						 errmsg("Ordered set function specified, but WITHIN GROUP not present"),
+						 parser_errposition(pstate, location)));
+			}
 		
-		if(over)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("OVER clause in ordered set function not supported"),
-					 parser_errposition(pstate, location)));
+			if(over)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("OVER clause in ordered set function not supported"),
+						 parser_errposition(pstate, location)));
+			}
+
 		}
+
 	}
+		
 	else if (!(fdresult == FUNCDETAIL_AGGREGATE ||
 			   fdresult == FUNCDETAIL_WINDOWFUNC))
 	{
@@ -409,9 +429,10 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 											   false);
 
 	/* perform the necessary typecasting of arguments */
-	make_fn_arguments(pstate, fargs, (fdresult==FUNCDETAIL_ORDERED) ? agg_order : NIL, 
+	make_fn_arguments(pstate, fargs, (isordsetfunc) ? agg_order : NIL, 
 				actual_arg_types, 
-				declared_arg_types);
+				declared_arg_types,
+				ishypotheticalsetfunc);
 
 	/*
 	 * If it's a variadic function call, transform the last nvargs arguments
@@ -476,7 +497,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 		retval = (Node *) funcexpr;
 	}
-	else if ((fdresult == FUNCDETAIL_AGGREGATE && !over) || fdresult == FUNCDETAIL_ORDERED)
+	else if (fdresult == FUNCDETAIL_AGGREGATE && !over)
 	{
 		/* aggregate function */
 		Aggref	   *aggref = makeNode(Aggref);
@@ -497,15 +518,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		/* agglevelsup will be set by transformAggregateCall */
 		aggref->location = location;
 
-		if (fdresult == FUNCDETAIL_ORDERED)
+		if (isordsetfunc)
 		{
-			Form_pg_aggregate classForm;
-			tup = SearchSysCache1(AGGFNOID, ObjectIdGetDatum(funcid));
-			if (!HeapTupleIsValid(tup)) /* should not happen */
-				elog(ERROR, "cache lookup failed for aggregate %u", funcid);
-
-			classForm = (Form_pg_aggregate) GETSTRUCT(tup);
-			aggfinalfn = classForm->aggfinalfn;
 			number_of_args = classForm->aggordnargs;
 			if (number_of_args != list_length(fargs))
 			{
@@ -514,7 +528,6 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 					 errmsg("Number of arguments does not match fargs")));
 			}
 
-			ReleaseSysCache(tup);
 		}
 
 		/*
@@ -644,6 +657,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 		retval = (Node *) wfunc;
 	}
+
+	ReleaseSysCache(tup);
 
 	return retval;
 }
@@ -1439,21 +1454,7 @@ func_get_detail(List *funcname,
 		}
 		if (pform->proisagg)
 		{
-			Form_pg_aggregate pfagg;
-			HeapTuple	ftup_agg;
-
-			ftup_agg = SearchSysCache1(AGGFNOID, ObjectIdGetDatum(best_candidate->oid));
-			pfagg = (Form_pg_aggregate) GETSTRUCT(ftup_agg);
-			if (pfagg->aggisordsetfunc)
-			{
-				result = FUNCDETAIL_ORDERED;
-			}
-			else
-			{
-				result = FUNCDETAIL_AGGREGATE;
-			}
-
-			ReleaseSysCache(ftup_agg);
+			result = FUNCDETAIL_AGGREGATE;
 		}
 		else if (pform->proiswindow)
 			result = FUNCDETAIL_WINDOWFUNC;
@@ -1485,7 +1486,8 @@ make_fn_arguments(ParseState *pstate,
 				  List *fargs,
 				  List *agg_order,
 				  Oid *actual_arg_types,
-				  Oid *declared_arg_types)
+				  Oid *declared_arg_types,
+				  bool requiresUnification)
 {
 	ListCell   *current_fargs;
 	ListCell   *current_aoargs;
@@ -1497,6 +1499,7 @@ make_fn_arguments(ParseState *pstate,
 		if (actual_arg_types[i] != declared_arg_types[i])
 		{
 			Node	   *node = (Node *) lfirst(current_fargs);
+			Node       *temp = NULL;
 
 			/*
 			 * If arg is a NamedArgExpr, coerce its input expr instead --- we
@@ -1517,14 +1520,45 @@ make_fn_arguments(ParseState *pstate,
 			}
 			else
 			{
-				node = coerce_type(pstate,
-								   node,
-								   actual_arg_types[i],
-								   declared_arg_types[i], -1,
-								   COERCION_IMPLICIT,
-								   COERCE_IMPLICIT_CAST,
-								   -1);
-				lfirst(current_fargs) = node;
+
+				/* 
+				 * If we are dealing with a hypothetical set function, we
+				 * need to unify agg_order and fargs.
+				 */
+
+				if (declared_arg_types[i] == ANYOID && requiresUnification)
+				{
+					SortBy	   *node = (SortBy *) node;
+					List *list_unification;
+					Oid unification_oid;
+
+					list_unification = list_make2((((SortBy *) list_nth(agg_order,i))->node),
+										node);
+
+					unification_oid = select_common_type(pstate, list_unification, "WITHIN GROUP", NULL);
+
+					declared_arg_types[i + list_length(fargs)] = unification_oid;
+
+					temp = coerce_type(pstate,
+									node->node,
+									actual_arg_types[i],
+									unification_oid, -1,
+									COERCION_IMPLICIT,
+									COERCE_IMPLICIT_CAST,
+									-1);
+				}
+				else
+				{
+					temp = coerce_type(pstate,
+									   node,
+									   actual_arg_types[i],
+									   declared_arg_types[i], -1,
+									   COERCION_IMPLICIT,
+									   COERCE_IMPLICIT_CAST,
+									   -1);
+				}
+
+				lfirst(current_fargs) = temp;
 			}
 		}
 		i++;
