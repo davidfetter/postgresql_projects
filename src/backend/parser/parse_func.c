@@ -83,9 +83,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	int			nvargs;
 	Oid			vatype;
 	FuncDetailCode fdresult;
-	HeapTuple	tup;
-	int		number_of_args;
-	Form_pg_aggregate classForm;
+	int		number_of_args = -1;
 	bool		isordsetfunc = false;
 	bool		ishypotheticalsetfunc = false;
 
@@ -310,6 +308,9 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	}
 	else if (fdresult == FUNCDETAIL_AGGREGATE)
 	{
+		HeapTuple	tup;
+		Form_pg_aggregate classForm;
+
 		tup = SearchSysCache1(AGGFNOID, ObjectIdGetDatum(funcid));
 		if (!HeapTupleIsValid(tup)) /* should not happen */
 			elog(ERROR, "cache lookup failed for aggregate %u", funcid);
@@ -322,6 +323,17 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 			if ((classForm->aggordnargs) == -2)
 			{
 				ishypotheticalsetfunc = true;
+
+				if (list_length(fargs) != list_length(agg_order))
+					ereport(ERROR,
+							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+							 errmsg("Wrong number of arguments for hypothetical set function"),
+							 parser_errposition(pstate, location)));
+
+			}
+			else
+			{
+				number_of_args = classForm->aggordnargs;
 			}
 
 			if(!agg_within_group)
@@ -339,9 +351,9 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 						 errmsg("OVER clause in ordered set function not supported"),
 						 parser_errposition(pstate, location)));
 			}
-
 		}
 
+		ReleaseSysCache(tup);
 	}
 		
 	else if (!(fdresult == FUNCDETAIL_AGGREGATE ||
@@ -501,7 +513,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	{
 		/* aggregate function */
 		Aggref	   *aggref = makeNode(Aggref);
-		if(agg_within_group && fdresult == FUNCDETAIL_AGGREGATE)
+
+		if(agg_within_group && !isordsetfunc)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
@@ -520,14 +533,12 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 		if (isordsetfunc)
 		{
-			number_of_args = classForm->aggordnargs;
 			if (number_of_args != list_length(fargs))
 			{
 				ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 					 errmsg("Number of arguments does not match fargs")));
 			}
-
 		}
 
 		/*
@@ -657,8 +668,6 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 		retval = (Node *) wfunc;
 	}
-
-	ReleaseSysCache(tup);
 
 	return retval;
 }
@@ -1569,7 +1578,7 @@ make_fn_arguments(ParseState *pstate,
 		if (actual_arg_types[i] != declared_arg_types[i])
 		{
 			SortBy	   *node = (SortBy *) lfirst(current_aoargs);
-			SortBy     *temp = NULL;
+			Node       *temp = NULL;
 
 			temp = coerce_type(pstate,
 							node->node,
