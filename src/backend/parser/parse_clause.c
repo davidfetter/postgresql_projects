@@ -109,11 +109,10 @@ void addAliases(ParseState *pstate)
 
 		for(i=0 ; i<noal; i++)
 		{
-			if (aliases[i])
-				if (strcmp(rte->eref->aliasname, aliases[i]) == 0)
-				{
-					aliases[i] = NULL;
-				}
+			if (aliases[i] && strcmp(rte->eref->aliasname, aliases[i]) == 0)
+			{
+				aliases[i] = NULL;
+			}
 		}
 	}
 
