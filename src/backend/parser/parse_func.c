@@ -450,7 +450,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	 * If it's a variadic function call, transform the last nvargs arguments
 	 * into an array --- unless it's an "any" variadic.
 	 */
-	if (nvargs > 0 && declared_arg_types[nargs - 1] != ANYOID)
+	if (nvargs > 0 && vatype != ANYOID)
 	{
 		ArrayExpr  *newa = makeNode(ArrayExpr);
 		int			non_var_args = nargs - nvargs;
@@ -533,7 +533,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 		if (isordsetfunc)
 		{
-			if (number_of_args != list_length(fargs))
+			if (number_of_args >= 0 && number_of_args != list_length(fargs))
 			{
 				ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
@@ -1529,7 +1529,6 @@ make_fn_arguments(ParseState *pstate,
 			}
 			else
 			{
-
 				/* 
 				 * If we are dealing with a hypothetical set function, we
 				 * need to unify agg_order and fargs.
@@ -1537,7 +1536,6 @@ make_fn_arguments(ParseState *pstate,
 
 				if (declared_arg_types[i] == ANYOID && requiresUnification)
 				{
-					SortBy	   *node = (SortBy *) node;
 					List *list_unification;
 					Oid unification_oid;
 
@@ -1549,12 +1547,12 @@ make_fn_arguments(ParseState *pstate,
 					declared_arg_types[i + list_length(fargs)] = unification_oid;
 
 					temp = coerce_type(pstate,
-									node->node,
-									actual_arg_types[i],
-									unification_oid, -1,
-									COERCION_IMPLICIT,
-									COERCE_IMPLICIT_CAST,
-									-1);
+									   node,
+									   actual_arg_types[i],
+									   unification_oid, -1,
+									   COERCION_IMPLICIT,
+									   COERCE_IMPLICIT_CAST,
+									   -1);
 				}
 				else
 				{

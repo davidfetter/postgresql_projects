@@ -71,7 +71,8 @@ static void checkExprIsVarFree(ParseState *pstate, Node *n,
 static TargetEntry *findTargetlistEntrySQL92(ParseState *pstate, Node *node,
 						 List **tlist, ParseExprKind exprKind);
 static TargetEntry *findTargetlistEntrySQL99(ParseState *pstate, Node *node,
-						 List **tlist, ParseExprKind exprKind);
+											 List **tlist, ParseExprKind exprKind,
+											 bool keepDuplicates);
 static int get_matching_location(int sortgroupref,
 					  List *sortgrouprefs, List *exprs);
 static List *addTargetToSortList(ParseState *pstate, TargetEntry *tle,
@@ -1476,7 +1477,7 @@ findTargetlistEntrySQL92(ParseState *pstate, Node *node, List **tlist,
 	/*
 	 * Otherwise, we have an expression, so process it per SQL99 rules.
 	 */
-	return findTargetlistEntrySQL99(pstate, node, tlist, exprKind);
+	return findTargetlistEntrySQL99(pstate, node, tlist, exprKind, false);
 }
 
 /*
@@ -1491,10 +1492,11 @@ findTargetlistEntrySQL92(ParseState *pstate, Node *node, List **tlist,
  * node		the ORDER BY, GROUP BY, etc expression to be matched
  * tlist	the target list (passed by reference so we can append to it)
  * exprKind identifies clause type being processed
+ * keepDuplicates  if true, don't try and match to any existing entry
  */
 static TargetEntry *
 findTargetlistEntrySQL99(ParseState *pstate, Node *node, List **tlist,
-						 ParseExprKind exprKind)
+						 ParseExprKind exprKind, bool keepDuplicates)
 {
 	TargetEntry *target_result;
 	ListCell   *tl;
@@ -1509,24 +1511,27 @@ findTargetlistEntrySQL99(ParseState *pstate, Node *node, List **tlist,
 	 */
 	expr = transformExpr(pstate, node, exprKind);
 
-	foreach(tl, *tlist)
+	if (!keepDuplicates)
 	{
-		TargetEntry *tle = (TargetEntry *) lfirst(tl);
-		Node	   *texpr;
+		foreach(tl, *tlist)
+		{
+			TargetEntry *tle = (TargetEntry *) lfirst(tl);
+			Node	   *texpr;
 
-		/*
-		 * Ignore any implicit cast on the existing tlist expression.
-		 *
-		 * This essentially allows the ORDER/GROUP/etc item to adopt the same
-		 * datatype previously selected for a textually-equivalent tlist item.
-		 * There can't be any implicit cast at top level in an ordinary SELECT
-		 * tlist at this stage, but the case does arise with ORDER BY in an
-		 * aggregate function.
-		 */
-		texpr = strip_implicit_coercions((Node *) tle->expr);
+			/*
+			 * Ignore any implicit cast on the existing tlist expression.
+			 *
+			 * This essentially allows the ORDER/GROUP/etc item to adopt the same
+			 * datatype previously selected for a textually-equivalent tlist item.
+			 * There can't be any implicit cast at top level in an ordinary SELECT
+			 * tlist at this stage, but the case does arise with ORDER BY in an
+			 * aggregate function.
+			 */
+			texpr = strip_implicit_coercions((Node *) tle->expr);
 
-		if (equal(expr, texpr))
-			return tle;
+			if (equal(expr, texpr))
+				return tle;
+		}
 	}
 
 	/*
@@ -1568,7 +1573,7 @@ transformGroupClause(ParseState *pstate, List *grouplist,
 
 		if (useSQL99)
 			tle = findTargetlistEntrySQL99(pstate, gexpr,
-										   targetlist, exprKind);
+										   targetlist, exprKind, false);
 		else
 			tle = findTargetlistEntrySQL92(pstate, gexpr,
 										   targetlist, exprKind);
@@ -1635,10 +1640,13 @@ transformSortClause(ParseState *pstate,
 					List **targetlist,
 					ParseExprKind exprKind,
 					bool resolveUnknown,
-					bool useSQL99)
+					bool useSQL99,
+	                bool keepDuplicates)
 {
 	List	   *sortlist = NIL;
 	ListCell   *olitem;
+
+	Assert(useSQL99 || !keepDuplicates);
 
 	foreach(olitem, orderlist)
 	{
@@ -1647,7 +1655,7 @@ transformSortClause(ParseState *pstate,
 
 		if (useSQL99)
 			tle = findTargetlistEntrySQL99(pstate, sortby->node,
-										   targetlist, exprKind);
+										   targetlist, exprKind, keepDuplicates);
 		else
 			tle = findTargetlistEntrySQL92(pstate, sortby->node,
 										   targetlist, exprKind);
@@ -1717,7 +1725,8 @@ transformWindowDefinitions(ParseState *pstate,
 										  targetlist,
 										  EXPR_KIND_WINDOW_ORDER,
 										  true /* fix unknowns */ ,
-										  true /* force SQL99 rules */ );
+										  true /* force SQL99 rules */,
+			                              false /* don't add duplicates */);
 		partitionClause = transformGroupClause(pstate,
 											   windef->partitionClause,
 											   targetlist,

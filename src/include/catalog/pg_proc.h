@@ -4750,10 +4750,10 @@ DATA(insert OID = 3940 ( percentile_interval_cont_final	PGNSP PGUID 12 1 0 0 0 f
 DESCR("percentile_interval_cont_final");
 
 /* hypothetical set functions */
-DATA(insert OID = 3968 ( rank		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 0 "20" "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
+DATA(insert OID = 3968 ( rank		PGNSP PGUID 12 1 0 2276 0 t f f f f f s 1 0 20 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
 DESCR("hypothetical rank");
 
-DATA(insert OID = 3969 ( rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 0 "20" "{2276}" "{v}" _null_ _null_	hypothetical_rank_final _null_ _null_ _null_ ));
+DATA(insert OID = 3969 ( rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 20 2276 "{2276}" "{v}" _null_ _null_	hypothetical_rank_final _null_ _null_ _null_ ));
 DESCR("hypothetical_rank_final");
 
 

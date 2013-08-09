@@ -31,7 +31,7 @@ extern List *transformGroupClause(ParseState *pstate, List *grouplist,
 					 ParseExprKind exprKind, bool useSQL99);
 extern List *transformSortClause(ParseState *pstate, List *orderlist,
 					List **targetlist, ParseExprKind exprKind,
-					bool resolveUnknown, bool useSQL99);
+					bool resolveUnknown, bool useSQL99, bool keepDuplicates);
 
 extern List *transformWindowDefinitions(ParseState *pstate,
 						   List *windowdefs,

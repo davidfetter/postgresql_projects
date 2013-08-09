@@ -121,6 +121,11 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	 *
 	 * We need to mess with p_next_resno since it will be used to number any
 	 * new targetlist entries.
+	 *
+	 * If and only if we're doing a WITHIN GROUP list, we preserve any
+	 * duplicate expressions in the sort clause. This is needed because the
+	 * sort clause of WITHIN GROUP is really an argument list, and we must
+	 * keep the number and content of entries matching the specified input.
 	 */
 	save_next_resno = pstate->p_next_resno;
 	pstate->p_next_resno = attno;
@@ -130,7 +135,8 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 								 &tlist,
 								 EXPR_KIND_ORDER_BY,
 								 true /* fix unknowns */ ,
-								 true /* force SQL99 rules */ );
+								 true /* force SQL99 rules */ ,
+								 agg_within_group /* keep duplicates? */ );
 
 	/*
 	 * If we have DISTINCT, transform that to produce a distinctList.
@@ -845,7 +851,7 @@ check_ungrouped_columns_walker(Node *node,
 	else if (IsA(node, Aggref) &&
 			(int) ((Aggref *) node)->agglevelsup == context->sublevels_up)
 	{
-		return check_ungrouped_columns_walker(((Aggref *)node)->orddirectargs, context);
+		return check_ungrouped_columns_walker((Node*)(((Aggref *)node)->orddirectargs), context);
 	}
 
 	/*
