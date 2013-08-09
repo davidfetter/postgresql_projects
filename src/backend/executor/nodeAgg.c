@@ -2137,6 +2137,9 @@ ExecReScanAgg(AggState *node)
  * If aggcontext isn't NULL, the function also stores at *aggcontext the
  * identity of the memory context that aggregate transition values are
  * being stored in.
+ *
+ * We do NOT include AGG_CONTEXT_ORDERED as a possible return here, since
+ * that would open a security hole.
  */
 int
 AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
@@ -2152,13 +2155,6 @@ AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
 		if (aggcontext)
 			*aggcontext = ((WindowAggState *) fcinfo->context)->aggcontext;
 		return AGG_CONTEXT_WINDOW;
-	}
-
-	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
-	{
-		if (aggcontext)
-			*aggcontext = ((AggStatePerAggData *) fcinfo->context)->aggstate->aggcontext;
-		return AGG_CONTEXT_ORDERED;
 	}
 
 	/* this is just to prevent "uninitialized variable" warnings */
@@ -2215,13 +2211,15 @@ AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate **sortstate, TupleDesc
 		{
 			if (tupdesc)
 				*tupdesc = NULL;
-			*datumtype = peraggstate->evaldesc->attrs[0]->atttypid;
+			if (datumtype)
+				*datumtype = peraggstate->evaldesc->attrs[0]->atttypid;
 		}
 		else
 		{
 			if (tupdesc)
 				*tupdesc = peraggstate->evaldesc;
-			*datumtype = InvalidOid;
+			if (datumtype)
+				*datumtype = InvalidOid;
 		}
 		
 		if (tupslot)
