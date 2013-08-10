@@ -1687,35 +1687,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		 * the agg's declared input types, when the agg accepts ANY or a
 		 * polymorphic type.
 		 */
-		numArguments = 0;
-		if (!(aggref->isordset))
-		{
-			foreach(lc, aggref->args)
-			{
-				TargetEntry *tle = (TargetEntry *) lfirst(lc);
 
-				if (!tle->resjunk)
-					inputTypes[numArguments++] = exprType((Node *) tle->expr);
-			}
-		}
-		else
-		{
-			foreach(lc, aggref->orddirectargs)
-			{
-				Expr *expr_orddirectargs = (Expr *) lfirst(lc);
-				inputTypes[numArguments] = exprType((Node *) expr_orddirectargs);
-				inputCollations[numArguments] = exprCollation((Node *) expr_orddirectargs);
-				++numArguments;
-			}
-
-			foreach(lc, aggref->args)
-			{
-				TargetEntry *tle = (TargetEntry *) lfirst(lc);
-				inputTypes[numArguments] = exprType((Node *) tle->expr);
-				inputCollations[numArguments] = exprCollation((Node *) tle->expr);
-				++numArguments;
-			}
-		}
+		numArguments = get_aggregate_argtype(aggref, inputTypes, inputCollations);
 
 		peraggstate->numArguments = numArguments;
 
@@ -1834,6 +1807,13 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		{
 			fmgr_info(finalfn_oid, &peraggstate->finalfn);
 			fmgr_info_set_expr((Node *) finalfnexpr, &peraggstate->finalfn);
+			if (peraggstate->finalfn.fn_strict && aggref->isordset)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+						 errmsg("Ordered set functions's finalfns have to be defined as non strict")));
+			}
+
 		}
 
 		if (is_strict)
@@ -2157,6 +2137,9 @@ ExecReScanAgg(AggState *node)
  * If aggcontext isn't NULL, the function also stores at *aggcontext the
  * identity of the memory context that aggregate transition values are
  * being stored in.
+ *
+ * We do NOT include AGG_CONTEXT_ORDERED as a possible return here, since
+ * that would open a security hole.
  */
 int
 AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
@@ -2172,13 +2155,6 @@ AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
 		if (aggcontext)
 			*aggcontext = ((WindowAggState *) fcinfo->context)->aggcontext;
 		return AGG_CONTEXT_WINDOW;
-	}
-
-	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
-	{
-		if (aggcontext)
-			*aggcontext = ((AggStatePerAggData *) fcinfo->context)->aggstate->aggcontext;
-		return AGG_CONTEXT_ORDERED;
 	}
 
 	/* this is just to prevent "uninitialized variable" warnings */
@@ -2235,13 +2211,15 @@ AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate **sortstate, TupleDesc
 		{
 			if (tupdesc)
 				*tupdesc = NULL;
-			*datumtype = peraggstate->evaldesc->attrs[0]->atttypid;
+			if (datumtype)
+				*datumtype = peraggstate->evaldesc->attrs[0]->atttypid;
 		}
 		else
 		{
 			if (tupdesc)
 				*tupdesc = peraggstate->evaldesc;
-			*datumtype = InvalidOid;
+			if (datumtype)
+				*datumtype = InvalidOid;
 		}
 		
 		if (tupslot)

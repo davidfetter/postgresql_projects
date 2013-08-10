@@ -30,7 +30,7 @@ Datum percentile_disc_final(PG_FUNCTION_ARGS);
 Datum
 percentile_disc_final(PG_FUNCTION_ARGS)
 {
-	float8 percentile = PG_GETARG_FLOAT8(0);
+	float8 percentile = 0;
 	int64 rowcount = AggSetGetRowCount(fcinfo);
 	Tuplesortstate *sorter;
 	Oid datumtype;
@@ -38,6 +38,12 @@ percentile_disc_final(PG_FUNCTION_ARGS)
 	bool isnull;
 	int64 skiprows;
 
+	if (PG_ARGISNULL(0))
+	{
+		PG_RETURN_NULL();
+	}
+
+	percentile = PG_GETARG_FLOAT8(0);
 	AggSetGetSortInfo(fcinfo, &sorter, NULL, NULL, &datumtype);
 
 	if (percentile < 0 || percentile > 1)
@@ -88,7 +94,7 @@ Datum percentile_cont_final(PG_FUNCTION_ARGS);
 Datum
 percentile_cont_final(PG_FUNCTION_ARGS)
 {
-	float8 percentile = PG_GETARG_FLOAT8(0);
+	float8 percentile = 0;
 	int64 rowcount = AggSetGetRowCount(fcinfo);
 	Tuplesortstate *sorter;
 	Oid datumtype;
@@ -103,6 +109,12 @@ percentile_cont_final(PG_FUNCTION_ARGS)
 	int64 lower_row = 0;
 	int64 higher_row = 0;
 
+	if (PG_ARGISNULL(0))
+	{
+		PG_RETURN_NULL();
+	}
+
+	percentile = PG_GETARG_FLOAT8(0);
 	AggSetGetSortInfo(fcinfo, &sorter, NULL, NULL, &datumtype);
 
 	Assert(datumtype == FLOAT8OID);
@@ -163,7 +175,7 @@ Datum percentile_interval_cont_final(PG_FUNCTION_ARGS);
 Datum
 percentile_interval_cont_final(PG_FUNCTION_ARGS)
 {
-	float8 percentile = PG_GETARG_FLOAT8(0);
+	float8 percentile = 0;
 	int64 rowcount = AggSetGetRowCount(fcinfo);
 	Tuplesortstate *sorter;
 	Oid datumtype;
@@ -179,6 +191,12 @@ percentile_interval_cont_final(PG_FUNCTION_ARGS)
 	Datum mul_result;
 	Datum add_result;
 
+	if (PG_ARGISNULL(0))
+	{
+		PG_RETURN_NULL();
+	}
+
+	percentile = PG_GETARG_FLOAT8(0);
 	AggSetGetSortInfo(fcinfo, &sorter, NULL, NULL, &datumtype);
 
 	Assert(datumtype == INTERVALOID);

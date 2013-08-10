@@ -68,7 +68,8 @@ extern void make_fn_arguments(ParseState *pstate,
 				  List *fargs,
 				  List *agg_order,
 				  Oid *actual_arg_types,
-				  Oid *declared_arg_types);
+				  Oid *declared_arg_types,
+				  bool requiresUnification);
 
 extern const char *funcname_signature_string(const char *funcname, int nargs,
 						  List *argnames, const Oid *argtypes);

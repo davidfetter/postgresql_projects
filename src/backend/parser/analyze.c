@@ -951,7 +951,8 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 										  &qry->targetList,
 										  EXPR_KIND_ORDER_BY,
 										  true /* fix unknowns */ ,
-										  false /* allow SQL92 rules */ );
+										  false /* allow SQL92 rules */,
+										  false /* don't add duplicates */);
 
 	qry->groupClause = transformGroupClause(pstate,
 											stmt->groupClause,
@@ -1211,7 +1212,8 @@ transformValuesClause(ParseState *pstate, SelectStmt *stmt)
 										  &qry->targetList,
 										  EXPR_KIND_ORDER_BY,
 										  true /* fix unknowns */ ,
-										  false /* allow SQL92 rules */ );
+										  false /* allow SQL92 rules */,
+										  false /* don't add duplicates */ );
 
 	qry->limitOffset = transformLimitClause(pstate, stmt->limitOffset,
 											EXPR_KIND_OFFSET, "OFFSET");
@@ -1435,7 +1437,8 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 										  &qry->targetList,
 										  EXPR_KIND_ORDER_BY,
 										  false /* no unknowns expected */ ,
-										  false /* allow SQL92 rules */ );
+										  false /* allow SQL92 rules */ ,
+										  false /* don't add duplicates */ );
 
 	/* restore namespace, remove jrte from rtable */
 	pstate->p_namespace = sv_namespace;

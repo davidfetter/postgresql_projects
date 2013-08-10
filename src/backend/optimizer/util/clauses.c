@@ -39,6 +39,7 @@
 #include "parser/analyze.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_func.h"
+#include "parser/parse_agg.h"
 #include "rewrite/rewriteManip.h"
 #include "tcop/tcopprot.h"
 #include "utils/acl.h"
@@ -464,7 +465,6 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		QualCost	argcosts;
 		Oid		   *inputTypes;
 		int			numArguments;
-		ListCell   *l;
 
 		Assert(aggref->agglevelsup == 0);
 
@@ -506,15 +506,10 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		costs->transCost.per_tuple += argcosts.per_tuple;
 
 		/* extract argument types (ignoring any ORDER BY expressions) */
-		inputTypes = (Oid *) palloc(sizeof(Oid) * list_length(aggref->args));
+		inputTypes = (Oid *) palloc(sizeof(Oid) * FUNC_MAX_ARGS);
 		numArguments = 0;
-		foreach(l, aggref->args)
-		{
-			TargetEntry *tle = (TargetEntry *) lfirst(l);
 
-			if (!tle->resjunk)
-				inputTypes[numArguments++] = exprType((Node *) tle->expr);
-		}
+		numArguments = get_aggregate_argtype(aggref, inputTypes, NULL);
 
 		/* resolve actual type of transition state, if polymorphic */
 		if (OidIsValid(aggtranstype) && IsPolymorphicType(aggtranstype))
@@ -3827,7 +3822,7 @@ recheck_cast_function_args(List *args, Oid result_type, HeapTuple func_tuple)
 		elog(ERROR, "function's resolved result type changed during planning");
 
 	/* perform any necessary typecasting of arguments */
-	make_fn_arguments(NULL, args, NULL, actual_arg_types, declared_arg_types);
+	make_fn_arguments(NULL, args, NULL, actual_arg_types, declared_arg_types, false);
 }
 
 /*

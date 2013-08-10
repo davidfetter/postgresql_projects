@@ -42,4 +42,8 @@ build_orderedset_fnexprs(Oid *agg_input_types,
 					Oid finalfn_oid,
 					Expr **finalfnexpr);
 
+int get_aggregate_argtype(Aggref *aggref, 
+				Oid *inputTypes, 
+				Oid *inputCollations);
+
 #endif   /* PARSE_AGG_H */
