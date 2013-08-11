@@ -119,10 +119,19 @@ typedef struct AggStatePerAggData
 	/* Pointer to parent AggState node */
 	AggState   *aggstate;
 
-	/* number of input arguments for aggregate function proper */
+	/*
+	 * number of arguments for aggregate function proper.
+	 * For ordered set functions, this includes the ORDER BY
+	 * columns, *except* in the case of hypothetical set functions.
+	 */
 	int			numArguments;
 
-	/* number of inputs including ORDER BY expressions */
+	/*
+	 * number of inputs including ORDER BY expressions. For ordered
+	 * set functions, *only* the ORDER BY expressions are included
+	 * here, since the direct args to the function are not properly
+	 * "input" in the sense of being derived from the tuple group.
+	 */
 	int			numInputs;
 
 	/* Oids of transfer functions */
@@ -1669,35 +1678,30 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		/* Nope, so assign a new PerAgg record */
 		peraggstate = &peragg[++aggno];
 
+		/* Fill in the peraggstate data */
 		peraggstate->type = T_AggStatePerAggData;
 		peraggstate->aggstate = aggstate;
+		peraggstate->aggref = aggref;
+		peraggstate->aggrefstate = aggrefstate;
 
 		/* Mark Aggref state node with assigned index in the result array */
 		aggrefstate->aggno = aggno;
 
-		/* Fill in the peraggstate data */
-		peraggstate->aggrefstate = aggrefstate;
-		peraggstate->aggref = aggref;
-		numInputs = list_length(aggref->args);
-		peraggstate->numInputs = numInputs;
-		peraggstate->sortstate = NULL;
-
-		/*
-		 * Get actual datatypes of the inputs.	These could be different from
-		 * the agg's declared input types, when the agg accepts ANY or a
-		 * polymorphic type.
-		 */
-
-		numArguments = get_aggregate_argtype(aggref, inputTypes, inputCollations);
-
-		peraggstate->numArguments = numArguments;
-
+		/* Fetch the pg_aggregate row */
 		aggTuple = SearchSysCache1(AGGFNOID,
 								   ObjectIdGetDatum(aggref->aggfnoid));
 		if (!HeapTupleIsValid(aggTuple))
 			elog(ERROR, "cache lookup failed for aggregate %u",
 				 aggref->aggfnoid);
 		aggform = (Form_pg_aggregate) GETSTRUCT(aggTuple);
+
+		/*
+		 * Check that the definition hasn't somehow changed incompatibly.
+		 */
+
+		if ((aggref->isordset != (aggform->aggisordsetfunc))
+			|| (aggref->ishypothetical != (aggform->aggordnargs == -2)))
+			elog(ERROR, "Incompatible change to aggregate definition");
 
 		/* Check permission to call aggregate function */
 		aclresult = pg_proc_aclcheck(aggref->aggfnoid, GetUserId(),
@@ -1752,17 +1756,39 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			}
 		}
 
+		/*
+		 * Get actual datatypes of the inputs.	These could be different from
+		 * the agg's declared input types, when the agg accepts ANY or a
+		 * polymorphic type.
+		 */
+
+		peraggstate->numInputs = numInputs = list_length(aggref->args);
+
+		numArguments = get_aggregate_argtypes(aggref,
+											  inputTypes,
+											  inputCollations);
+
+		peraggstate->numArguments = numArguments;
+
 		/* resolve actual type of transition state, if polymorphic */
 		aggtranstype = aggform->aggtranstype;
 		if (OidIsValid(aggtranstype) && IsPolymorphicType(aggtranstype))
 		{
 			/* have to fetch the agg's declared input types... */
 			Oid		   *declaredArgTypes;
-			int			agg_nargs;
+			int         agg_nargs;
 
 			(void) get_func_signature(aggref->aggfnoid,
-									  &declaredArgTypes, &agg_nargs);
-			Assert(agg_nargs == numArguments);
+									  &declaredArgTypes,
+									  &agg_nargs);
+
+			/*
+			 * if variadic "any", might be more actual args than declared
+			 * args, but these extra args can't influence the determination
+			 * of polymorphic transition or result type.
+			 */
+			Assert(agg_nargs <= numArguments);
+
 			aggtranstype = enforce_generic_type_consistency(inputTypes,
 															declaredArgTypes,
 															agg_nargs,
@@ -1771,28 +1797,28 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			pfree(declaredArgTypes);
 		}
 
-		if (!aggref->isordset)
+		if (!(aggref->isordset))
 		{
-		/* build expression trees using actual argument & result types */
-		build_aggregate_fnexprs(inputTypes,
-								numArguments,
-								aggtranstype,
-								aggref->aggtype,
-								aggref->inputcollid,
-								transfn_oid,
-								finalfn_oid,
-								&transfnexpr,
-								&finalfnexpr);
+			/* build expression trees using actual argument & result types */
+			build_aggregate_fnexprs(inputTypes,
+									numArguments,
+									aggtranstype,
+									aggref->aggtype,
+									aggref->inputcollid,
+									transfn_oid,
+									finalfn_oid,
+									&transfnexpr,
+									&finalfnexpr);
 		}
 		else
 		{
 			build_orderedset_fnexprs(inputTypes,
-								numArguments,
-								aggref->aggtype,
-								aggref->inputcollid,
-								inputCollations,
-								finalfn_oid,
-								&finalfnexpr);
+									 numArguments,
+									 aggref->aggtype,
+									 aggref->inputcollid,
+									 inputCollations,
+									 finalfn_oid,
+									 &finalfnexpr);
 		}
 
 		if (OidIsValid(transfn_oid))
@@ -1813,7 +1839,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 						 errmsg("Ordered set functions's finalfns have to be defined as non strict")));
 			}
-
 		}
 
 		if (is_strict)
@@ -1907,6 +1932,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 		peraggstate->numSortCols = numSortCols;
 		peraggstate->numDistinctCols = numDistinctCols;
+		peraggstate->sortstate = NULL;
 
 		if (numSortCols > 0)
 		{

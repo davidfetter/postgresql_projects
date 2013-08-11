@@ -324,12 +324,11 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 			{
 				ishypotheticalsetfunc = true;
 
-				if (list_length(fargs) != list_length(agg_order))
+				if (nvargs != 2*list_length(agg_order))
 					ereport(ERROR,
 							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 							 errmsg("Wrong number of arguments for hypothetical set function"),
 							 parser_errposition(pstate, location)));
-
 			}
 			else
 			{
@@ -442,9 +441,9 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 	/* perform the necessary typecasting of arguments */
 	make_fn_arguments(pstate, fargs, (isordsetfunc) ? agg_order : NIL, 
-				actual_arg_types, 
-				declared_arg_types,
-				ishypotheticalsetfunc);
+					  actual_arg_types, 
+					  declared_arg_types,
+					  ishypotheticalsetfunc);
 
 	/*
 	 * If it's a variadic function call, transform the last nvargs arguments
@@ -528,6 +527,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		/* args, aggorder, aggdistinct will be set by transformAggregateCall */
 		aggref->aggstar = agg_star;
 		aggref->aggfilter = agg_filter;
+		aggref->ishypothetical = ishypotheticalsetfunc;
 		/* agglevelsup will be set by transformAggregateCall */
 		aggref->location = location;
 
@@ -1501,6 +1501,13 @@ make_fn_arguments(ParseState *pstate,
 	ListCell   *current_fargs;
 	ListCell   *current_aoargs;
 	int			i = 0;
+	int         unify_offset = -1;
+
+	if (requiresUnification)
+	{
+		unify_offset = list_length(fargs) - list_length(agg_order);
+		Assert(unify_offset >= 0);
+	}
 
 	foreach(current_fargs, fargs)
 	{
@@ -1536,15 +1543,15 @@ make_fn_arguments(ParseState *pstate,
 
 				if (declared_arg_types[i] == ANYOID && requiresUnification)
 				{
-					List *list_unification;
 					Oid unification_oid;
+					SortBy *unify_with = (SortBy *) list_nth(agg_order,i - unify_offset);
 
-					list_unification = list_make2((((SortBy *) list_nth(agg_order,i))->node),
-										node);
+					unification_oid = select_common_type(pstate,
+														 list_make2(unify_with->node,node),
+														 "WITHIN GROUP",
+														 NULL);
 
-					unification_oid = select_common_type(pstate, list_unification, "WITHIN GROUP", NULL);
-
-					declared_arg_types[i + list_length(fargs)] = unification_oid;
+					declared_arg_types[i + list_length(agg_order)] = unification_oid;
 
 					temp = coerce_type(pstate,
 									   node,
@@ -1579,12 +1586,12 @@ make_fn_arguments(ParseState *pstate,
 			Node       *temp = NULL;
 
 			temp = coerce_type(pstate,
-							node->node,
-							actual_arg_types[i],
-							declared_arg_types[i], -1,
-							COERCION_IMPLICIT,
-							COERCE_IMPLICIT_CAST,
-							-1);
+							   node->node,
+							   actual_arg_types[i],
+							   declared_arg_types[i], -1,
+							   COERCION_IMPLICIT,
+							   COERCE_IMPLICIT_CAST,
+							   -1);
 			node->node = temp;
 		}
 		i++;

@@ -505,67 +505,91 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		costs->transCost.startup += argcosts.startup;
 		costs->transCost.per_tuple += argcosts.per_tuple;
 
-		/* extract argument types (ignoring any ORDER BY expressions) */
-		inputTypes = (Oid *) palloc(sizeof(Oid) * FUNC_MAX_ARGS);
-		numArguments = 0;
-
-		numArguments = get_aggregate_argtype(aggref, inputTypes, NULL);
-
-		/* resolve actual type of transition state, if polymorphic */
-		if (OidIsValid(aggtranstype) && IsPolymorphicType(aggtranstype))
-		{
-			/* have to fetch the agg's declared input types... */
-			Oid		   *declaredArgTypes;
-			int			agg_nargs;
-
-			(void) get_func_signature(aggref->aggfnoid,
-									  &declaredArgTypes, &agg_nargs);
-			Assert(agg_nargs == numArguments);
-			aggtranstype = enforce_generic_type_consistency(inputTypes,
-															declaredArgTypes,
-															agg_nargs,
-															aggtranstype,
-															false);
-			pfree(declaredArgTypes);
-		}
-
 		/*
-		 * If the transition type is pass-by-value then it doesn't add
-		 * anything to the required size of the hashtable.	If it is
-		 * pass-by-reference then we have to add the estimated size of the
-		 * value itself, plus palloc overhead.
+		 * If we're doing a sorted agg, we can punt the entire
+		 * determination of transition element size since we're not
+		 * going to be using it to determine hashtable limits. This
+		 * simplifies the code for hypothetical set functions.
 		 */
-		if (OidIsValid(aggtranstype) && !get_typbyval(aggtranstype))
+
+		if (aggref->aggorder == NIL && aggref->aggdistinct == NIL)
 		{
-			int32		aggtranstypmod;
-			int32		avgwidth;
+			Assert(!aggref->isordset);
+
+			/* extract argument types (ignoring any ORDER BY expressions) */
+			inputTypes = (Oid *) palloc(sizeof(Oid) * FUNC_MAX_ARGS);
+
+			numArguments = get_aggregate_argtypes(aggref, inputTypes, NULL);
+
+			/* resolve actual type of transition state, if polymorphic */
+			if (OidIsValid(aggtranstype) && IsPolymorphicType(aggtranstype))
+			{
+				/* have to fetch the agg's declared input types... */
+				Oid		   *declaredArgTypes;
+				int			agg_nargs;
+
+				(void) get_func_signature(aggref->aggfnoid,
+										  &declaredArgTypes, &agg_nargs);
+
+				/*
+				 * if variadic "any", might be more actual args than declared
+				 * args, but these extra args can't influence the determination
+				 * of polymorphic transition or result type.
+				 */
+				Assert(agg_nargs <= numArguments);
+
+				aggtranstype = enforce_generic_type_consistency(inputTypes,
+																declaredArgTypes,
+																agg_nargs,
+																aggtranstype,
+																false);
+				pfree(declaredArgTypes);
+			}
 
 			/*
-			 * If transition state is of same type as first input, assume it's
-			 * the same typmod (same width) as well.  This works for cases
-			 * like MAX/MIN and is probably somewhat reasonable otherwise.
+			 * If the transition type is pass-by-value then it doesn't add
+			 * anything to the required size of the hashtable.	If it is
+			 * pass-by-reference then we have to add the estimated size of the
+			 * value itself, plus palloc overhead.
 			 */
-			if (numArguments > 0 && aggtranstype == inputTypes[0])
-				aggtranstypmod = exprTypmod((Node *) linitial(aggref->args));
-			else
-				aggtranstypmod = -1;
+			if (OidIsValid(aggtranstype) && !get_typbyval(aggtranstype))
+			{
+				int32		aggtranstypmod;
+				int32		avgwidth;
 
-			avgwidth = get_typavgwidth(aggtranstype, aggtranstypmod);
-			avgwidth = MAXALIGN(avgwidth);
+				/*
+				 * If transition state is of same type as first input, assume it's
+				 * the same typmod (same width) as well.  This works for cases
+				 * like MAX/MIN and is probably somewhat reasonable otherwise.
+				 */
+				if (numArguments > 0 && aggtranstype == inputTypes[0])
+					aggtranstypmod = exprTypmod((Node *) linitial(aggref->args));
+				else
+					aggtranstypmod = -1;
 
-			costs->transitionSpace += avgwidth + 2 * sizeof(void *);
+				avgwidth = get_typavgwidth(aggtranstype, aggtranstypmod);
+				avgwidth = MAXALIGN(avgwidth);
+
+				costs->transitionSpace += avgwidth + 2 * sizeof(void *);
+			}
+			else if (aggtranstype == INTERNALOID)
+			{
+				/*
+				 * INTERNAL transition type is a special case: although INTERNAL
+				 * is pass-by-value, it's almost certainly being used as a pointer
+				 * to some large data structure.  We assume usage of
+				 * ALLOCSET_DEFAULT_INITSIZE, which is a good guess if the data is
+				 * being kept in a private memory context, as is done by
+				 * array_agg() for instance.
+				 */
+				costs->transitionSpace += ALLOCSET_DEFAULT_INITSIZE;
+			}
+
+			pfree(inputTypes);
 		}
-		else if (aggtranstype == INTERNALOID)
+		else
 		{
-			/*
-			 * INTERNAL transition type is a special case: although INTERNAL
-			 * is pass-by-value, it's almost certainly being used as a pointer
-			 * to some large data structure.  We assume usage of
-			 * ALLOCSET_DEFAULT_INITSIZE, which is a good guess if the data is
-			 * being kept in a private memory context, as is done by
-			 * array_agg() for instance.
-			 */
-			costs->transitionSpace += ALLOCSET_DEFAULT_INITSIZE;
+			costs->transitionSpace = work_mem;   /* just in case */
 		}
 
 		/*
