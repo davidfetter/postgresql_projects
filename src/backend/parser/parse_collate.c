@@ -703,7 +703,7 @@ assign_collations_walker(Node *node, assign_collations_context *context)
 										node->arg = tle->expr;
 										node->resulttype = exprType((Node *)(tle->expr));
 										node->resulttypmod = exprTypmod((Node *)(tle->expr));
-										node->resultcollid = loccontext.collation;
+										node->resultcollid = coll;
 										node->relabelformat = COERCE_IMPLICIT_CAST;
 										node->location = exprLocation((Node *)(tle->expr));
 										tle->expr = (Expr *) node;
