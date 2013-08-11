@@ -87,10 +87,12 @@
 #include "executor/nodeAgg.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
+#include "nodes/makefuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/tlist.h"
 #include "parser/parse_agg.h"
 #include "parser/parse_coerce.h"
+#include "parser/parse_clause.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
@@ -171,6 +173,9 @@ typedef struct AggStatePerAggData
 	Oid		   *sortOperators;
 	Oid		   *sortCollations;
 	bool	   *sortNullsFirst;
+
+	/* just for convenience of ordered set funcs, not used here */
+	Oid		   *sortEqOperators;
 
 	/*
 	 * fmgr lookup data for input columns' equality operators --- only
@@ -1657,6 +1662,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		ListCell   *lc;
         bool        is_strict;
 		Oid			inputCollations[FUNC_MAX_ARGS];
+		List       *argexprs;
+		List       *argexprstate;
 
 		/* Planner should have assigned aggregate to correct level */
 		Assert(aggref->agglevelsup == 0);
@@ -1893,21 +1900,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 								aggref->aggfnoid)));
 		}
 
-		/*
-		 * Get a tupledesc corresponding to the inputs (including sort
-		 * expressions) of the agg.
-		 */
-		peraggstate->evaldesc = ExecTypeFromTL(aggref->args, false);
-
-		/* Create slot we're going to do argument evaluation in */
-		peraggstate->evalslot = ExecInitExtraTupleSlot(estate);
-		ExecSetSlotDescriptor(peraggstate->evalslot, peraggstate->evaldesc);
-
-		/* Set up projection info for evaluation */
-		peraggstate->evalproj = ExecBuildProjectionInfo(aggrefstate->args,
-														aggstate->tmpcontext,
-														peraggstate->evalslot,
-														NULL);
+		argexprs = aggref->args;
+		argexprstate = aggrefstate->args;
 
 		/*
 		 * If we're doing either DISTINCT or ORDER BY, then we have a list of
@@ -1930,9 +1924,81 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			numDistinctCols = 0;
 		}
 
+		/*
+		 * If this is an ordered set function, and we have a transtype, then
+		 * it represents an extra column to be added to the sorter with a
+		 * fixed value. Plus, if aggtranssortop is valid, we have to include
+		 * a sort entry for the new column.
+		 *
+		 * I'd probably have done this in the planner if I'd seen any
+		 * possible place to put it; if there is one, it's very obscure.
+		 */
+
+		if (OidIsValid(aggtranstype) && aggref->isordset)
+		{
+			Oid sortop = aggform->aggtranssortop;
+			Const *node = makeNode(Const);
+			TargetEntry *tle;
+			SortGroupClause *sortcl = NULL;
+
+			node->consttype = aggtranstype;
+			node->consttypmod = -1;
+			node->constcollid = get_typcollation(aggtranstype);
+			node->constlen = peraggstate->transtypeLen;
+			node->constvalue = peraggstate->initValue;
+			node->constisnull = peraggstate->initValueIsNull;
+			node->constbyval = peraggstate->transtypeByVal;
+			node->location = -1;
+
+			tle = makeTargetEntry((Expr *) node,
+								  ++numInputs,
+								  NULL,
+								  true);
+
+			peraggstate->numInputs = numInputs;
+
+			if (OidIsValid(sortop))
+			{
+				Assert(numDistinctCols == 0);
+
+				sortcl = makeNode(SortGroupClause);
+
+				sortcl->tleSortGroupRef = assignSortGroupRef(tle, argexprs);
+
+				sortcl->sortop = sortop;
+				sortcl->hashable = false;
+				sortcl->eqop = get_equality_op_for_ordering_op(sortop,
+															   &sortcl->nulls_first);
+
+				sortlist = lappend(list_copy(sortlist), sortcl);
+				++numSortCols;
+			}
+
+			/* shallow-copy the passed-in lists, which we must not scribble on. */
+
+			argexprs = lappend(list_copy(argexprs), (Node *) tle);
+			argexprstate = lappend(list_copy(argexprstate), ExecInitExpr((Expr *) tle, (PlanState *) aggstate));
+		}
+
 		peraggstate->numSortCols = numSortCols;
 		peraggstate->numDistinctCols = numDistinctCols;
 		peraggstate->sortstate = NULL;
+
+		/*
+		 * Get a tupledesc corresponding to the inputs (including sort
+		 * expressions) of the agg.
+		 */
+		peraggstate->evaldesc = ExecTypeFromTL(argexprs, false);
+
+		/* Create slot we're going to do argument evaluation in */
+		peraggstate->evalslot = ExecInitExtraTupleSlot(estate);
+		ExecSetSlotDescriptor(peraggstate->evalslot, peraggstate->evaldesc);
+
+		/* Set up projection info for evaluation */
+		peraggstate->evalproj = ExecBuildProjectionInfo(argexprstate,
+														aggstate->tmpcontext,
+														peraggstate->evalslot,
+														NULL);
 
 		if (numSortCols > 0)
 		{
@@ -1962,6 +2028,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				(AttrNumber *) palloc(numSortCols * sizeof(AttrNumber));
 			peraggstate->sortOperators =
 				(Oid *) palloc(numSortCols * sizeof(Oid));
+			peraggstate->sortEqOperators =
+				(Oid *) palloc(numSortCols * sizeof(Oid));
 			peraggstate->sortCollations =
 				(Oid *) palloc(numSortCols * sizeof(Oid));
 			peraggstate->sortNullsFirst =
@@ -1972,13 +2040,14 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			{
 				SortGroupClause *sortcl = (SortGroupClause *) lfirst(lc);
 				TargetEntry *tle = get_sortgroupclause_tle(sortcl,
-														   aggref->args);
+														   argexprs);
 
 				/* the parser should have made sure of this */
 				Assert(OidIsValid(sortcl->sortop));
 
 				peraggstate->sortColIdx[i] = tle->resno;
 				peraggstate->sortOperators[i] = sortcl->sortop;
+				peraggstate->sortEqOperators[i] = sortcl->eqop;
 				peraggstate->sortCollations[i] = exprCollation((Node *) tle->expr);
 				peraggstate->sortNullsFirst[i] = sortcl->nulls_first;
 				i++;
@@ -2254,5 +2323,36 @@ AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate **sortstate, TupleDesc
 	else
 	{
 		elog(ERROR, "AggSetSortInfo called on non ordered set function");
+	}
+}
+
+int
+AggSetGetSortOperators(FunctionCallInfo fcinfo,
+					   AttrNumber **sortColIdx,
+					   Oid **sortOperators,
+					   Oid **sortCollations,
+					   bool **sortNullsFirst,
+					   Oid **sortEqOperators)
+{
+	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
+	{
+		AggStatePerAggData *peraggstate = (AggStatePerAggData *) fcinfo->context;
+
+		if (sortColIdx)
+			*sortColIdx = peraggstate->sortColIdx;
+		if (sortOperators)
+			*sortOperators = peraggstate->sortOperators;
+		if (sortCollations)
+			*sortCollations = peraggstate->sortCollations;
+		if (sortNullsFirst)
+			*sortNullsFirst = peraggstate->sortNullsFirst;
+		if (sortEqOperators)
+			*sortEqOperators = peraggstate->sortEqOperators;
+
+		return peraggstate->numSortCols;
+	}
+	else
+	{
+		elog(ERROR, "AggSetGetSortOperators called on non ordered set function");
 	}
 }
