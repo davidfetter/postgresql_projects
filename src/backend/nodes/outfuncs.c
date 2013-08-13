@@ -964,6 +964,7 @@ _outAggref(StringInfo str, const Aggref *node)
 	WRITE_NODE_FIELD(aggfilter);
 	WRITE_BOOL_FIELD(aggstar);
 	WRITE_BOOL_FIELD(isordset);
+	WRITE_BOOL_FIELD(ishypothetical);
 	WRITE_UINT_FIELD(agglevelsup);
 	WRITE_LOCATION_FIELD(location);
 }

@@ -1118,36 +1118,45 @@ build_orderedset_fnexprs(Oid *agg_input_types,
 										 COERCE_EXPLICIT_CALL);
 }
 
-int get_aggregate_argtype(Aggref *aggref, Oid *inputTypes, Oid *inputCollations)
+int get_aggregate_argtypes(Aggref *aggref, Oid *inputTypes, Oid *inputCollations)
 {
 	int numArguments = 0;
 	ListCell   *lc;
 
 	if (!(aggref->isordset))
+	{
+		foreach(lc, aggref->args)
 		{
-			foreach(lc, aggref->args)
-			{
-				TargetEntry *tle = (TargetEntry *) lfirst(lc);
+			TargetEntry *tle = (TargetEntry *) lfirst(lc);
 
-				if (!tle->resjunk)
-					inputTypes[numArguments++] = exprType((Node *) tle->expr);
-			}
-		}
-		else
-		{
-			foreach(lc, aggref->orddirectargs)
+			if (!tle->resjunk)
 			{
-				Expr *expr_orddirectargs = (Expr *) lfirst(lc);
-				inputTypes[numArguments] = exprType((Node *) expr_orddirectargs);
+				inputTypes[numArguments] = exprType((Node *) tle->expr);
 				if (inputCollations != NULL)
-					inputCollations[numArguments] = exprCollation((Node *) expr_orddirectargs);
-
+					inputCollations[numArguments] = exprCollation((Node *) tle->expr);
 				++numArguments;
 			}
+		}
+	}
+	else
+	{
+		foreach(lc, aggref->orddirectargs)
+		{
+			Node *expr_orddirectargs = lfirst(lc);
 
+			inputTypes[numArguments] = exprType(expr_orddirectargs);
+			if (inputCollations != NULL)
+				inputCollations[numArguments] = exprCollation(expr_orddirectargs);
+
+			++numArguments;
+		}
+
+		if (!(aggref->ishypothetical))
+		{
 			foreach(lc, aggref->args)
 			{
 				TargetEntry *tle = (TargetEntry *) lfirst(lc);
+
 				inputTypes[numArguments] = exprType((Node *) tle->expr);
 				if (inputCollations != NULL)
 					inputCollations[numArguments] = exprCollation((Node *) tle->expr);
@@ -1155,6 +1164,7 @@ int get_aggregate_argtype(Aggref *aggref, Oid *inputTypes, Oid *inputCollations)
 				++numArguments;
 			}
 		}
+	}
 
 	return numArguments;
 }

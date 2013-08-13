@@ -87,10 +87,12 @@
 #include "executor/nodeAgg.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
+#include "nodes/makefuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/tlist.h"
 #include "parser/parse_agg.h"
 #include "parser/parse_coerce.h"
+#include "parser/parse_clause.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
@@ -119,10 +121,19 @@ typedef struct AggStatePerAggData
 	/* Pointer to parent AggState node */
 	AggState   *aggstate;
 
-	/* number of input arguments for aggregate function proper */
+	/*
+	 * number of arguments for aggregate function proper.
+	 * For ordered set functions, this includes the ORDER BY
+	 * columns, *except* in the case of hypothetical set functions.
+	 */
 	int			numArguments;
 
-	/* number of inputs including ORDER BY expressions */
+	/*
+	 * number of inputs including ORDER BY expressions. For ordered
+	 * set functions, *only* the ORDER BY expressions are included
+	 * here, since the direct args to the function are not properly
+	 * "input" in the sense of being derived from the tuple group.
+	 */
 	int			numInputs;
 
 	/* Oids of transfer functions */
@@ -162,6 +173,9 @@ typedef struct AggStatePerAggData
 	Oid		   *sortOperators;
 	Oid		   *sortCollations;
 	bool	   *sortNullsFirst;
+
+	/* just for convenience of ordered set funcs, not used here */
+	Oid		   *sortEqOperators;
 
 	/*
 	 * fmgr lookup data for input columns' equality operators --- only
@@ -1648,6 +1662,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		ListCell   *lc;
         bool        is_strict;
 		Oid			inputCollations[FUNC_MAX_ARGS];
+		List       *argexprs;
+		List       *argexprstate;
 
 		/* Planner should have assigned aggregate to correct level */
 		Assert(aggref->agglevelsup == 0);
@@ -1669,35 +1685,30 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		/* Nope, so assign a new PerAgg record */
 		peraggstate = &peragg[++aggno];
 
+		/* Fill in the peraggstate data */
 		peraggstate->type = T_AggStatePerAggData;
 		peraggstate->aggstate = aggstate;
+		peraggstate->aggref = aggref;
+		peraggstate->aggrefstate = aggrefstate;
 
 		/* Mark Aggref state node with assigned index in the result array */
 		aggrefstate->aggno = aggno;
 
-		/* Fill in the peraggstate data */
-		peraggstate->aggrefstate = aggrefstate;
-		peraggstate->aggref = aggref;
-		numInputs = list_length(aggref->args);
-		peraggstate->numInputs = numInputs;
-		peraggstate->sortstate = NULL;
-
-		/*
-		 * Get actual datatypes of the inputs.	These could be different from
-		 * the agg's declared input types, when the agg accepts ANY or a
-		 * polymorphic type.
-		 */
-
-		numArguments = get_aggregate_argtype(aggref, inputTypes, inputCollations);
-
-		peraggstate->numArguments = numArguments;
-
+		/* Fetch the pg_aggregate row */
 		aggTuple = SearchSysCache1(AGGFNOID,
 								   ObjectIdGetDatum(aggref->aggfnoid));
 		if (!HeapTupleIsValid(aggTuple))
 			elog(ERROR, "cache lookup failed for aggregate %u",
 				 aggref->aggfnoid);
 		aggform = (Form_pg_aggregate) GETSTRUCT(aggTuple);
+
+		/*
+		 * Check that the definition hasn't somehow changed incompatibly.
+		 */
+
+		if ((aggref->isordset != (aggform->aggisordsetfunc))
+			|| (aggref->ishypothetical != (aggform->aggordnargs == -2)))
+			elog(ERROR, "Incompatible change to aggregate definition");
 
 		/* Check permission to call aggregate function */
 		aclresult = pg_proc_aclcheck(aggref->aggfnoid, GetUserId(),
@@ -1752,17 +1763,39 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			}
 		}
 
+		/*
+		 * Get actual datatypes of the inputs.	These could be different from
+		 * the agg's declared input types, when the agg accepts ANY or a
+		 * polymorphic type.
+		 */
+
+		peraggstate->numInputs = numInputs = list_length(aggref->args);
+
+		numArguments = get_aggregate_argtypes(aggref,
+											  inputTypes,
+											  inputCollations);
+
+		peraggstate->numArguments = numArguments;
+
 		/* resolve actual type of transition state, if polymorphic */
 		aggtranstype = aggform->aggtranstype;
 		if (OidIsValid(aggtranstype) && IsPolymorphicType(aggtranstype))
 		{
 			/* have to fetch the agg's declared input types... */
 			Oid		   *declaredArgTypes;
-			int			agg_nargs;
+			int         agg_nargs;
 
 			(void) get_func_signature(aggref->aggfnoid,
-									  &declaredArgTypes, &agg_nargs);
-			Assert(agg_nargs == numArguments);
+									  &declaredArgTypes,
+									  &agg_nargs);
+
+			/*
+			 * if variadic "any", might be more actual args than declared
+			 * args, but these extra args can't influence the determination
+			 * of polymorphic transition or result type.
+			 */
+			Assert(agg_nargs <= numArguments);
+
 			aggtranstype = enforce_generic_type_consistency(inputTypes,
 															declaredArgTypes,
 															agg_nargs,
@@ -1771,28 +1804,28 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			pfree(declaredArgTypes);
 		}
 
-		if (!aggref->isordset)
+		if (!(aggref->isordset))
 		{
-		/* build expression trees using actual argument & result types */
-		build_aggregate_fnexprs(inputTypes,
-								numArguments,
-								aggtranstype,
-								aggref->aggtype,
-								aggref->inputcollid,
-								transfn_oid,
-								finalfn_oid,
-								&transfnexpr,
-								&finalfnexpr);
+			/* build expression trees using actual argument & result types */
+			build_aggregate_fnexprs(inputTypes,
+									numArguments,
+									aggtranstype,
+									aggref->aggtype,
+									aggref->inputcollid,
+									transfn_oid,
+									finalfn_oid,
+									&transfnexpr,
+									&finalfnexpr);
 		}
 		else
 		{
 			build_orderedset_fnexprs(inputTypes,
-								numArguments,
-								aggref->aggtype,
-								aggref->inputcollid,
-								inputCollations,
-								finalfn_oid,
-								&finalfnexpr);
+									 numArguments,
+									 aggref->aggtype,
+									 aggref->inputcollid,
+									 inputCollations,
+									 finalfn_oid,
+									 &finalfnexpr);
 		}
 
 		if (OidIsValid(transfn_oid))
@@ -1813,7 +1846,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 						 errmsg("Ordered set functions's finalfns have to be defined as non strict")));
 			}
-
 		}
 
 		if (is_strict)
@@ -1868,21 +1900,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 								aggref->aggfnoid)));
 		}
 
-		/*
-		 * Get a tupledesc corresponding to the inputs (including sort
-		 * expressions) of the agg.
-		 */
-		peraggstate->evaldesc = ExecTypeFromTL(aggref->args, false);
-
-		/* Create slot we're going to do argument evaluation in */
-		peraggstate->evalslot = ExecInitExtraTupleSlot(estate);
-		ExecSetSlotDescriptor(peraggstate->evalslot, peraggstate->evaldesc);
-
-		/* Set up projection info for evaluation */
-		peraggstate->evalproj = ExecBuildProjectionInfo(aggrefstate->args,
-														aggstate->tmpcontext,
-														peraggstate->evalslot,
-														NULL);
+		argexprs = aggref->args;
+		argexprstate = aggrefstate->args;
 
 		/*
 		 * If we're doing either DISTINCT or ORDER BY, then we have a list of
@@ -1905,8 +1924,81 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			numDistinctCols = 0;
 		}
 
+		/*
+		 * If this is an ordered set function, and we have a transtype, then
+		 * it represents an extra column to be added to the sorter with a
+		 * fixed value. Plus, if aggtranssortop is valid, we have to include
+		 * a sort entry for the new column.
+		 *
+		 * I'd probably have done this in the planner if I'd seen any
+		 * possible place to put it; if there is one, it's very obscure.
+		 */
+
+		if (OidIsValid(aggtranstype) && aggref->isordset)
+		{
+			Oid sortop = aggform->aggtranssortop;
+			Const *node = makeNode(Const);
+			TargetEntry *tle;
+			SortGroupClause *sortcl = NULL;
+
+			node->consttype = aggtranstype;
+			node->consttypmod = -1;
+			node->constcollid = get_typcollation(aggtranstype);
+			node->constlen = peraggstate->transtypeLen;
+			node->constvalue = peraggstate->initValue;
+			node->constisnull = peraggstate->initValueIsNull;
+			node->constbyval = peraggstate->transtypeByVal;
+			node->location = -1;
+
+			tle = makeTargetEntry((Expr *) node,
+								  ++numInputs,
+								  NULL,
+								  true);
+
+			peraggstate->numInputs = numInputs;
+
+			if (OidIsValid(sortop))
+			{
+				Assert(numDistinctCols == 0);
+
+				sortcl = makeNode(SortGroupClause);
+
+				sortcl->tleSortGroupRef = assignSortGroupRef(tle, argexprs);
+
+				sortcl->sortop = sortop;
+				sortcl->hashable = false;
+				sortcl->eqop = get_equality_op_for_ordering_op(sortop,
+															   &sortcl->nulls_first);
+
+				sortlist = lappend(list_copy(sortlist), sortcl);
+				++numSortCols;
+			}
+
+			/* shallow-copy the passed-in lists, which we must not scribble on. */
+
+			argexprs = lappend(list_copy(argexprs), (Node *) tle);
+			argexprstate = lappend(list_copy(argexprstate), ExecInitExpr((Expr *) tle, (PlanState *) aggstate));
+		}
+
 		peraggstate->numSortCols = numSortCols;
 		peraggstate->numDistinctCols = numDistinctCols;
+		peraggstate->sortstate = NULL;
+
+		/*
+		 * Get a tupledesc corresponding to the inputs (including sort
+		 * expressions) of the agg.
+		 */
+		peraggstate->evaldesc = ExecTypeFromTL(argexprs, false);
+
+		/* Create slot we're going to do argument evaluation in */
+		peraggstate->evalslot = ExecInitExtraTupleSlot(estate);
+		ExecSetSlotDescriptor(peraggstate->evalslot, peraggstate->evaldesc);
+
+		/* Set up projection info for evaluation */
+		peraggstate->evalproj = ExecBuildProjectionInfo(argexprstate,
+														aggstate->tmpcontext,
+														peraggstate->evalslot,
+														NULL);
 
 		if (numSortCols > 0)
 		{
@@ -1936,6 +2028,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				(AttrNumber *) palloc(numSortCols * sizeof(AttrNumber));
 			peraggstate->sortOperators =
 				(Oid *) palloc(numSortCols * sizeof(Oid));
+			peraggstate->sortEqOperators =
+				(Oid *) palloc(numSortCols * sizeof(Oid));
 			peraggstate->sortCollations =
 				(Oid *) palloc(numSortCols * sizeof(Oid));
 			peraggstate->sortNullsFirst =
@@ -1946,13 +2040,14 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			{
 				SortGroupClause *sortcl = (SortGroupClause *) lfirst(lc);
 				TargetEntry *tle = get_sortgroupclause_tle(sortcl,
-														   aggref->args);
+														   argexprs);
 
 				/* the parser should have made sure of this */
 				Assert(OidIsValid(sortcl->sortop));
 
 				peraggstate->sortColIdx[i] = tle->resno;
 				peraggstate->sortOperators[i] = sortcl->sortop;
+				peraggstate->sortEqOperators[i] = sortcl->eqop;
 				peraggstate->sortCollations[i] = exprCollation((Node *) tle->expr);
 				peraggstate->sortNullsFirst[i] = sortcl->nulls_first;
 				i++;
@@ -2228,5 +2323,36 @@ AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate **sortstate, TupleDesc
 	else
 	{
 		elog(ERROR, "AggSetSortInfo called on non ordered set function");
+	}
+}
+
+int
+AggSetGetSortOperators(FunctionCallInfo fcinfo,
+					   AttrNumber **sortColIdx,
+					   Oid **sortOperators,
+					   Oid **sortCollations,
+					   bool **sortNullsFirst,
+					   Oid **sortEqOperators)
+{
+	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
+	{
+		AggStatePerAggData *peraggstate = (AggStatePerAggData *) fcinfo->context;
+
+		if (sortColIdx)
+			*sortColIdx = peraggstate->sortColIdx;
+		if (sortOperators)
+			*sortOperators = peraggstate->sortOperators;
+		if (sortCollations)
+			*sortCollations = peraggstate->sortCollations;
+		if (sortNullsFirst)
+			*sortNullsFirst = peraggstate->sortNullsFirst;
+		if (sortEqOperators)
+			*sortEqOperators = peraggstate->sortEqOperators;
+
+		return peraggstate->numSortCols;
+	}
+	else
+	{
+		elog(ERROR, "AggSetGetSortOperators called on non ordered set function");
 	}
 }
