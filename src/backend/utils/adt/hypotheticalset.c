@@ -78,6 +78,10 @@ hypothetical_rank_final(PG_FUNCTION_ARGS)
 		|| tupdesc->attrs[nargs]->atttypid != BOOLOID)
 		elog(ERROR, "type mismatch in rank()");
 
+	for (i = 0; i < nargs; ++i)
+		if (get_fn_expr_argtype(fcinfo->flinfo,i) != tupdesc->attrs[i]->atttypid)
+			elog(ERROR, "type mismatch in rank()");
+
 	/* insert the hypothetical row into the sort */
 
 	ExecClearTuple(slot);
