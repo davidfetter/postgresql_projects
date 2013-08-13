@@ -491,6 +491,56 @@ build_index_pathkeys(PlannerInfo *root,
 	return retval;
 }
 
+
+/*
+ * build_expression_pathkey
+ *   Build a pathkeys list (empty or 1 element) that describes an ordering
+ *   of a single expression using a given operator
+ *
+ * The result is empty if the expression isn't already in some equivalence
+ * class.
+ *
+ * The main use for this is in declaring the ordering of ordinality
+ * columns in FunctionScan, but it's written this way to avoid making any
+ * assumptions about type.
+ */
+
+List *
+build_expression_pathkey(PlannerInfo *root,
+						 RelOptInfo *rel,
+						 Expr *expr,
+						 Oid operator,
+						 bool nulls_first)
+{
+	List       *pathkeys = NIL;
+	Oid			opfamily,
+		        opcintype;
+	int16		strategy;
+	PathKey    *cpathkey;
+
+	/* Find the operator in pg_amop --- failure shouldn't happen */
+	if (!get_ordering_op_properties(operator,
+									&opfamily, &opcintype, &strategy))
+		elog(ERROR, "operator %u is not a valid ordering operator",
+			 operator);
+
+	cpathkey = make_pathkey_from_sortinfo(root,
+										  expr,
+										  opfamily,
+										  opcintype,
+										  exprCollation((Node*) expr),
+										  (strategy == BTGreaterStrategyNumber),
+										  nulls_first,
+										  0,
+										  rel->relids,
+										  false);
+
+	if (cpathkey)
+		pathkeys = lappend(pathkeys, cpathkey);
+
+	return pathkeys;
+}
+
 /*
  * convert_subquery_pathkeys
  *	  Build a pathkeys list that describes the ordering of a subquery's
