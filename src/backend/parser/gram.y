@@ -404,7 +404,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				a_expr b_expr c_expr AexprConst indirection_el
 				columnref in_expr having_clause array_expr
 				ExclusionWhereClause
-%type <list>    func_table func_table_list
+%type <list>    func_table func_table_list func_table_single
 %type <list>	ExclusionConstraintList ExclusionConstraintElem
 %type <list>	func_arg_list
 %type <node>	func_arg_expr
@@ -9934,12 +9934,42 @@ relation_expr_opt_alias: relation_expr					%prec UMINUS
 				}
 		;
 
-func_table: func_expr_windowless					{ $$ = list_make1($1); }
+func_table: func_table_single					    { $$ = $1; }
           | TABLE '(' func_table_list ')'           { $$ = $3; }
 		;
 
-func_table_list: func_expr_windowless                       { $$ = list_make1($1); }
-               | func_table_list ',' func_expr_windowless   { $$ = lappend($1,$3); }
+func_table_list: func_table_single                          { $$ = $1; }
+               | func_table_list ',' func_table_single      { $$ = list_concat($1,$3); }
+
+func_table_single: func_expr_windowless
+            {
+				FuncCall *n = (FuncCall *) $1;
+				List *res = NIL;
+
+				if (list_length(n->funcname) == 1
+					&& pg_strcasecmp(strVal(linitial(n->funcname)),"unnest") == 0)
+				{
+					ListCell *lc;
+
+					if (n->agg_order != NIL || n->func_variadic || n->agg_star || n->agg_distinct)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("invalid call to unnest"),
+								 parser_errposition(@1)));
+
+					foreach(lc, n->args)
+					{
+						res = lappend(res, makeFuncCall(SystemFuncName("unnest"),
+														list_make1(lfirst(lc)),
+														n->location));
+					}
+				}
+				else
+					res = list_make1(n);
+				
+				$$ = res;
+			}
+        ;
 
 where_clause:
 			WHERE a_expr							{ $$ = $2; }
