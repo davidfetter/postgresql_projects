@@ -515,10 +515,11 @@ transformRangeSubselect(ParseState *pstate, RangeSubselect *r)
 static RangeTblEntry *
 transformRangeFunction(ParseState *pstate, RangeFunction *r)
 {
-	Node	   *funcexpr;
+	List	   *funcexprs = NIL;
 	char	   *funcname;
 	bool		is_lateral;
 	RangeTblEntry *rte;
+	ListCell   *lc;
 
 	/*
 	 * Get function name for possible use as alias.  We use the same
@@ -526,7 +527,10 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 	 * node, the result will be the function name, but it is possible for the
 	 * grammar to hand back other node types.
 	 */
-	funcname = FigureColname(r->funccallnode);
+	if (list_length(r->funccallnodes) == 1)
+		funcname = FigureColname(linitial(r->funccallnodes));
+	else
+		funcname = "table";
 
 	/*
 	 * We make lateral_only names of this level visible, whether or not the
@@ -541,27 +545,31 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 	pstate->p_lateral_active = true;
 
 	/*
-	 * Transform the raw expression.
+	 * Transform the raw expressions.
 	 */
-	funcexpr = transformExpr(pstate, r->funccallnode, EXPR_KIND_FROM_FUNCTION);
+	foreach(lc, r->funccallnodes)
+	{
+		funcexprs = lappend(funcexprs,
+							transformExpr(pstate, lfirst(lc), EXPR_KIND_FROM_FUNCTION));
+	}
 
 	pstate->p_lateral_active = false;
 
 	/*
 	 * We must assign collations now so that we can fill funccolcollations.
 	 */
-	assign_expr_collations(pstate, funcexpr);
+	assign_list_collations(pstate, funcexprs);
 
 	/*
 	 * Mark the RTE as LATERAL if the user said LATERAL explicitly, or if
 	 * there are any lateral cross-references in it.
 	 */
-	is_lateral = r->lateral || contain_vars_of_level(funcexpr, 0);
+	is_lateral = r->lateral || contain_vars_of_level((Node *) funcexprs, 0);
 
 	/*
 	 * OK, build an RTE for the function.
 	 */
-	rte = addRangeTableEntryForFunction(pstate, funcname, funcexpr,
+	rte = addRangeTableEntryForFunction(pstate, funcname, funcexprs,
 										r, is_lateral, true);
 
 	/*

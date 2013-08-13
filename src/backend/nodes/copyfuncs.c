@@ -504,7 +504,7 @@ _copyFunctionScan(const FunctionScan *from)
 	/*
 	 * copy remainder of node
 	 */
-	COPY_NODE_FIELD(funcexpr);
+	COPY_NODE_FIELD(funcexprs);
 	COPY_NODE_FIELD(funccolnames);
 	COPY_NODE_FIELD(funccoltypes);
 	COPY_NODE_FIELD(funccoltypmods);
@@ -1980,7 +1980,7 @@ _copyRangeTblEntry(const RangeTblEntry *from)
 	COPY_SCALAR_FIELD(security_barrier);
 	COPY_SCALAR_FIELD(jointype);
 	COPY_NODE_FIELD(joinaliasvars);
-	COPY_NODE_FIELD(funcexpr);
+	COPY_NODE_FIELD(funcexprs);
 	COPY_NODE_FIELD(funccoltypes);
 	COPY_NODE_FIELD(funccoltypmods);
 	COPY_NODE_FIELD(funccolcollations);
@@ -2300,7 +2300,7 @@ _copyRangeFunction(const RangeFunction *from)
 
 	COPY_SCALAR_FIELD(ordinality);
 	COPY_SCALAR_FIELD(lateral);
-	COPY_NODE_FIELD(funccallnode);
+	COPY_NODE_FIELD(funccallnodes);
 	COPY_NODE_FIELD(alias);
 	COPY_NODE_FIELD(coldeflist);
 

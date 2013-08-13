@@ -2000,7 +2000,7 @@ range_table_walker(List *rtable,
 						return true;
 				break;
 			case RTE_FUNCTION:
-				if (walker(rte->funcexpr, context))
+				if (walker(rte->funcexprs, context))
 					return true;
 				break;
 			case RTE_VALUES:
@@ -2725,7 +2725,7 @@ range_table_mutator(List *rtable,
 				}
 				break;
 			case RTE_FUNCTION:
-				MUTATE(newrte->funcexpr, rte->funcexpr, Node *);
+				MUTATE(newrte->funcexprs, rte->funcexprs, List *);
 				break;
 			case RTE_VALUES:
 				MUTATE(newrte->values_lists, rte->values_lists, List *);
@@ -3113,7 +3113,7 @@ raw_expression_tree_walker(Node *node,
 			{
 				RangeFunction *rf = (RangeFunction *) node;
 
-				if (walker(rf->funccallnode, context))
+				if (walker(rf->funccallnodes, context))
 					return true;
 				if (walker(rf->alias, context))
 					return true;

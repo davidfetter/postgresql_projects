@@ -1219,7 +1219,7 @@ _readRangeTblEntry(void)
 			READ_NODE_FIELD(joinaliasvars);
 			break;
 		case RTE_FUNCTION:
-			READ_NODE_FIELD(funcexpr);
+			READ_NODE_FIELD(funcexprs);
 			READ_NODE_FIELD(funccoltypes);
 			READ_NODE_FIELD(funccoltypmods);
 			READ_NODE_FIELD(funccolcollations);

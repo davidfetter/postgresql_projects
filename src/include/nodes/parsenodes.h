@@ -466,13 +466,16 @@ typedef struct RangeSubselect
 
 /*
  * RangeFunction - function call appearing in a FROM clause
+ *
+ * funccallnodes is a list because we use this to represent the construct
+ * TABLE(func1(...),func2(...),...) AS ...
  */
 typedef struct RangeFunction
 {
 	NodeTag		type;
 	bool		lateral;		/* does it have LATERAL prefix? */
 	bool		ordinality;		/* does it have WITH ORDINALITY suffix? */
-	Node	   *funccallnode;	/* untransformed function call tree */
+	List	   *funccallnodes;	/* untransformed function call trees */
 	Alias	   *alias;			/* table alias & optional column aliases */
 	List	   *coldeflist;		/* list of ColumnDef nodes to describe result
 								 * of function returning RECORD */
@@ -767,7 +770,7 @@ typedef struct RangeTblEntry
 	 * derived from the funcexpr while treating the ordinal column, if
 	 * present, as a special case.  (see get_rte_attribute_*)
 	 */
-	Node	   *funcexpr;		/* expression tree for func call */
+	List	   *funcexprs;		/* expression tree for func call */
 	List	   *funccoltypes;	/* OID list of column type OIDs */
 	List	   *funccoltypmods; /* integer list of column typmods */
 	List	   *funccolcollations;		/* OID list of column collation OIDs */

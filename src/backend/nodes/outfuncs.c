@@ -516,7 +516,7 @@ _outFunctionScan(StringInfo str, const FunctionScan *node)
 
 	_outScanInfo(str, (const Scan *) node);
 
-	WRITE_NODE_FIELD(funcexpr);
+	WRITE_NODE_FIELD(funcexprs);
 	WRITE_NODE_FIELD(funccolnames);
 	WRITE_NODE_FIELD(funccoltypes);
 	WRITE_NODE_FIELD(funccoltypmods);
@@ -2379,7 +2379,7 @@ _outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
 			WRITE_NODE_FIELD(joinaliasvars);
 			break;
 		case RTE_FUNCTION:
-			WRITE_NODE_FIELD(funcexpr);
+			WRITE_NODE_FIELD(funcexprs);
 			WRITE_NODE_FIELD(funccoltypes);
 			WRITE_NODE_FIELD(funccoltypmods);
 			WRITE_NODE_FIELD(funccolcollations);
@@ -2618,7 +2618,7 @@ _outRangeFunction(StringInfo str, const RangeFunction *node)
 
 	WRITE_BOOL_FIELD(ordinality);
 	WRITE_BOOL_FIELD(lateral);
-	WRITE_NODE_FIELD(funccallnode);
+	WRITE_NODE_FIELD(funccallnodes);
 	WRITE_NODE_FIELD(alias);
 	WRITE_NODE_FIELD(coldeflist);
 }

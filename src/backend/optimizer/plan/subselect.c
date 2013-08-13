@@ -2136,7 +2136,7 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 			break;
 
 		case T_FunctionScan:
-			finalize_primnode(((FunctionScan *) plan)->funcexpr,
+			finalize_primnode((Node *) ((FunctionScan *) plan)->funcexprs,
 							  &context);
 			context.paramids = bms_add_members(context.paramids, scan_params);
 			break;

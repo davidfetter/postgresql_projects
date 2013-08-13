@@ -115,7 +115,7 @@ static BitmapHeapScan *make_bitmap_heapscan(List *qptlist,
 static TidScan *make_tidscan(List *qptlist, List *qpqual, Index scanrelid,
 			 List *tidquals);
 static FunctionScan *make_functionscan(List *qptlist, List *qpqual,
-				  Index scanrelid, Node *funcexpr, bool ordinality,
+				  Index scanrelid, List *funcexprs, bool ordinality,
                   List *funccolnames, List *funccoltypes, List *funccoltypmods,
 				  List *funccolcollations);
 static ValuesScan *make_valuesscan(List *qptlist, List *qpqual,
@@ -1708,13 +1708,13 @@ create_functionscan_plan(PlannerInfo *root, Path *best_path,
 	FunctionScan *scan_plan;
 	Index		scan_relid = best_path->parent->relid;
 	RangeTblEntry *rte;
-	Node	   *funcexpr;
+	List	   *funcexprs;
 
 	/* it should be a function base rel... */
 	Assert(scan_relid > 0);
 	rte = planner_rt_fetch(scan_relid, root);
 	Assert(rte->rtekind == RTE_FUNCTION);
-	funcexpr = rte->funcexpr;
+	funcexprs = rte->funcexprs;
 
 	/* Sort clauses into best execution order */
 	scan_clauses = order_qual_clauses(root, scan_clauses);
@@ -1728,11 +1728,11 @@ create_functionscan_plan(PlannerInfo *root, Path *best_path,
 		scan_clauses = (List *)
 			replace_nestloop_params(root, (Node *) scan_clauses);
 		/* The func expression itself could contain nestloop params, too */
-		funcexpr = replace_nestloop_params(root, funcexpr);
+		funcexprs = (List *) replace_nestloop_params(root, (Node *) funcexprs);
 	}
 
 	scan_plan = make_functionscan(tlist, scan_clauses, scan_relid,
-								  funcexpr,
+								  funcexprs,
 								  rte->funcordinality,
 								  rte->eref->colnames,
 								  rte->funccoltypes,
@@ -3366,7 +3366,7 @@ static FunctionScan *
 make_functionscan(List *qptlist,
 				  List *qpqual,
 				  Index scanrelid,
-				  Node *funcexpr,
+				  List *funcexprs,
 				  bool ordinality,
 				  List *funccolnames,
 				  List *funccoltypes,
@@ -3382,7 +3382,7 @@ make_functionscan(List *qptlist,
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
 	node->scan.scanrelid = scanrelid;
-	node->funcexpr = funcexpr;
+	node->funcexprs = funcexprs;
 	node->funcordinality = ordinality;
 	node->funccolnames = funccolnames;
 	node->funccoltypes = funccoltypes;

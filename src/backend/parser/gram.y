@@ -402,8 +402,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <defelt>	def_elem reloption_elem old_aggr_elem
 %type <node>	def_arg columnElem where_clause where_or_current_clause
 				a_expr b_expr c_expr AexprConst indirection_el
-				columnref in_expr having_clause func_table array_expr
+				columnref in_expr having_clause array_expr
 				ExclusionWhereClause
+%type <list>    func_table func_table_list
 %type <list>	ExclusionConstraintList ExclusionConstraintElem
 %type <list>	func_arg_list
 %type <node>	func_arg_expr
@@ -9588,7 +9589,7 @@ table_ref:	relation_expr opt_alias_clause
 					RangeFunction *n = makeNode(RangeFunction);
 					n->lateral = false;
 					n->ordinality = false;
-					n->funccallnode = $1;
+					n->funccallnodes = $1;
 					n->alias = linitial($2);
 					n->coldeflist = lsecond($2);
 					$$ = (Node *) n;
@@ -9598,7 +9599,7 @@ table_ref:	relation_expr opt_alias_clause
 					RangeFunction *n = makeNode(RangeFunction);
 					n->lateral = false;
 					n->ordinality = true;
-					n->funccallnode = $1;
+					n->funccallnodes = $1;
 					n->alias = linitial($3);
 					n->coldeflist = lsecond($3);
 					$$ = (Node *) n;
@@ -9608,7 +9609,7 @@ table_ref:	relation_expr opt_alias_clause
 					RangeFunction *n = makeNode(RangeFunction);
 					n->lateral = true;
 					n->ordinality = false;
-					n->funccallnode = $2;
+					n->funccallnodes = $2;
 					n->alias = linitial($3);
 					n->coldeflist = lsecond($3);
 					$$ = (Node *) n;
@@ -9618,7 +9619,7 @@ table_ref:	relation_expr opt_alias_clause
 					RangeFunction *n = makeNode(RangeFunction);
 					n->lateral = true;
 					n->ordinality = true;
-					n->funccallnode = $2;
+					n->funccallnodes = $2;
 					n->alias = linitial($4);
 					n->coldeflist = lsecond($4);
 					$$ = (Node *) n;
@@ -9933,9 +9934,12 @@ relation_expr_opt_alias: relation_expr					%prec UMINUS
 				}
 		;
 
-func_table: func_expr_windowless					{ $$ = $1; }
+func_table: func_expr_windowless					{ $$ = list_make1($1); }
+          | TABLE '(' func_table_list ')'           { $$ = $3; }
 		;
 
+func_table_list: func_expr_windowless                       { $$ = list_make1($1); }
+               | func_table_list ',' func_expr_windowless   { $$ = lappend($1,$3); }
 
 where_clause:
 			WHERE a_expr							{ $$ = $2; }

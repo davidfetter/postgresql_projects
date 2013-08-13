@@ -388,7 +388,7 @@ rewriteRuleAction(Query *parsetree,
 			{
 				case RTE_FUNCTION:
 					sub_action->hasSubLinks =
-						checkExprHasSubLink(rte->funcexpr);
+						checkExprHasSubLink((Node *) rte->funcexprs);
 					break;
 				case RTE_VALUES:
 					sub_action->hasSubLinks =

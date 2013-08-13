@@ -4457,9 +4457,11 @@ inline_set_returning_function(PlannerInfo *root, RangeTblEntry *rte)
 		return NULL;
 
 	/* Fail if FROM item isn't a simple FuncExpr */
-	fexpr = (FuncExpr *) rte->funcexpr;
-	if (fexpr == NULL || !IsA(fexpr, FuncExpr))
+	if (list_length(rte->funcexprs) != 1
+		|| !IsA(linitial(rte->funcexprs), FuncExpr))
 		return NULL;
+
+	fexpr = (FuncExpr *) linitial(rte->funcexprs);
 
 	func_oid = fexpr->funcid;
 

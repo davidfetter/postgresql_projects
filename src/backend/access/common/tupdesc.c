@@ -192,6 +192,43 @@ CreateTupleDescCopyExtend(TupleDesc tupdesc, int moreatts)
 }
 
 /*
+ * CreateTupleDescCopyMany
+ *		This function creates a new TupleDesc by copying from a set of
+ *      existing TupleDescs. The new tupdesc is an anonymous record type
+ *      (and never has oids)
+ *
+ * !!! Constraints and defaults are not copied !!!
+ */
+TupleDesc
+CreateTupleDescCopyMany(TupleDesc *tupdescs, int numtupdescs)
+{
+	TupleDesc	desc;
+	int			i,j;
+	int         src_natts = 0;
+	int         att = 0;
+
+	for (i = 0; i < numtupdescs; ++i)
+		src_natts += tupdescs[i]->natts;
+
+	desc = CreateTemplateTupleDesc(src_natts, false);
+
+	for (i = 0; i < numtupdescs; ++i)
+	{
+		int natts = tupdescs[i]->natts;
+		for (j = 0; j < natts; j++)
+		{
+			memcpy(desc->attrs[att], tupdescs[i]->attrs[j], ATTRIBUTE_FIXED_PART_SIZE);
+			desc->attrs[att]->attnum = att + 1;
+			desc->attrs[att]->attnotnull = false;
+			desc->attrs[att]->atthasdef = false;
+			++att;
+		}
+	}
+
+	return desc;
+}
+
+/*
  * CreateTupleDescCopyConstr
  *		This function creates a new TupleDesc by copying from an existing
  *		TupleDesc (including its constraints and defaults).

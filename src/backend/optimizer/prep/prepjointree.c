@@ -576,7 +576,7 @@ inline_set_returning_functions(PlannerInfo *root)
 				/* Successful expansion, replace the rtable entry */
 				rte->rtekind = RTE_SUBQUERY;
 				rte->subquery = funcquery;
-				rte->funcexpr = NULL;
+				rte->funcexprs = NULL;
 				rte->funccoltypes = NIL;
 				rte->funccoltypmods = NIL;
 				rte->funccolcollations = NIL;
@@ -1502,8 +1502,8 @@ replace_vars_in_jointree(Node *jtnode,
 														 context);
 						break;
 					case RTE_FUNCTION:
-						rte->funcexpr =
-							pullup_replace_vars(rte->funcexpr,
+						rte->funcexprs = (List *)
+							pullup_replace_vars((Node *) rte->funcexprs,
 												context);
 						break;
 					case RTE_VALUES:

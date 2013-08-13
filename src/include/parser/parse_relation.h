@@ -59,7 +59,7 @@ extern RangeTblEntry *addRangeTableEntryForSubquery(ParseState *pstate,
 							  bool inFromCl);
 extern RangeTblEntry *addRangeTableEntryForFunction(ParseState *pstate,
 							  char *funcname,
-							  Node *funcexpr,
+							  List *funcexprs,
 							  RangeFunction *rangefunc,
 							  bool lateral,
 							  bool inFromCl);

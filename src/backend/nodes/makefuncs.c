@@ -164,14 +164,17 @@ makeWholeRowVar(RangeTblEntry *rte,
 			 * If ordinality is set, we return a composite var even if
 			 * the function is a scalar. This var is always of RECORD type.
 			 *
+			 * If the RTE has more than one function, we return a composite
+			 * var of record type.
+			 *
 			 * If ordinality is not set but the function returns a row,
 			 * we keep the function's return type.
 			 *
 			 * If the function is a scalar, we do what allowScalar requests.
 			 */
-			toid = exprType(rte->funcexpr);
+			toid = exprType(linitial(rte->funcexprs));
 
-			if (rte->funcordinality)
+			if (rte->funcordinality || list_length(rte->funcexprs) > 1)
 			{
 				/* ORDINALITY always produces an anonymous RECORD result */
 				result = makeVar(varno,
@@ -198,7 +201,7 @@ makeWholeRowVar(RangeTblEntry *rte,
 								 1,
 								 toid,
 								 -1,
-								 exprCollation(rte->funcexpr),
+								 exprCollation(linitial(rte->funcexprs)),
 								 varlevelsup);
 			}
 			else

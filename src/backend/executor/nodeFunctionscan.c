@@ -44,14 +44,20 @@ FunctionNext(FunctionScanState *node)
 {
 	EState	   *estate;
 	ScanDirection direction;
-	Tuplestorestate *tuplestorestate;
+	Tuplestorestate **tuplestorestatep = node->tuplestorestates;
 	TupleTableSlot *scanslot;
-	TupleTableSlot *funcslot;
+	TupleTableSlot **funcslotp;
+	TupleDesc  *func_tupdescp = node->func_tupdescs;
+	ListCell   *lc;
+	int         att = 0;
+	bool        alldone = true;
+	int64      *rowcountp = node->rowcounts;
+	int64       oldpos;
 
-	if (node->func_slot)
+	if (node->func_slots)
 	{
 		/*
-		 * ORDINALITY case:
+		 * ORDINALITY or multiple functions case:
 		 *
 		 * We fetch the function result into FUNCSLOT (which matches the
 		 * function return type), and then copy the values to SCANSLOT
@@ -59,18 +65,19 @@ FunctionNext(FunctionScanState *node)
 		 * column in the process.
 		 */
 
-		funcslot = node->func_slot;
+		funcslotp = node->func_slots;
 		scanslot = node->ss.ss_ScanTupleSlot;
+		ExecClearTuple(scanslot);
 	}
 	else
 	{
 		/*
-		 * non-ORDINALITY case: the function return type and scan result
+		 * trivial case: the function return type and scan result
 		 * type are the same, so we fetch the function result straight
 		 * into the scan result slot.
 		 */
 
-		funcslot = node->ss.ss_ScanTupleSlot;
+		funcslotp = &node->ss.ss_ScanTupleSlot;
 		scanslot = NULL;
 	}
 
@@ -80,41 +87,6 @@ FunctionNext(FunctionScanState *node)
 	estate = node->ss.ps.state;
 	direction = estate->es_direction;
 
-	tuplestorestate = node->tuplestorestate;
-
-	/*
-	 * If first time through, read all tuples from function and put them in a
-	 * tuplestore. Subsequent calls just fetch tuples from tuplestore.
-	 */
-	if (tuplestorestate == NULL)
-	{
-		node->tuplestorestate = tuplestorestate =
-			ExecMakeTableFunctionResult(node->funcexpr,
-										node->ss.ps.ps_ExprContext,
-										node->func_tupdesc,
-										node->eflags & EXEC_FLAG_BACKWARD);
-	}
-
-	/*
-	 * Get the next tuple from tuplestore. Return NULL if no more tuples.
-	 */
-	(void) tuplestore_gettupleslot(tuplestorestate,
-								   ScanDirectionIsForward(direction),
-								   false,
-								   funcslot);
-
-	if (!scanslot)
-		return funcslot;
-
-	/*
-	 * we're doing ordinality, so we copy the values from the function return
-	 * slot to the (distinct) scan slot. We can do this because the lifetimes
-	 * of the values in each slot are the same; until we reset the scan or
-	 * fetch the next tuple, both will be valid.
-	 */
-
-	ExecClearTuple(scanslot);
-
 	/*
 	 * increment or decrement before checking for end-of-data, so that we can
 	 * move off either end of the result by 1 (and no more than 1) without
@@ -123,28 +95,92 @@ FunctionNext(FunctionScanState *node)
 	 */
 
 	if (ScanDirectionIsForward(direction))
-		node->ordinal++;
+		oldpos = node->ordinal++;
 	else
-		node->ordinal--;
+		oldpos = node->ordinal--;
 
-	if (!TupIsNull(funcslot))
+	foreach(lc, node->funcexprs)
 	{
-		int     natts = funcslot->tts_tupleDescriptor->natts;
-		int     i;
+		TupleDesc tupdesc = *func_tupdescp++;
+		TupleTableSlot *slot = *funcslotp++;
+		int i, natts;
 
-		slot_getallattrs(funcslot);
-
-		for (i = 0; i < natts; ++i)
+		/*
+		 * If first time through, read all tuples from function and put them in a
+		 * tuplestore. Subsequent calls just fetch tuples from tuplestore.
+		 */
+		if (*tuplestorestatep == NULL)
 		{
-			scanslot->tts_values[i] = funcslot->tts_values[i];
-			scanslot->tts_isnull[i] = funcslot->tts_isnull[i];
+			*tuplestorestatep =
+				ExecMakeTableFunctionResult(lfirst(lc),
+											node->ss.ps.ps_ExprContext,
+											tupdesc,
+											node->eflags & EXEC_FLAG_BACKWARD);
 		}
 
-		scanslot->tts_values[natts] = Int64GetDatumFast(node->ordinal);
-		scanslot->tts_isnull[natts] = false;
+		/*
+		 * Get the next tuple from tuplestore. Return NULL if no more tuples.
+		 */
+		if (!rowcountp || *rowcountp == -1 || *rowcountp >= oldpos)
+			(void) tuplestore_gettupleslot(*tuplestorestatep,
+										   ScanDirectionIsForward(direction),
+										   false,
+										   slot);
+		else
+			ExecClearTuple(slot);
 
-		ExecStoreVirtualTuple(scanslot);
+		/* bail on the simple case now */
+		if (!scanslot)
+			return slot;
+
+		natts = tupdesc->natts;
+
+		/*
+		 * If we ran out of data for this function in the forward direction
+		 * then we now know how many rows it returned. We need to know this
+		 * in order to handle backwards scans. The row count we store is
+		 * actually 1+ the actual number, because we have to position the
+		 * tuplestore 1 off its end sometimes.
+		 */
+
+		Assert(rowcountp);
+
+		if (TupIsNull(slot))
+		{
+			if (ScanDirectionIsForward(direction) && *rowcountp == -1)
+				*rowcountp = node->ordinal;
+
+			for (i = 0; i < natts; ++i, ++att)
+			{
+				scanslot->tts_values[att] = (Datum) 0;
+				scanslot->tts_isnull[att] = true;
+			}
+		}
+		else
+		{
+			slot_getallattrs(slot);
+
+			for (i = 0; i < natts; ++i, ++att)
+			{
+				scanslot->tts_values[att] = slot->tts_values[i];
+				scanslot->tts_isnull[att] = slot->tts_isnull[i];
+			}
+
+			alldone = false;
+		}
+
+		++rowcountp;
+		++tuplestorestatep;
 	}
+
+	if (node->ordinality)
+	{
+		scanslot->tts_values[att] = Int64GetDatumFast(node->ordinal);
+		scanslot->tts_isnull[att] = false;
+	}
+
+	if (!alldone)
+		ExecStoreVirtualTuple(scanslot);
 
 	return scanslot;
 }
@@ -186,8 +222,12 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	FunctionScanState *scanstate;
 	Oid			funcrettype;
 	TypeFuncClass functypclass;
-	TupleDesc	func_tupdesc = NULL;
+	TupleDesc  *func_tupdescs = NULL;
 	TupleDesc	scan_tupdesc = NULL;
+	int         nfuncs = list_length(node->funcexprs);
+	bool        ordinality = node->funcordinality;
+	int         i, atts_done;
+	ListCell   *lc;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & EXEC_FLAG_MARK));
@@ -206,6 +246,8 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	scanstate->ss.ps.state = estate;
 	scanstate->eflags = eflags;
 
+	scanstate->ordinality = ordinality;
+
 	/*
 	 * Miscellaneous initialization
 	 *
@@ -220,14 +262,26 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	ExecInitScanTupleSlot(estate, &scanstate->ss);
 
 	/*
-	 * We only need a separate slot for the function result if we are doing
-	 * ordinality; otherwise, we fetch function results directly into the
-	 * scan slot.
+	 * We only need separate slots for the function results if we are doing
+	 * ordinality or multiple functions; otherwise, we fetch function
+	 * results directly into the scan slot. Same for rowcounts.
 	 */
-	if (node->funcordinality)
-		scanstate->func_slot = ExecInitExtraTupleSlot(estate);
+	if (ordinality || nfuncs > 1)
+	{
+		scanstate->func_slots = palloc(nfuncs * sizeof(TupleTableSlot *));
+		scanstate->rowcounts = palloc(nfuncs * sizeof(int64));
+
+		for (i = 0; i < nfuncs; ++i)
+		{
+			scanstate->func_slots[i] = ExecInitExtraTupleSlot(estate);
+			scanstate->rowcounts[i] = -1;
+		}
+	}
 	else
-		scanstate->func_slot = NULL;
+	{
+		scanstate->func_slots = NULL;
+		scanstate->rowcounts = NULL;
+	}
 
 	/*
 	 * initialize child expressions
@@ -239,111 +293,142 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 		ExecInitExpr((Expr *) node->scan.plan.qual,
 					 (PlanState *) scanstate);
 
-	/*
-	 * Now determine if the function returns a simple or composite
-	 * type, and build an appropriate tupdesc. This tupdesc
-	 * (func_tupdesc) is the one that matches the shape of the
-	 * function result, no extra columns.
-	 */
-	functypclass = get_expr_result_type(node->funcexpr,
-										&funcrettype,
-										&func_tupdesc);
+	scanstate->func_tupdescs
+		= func_tupdescs
+		= palloc((ordinality ? (nfuncs + 1) : nfuncs) * sizeof(TupleDesc));
 
-	if (functypclass == TYPEFUNC_COMPOSITE)
+	i = 0;
+	atts_done = 0;
+	foreach(lc, node->funcexprs)
 	{
-		/* Composite data type, e.g. a table's row type */
-		Assert(func_tupdesc);
+		TupleDesc tupdesc;
 
 		/*
-		 * XXX
-		 * Existing behaviour is a bit inconsistent with regard to aliases and
-		 * whole-row Vars of the function result. If the function returns a
-		 * composite type, then the whole-row Var will refer to this tupdesc,
-		 * which has the type's own column names rather than the alias column
-		 * names given in the query. This affects the output of constructs like
-		 * row_to_json which read the column names from the passed-in values.
+		 * Now determine if the function returns a simple or composite
+		 * type, and build an appropriate tupdesc. This tupdesc
+		 * (func_tupdesc) is the one that matches the shape of the
+		 * function result, no extra columns.
 		 */
+		functypclass = get_expr_result_type(lfirst(lc),
+											&funcrettype,
+											&tupdesc);
 
-		/* Must copy it out of typcache for safety */
-		func_tupdesc = CreateTupleDescCopy(func_tupdesc);
-	}
-	else if (functypclass == TYPEFUNC_SCALAR)
-	{
-		/* Base data type, i.e. scalar */
-		char	   *attname = strVal(linitial(node->funccolnames));
+		if (functypclass == TYPEFUNC_COMPOSITE)
+		{
+			/* Composite data type, e.g. a table's row type */
+			Assert(tupdesc);
 
-		func_tupdesc = CreateTemplateTupleDesc(1, false);
-		TupleDescInitEntry(func_tupdesc,
-						   (AttrNumber) 1,
-						   attname,
-						   funcrettype,
-						   -1,
-						   0);
-		TupleDescInitEntryCollation(func_tupdesc,
-									(AttrNumber) 1,
-									exprCollation(node->funcexpr));
-	}
-	else if (functypclass == TYPEFUNC_RECORD)
-	{
-		func_tupdesc = BuildDescFromLists(node->funccolnames,
-										  node->funccoltypes,
-										  node->funccoltypmods,
-										  node->funccolcollations);
-	}
-	else
-	{
-		/* crummy error message, but parser should have caught this */
-		elog(ERROR, "function in FROM has unsupported return type");
-	}
+			/*
+			 * XXX
+			 * Existing behaviour is a bit inconsistent with regard to aliases and
+			 * whole-row Vars of the function result. If the function returns a
+			 * composite type, then the whole-row Var will refer to this tupdesc,
+			 * which has the type's own column names rather than the alias column
+			 * names given in the query. This affects the output of constructs like
+			 * row_to_json which read the column names from the passed-in values.
+			 */
 
-	/*
-	 * For RECORD results, make sure a typmod has been assigned.  (The
-	 * function should do this for itself, but let's cover things in case it
-	 * doesn't.)
-	 */
-	BlessTupleDesc(func_tupdesc);
+			/* Must copy it out of typcache for safety */
+			tupdesc = CreateTupleDescCopy(tupdesc);
+
+			atts_done += tupdesc->natts;
+		}
+		else if (functypclass == TYPEFUNC_SCALAR)
+		{
+			/* Base data type, i.e. scalar */
+			char	   *attname = strVal(list_nth(node->funccolnames, atts_done));
+
+			tupdesc = CreateTemplateTupleDesc(1, false);
+			TupleDescInitEntry(tupdesc,
+							   (AttrNumber) 1,
+							   attname,
+							   funcrettype,
+							   -1,
+							   0);
+			TupleDescInitEntryCollation(tupdesc,
+										(AttrNumber) 1,
+										exprCollation(lfirst(lc)));
+
+			++atts_done;
+		}
+		else if (functypclass == TYPEFUNC_RECORD)
+		{
+			Assert(atts_done == 0);
+			Assert(lnext(lc) == NULL);
+
+			tupdesc = BuildDescFromLists(node->funccolnames,
+										 node->funccoltypes,
+										 node->funccoltypmods,
+										 node->funccolcollations);
+		}
+		else
+		{
+			/* crummy error message, but parser should have caught this */
+			elog(ERROR, "function in FROM has unsupported return type");
+		}
+
+		/*
+		 * For RECORD results, make sure a typmod has been assigned.  (The
+		 * function should do this for itself, but let's cover things in case it
+		 * doesn't.)
+		 */
+		BlessTupleDesc(tupdesc);
+
+		func_tupdescs[i++] = tupdesc;
+	}
 
 	/*
 	 * If doing ordinality, we need a new tupdesc with one additional column
 	 * tacked on, always of type "bigint". The name to use has already been
 	 * recorded by the parser as the last element of funccolnames.
 	 *
-	 * Without ordinality, the scan result tupdesc is the same as the
-	 * function result tupdesc. (No need to make a copy.)
+	 * Without ordinality or multiple functions, the scan result tupdesc is
+	 * the same as the function result tupdesc. (No need to make a copy.)
 	 */
-	if (node->funcordinality)
+	if (ordinality || nfuncs > 1)
 	{
-		int natts = func_tupdesc->natts;
+		int ntupdescs = nfuncs;
 
-		scan_tupdesc = CreateTupleDescCopyExtend(func_tupdesc, 1);
+		if (ordinality)
+		{
+			TupleDesc tupdesc = CreateTemplateTupleDesc(1, false);
 
-		TupleDescInitEntry(scan_tupdesc,
-						   natts + 1,
-						   strVal(llast(node->funccolnames)),
-						   INT8OID,
-						   -1,
-						   0);
+			TupleDescInitEntry(tupdesc,
+							   1,
+							   strVal(llast(node->funccolnames)),
+							   INT8OID,
+							   -1,
+							   0);
+
+			func_tupdescs[ntupdescs++] = tupdesc;
+		}
+
+		scan_tupdesc = CreateTupleDescCopyMany(func_tupdescs, ntupdescs);
 
 		BlessTupleDesc(scan_tupdesc);
 	}
 	else
-		scan_tupdesc = func_tupdesc;
+		scan_tupdesc = func_tupdescs[0];
 
 	scanstate->scan_tupdesc = scan_tupdesc;
-	scanstate->func_tupdesc = func_tupdesc;
+
 	ExecAssignScanType(&scanstate->ss, scan_tupdesc);
 
-	if (scanstate->func_slot)
-		ExecSetSlotDescriptor(scanstate->func_slot, func_tupdesc);
+	if (scanstate->func_slots)
+		for (i = 0; i < nfuncs; ++i)
+			ExecSetSlotDescriptor(scanstate->func_slots[i], func_tupdescs[i]);
 
 	/*
 	 * Other node-specific setup
 	 */
 	scanstate->ordinal = 0;
-	scanstate->tuplestorestate = NULL;
 
-	scanstate->funcexpr = ExecInitExpr((Expr *) node->funcexpr,
-									   (PlanState *) scanstate);
+	scanstate->tuplestorestates = palloc(nfuncs * sizeof(Tuplestorestate *));
+	for (i = 0; i < nfuncs; ++i)
+		scanstate->tuplestorestates[i] = NULL;
+
+	scanstate->funcexprs = (List *) ExecInitExpr((Expr *) node->funcexprs,
+												 (PlanState *) scanstate);
 
 	scanstate->ss.ps.ps_TupFromTlist = false;
 
@@ -365,6 +450,9 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 void
 ExecEndFunctionScan(FunctionScanState *node)
 {
+	int i;
+	int nfuncs = list_length(node->funcexprs);
+
 	/*
 	 * Free the exprcontext
 	 */
@@ -375,15 +463,20 @@ ExecEndFunctionScan(FunctionScanState *node)
 	 */
 	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
 	ExecClearTuple(node->ss.ss_ScanTupleSlot);
-	if (node->func_slot)
-		ExecClearTuple(node->func_slot);
+
+	if (node->func_slots)
+		for (i = 0; i < nfuncs; ++i)
+			ExecClearTuple(node->func_slots[i]);
 
 	/*
 	 * Release tuplestore resources
 	 */
-	if (node->tuplestorestate != NULL)
-		tuplestore_end(node->tuplestorestate);
-	node->tuplestorestate = NULL;
+	for (i = 0; i < nfuncs; ++i)
+	{
+		if (node->tuplestorestates[i] != NULL)
+			tuplestore_end(node->tuplestorestates[i]);
+		node->tuplestorestates[i] = NULL;
+	}
 }
 
 /* ----------------------------------------------------------------
@@ -395,9 +488,13 @@ ExecEndFunctionScan(FunctionScanState *node)
 void
 ExecReScanFunctionScan(FunctionScanState *node)
 {
+	int i;
+	int nfuncs = list_length(node->funcexprs);
+
 	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
-	if (node->func_slot)
-		ExecClearTuple(node->func_slot);
+	if (node->func_slots)
+		for (i = 0; i < nfuncs; ++i)
+			ExecClearTuple(node->func_slots[i]);
 
 	ExecScanReScan(&node->ss);
 
@@ -406,20 +503,27 @@ ExecReScanFunctionScan(FunctionScanState *node)
 	/*
 	 * If we haven't materialized yet, just return.
 	 */
-	if (!node->tuplestorestate)
+	if (!node->tuplestorestates[0])
 		return;
 
 	/*
-	 * Here we have a choice whether to drop the tuplestore (and recompute the
-	 * function outputs) or just rescan it.  We must recompute if the
+	 * Here we have a choice whether to drop the tuplestores (and recompute the
+	 * function outputs) or just rescan them.  We must recompute if the
 	 * expression contains parameters, else we rescan.	XXX maybe we should
-	 * recompute if the function is volatile?
+	 * recompute if the function is volatile?  Work out what params belong
+	 * to what functions?
 	 */
-	if (node->ss.ps.chgParam != NULL)
+	for (i = 0; i < nfuncs; ++i)
 	{
-		tuplestore_end(node->tuplestorestate);
-		node->tuplestorestate = NULL;
+		if (node->ss.ps.chgParam != NULL)
+		{
+			if (node->tuplestorestates[i] != NULL)
+				tuplestore_end(node->tuplestorestates[i]);
+			node->tuplestorestates[i] = NULL;
+			if (node->rowcounts)
+				node->rowcounts[i] = -1;
+		}
+		else
+			tuplestore_rescan(node->tuplestorestates[i]);
 	}
-	else
-		tuplestore_rescan(node->tuplestorestate);
 }

@@ -8003,7 +8003,23 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 				break;
 			case RTE_FUNCTION:
 				/* Function RTE */
-				get_rule_expr(rte->funcexpr, context, true);
+				if (list_length(rte->funcexprs) == 1)
+				{
+					get_rule_expr(linitial(rte->funcexprs), context, true);
+				}
+				else
+				{
+					ListCell   *lc;
+
+					appendStringInfoString(buf, "TABLE(");
+					foreach(lc, rte->funcexprs)
+					{
+						get_rule_expr(lfirst(lc), context, true);
+						if (lnext(lc))
+							appendStringInfoString(buf, ", ");
+					}
+					appendStringInfoChar(buf, ')');
+				}
 				if (rte->funcordinality)
 					appendStringInfoString(buf, " WITH ORDINALITY");
 				break;

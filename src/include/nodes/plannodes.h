@@ -424,7 +424,7 @@ typedef struct SubqueryScan
 typedef struct FunctionScan
 {
 	Scan		scan;
-	Node	   *funcexpr;		/* expression tree for func call */
+	List	   *funcexprs;		/* expression trees for func calls */
 	bool        funcordinality; /* WITH ORDINALITY */
 	List	   *funccolnames;	/* output column names (string Value nodes) */
 	List	   *funccoltypes;	/* OID list of column type OIDs */

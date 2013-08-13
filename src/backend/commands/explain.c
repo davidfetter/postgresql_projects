@@ -1259,7 +1259,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			break;
 		case T_FunctionScan:
 			if (es->verbose)
-				show_expression(((FunctionScan *) plan)->funcexpr,
+				show_expression((Node *) ((FunctionScan *) plan)->funcexprs,
 								"Function Call", planstate, ancestors,
 								es->verbose, es);
 			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
@@ -1984,7 +1984,7 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
 			break;
 		case T_FunctionScan:
 			{
-				Node	   *funcexpr;
+				List	   *funcexprs;
 
 				/* Assert it's on a RangeFunction */
 				Assert(rte->rtekind == RTE_FUNCTION);
@@ -1995,10 +1995,10 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
 				 * happen if the optimizer simplified away the function call,
 				 * for example).
 				 */
-				funcexpr = ((FunctionScan *) plan)->funcexpr;
-				if (funcexpr && IsA(funcexpr, FuncExpr))
+				funcexprs = ((FunctionScan *) plan)->funcexprs;
+				if (funcexprs && list_length(funcexprs) == 1 && IsA(linitial(funcexprs), FuncExpr))
 				{
-					Oid			funcid = ((FuncExpr *) funcexpr)->funcid;
+					Oid			funcid = ((FuncExpr *) linitial(funcexprs))->funcid;
 
 					objectname = get_func_name(funcid);
 					if (es->verbose)
