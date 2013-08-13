@@ -256,7 +256,11 @@ extern Oid AggregateCreate(const char *aggName,
 				List *aggtransfnName,
 				List *aggfinalfnName,
 				List *aggsortopName,
+				List *aggtranssortopName,
 				Oid aggTransType,
-				const char *agginitval);
+				const char *agginitval,
+				Oid variadic_type,
+				bool isOrderedSetFunc,
+				bool isHypotheticalSet);
 
 #endif   /* PG_AGGREGATE_H */

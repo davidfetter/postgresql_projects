@@ -50,8 +50,12 @@ AggregateCreate(const char *aggName,
 				List *aggtransfnName,
 				List *aggfinalfnName,
 				List *aggsortopName,
+				List *aggtranssortopName,
 				Oid aggTransType,
-				const char *agginitval)
+				const char *agginitval,
+				Oid variadic_type,
+				bool isOrderedSet,
+				bool isHypotheticalSet)
 {
 	Relation	aggdesc;
 	HeapTuple	tup;
@@ -61,6 +65,7 @@ AggregateCreate(const char *aggName,
 	Oid			transfn;
 	Oid			finalfn = InvalidOid;	/* can be omitted */
 	Oid			sortop = InvalidOid;	/* can be omitted */
+	Oid			transsortop = InvalidOid;  /* Can be omitted */
 	bool		hasPolyArg;
 	bool		hasInternalArg;
 	Oid			rettype;
@@ -78,8 +83,12 @@ AggregateCreate(const char *aggName,
 	if (!aggName)
 		elog(ERROR, "no aggregate name supplied");
 
-	if (!aggtransfnName)
-		elog(ERROR, "aggregate must have a transition function");
+	if (isOrderedSet)
+		if (aggtransfnName)
+			elog(ERROR, "Ordered set functions cannot have transition functions");
+	else
+		if (!aggtransfnName)
+			elog(ERROR, "aggregate must have a transition function");
 
 	/* check for polymorphic and INTERNAL arguments */
 	hasPolyArg = false;
@@ -96,56 +105,59 @@ AggregateCreate(const char *aggName,
 	 * If transtype is polymorphic, must have polymorphic argument also; else
 	 * we will have no way to deduce the actual transtype.
 	 */
-	if (IsPolymorphicType(aggTransType) && !hasPolyArg)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-				 errmsg("cannot determine transition data type"),
-				 errdetail("An aggregate using a polymorphic transition type must have at least one polymorphic argument.")));
-
-	/* find the transfn */
-	nargs_transfn = numArgs + 1;
-	fnArgs = (Oid *) palloc(nargs_transfn * sizeof(Oid));
-	fnArgs[0] = aggTransType;
-	memcpy(fnArgs + 1, aggArgTypes, numArgs * sizeof(Oid));
-	transfn = lookup_agg_function(aggtransfnName, nargs_transfn, fnArgs,
-								  &rettype);
-
-	/*
-	 * Return type of transfn (possibly after refinement by
-	 * enforce_generic_type_consistency, if transtype isn't polymorphic) must
-	 * exactly match declared transtype.
-	 *
-	 * In the non-polymorphic-transtype case, it might be okay to allow a
-	 * rettype that's binary-coercible to transtype, but I'm not quite
-	 * convinced that it's either safe or useful.  When transtype is
-	 * polymorphic we *must* demand exact equality.
-	 */
-	if (rettype != aggTransType)
-		ereport(ERROR,
-				(errcode(ERRCODE_DATATYPE_MISMATCH),
-				 errmsg("return type of transition function %s is not %s",
-						NameListToString(aggtransfnName),
-						format_type_be(aggTransType))));
-
-	tup = SearchSysCache1(PROCOID, ObjectIdGetDatum(transfn));
-	if (!HeapTupleIsValid(tup))
-		elog(ERROR, "cache lookup failed for function %u", transfn);
-	proc = (Form_pg_proc) GETSTRUCT(tup);
-
-	/*
-	 * If the transfn is strict and the initval is NULL, make sure first input
-	 * type and transtype are the same (or at least binary-compatible), so
-	 * that it's OK to use the first input value as the initial transValue.
-	 */
-	if (proc->proisstrict && agginitval == NULL)
+	if (aggTransType != InvalidOid)
 	{
-		if (numArgs < 1 ||
-			!IsBinaryCoercible(aggArgTypes[0], aggTransType))
+		if (IsPolymorphicType(aggTransType) && !hasPolyArg)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("must not omit initial value when transition function is strict and transition type is not compatible with input type")));
+					 errmsg("cannot determine transition data type"),
+					 errdetail("An aggregate using a polymorphic transition type must have at least one polymorphic argument.")));
+
+		/* find the transfn */
+		nargs_transfn = numArgs + 1;
+		fnArgs = (Oid *) palloc(nargs_transfn * sizeof(Oid));
+		fnArgs[0] = aggTransType;
+		memcpy(fnArgs + 1, aggArgTypes, numArgs * sizeof(Oid));
+		transfn = lookup_agg_function(aggtransfnName, nargs_transfn, fnArgs,
+									  &rettype);
+
+		/*
+	 	* Return type of transfn (possibly after refinement by
+	 	* enforce_generic_type_consistency, if transtype isn't polymorphic) must
+	 	* exactly match declared transtype.
+	 	*
+		 * In the non-polymorphic-transtype case, it might be okay to allow a
+	 	* rettype that's binary-coercible to transtype, but I'm not quite
+	 	* convinced that it's either safe or useful.  When transtype is
+	 	* polymorphic we *must* demand exact equality.
+	 	*/
+		if (rettype != aggTransType)
+			ereport(ERROR,
+					(errcode(ERRCODE_DATATYPE_MISMATCH),
+					 errmsg("return type of transition function %s is not %s",
+							NameListToString(aggtransfnName),
+							format_type_be(aggTransType))));
+
+		tup = SearchSysCache1(PROCOID, ObjectIdGetDatum(transfn));
+		if (!HeapTupleIsValid(tup))
+			elog(ERROR, "cache lookup failed for function %u", transfn);
+		proc = (Form_pg_proc) GETSTRUCT(tup);
+
+		/*
+	 	 * If the transfn is strict and the initval is NULL, make sure first input
+	 	 * type and transtype are the same (or at least binary-compatible), so
+	 	 * that it's OK to use the first input value as the initial transValue.
+	 	 */
+		if (proc->proisstrict && agginitval == NULL)
+		{
+			if (numArgs < 1 ||
+				!IsBinaryCoercible(aggArgTypes[0], aggTransType))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+						 errmsg("must not omit initial value when transition function is strict and transition type is not compatible with input type")));
+		}
+		ReleaseSysCache(tup);
 	}
-	ReleaseSysCache(tup);
 
 	/* handle finalfn, if supplied */
 	if (aggfinalfnName)
@@ -192,6 +204,18 @@ AggregateCreate(const char *aggName,
 
 	/* handle sortop, if supplied */
 	if (aggsortopName)
+	{
+		if (numArgs != 1)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					 errmsg("sort operator can only be specified for single-argument aggregates")));
+		sortop = LookupOperName(NULL, aggsortopName,
+								aggArgTypes[0], aggArgTypes[0],
+								false, -1);
+	}
+
+	/* handle transsortop, if supplied */
+	if (aggtranssortopName)
 	{
 		if (numArgs != 1)
 			ereport(ERROR,
@@ -268,7 +292,30 @@ AggregateCreate(const char *aggName,
 	values[Anum_pg_aggregate_aggtransfn - 1] = ObjectIdGetDatum(transfn);
 	values[Anum_pg_aggregate_aggfinalfn - 1] = ObjectIdGetDatum(finalfn);
 	values[Anum_pg_aggregate_aggsortop - 1] = ObjectIdGetDatum(sortop);
-	values[Anum_pg_aggregate_aggtranstype - 1] = ObjectIdGetDatum(aggTransType);
+	if (transsortop != InvalidOid)
+		values[Anum_pg_aggregate_aggtranssortop - 1] = ObjectIdGetDatum(transsortop);
+
+	if (aggTransType != InvalidOid)
+		values[Anum_pg_aggregate_aggtranstype - 1] = ObjectIdGetDatum(aggTransType);
+
+	if (isOrderedSet)
+		values[Anum_pg_aggregate_aggisordsetfunc - 1] = BoolGetDatum(true);
+	else
+		values[Anum_pg_aggregate_aggisordsetfunc - 1] = BoolGetDatum(false);
+
+	if (isOrderedSet)
+	{
+		if (isHypotheticalSet)
+			values[Anum_pg_aggregate_aggordnargs - 1] = Int32GetDatum(-2);
+		else
+			values[Anum_pg_aggregate_aggordnargs - 1] = Int32GetDatum(numArgs);
+	}
+	else
+	{
+		values[Anum_pg_aggregate_aggordnargs - 1] = Int32GetDatum(-1);
+	}
+
+	values[Anum_pg_aggregate_aggfinalfn - 1] = ObjectIdGetDatum(finalfn);
 	if (agginitval)
 		values[Anum_pg_aggregate_agginitval - 1] = CStringGetTextDatum(agginitval);
 	else
@@ -294,10 +341,13 @@ AggregateCreate(const char *aggName,
 	myself.objectSubId = 0;
 
 	/* Depends on transition function */
-	referenced.classId = ProcedureRelationId;
-	referenced.objectId = transfn;
-	referenced.objectSubId = 0;
-	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	if (OidIsValid(transfn))
+	{
+		referenced.classId = ProcedureRelationId;
+		referenced.objectId = transfn;
+		referenced.objectSubId = 0;
+		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	}
 
 	/* Depends on final function, if any */
 	if (OidIsValid(finalfn))
