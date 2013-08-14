@@ -1415,6 +1415,7 @@ typedef struct FunctionScanState
 	TupleDesc  *func_tupdescs;
 	TupleTableSlot **func_slots;
 	Tuplestorestate **tuplestorestates;
+	int64       mark_ordinal;
 	List       *funcexprs;
 } FunctionScanState;
 
