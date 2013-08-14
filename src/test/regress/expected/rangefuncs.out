@@ -87,59 +87,104 @@ select definition from pg_views where viewname='vw_ord';
 (1 row)
 
 drop view vw_ord;
--- ordinality vs. rewind and reverse scan
+-- multiple functions
+select * from table(foot(1),foot(2)) with ordinality as z(a,b,c,d,ord);
+ a |  b  | c | d  | ord 
+---+-----+---+----+-----
+ 1 |  11 | 2 | 22 |   1
+ 1 | 111 |   |    |   2
+(2 rows)
+
+-- add multiple functions vs. views once deparse is stable
+-- ordinality and multiple functions vs. rewind and reverse scan
 begin;
-declare foo scroll cursor for select * from generate_series(1,5) with ordinality as g(i,o);
+declare foo scroll cursor for select * from table(generate_series(1,5),generate_series(1,2)) with ordinality as g(i,j,o);
 fetch all from foo;
- i | o 
----+---
- 1 | 1
- 2 | 2
- 3 | 3
- 4 | 4
- 5 | 5
+ i | j | o 
+---+---+---
+ 1 | 1 | 1
+ 2 | 2 | 2
+ 3 |   | 3
+ 4 |   | 4
+ 5 |   | 5
 (5 rows)
 
 fetch backward all from foo;
- i | o 
----+---
- 5 | 5
- 4 | 4
- 3 | 3
- 2 | 2
- 1 | 1
+ i | j | o 
+---+---+---
+ 5 |   | 5
+ 4 |   | 4
+ 3 |   | 3
+ 2 | 2 | 2
+ 1 | 1 | 1
 (5 rows)
 
 fetch all from foo;
- i | o 
----+---
- 1 | 1
- 2 | 2
- 3 | 3
- 4 | 4
- 5 | 5
+ i | j | o 
+---+---+---
+ 1 | 1 | 1
+ 2 | 2 | 2
+ 3 |   | 3
+ 4 |   | 4
+ 5 |   | 5
 (5 rows)
 
 fetch next from foo;
- i | o 
----+---
+ i | j | o 
+---+---+---
 (0 rows)
 
 fetch next from foo;
- i | o 
----+---
+ i | j | o 
+---+---+---
 (0 rows)
 
 fetch prior from foo;
- i | o 
----+---
- 5 | 5
+ i | j | o 
+---+---+---
+ 5 |   | 5
 (1 row)
 
 fetch absolute 1 from foo;
- i | o 
----+---
- 1 | 1
+ i | j | o 
+---+---+---
+ 1 | 1 | 1
+(1 row)
+
+fetch next from foo;
+ i | j | o 
+---+---+---
+ 2 | 2 | 2
+(1 row)
+
+fetch next from foo;
+ i | j | o 
+---+---+---
+ 3 |   | 3
+(1 row)
+
+fetch next from foo;
+ i | j | o 
+---+---+---
+ 4 |   | 4
+(1 row)
+
+fetch prior from foo;
+ i | j | o 
+---+---+---
+ 3 |   | 3
+(1 row)
+
+fetch prior from foo;
+ i | j | o 
+---+---+---
+ 2 | 2 | 2
+(1 row)
+
+fetch prior from foo;
+ i | j | o 
+---+---+---
+ 1 | 1 | 1
 (1 row)
 
 commit;
@@ -199,62 +244,61 @@ INSERT INTO foo VALUES(1,1,'Joe');
 INSERT INTO foo VALUES(1,2,'Ed');
 INSERT INTO foo VALUES(2,1,'Mary');
 -- sql, proretset = f, prorettype = b
-CREATE FUNCTION getfoo(int) RETURNS int AS 'SELECT $1;' LANGUAGE SQL;
-SELECT * FROM getfoo(1) AS t1;
+CREATE FUNCTION getfoo1(int) RETURNS int AS 'SELECT $1;' LANGUAGE SQL;
+SELECT * FROM getfoo1(1) AS t1;
  t1 
 ----
   1
 (1 row)
 
-SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(v,o);
+SELECT * FROM getfoo1(1) WITH ORDINALITY AS t1(v,o);
  v | o 
 ---+---
  1 | 1
 (1 row)
 
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo1(1);
 SELECT * FROM vw_getfoo;
- getfoo 
---------
-      1
+ getfoo1 
+---------
+       1
 (1 row)
 
 DROP VIEW vw_getfoo;
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1) WITH ORDINALITY as t1(v,o);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo1(1) WITH ORDINALITY as t1(v,o);
 SELECT * FROM vw_getfoo;
  v | o 
 ---+---
  1 | 1
 (1 row)
 
+DROP VIEW vw_getfoo;
 -- sql, proretset = t, prorettype = b
-DROP VIEW vw_getfoo;
-DROP FUNCTION getfoo(int);
-CREATE FUNCTION getfoo(int) RETURNS setof int AS 'SELECT fooid FROM foo WHERE fooid = $1;' LANGUAGE SQL;
-SELECT * FROM getfoo(1) AS t1;
+CREATE FUNCTION getfoo2(int) RETURNS setof int AS 'SELECT fooid FROM foo WHERE fooid = $1;' LANGUAGE SQL;
+SELECT * FROM getfoo2(1) AS t1;
  t1 
 ----
   1
   1
 (2 rows)
 
-SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(v,o);
+SELECT * FROM getfoo2(1) WITH ORDINALITY AS t1(v,o);
  v | o 
 ---+---
  1 | 1
  1 | 2
 (2 rows)
 
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo2(1);
 SELECT * FROM vw_getfoo;
- getfoo 
---------
-      1
-      1
+ getfoo2 
+---------
+       1
+       1
 (2 rows)
 
 DROP VIEW vw_getfoo;
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(v,o);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo2(1) WITH ORDINALITY AS t1(v,o);
 SELECT * FROM vw_getfoo;
  v | o 
 ---+---
@@ -262,34 +306,33 @@ SELECT * FROM vw_getfoo;
  1 | 2
 (2 rows)
 
--- sql, proretset = t, prorettype = b
 DROP VIEW vw_getfoo;
-DROP FUNCTION getfoo(int);
-CREATE FUNCTION getfoo(int) RETURNS setof text AS 'SELECT fooname FROM foo WHERE fooid = $1;' LANGUAGE SQL;
-SELECT * FROM getfoo(1) AS t1;
+-- sql, proretset = t, prorettype = b
+CREATE FUNCTION getfoo3(int) RETURNS setof text AS 'SELECT fooname FROM foo WHERE fooid = $1;' LANGUAGE SQL;
+SELECT * FROM getfoo3(1) AS t1;
  t1  
 -----
  Joe
  Ed
 (2 rows)
 
-SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(v,o);
+SELECT * FROM getfoo3(1) WITH ORDINALITY AS t1(v,o);
   v  | o 
 -----+---
  Joe | 1
  Ed  | 2
 (2 rows)
 
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo3(1);
 SELECT * FROM vw_getfoo;
- getfoo 
---------
+ getfoo3 
+---------
  Joe
  Ed
 (2 rows)
 
 DROP VIEW vw_getfoo;
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(v,o);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo3(1) WITH ORDINALITY AS t1(v,o);
 SELECT * FROM vw_getfoo;
   v  | o 
 -----+---
@@ -297,23 +340,22 @@ SELECT * FROM vw_getfoo;
  Ed  | 2
 (2 rows)
 
+DROP VIEW vw_getfoo;
 -- sql, proretset = f, prorettype = c
-DROP VIEW vw_getfoo;
-DROP FUNCTION getfoo(int);
-CREATE FUNCTION getfoo(int) RETURNS foo AS 'SELECT * FROM foo WHERE fooid = $1;' LANGUAGE SQL;
-SELECT * FROM getfoo(1) AS t1;
+CREATE FUNCTION getfoo4(int) RETURNS foo AS 'SELECT * FROM foo WHERE fooid = $1;' LANGUAGE SQL;
+SELECT * FROM getfoo4(1) AS t1;
  fooid | foosubid | fooname 
 -------+----------+---------
      1 |        1 | Joe
 (1 row)
 
-SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(a,b,c,o);
+SELECT * FROM getfoo4(1) WITH ORDINALITY AS t1(a,b,c,o);
  a | b |  c  | o 
 ---+---+-----+---
  1 | 1 | Joe | 1
 (1 row)
 
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo4(1);
 SELECT * FROM vw_getfoo;
  fooid | foosubid | fooname 
 -------+----------+---------
@@ -321,32 +363,31 @@ SELECT * FROM vw_getfoo;
 (1 row)
 
 DROP VIEW vw_getfoo;
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(a,b,c,o);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo4(1) WITH ORDINALITY AS t1(a,b,c,o);
 SELECT * FROM vw_getfoo;
  a | b |  c  | o 
 ---+---+-----+---
  1 | 1 | Joe | 1
 (1 row)
 
+DROP VIEW vw_getfoo;
 -- sql, proretset = t, prorettype = c
-DROP VIEW vw_getfoo;
-DROP FUNCTION getfoo(int);
-CREATE FUNCTION getfoo(int) RETURNS setof foo AS 'SELECT * FROM foo WHERE fooid = $1;' LANGUAGE SQL;
-SELECT * FROM getfoo(1) AS t1;
+CREATE FUNCTION getfoo5(int) RETURNS setof foo AS 'SELECT * FROM foo WHERE fooid = $1;' LANGUAGE SQL;
+SELECT * FROM getfoo5(1) AS t1;
  fooid | foosubid | fooname 
 -------+----------+---------
      1 |        1 | Joe
      1 |        2 | Ed
 (2 rows)
 
-SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(a,b,c,o);
+SELECT * FROM getfoo5(1) WITH ORDINALITY AS t1(a,b,c,o);
  a | b |  c  | o 
 ---+---+-----+---
  1 | 1 | Joe | 1
  1 | 2 | Ed  | 2
 (2 rows)
 
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo5(1);
 SELECT * FROM vw_getfoo;
  fooid | foosubid | fooname 
 -------+----------+---------
@@ -355,7 +396,7 @@ SELECT * FROM vw_getfoo;
 (2 rows)
 
 DROP VIEW vw_getfoo;
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(a,b,c,o);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo5(1) WITH ORDINALITY AS t1(a,b,c,o);
 SELECT * FROM vw_getfoo;
  a | b |  c  | o 
 ---+---+-----+---
@@ -363,10 +404,9 @@ SELECT * FROM vw_getfoo;
  1 | 2 | Ed  | 2
 (2 rows)
 
+DROP VIEW vw_getfoo;
 -- ordinality not supported for returns record yet
 -- sql, proretset = f, prorettype = record
-DROP VIEW vw_getfoo;
-DROP FUNCTION getfoo(int);
 CREATE FUNCTION getfoo(int) RETURNS RECORD AS 'SELECT * FROM foo WHERE fooid = $1;' LANGUAGE SQL;
 SELECT * FROM getfoo(1) AS t1(fooid int, foosubid int, fooname text);
  fooid | foosubid | fooname 
@@ -382,9 +422,9 @@ SELECT * FROM vw_getfoo;
      1 |        1 | Joe
 (1 row)
 
--- sql, proretset = t, prorettype = record
 DROP VIEW vw_getfoo;
 DROP FUNCTION getfoo(int);
+-- sql, proretset = t, prorettype = record
 CREATE FUNCTION getfoo(int) RETURNS setof record AS 'SELECT * FROM foo WHERE fooid = $1;' LANGUAGE SQL;
 SELECT * FROM getfoo(1) AS t1(fooid int, foosubid int, fooname text);
  fooid | foosubid | fooname 
@@ -402,54 +442,55 @@ SELECT * FROM vw_getfoo;
      1 |        2 | Ed
 (2 rows)
 
--- plpgsql, proretset = f, prorettype = b
 DROP VIEW vw_getfoo;
 DROP FUNCTION getfoo(int);
-CREATE FUNCTION getfoo(int) RETURNS int AS 'DECLARE fooint int; BEGIN SELECT fooid into fooint FROM foo WHERE fooid = $1; RETURN fooint; END;' LANGUAGE plpgsql;
-SELECT * FROM getfoo(1) AS t1;
+-- plpgsql, proretset = f, prorettype = b
+CREATE FUNCTION getfoo6(int) RETURNS int AS 'DECLARE fooint int; BEGIN SELECT fooid into fooint FROM foo WHERE fooid = $1; RETURN fooint; END;' LANGUAGE plpgsql;
+SELECT * FROM getfoo6(1) AS t1;
  t1 
 ----
   1
 (1 row)
 
-SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(v,o);
+SELECT * FROM getfoo6(1) WITH ORDINALITY AS t1(v,o);
  v | o 
 ---+---
  1 | 1
 (1 row)
 
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo6(1);
 SELECT * FROM vw_getfoo;
- getfoo 
---------
-      1
+ getfoo6 
+---------
+       1
 (1 row)
 
 DROP VIEW vw_getfoo;
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(v,o);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo6(1) WITH ORDINALITY AS t1(v,o);
 SELECT * FROM vw_getfoo;
  v | o 
 ---+---
  1 | 1
 (1 row)
 
+DROP VIEW vw_getfoo;
 -- plpgsql, proretset = f, prorettype = c
-DROP VIEW vw_getfoo;
-DROP FUNCTION getfoo(int);
-CREATE FUNCTION getfoo(int) RETURNS foo AS 'DECLARE footup foo%ROWTYPE; BEGIN SELECT * into footup FROM foo WHERE fooid = $1; RETURN footup; END;' LANGUAGE plpgsql;
-SELECT * FROM getfoo(1) AS t1;
+DROP FUNCTION getfoo7(int);
+ERROR:  function getfoo7(integer) does not exist
+CREATE FUNCTION getfoo7(int) RETURNS foo AS 'DECLARE footup foo%ROWTYPE; BEGIN SELECT * into footup FROM foo WHERE fooid = $1; RETURN footup; END;' LANGUAGE plpgsql;
+SELECT * FROM getfoo7(1) AS t1;
  fooid | foosubid | fooname 
 -------+----------+---------
      1 |        1 | Joe
 (1 row)
 
-SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(a,b,c,o);
+SELECT * FROM getfoo7(1) WITH ORDINALITY AS t1(a,b,c,o);
  a | b |  c  | o 
 ---+---+-----+---
  1 | 1 | Joe | 1
 (1 row)
 
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo7(1);
 SELECT * FROM vw_getfoo;
  fooid | foosubid | fooname 
 -------+----------+---------
@@ -457,7 +498,7 @@ SELECT * FROM vw_getfoo;
 (1 row)
 
 DROP VIEW vw_getfoo;
-CREATE VIEW vw_getfoo AS SELECT * FROM getfoo(1) WITH ORDINALITY AS t1(a,b,c,o);
+CREATE VIEW vw_getfoo AS SELECT * FROM getfoo7(1) WITH ORDINALITY AS t1(a,b,c,o);
 SELECT * FROM vw_getfoo;
  a | b |  c  | o 
 ---+---+-----+---
@@ -465,7 +506,30 @@ SELECT * FROM vw_getfoo;
 (1 row)
 
 DROP VIEW vw_getfoo;
-DROP FUNCTION getfoo(int);
+-- mix 'n match kinds, to exercise expandRTE and related logic
+select * from table(getfoo1(1),getfoo2(1),getfoo3(1),getfoo4(1),getfoo5(1),getfoo6(1),getfoo7(1))
+              with ordinality as t1(a,b,c,d,e,f,g,h,i,j,k,l,m,o);
+ a | b |  c  | d | e |  f  | g | h |  i  | j | k | l |  m  | o 
+---+---+-----+---+---+-----+---+---+-----+---+---+---+-----+---
+ 1 | 1 | Joe | 1 | 1 | Joe | 1 | 1 | Joe | 1 | 1 | 1 | Joe | 1
+   | 1 | Ed  |   |   |     | 1 | 2 | Ed  |   |   |   |     | 2
+(2 rows)
+
+select * from table(getfoo7(1),getfoo6(1),getfoo5(1),getfoo4(1),getfoo3(1),getfoo2(1),getfoo1(1))
+              with ordinality as t1(a,b,c,d,e,f,g,h,i,j,k,l,m,o);
+ a | b |  c  | d | e | f |  g  | h | i |  j  |  k  | l | m | o 
+---+---+-----+---+---+---+-----+---+---+-----+-----+---+---+---
+ 1 | 1 | Joe | 1 | 1 | 1 | Joe | 1 | 1 | Joe | Joe | 1 | 1 | 1
+   |   |     |   | 1 | 2 | Ed  |   |   |     | Ed  | 1 |   | 2
+(2 rows)
+
+DROP FUNCTION getfoo1(int);
+DROP FUNCTION getfoo2(int);
+DROP FUNCTION getfoo3(int);
+DROP FUNCTION getfoo4(int);
+DROP FUNCTION getfoo5(int);
+DROP FUNCTION getfoo6(int);
+DROP FUNCTION getfoo7(int);
 DROP FUNCTION foot(int);
 DROP TABLE foo2;
 DROP TABLE foo;
@@ -1553,6 +1617,21 @@ SELECT * FROM get_users() WITH ORDINALITY;   -- make sure ordinality copes
 --------+--------+---------+------------
  id     | email  | t       |          1
  id2    | email2 | t       |          2
+(2 rows)
+
+-- multiple functions vs. dropped columns
+SELECT * FROM TABLE(generate_series(10,11), get_users()) WITH ORDINALITY;
+ ?column? | userid | email  | enabled | ordinality 
+----------+--------+--------+---------+------------
+       10 | id     | email  | t       |          1
+       11 | id2    | email2 | t       |          2
+(2 rows)
+
+SELECT * FROM TABLE(get_users(), generate_series(10,11)) WITH ORDINALITY;
+ userid | email  | enabled | ?column? | ordinality 
+--------+--------+---------+----------+------------
+ id     | email  | t       |       10 |          1
+ id2    | email2 | t       |       11 |          2
 (2 rows)
 
 drop function get_first_user();
