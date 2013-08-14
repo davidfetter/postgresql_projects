@@ -62,6 +62,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	char	   *initval = NULL;
 	Oid		   *aggArgTypes;
 	int			numArgs;
+	int			numOrderedArgs = 0;
 	Oid			transTypeId = InvalidOid;
 	char		transTypeType;
 	ListCell   *pl;
@@ -80,7 +81,13 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 
 	if (lsecond(args) != NULL)
 	{
+		elog(WARNING,"second args is not NULL");
 		isOrderedSet = true;
+	}
+	else
+	{
+		elog(WARNING,"second args is NULL");
+		isOrderedSet = false;
 	}
 
 	foreach(pl, parameters)
@@ -182,6 +189,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 		{
 			int totalnumArgs = list_length(linitial(args)) + list_length(lsecond(args));
 			aggArgTypes = (Oid *) palloc(sizeof(Oid) * totalnumArgs);
+			numOrderedArgs = list_length(lsecond(args));
 		}
 		else
 		{
@@ -279,13 +287,16 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	 * value.  However, if it's an incorrect value it seems much more
 	 * user-friendly to complain at CREATE AGGREGATE time.
 	 */
-	if (initval && transTypeType != TYPTYPE_PSEUDO)
+	if (transType)
 	{
-		Oid			typinput,
-					typioparam;
+		if (initval && transTypeType != TYPTYPE_PSEUDO)
+		{
+			Oid			typinput,
+						typioparam;
 
-		getTypeInputInfo(transTypeId, &typinput, &typioparam);
-		(void) OidInputFunctionCall(typinput, initval, typioparam, -1);
+			getTypeInputInfo(transTypeId, &typinput, &typioparam);
+			(void) OidInputFunctionCall(typinput, initval, typioparam, -1);
+		}
 	}
 
 	/*
@@ -295,6 +306,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 						   aggNamespace,		/* namespace */
 						   aggArgTypes, /* input data type(s) */
 						   numArgs,
+						   numOrderedArgs,
 						   transfuncName,		/* step function name */
 						   finalfuncName,		/* final function name */
 						   sortoperatorName,	/* sort operator name */

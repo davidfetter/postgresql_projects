@@ -47,6 +47,7 @@ AggregateCreate(const char *aggName,
 				Oid aggNamespace,
 				Oid *aggArgTypes,
 				int numArgs,
+				int numOrderedArgs,
 				List *aggtransfnName,
 				List *aggfinalfnName,
 				List *aggsortopName,
@@ -70,7 +71,7 @@ AggregateCreate(const char *aggName,
 	bool		hasInternalArg;
 	Oid			rettype;
 	Oid			finaltype;
-	Oid		   *fnArgs;
+	Oid		   *fnArgs = NULL;
 	int			nargs_transfn;
 	Oid			procOid;
 	TupleDesc	tupDesc;
@@ -84,11 +85,15 @@ AggregateCreate(const char *aggName,
 		elog(ERROR, "no aggregate name supplied");
 
 	if (isOrderedSet)
+	{
 		if (aggtransfnName)
 			elog(ERROR, "Ordered set functions cannot have transition functions");
+	}
 	else
+	{
 		if (!aggtransfnName)
 			elog(ERROR, "aggregate must have a transition function");
+	}
 
 	/* check for polymorphic and INTERNAL arguments */
 	hasPolyArg = false;
@@ -105,7 +110,7 @@ AggregateCreate(const char *aggName,
 	 * If transtype is polymorphic, must have polymorphic argument also; else
 	 * we will have no way to deduce the actual transtype.
 	 */
-	if (aggTransType != InvalidOid)
+	if (!isOrderedSet)
 	{
 		if (IsPolymorphicType(aggTransType) && !hasPolyArg)
 			ereport(ERROR,
@@ -114,11 +119,13 @@ AggregateCreate(const char *aggName,
 					 errdetail("An aggregate using a polymorphic transition type must have at least one polymorphic argument.")));
 
 		/* find the transfn */
-		nargs_transfn = numArgs + 1;
-		fnArgs = (Oid *) palloc(nargs_transfn * sizeof(Oid));
-		fnArgs[0] = aggTransType;
-		memcpy(fnArgs + 1, aggArgTypes, numArgs * sizeof(Oid));
-		transfn = lookup_agg_function(aggtransfnName, nargs_transfn, fnArgs,
+			fnArgs[0] = aggTransType;		
+			nargs_transfn = numArgs + 1;
+			fnArgs = (Oid *) palloc(nargs_transfn * sizeof(Oid));
+			fnArgs[0] = aggTransType;
+			memcpy(fnArgs + 1, aggArgTypes, numArgs * sizeof(Oid));
+
+			transfn = lookup_agg_function(aggtransfnName, nargs_transfn, fnArgs,
 									  &rettype);
 
 		/*
@@ -159,12 +166,40 @@ AggregateCreate(const char *aggName,
 		ReleaseSysCache(tup);
 	}
 
+	elog(WARNING,"Statement1");
+
 	/* handle finalfn, if supplied */
 	if (aggfinalfnName)
 	{
-		fnArgs[0] = aggTransType;
-		finalfn = lookup_agg_function(aggfinalfnName, 1, fnArgs,
-									  &finaltype);
+		if (isOrderedSet)
+		{
+			if (isHypotheticalSet)
+			{
+				fnArgs = (Oid *) palloc((numArgs) * sizeof(Oid));
+				memcpy(fnArgs, (aggArgTypes), numArgs * sizeof(Oid));
+			}
+			else
+			{
+				if (variadic_type == InvalidOid)
+				{
+					int sizeAllocation = 0;
+					if (aggTransType != InvalidOid)
+					{
+						sizeAllocation = numArgs + numOrderedArgs + 1;
+					}
+					else
+					{
+						sizeAllocation = numArgs + numOrderedArgs;
+					}
+
+					fnArgs = (Oid *) palloc(sizeAllocation * sizeof(Oid));
+					memcpy(fnArgs, (aggArgTypes), (numArgs + numOrderedArgs) * sizeof(Oid));
+					if (aggTransType != InvalidOid)
+						fnArgs[numArgs + numOrderedArgs] = aggTransType;
+				}
+			}
+		}
+					
 	}
 	else
 	{
@@ -173,7 +208,9 @@ AggregateCreate(const char *aggName,
 		 */
 		finaltype = aggTransType;
 	}
-	Assert(OidIsValid(finaltype));
+
+	if (aggTransType != InvalidOid)
+		Assert(OidIsValid(finaltype));
 
 	/*
 	 * If finaltype (i.e. aggregate return type) is polymorphic, inputs must

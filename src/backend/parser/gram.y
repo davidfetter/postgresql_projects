@@ -4877,7 +4877,7 @@ opclass_item_list:
 			| opclass_item_list ',' opclass_item	{ $$ = lappend($1, $3); }
 		;
 
-opt_within_group: WITHIN GROUP_P '(' ord_args ')' {$$ = $4;} 
+opt_within_group: WITHIN GROUP_P ord_args {$$ = $3;} 
 			| {$$ = NULL;}
 		;
 
