@@ -165,6 +165,8 @@ extern Path *get_cheapest_fractional_path_for_pathkeys(List *paths,
 										  double fraction);
 extern List *build_index_pathkeys(PlannerInfo *root, IndexOptInfo *index,
 					 ScanDirection scandir);
+extern List *build_expression_pathkey(PlannerInfo *root, RelOptInfo *rel,
+									  Expr *expr, Oid operator, bool nulls_first);
 extern List *convert_subquery_pathkeys(PlannerInfo *root, RelOptInfo *rel,
 						  List *subquery_pathkeys);
 extern List *build_join_pathkeys(PlannerInfo *root,
