@@ -127,9 +127,9 @@ makeVarFromTargetEntry(Index varno,
  * the function's result directly, instead of the single-column composite
  * value that the whole-row notation might otherwise suggest.
  *
- * We also handle the specific case of function RTEs with ordinality,
- * where the additional column has to be added. This forces the result
- * to be composite and RECORD type.
+ * We also handle the specific case of function RTEs with ordinality or
+ * multiple function calls. This forces the result to be composite and RECORD
+ * type.
  */
 Var *
 makeWholeRowVar(RangeTblEntry *rte,
@@ -176,7 +176,7 @@ makeWholeRowVar(RangeTblEntry *rte,
 
 			if (rte->funcordinality || list_length(rte->funcexprs) > 1)
 			{
-				/* ORDINALITY always produces an anonymous RECORD result */
+				/* always produces an anonymous RECORD result */
 				result = makeVar(varno,
 								 InvalidAttrNumber,
 								 RECORDOID,

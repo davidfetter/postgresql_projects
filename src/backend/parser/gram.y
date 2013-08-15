@@ -405,6 +405,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				columnref in_expr having_clause array_expr
 				ExclusionWhereClause
 %type <list>    func_table func_table_list func_table_single
+%type <boolean> opt_ordinality
 %type <list>	ExclusionConstraintList ExclusionConstraintElem
 %type <list>	func_arg_list
 %type <node>	func_arg_expr
@@ -9576,50 +9577,40 @@ from_list:
 			| from_list ',' table_ref				{ $$ = lappend($1, $3); }
 		;
 
+
+opt_ordinality: WITH_ORDINALITY                     { $$ = true; }
+                | /*EMPTY*/                         { $$ = false; }
+        ;
+
 /*
  * table_ref is where an alias clause can be attached.
+ *
+ * func_table is a list whose first element is a list of FuncCall nodes,
+ * and which has a second element iff the TABLE() syntax was used.
  */
 table_ref:	relation_expr opt_alias_clause
 				{
 					$1->alias = $2;
 					$$ = (Node *) $1;
 				}
-			| func_table func_alias_clause
+			| func_table opt_ordinality func_alias_clause
 				{
 					RangeFunction *n = makeNode(RangeFunction);
 					n->lateral = false;
-					n->ordinality = false;
-					n->funccallnodes = $1;
-					n->alias = linitial($2);
-					n->coldeflist = lsecond($2);
-					$$ = (Node *) n;
-				}
-			| func_table WITH_ORDINALITY func_alias_clause
-				{
-					RangeFunction *n = makeNode(RangeFunction);
-					n->lateral = false;
-					n->ordinality = true;
-					n->funccallnodes = $1;
+					n->ordinality = $2;
+					n->is_table = (list_length($1) > 1);
+					n->funccallnodes = linitial($1);
 					n->alias = linitial($3);
 					n->coldeflist = lsecond($3);
 					$$ = (Node *) n;
 				}
-			| LATERAL_P func_table func_alias_clause
+			| LATERAL_P func_table opt_ordinality func_alias_clause
 				{
 					RangeFunction *n = makeNode(RangeFunction);
 					n->lateral = true;
-					n->ordinality = false;
-					n->funccallnodes = $2;
-					n->alias = linitial($3);
-					n->coldeflist = lsecond($3);
-					$$ = (Node *) n;
-				}
-			| LATERAL_P func_table WITH_ORDINALITY func_alias_clause
-				{
-					RangeFunction *n = makeNode(RangeFunction);
-					n->lateral = true;
-					n->ordinality = true;
-					n->funccallnodes = $2;
+					n->ordinality = $3;
+					n->is_table = (list_length($2) > 1);
+					n->funccallnodes = linitial($2);
 					n->alias = linitial($4);
 					n->coldeflist = lsecond($4);
 					$$ = (Node *) n;
@@ -9934,9 +9925,18 @@ relation_expr_opt_alias: relation_expr					%prec UMINUS
 				}
 		;
 
-func_table: func_table_single					    { $$ = $1; }
-          | TABLE '(' func_table_list ')'           { $$ = $3; }
-		;
+/*
+ * func_table returns a list whose first element is the list of FuncCalls,
+ * and which has a second element only if TABLE() was used. This is to
+ * avoid unnecessary duplication of productions above.
+ *
+ * func_table_single is a List, not a single node, because it might be
+ * an expanded unnest() call.
+ */
+
+func_table: func_table_single { $$ = list_make1($1); }
+            | TABLE '(' func_table_list ')' { $$ = list_make2($3,NIL); }
+        ;
 
 func_table_list: func_table_single                          { $$ = $1; }
                | func_table_list ',' func_table_single      { $$ = list_concat($1,$3); }
@@ -9946,15 +9946,25 @@ func_table_single: func_expr_windowless
 				FuncCall *n = (FuncCall *) $1;
 				List *res = NIL;
 
+				/*
+				 * If we're looking at an unqualified UNNEST() call as a table
+				 * function, replace it with a list of calls, one for each
+				 * parameter. This handles the spec's UNNEST syntax while not
+				 * interfering with the use of unnest() as a plain SRF in
+				 * other contexts. Ugly, but effective.
+				 *
+				 * Note, strcmp not pg_strcasecmp, identifiers have already
+				 * been casefolded.
+				 */
 				if (list_length(n->funcname) == 1
-					&& pg_strcasecmp(strVal(linitial(n->funcname)),"unnest") == 0)
+					&& strcmp(strVal(linitial(n->funcname)),"unnest") == 0)
 				{
 					ListCell *lc;
 
 					if (n->agg_order != NIL || n->func_variadic || n->agg_star || n->agg_distinct)
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("invalid call to unnest"),
+								 errmsg("invalid syntax for unnest()"),
 								 parser_errposition(@1)));
 
 					foreach(lc, n->args)

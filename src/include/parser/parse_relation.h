@@ -58,7 +58,7 @@ extern RangeTblEntry *addRangeTableEntryForSubquery(ParseState *pstate,
 							  bool lateral,
 							  bool inFromCl);
 extern RangeTblEntry *addRangeTableEntryForFunction(ParseState *pstate,
-							  char *funcname,
+							  List *funcnames,
 							  List *funcexprs,
 							  RangeFunction *rangefunc,
 							  bool lateral,

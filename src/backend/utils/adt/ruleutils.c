@@ -27,6 +27,7 @@
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_depend.h"
 #include "catalog/pg_language.h"
+#include "catalog/pg_namespace.h"
 #include "catalog/pg_opclass.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_proc.h"
@@ -8009,14 +8010,46 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 				}
 				else
 				{
-					ListCell   *lc;
+					ListCell   *lc = list_head(rte->funcexprs);
+					Oid         unnest_oid = ((FuncExpr *) lfirst(lc))->funcid;
 
-					appendStringInfoString(buf, "TABLE(");
-					foreach(lc, rte->funcexprs)
+					/*
+					 * If all the function calls in the list are to
+					 * pg_catalog.unnest, then collapse the list back down
+					 * to UNNEST(args). Since there's currently only one
+					 * unnest, we check by oid after the first one.
+					 */
+
+					if (get_func_namespace(unnest_oid) != PG_CATALOG_NAMESPACE
+						|| strcmp(get_func_name(unnest_oid),"unnest") != 0)
+						unnest_oid = InvalidOid;
+
+					while (OidIsValid(unnest_oid))
 					{
-						get_rule_expr(lfirst(lc), context, true);
-						if (lnext(lc))
-							appendStringInfoString(buf, ", ");
+						lc = lnext(lc);
+						if (!lc)
+							break;
+						if (((FuncExpr *) lfirst(lc))->funcid != unnest_oid)
+							unnest_oid = InvalidOid;
+					}
+
+					if (OidIsValid(unnest_oid))
+					{
+						List *allargs = NIL;
+
+						foreach(lc, rte->funcexprs)
+						{
+							List *args = ((FuncExpr *) lfirst(lc))->args;
+							allargs = list_concat(allargs, list_copy(args));
+						}
+
+						appendStringInfoString(buf, "unnest(");
+						get_rule_expr((Node *) allargs, context, true);
+					}
+					else
+					{
+						appendStringInfoString(buf, "TABLE(");
+						get_rule_expr((Node *) rte->funcexprs, context, true);
 					}
 					appendStringInfoChar(buf, ')');
 				}

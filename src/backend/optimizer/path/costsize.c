@@ -3808,7 +3808,10 @@ set_function_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 
 	rel->tuples = 0;
 
-	/* Estimate number of rows the function itself will return */
+	/*
+	 * Estimate number of rows the functions will return. The rowcount of
+	 * result of the node is that of the largest function result.
+	 */
 	foreach(lc, rte->funcexprs)
 	{
 		double ntup = expression_returns_set_rows(lfirst(lc));

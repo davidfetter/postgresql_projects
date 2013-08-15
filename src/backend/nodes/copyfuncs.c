@@ -2300,6 +2300,7 @@ _copyRangeFunction(const RangeFunction *from)
 
 	COPY_SCALAR_FIELD(ordinality);
 	COPY_SCALAR_FIELD(lateral);
+	COPY_SCALAR_FIELD(is_table);
 	COPY_NODE_FIELD(funccallnodes);
 	COPY_NODE_FIELD(alias);
 	COPY_NODE_FIELD(coldeflist);

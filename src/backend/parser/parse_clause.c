@@ -516,21 +516,10 @@ static RangeTblEntry *
 transformRangeFunction(ParseState *pstate, RangeFunction *r)
 {
 	List	   *funcexprs = NIL;
-	char	   *funcname;
+	List	   *funcnames = NIL;
 	bool		is_lateral;
 	RangeTblEntry *rte;
 	ListCell   *lc;
-
-	/*
-	 * Get function name for possible use as alias.  We use the same
-	 * transformation rules as for a SELECT output expression.	For a FuncCall
-	 * node, the result will be the function name, but it is possible for the
-	 * grammar to hand back other node types.
-	 */
-	if (list_length(r->funccallnodes) == 1)
-		funcname = FigureColname(linitial(r->funccallnodes));
-	else
-		funcname = "table";
 
 	/*
 	 * We make lateral_only names of this level visible, whether or not the
@@ -546,11 +535,24 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 
 	/*
 	 * Transform the raw expressions.
+	 *
+	 * While transforming, get function names for possible use as alias and
+	 * column names.  We use the same transformation rules as for a SELECT
+	 * output expression. For a FuncCall node, the result will be the function
+	 * name, but it is possible for the grammar to hand back other node types.
+	 *
+	 * Have to get this info now, because FigureColname only works on raw
+	 * parsetree. Actually deciding what to do with the names is left up to
+	 * addRangeTableEntryForFunction (which does not see the raw parsenodes).
+	 *
+	 * Note, we make funcnames a list of char*, not nodes.
 	 */
+
 	foreach(lc, r->funccallnodes)
 	{
 		funcexprs = lappend(funcexprs,
 							transformExpr(pstate, lfirst(lc), EXPR_KIND_FROM_FUNCTION));
+		funcnames = lappend(funcnames, FigureColname(lfirst(lc)));
 	}
 
 	pstate->p_lateral_active = false;
@@ -569,7 +571,7 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 	/*
 	 * OK, build an RTE for the function.
 	 */
-	rte = addRangeTableEntryForFunction(pstate, funcname, funcexprs,
+	rte = addRangeTableEntryForFunction(pstate, funcnames, funcexprs,
 										r, is_lateral, true);
 
 	/*

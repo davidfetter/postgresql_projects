@@ -892,22 +892,30 @@ buildRelationAliases(TupleDesc tupdesc, Alias *alias, Alias *eref, bool ordinali
  *		when the function returns a scalar type (not composite or RECORD).
  *
  * funcexpr: transformed expression tree for the function call
- * funcname: function name (used only for error message)
+ * funcname: function name
+ * prefer_funcname:  prefer to use funcname rather than eref->aliasname
  * alias: the user-supplied alias, or NULL if none
  * eref: the eref Alias to store column names in
  * ordinality: whether to add an ordinality column
  *
  * eref->colnames is filled in.
  *
- * The caller must have previously filled in eref->aliasname, which will
- * be used as the result column name if no alias is given.
+ * The caller must have previously filled in eref->aliasname, which will be
+ * used as the result column name if no column alias is given, no column name
+ * is provided by the function, and prefer_funcname is false. (This makes FROM
+ * func() AS foo use "foo" as the column name as well as the table alias.)
+ *
+ * prefer_funcname is true for the TABLE(func()) case, where calling the
+ * resulting column "table" would be silly, and using the function name as
+ * eref->aliasname would be inconsistent with TABLE(func1(),func2()).  This
+ * isn't ideal, but seems to be the least surprising behaviour.
  *
  * A user-supplied Alias can contain up to two column alias names; one for
  * the function result, and one for the ordinality column; it is an error
  * to specify more aliases than required.
  */
 static void
-buildScalarFunctionAlias(Node *funcexpr, char *funcname,
+buildScalarFunctionAlias(Node *funcexpr, char *funcname, bool prefer_funcname,
 						 Alias *alias, Alias *eref, bool ordinality)
 {
 	Assert(eref->colnames == NIL);
@@ -939,7 +947,7 @@ buildScalarFunctionAlias(Node *funcexpr, char *funcname,
 		 * caller (which is not necessarily the function name!)
 		 */
 		if (!pname)
-			pname = eref->aliasname;
+			pname = (prefer_funcname ? funcname : eref->aliasname);
 
 		eref->colnames = list_make1(makeString(pname));
 	}
@@ -1216,7 +1224,7 @@ addRangeTableEntryForSubquery(ParseState *pstate,
  */
 RangeTblEntry *
 addRangeTableEntryForFunction(ParseState *pstate,
-							  char *funcname,
+							  List *funcnames,
 							  List *funcexprs,
 							  RangeFunction *rangefunc,
 							  bool lateral,
@@ -1229,10 +1237,11 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	Alias	   *alias = rangefunc->alias;
 	List	   *coldeflist = rangefunc->coldeflist;
 	Alias	   *eref;
+	char       *aliasname;
 	Oid        *funcrettypes = NULL;
 	TupleDesc  *functupdescs = NULL;
 	int         nfuncs = list_length(funcexprs);
-	ListCell   *lc;
+	ListCell   *lc, *lc2;
 	int         i;
 
 	rte->rtekind = RTE_FUNCTION;
@@ -1244,7 +1253,29 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	rte->funccolcollations = NIL;
 	rte->alias = alias;
 
-	eref = makeAlias(alias ? alias->aliasname : funcname, NIL);
+    /*
+	 * Choose the RTE alias name.
+	 *
+	 * We punt to "table" if the list results from explicit TABLE() syntax
+	 * regardless of number of functions. Otherwise, use the first function,
+	 * since either there is only one, or it was an unnest() which got
+	 * expanded. We don't currently need to record this fact in the
+	 * transformed node, since deparse always emits an alias for table
+	 * functions, and
+     *    ... FROM unnest(a,b)
+     * and
+     *    ... FROM TABLE(unnest(a),unnest(b)) AS "unnest"
+	 * are equivalent enough for our purposes.
+	 */
+
+	if (alias)
+		aliasname = alias->aliasname;
+	else if (rangefunc->is_table)
+		aliasname = "table";
+	else
+		aliasname = linitial(funcnames);
+
+	eref = makeAlias(aliasname, NIL);
 	rte->eref = eref;
 
 	/*
@@ -1262,18 +1293,19 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	else
 	{
 		/*
-		 * Produce a flattened TupleDesc with all the constituent
-		 * columns from all functions.
+		 * Produce a flattened TupleDesc with all the constituent columns from
+		 * all functions. We're only going to use this for assigning aliases,
+		 * so we don't need collations and so on.
 		 *
-		 * This would be less painful if there was a reasonable way
-		 * to insert dropped columns into a tupdesc.
+		 * This would be less painful if there was a reasonable way to insert
+		 * dropped columns into a tupdesc.
 		 */
 
 		funcrettypes = palloc(nfuncs * sizeof(Oid));
 		functupdescs = palloc(nfuncs * sizeof(TupleDesc));
 
 		i = 0;
-		foreach(lc, funcexprs)
+		forboth(lc, funcexprs, lc2, funcnames)
 		{
 			functypclass = get_expr_result_type(lfirst(lc),
 												&funcrettypes[i],
@@ -1284,21 +1316,47 @@ addRangeTableEntryForFunction(ParseState *pstate,
 				case TYPEFUNC_RECORD:
 					ereport(ERROR,
 							(errcode(ERRCODE_SYNTAX_ERROR),
-							 errmsg("functions returning \"record\" may not be combined in TABLE()"),
+							 errmsg("functions returning unspecified \"record\" may not be combined in TABLE()"),
 							 parser_errposition(pstate, exprLocation(lfirst(lc)))));
 
 				case TYPEFUNC_SCALAR:
-					functupdescs[i] = CreateTemplateTupleDesc(1, false);
-					TupleDescInitEntry(functupdescs[i],
-									   (AttrNumber) 1,
-									   FigureColname(lfirst(lc)),
-									   funcrettypes[i],
-									   -1,
-									   0);
+					{
+						FuncExpr *funcexpr = lfirst(lc);
+						char *pname = NULL;
+
+						/*
+						 * Function might have its own idea what the result
+						 * column name should be. Prefer that (since
+						 * buildScalarFunctionAlias does too)
+						 */
+						if (IsA(funcexpr, FuncExpr))
+							pname = get_func_result_name(funcexpr->funcid);
+
+						/*
+						 * If not, use the function name as the column name.
+						 */
+						if (!pname)
+							pname = lfirst(lc2);
+
+						functupdescs[i] = CreateTemplateTupleDesc(1, false);
+						TupleDescInitEntry(functupdescs[i],
+										   (AttrNumber) 1,
+										   pname,
+										   funcrettypes[i],
+										   -1,
+										   0);
+						break;
+					}
+
+				case TYPEFUNC_COMPOSITE:
 					break;
 
 				default:
-					break;
+					ereport(ERROR,
+							(errcode(ERRCODE_DATATYPE_MISMATCH),
+							 errmsg("function \"%s\" in FROM has unsupported return type %s",
+									(char *) lfirst(lc2), format_type_be(funcrettype)),
+							 parser_errposition(pstate, exprLocation(lfirst(lc)))));
 			}
 
 			++i;
@@ -1340,7 +1398,9 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	else if (functypclass == TYPEFUNC_SCALAR)
 	{
 		/* Base data type, i.e. scalar */
-		buildScalarFunctionAlias(linitial(funcexprs), funcname, alias, eref, rangefunc->ordinality);
+		buildScalarFunctionAlias(linitial(funcexprs),
+								 linitial(funcnames), rangefunc->is_table,
+								 alias, eref, rangefunc->ordinality);
 	}
 	else if (functypclass == TYPEFUNC_RECORD)
 	{
@@ -1384,7 +1444,7 @@ addRangeTableEntryForFunction(ParseState *pstate,
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
 			 errmsg("function \"%s\" in FROM has unsupported return type %s",
-					funcname, format_type_be(funcrettype)),
+					(char *) linitial(funcnames), format_type_be(funcrettype)),
 				 parser_errposition(pstate, exprLocation(linitial(funcexprs)))));
 
 	/*
@@ -1826,6 +1886,13 @@ expandRTE(RangeTblEntry *rte, int rtindex, int sublevels_up,
 				int         atts_done = 0;
 				ListCell   *lc;
 
+				/*
+				 * Loop over functions to assemble result.
+				 *
+				 * atts_done is the number of attributes (including dropped
+				 * cols) constructed so far; it's used as an index offset in
+				 * various places.
+				 */
 				foreach(lc, rte->funcexprs)
 				{
 					functypclass = get_expr_result_type(lfirst(lc),
@@ -2108,8 +2175,11 @@ expandRelation(Oid relid, Alias *eref, int rtindex, int sublevels_up,
 /*
  * expandTupleDesc -- expandRTE subroutine
  *
- * Only the required number of column names are used from the Alias;
- * it is not an error to supply too many. (ordinality depends on this)
+ * Only the required number of column names are used from the Alias; it is not
+ * an error to supply too many. (ordinality depends on this)
+ *
+ * atts_done offsets the resulting column numbers, for the function case when
+ * we merge multiple tupdescs into one list.
  */
 static void
 expandTupleDesc(TupleDesc tupdesc, Alias *eref, int atts_done,
@@ -2333,9 +2403,8 @@ get_rte_attribute_type(RangeTblEntry *rte, AttrNumber attnum,
 				int         atts_done = 0;
 
 				/*
-				 * if ordinality, then a reference to the last column
-				 * in the name list must be referring to the
-				 * ordinality column
+				 * if ordinality, then a reference to the last column in the
+				 * name list must be referring to the ordinality column
 				 */
 				if (rte->funcordinality
 					&& attnum == list_length(rte->eref->colnames))
@@ -2346,6 +2415,10 @@ get_rte_attribute_type(RangeTblEntry *rte, AttrNumber attnum,
 					break;
 				}
 
+				/*
+				 * Loop over funcs until we find the one that covers
+				 * the requested column.
+				 */
 				foreach(lc, rte->funcexprs)
 				{
 					functypclass = get_expr_result_type(lfirst(lc),
@@ -2540,6 +2613,10 @@ get_rte_attribute_is_dropped(RangeTblEntry *rte, AttrNumber attnum)
 					&& attnum == list_length(rte->eref->colnames))
 					break;
 
+				/*
+				 * Loop over funcs until we find the one that covers
+				 * the requested column.
+				 */
 				foreach(lc, rte->funcexprs)
 				{
 					functypclass = get_expr_result_type(lfirst(lc),

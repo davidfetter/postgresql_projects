@@ -1621,17 +1621,17 @@ SELECT * FROM get_users() WITH ORDINALITY;   -- make sure ordinality copes
 
 -- multiple functions vs. dropped columns
 SELECT * FROM TABLE(generate_series(10,11), get_users()) WITH ORDINALITY;
- ?column? | userid | email  | enabled | ordinality 
-----------+--------+--------+---------+------------
-       10 | id     | email  | t       |          1
-       11 | id2    | email2 | t       |          2
+ generate_series | userid | email  | enabled | ordinality 
+-----------------+--------+--------+---------+------------
+              10 | id     | email  | t       |          1
+              11 | id2    | email2 | t       |          2
 (2 rows)
 
 SELECT * FROM TABLE(get_users(), generate_series(10,11)) WITH ORDINALITY;
- userid | email  | enabled | ?column? | ordinality 
---------+--------+---------+----------+------------
- id     | email  | t       |       10 |          1
- id2    | email2 | t       |       11 |          2
+ userid | email  | enabled | generate_series | ordinality 
+--------+--------+---------+-----------------+------------
+ id     | email  | t       |              10 |          1
+ id2    | email2 | t       |              11 |          2
 (2 rows)
 
 drop function get_first_user();
