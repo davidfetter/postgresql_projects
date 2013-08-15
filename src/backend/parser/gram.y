@@ -4878,7 +4878,7 @@ opclass_item_list:
 		;
 
 opt_within_group: WITHIN GROUP_P ord_args {$$ = $3;} 
-			| {$$ = NULL;}
+			| {$$ = NIL;}
 		;
 
 opclass_item:

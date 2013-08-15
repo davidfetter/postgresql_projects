@@ -79,14 +79,14 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 		aclcheck_error(aclresult, ACL_KIND_NAMESPACE,
 					   get_namespace_name(aggNamespace));
 
-	if (lsecond(args) != NULL)
+	if (list_length(args) > 1)
 	{
-		elog(WARNING,"second args is not NULL");
+		elog(WARNING,"second args is not NULL %d", list_length(args));
 		isOrderedSet = true;
 	}
 	else
 	{
-		elog(WARNING,"second args is NULL");
+		elog(WARNING,"second args is NULL %d", list_length(args));
 		isOrderedSet = false;
 	}
 
@@ -259,7 +259,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	 * Variadic check
 	 */
 
-	if (IsA(llast(linitial(args)), List))
+	/*if (IsA(llast(linitial(args)), List))
 	{
 		variadic_type = typenameTypeId(NULL, (linitial(llast(linitial(args)))));
 
@@ -276,7 +276,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	else if (IsA(llast(lsecond(args)), List))
 	{
 		variadic_type = typenameTypeId(NULL, (linitial(llast(lsecond(args)))));
-	}
+	}*/
 
 	/*
 	 * If we have an initval, and it's not for a pseudotype (particularly a

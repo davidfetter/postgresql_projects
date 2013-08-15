@@ -63,7 +63,7 @@ AggregateCreate(const char *aggName,
 	bool		nulls[Natts_pg_aggregate];
 	Datum		values[Natts_pg_aggregate];
 	Form_pg_proc proc;
-	Oid			transfn;
+	Oid			transfn = InvalidOid;
 	Oid			finalfn = InvalidOid;	/* can be omitted */
 	Oid			sortop = InvalidOid;	/* can be omitted */
 	Oid			transsortop = InvalidOid;  /* Can be omitted */
@@ -118,8 +118,7 @@ AggregateCreate(const char *aggName,
 					 errmsg("cannot determine transition data type"),
 					 errdetail("An aggregate using a polymorphic transition type must have at least one polymorphic argument.")));
 
-		/* find the transfn */
-			fnArgs[0] = aggTransType;		
+		/* find the transfn */		
 			nargs_transfn = numArgs + 1;
 			fnArgs = (Oid *) palloc(nargs_transfn * sizeof(Oid));
 			fnArgs[0] = aggTransType;
@@ -199,6 +198,13 @@ AggregateCreate(const char *aggName,
 				}
 			}
 		}
+		else
+		{
+			fnArgs[0] = aggTransType;	
+		}
+
+		finalfn = lookup_agg_function(aggfinalfnName, 1, fnArgs,
+                    				&finaltype);
 					
 	}
 	else
@@ -211,6 +217,15 @@ AggregateCreate(const char *aggName,
 
 	if (aggTransType != InvalidOid)
 		Assert(OidIsValid(finaltype));
+
+	if (finaltype != InvalidOid)
+	{
+		elog(WARNING,"finaltype is not InvalidOid");
+	}
+	else
+	{
+		elog(WARNING,"finaltype is InvalidOid");
+	}
 
 	/*
 	 * If finaltype (i.e. aggregate return type) is polymorphic, inputs must
