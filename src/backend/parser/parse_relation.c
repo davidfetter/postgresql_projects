@@ -1404,6 +1404,7 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	}
 	else if (functypclass == TYPEFUNC_RECORD)
 	{
+		/* Return type is RECORD of unspecified structure */
 		ListCell   *col;
 
 		if (rangefunc->ordinality)
@@ -1937,6 +1938,7 @@ expandRTE(RangeTblEntry *rte, int rtindex, int sublevels_up,
 					}
 					else if (functypclass == TYPEFUNC_RECORD)
 					{
+						/* unspecified RECORD type; must be alone on list */
 						Assert(atts_done == 0);
 						Assert(lnext(lc) == NULL);
 
@@ -2470,6 +2472,7 @@ get_rte_attribute_type(RangeTblEntry *rte, AttrNumber attnum,
 					}
 					else if (functypclass == TYPEFUNC_RECORD)
 					{
+						/* unspecified RECORD type; must be alone on list */
 						Assert(atts_done == 0);
 						Assert(lnext(lc) == NULL);
 
@@ -2654,6 +2657,7 @@ get_rte_attribute_is_dropped(RangeTblEntry *rte, AttrNumber attnum)
 					}
 					else if (functypclass == TYPEFUNC_RECORD)
 					{
+						/* unspecified RECORD type; must be alone on list */
 						Assert(atts_done == 0);
 						Assert(lnext(lc) == NULL);
 

@@ -381,6 +381,10 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 		}
 		else if (functypclass == TYPEFUNC_RECORD)
 		{
+			/*
+			 * Unspecified RECORD as the return type, with a column definition
+			 * list supplied in the call; must be the only function present
+			 */
 			Assert(atts_done == 0);
 			Assert(lnext(lc) == NULL);
 
