@@ -165,8 +165,6 @@ AggregateCreate(const char *aggName,
 		ReleaseSysCache(tup);
 	}
 
-	elog(WARNING,"Statement1");
-
 	/* handle finalfn, if supplied */
 	if (aggfinalfnName)
 	{
@@ -218,14 +216,14 @@ AggregateCreate(const char *aggName,
 	if (aggTransType != InvalidOid)
 		Assert(OidIsValid(finaltype));
 
-	if (finaltype != InvalidOid)
+	/*if (finaltype != InvalidOid)
 	{
 		elog(WARNING,"finaltype is not InvalidOid");
 	}
 	else
 	{
 		elog(WARNING,"finaltype is InvalidOid");
-	}
+	}*/
 
 	/*
 	 * If finaltype (i.e. aggregate return type) is polymorphic, inputs must

@@ -81,13 +81,11 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 
 	if (list_length(args) > 1)
 	{
-		elog(WARNING,"second args is not NULL %d", list_length(args));
-		isOrderedSet = true;
-	}
-	else
-	{
-		elog(WARNING,"second args is NULL %d", list_length(args));
-		isOrderedSet = false;
+		if (lsecond(args) != NULL)
+		{
+			//elog(WARNING,"second args is not NULL %d", list_length(args));
+			isOrderedSet = true;
+		}
 	}
 
 	foreach(pl, parameters)
