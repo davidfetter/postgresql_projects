@@ -175,7 +175,7 @@ AggregateCreate(const char *aggName,
 				fnArgs = (Oid *) palloc((numArgs) * sizeof(Oid));
 				memcpy(fnArgs, (aggArgTypes), numArgs * sizeof(Oid));
 			}
-			elsehttp://pgsql.privatepaste.com/59b619b7bb
+			else
 			{
 				if (variadic_type == InvalidOid)
 				{
