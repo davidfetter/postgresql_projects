@@ -98,7 +98,7 @@ AggregateCreate(const char *aggName,
 	/* check for polymorphic and INTERNAL arguments */
 	hasPolyArg = false;
 	hasInternalArg = false;
-	for (i = 0; i < numArgs; i++)
+	for (i = 0; i < (numArgs + numOrderedArgs); i++)
 	{
 		if (IsPolymorphicType(aggArgTypes[i]))
 			hasPolyArg = true;
@@ -175,7 +175,7 @@ AggregateCreate(const char *aggName,
 				fnArgs = (Oid *) palloc((numArgs) * sizeof(Oid));
 				memcpy(fnArgs, (aggArgTypes), numArgs * sizeof(Oid));
 			}
-			else
+			elsehttp://pgsql.privatepaste.com/59b619b7bb
 			{
 				if (variadic_type == InvalidOid)
 				{
@@ -203,7 +203,6 @@ AggregateCreate(const char *aggName,
 
 		finalfn = lookup_agg_function(aggfinalfnName, 1, fnArgs,
                     				&finaltype);
-					
 	}
 	else
 	{
@@ -233,6 +232,7 @@ AggregateCreate(const char *aggName,
 	 * that itself violates the rule against polymorphic result with no
 	 * polymorphic input.)
 	 */
+
 	if (IsPolymorphicType(finaltype) && !hasPolyArg)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
@@ -319,7 +319,7 @@ AggregateCreate(const char *aggName,
 							  PROVOLATILE_IMMUTABLE,	/* volatility (not
 														 * needed for agg) */
 							  buildoidvector(aggArgTypes,
-											 numArgs),	/* paramTypes */
+											 numArgs + numOrderedArgs),	/* paramTypes */
 							  PointerGetDatum(NULL),	/* allParamTypes */
 							  PointerGetDatum(NULL),	/* parameterModes */
 							  PointerGetDatum(NULL),	/* parameterNames */
