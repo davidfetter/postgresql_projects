@@ -8022,7 +8022,7 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 				else
 				{
 					ListCell   *lc = list_head(rte->funcexprs);
-					Oid         unnest_oid = ((FuncExpr *) lfirst(lc))->funcid;
+					Oid         unnest_oid = InvalidOid;
 
 					/*
 					 * If all the function calls in the list are to
@@ -8031,9 +8031,14 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 					 * unnest, we check by oid after the first one.
 					 */
 
-					if (get_func_namespace(unnest_oid) != PG_CATALOG_NAMESPACE
-						|| strcmp(get_func_name(unnest_oid),"unnest") != 0)
-						unnest_oid = InvalidOid;
+					if (IsA(lfirst(lc), FuncExpr))
+					{
+						unnest_oid = ((FuncExpr *) lfirst(lc))->funcid;
+
+						if (get_func_namespace(unnest_oid) != PG_CATALOG_NAMESPACE
+							|| strcmp(get_func_name(unnest_oid),"unnest") != 0)
+							unnest_oid = InvalidOid;
+					}
 
 					while (OidIsValid(unnest_oid))
 					{
