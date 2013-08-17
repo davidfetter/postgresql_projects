@@ -1601,9 +1601,30 @@ find_expr_references_walker(Node *node,
 	else if (IsA(node, FuncExpr))
 	{
 		FuncExpr   *funcexpr = (FuncExpr *) node;
+		ListCell   *ct;
 
 		add_object_address(OCLASS_PROC, funcexpr->funcid, 0,
 						   context->addrs);
+
+		/*
+		 * FuncExpr in a function RTE may have a column definition list,
+		 * in which case deal with its types and collations
+		 */
+		foreach(ct, funcexpr->funccoltypes)
+		{
+			add_object_address(OCLASS_TYPE, lfirst_oid(ct), 0,
+							   context->addrs);
+		}
+		foreach(ct, funcexpr->funccolcollations)
+		{
+			Oid			collid = lfirst_oid(ct);
+
+			if (OidIsValid(collid) &&
+				collid != DEFAULT_COLLATION_OID)
+				add_object_address(OCLASS_COLLATION, collid, 0,
+								   context->addrs);
+		}
+
 		/* fall through to examine arguments */
 	}
 	else if (IsA(node, OpExpr))
@@ -1757,8 +1778,9 @@ find_expr_references_walker(Node *node,
 
 		/*
 		 * Add whole-relation refs for each plain relation mentioned in the
-		 * subquery's rtable, as well as refs for any datatypes and collations
-		 * used in a RECORD function's output.
+		 * subquery's rtable. Refs for any datatypes and collations
+		 * used in RECORD function column definitions lists are now handled
+		 * under FuncExpr.
 		 *
 		 * Note: query_tree_walker takes care of recursing into RTE_FUNCTION
 		 * RTEs, subqueries, etc, so no need to do that here.  But keep it
@@ -1771,29 +1793,12 @@ find_expr_references_walker(Node *node,
 		foreach(lc, query->rtable)
 		{
 			RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
-			ListCell   *ct;
 
 			switch (rte->rtekind)
 			{
 				case RTE_RELATION:
 					add_object_address(OCLASS_CLASS, rte->relid, 0,
 									   context->addrs);
-					break;
-				case RTE_FUNCTION:
-					foreach(ct, rte->funccoltypes)
-					{
-						add_object_address(OCLASS_TYPE, lfirst_oid(ct), 0,
-										   context->addrs);
-					}
-					foreach(ct, rte->funccolcollations)
-					{
-						Oid			collid = lfirst_oid(ct);
-
-						if (OidIsValid(collid) &&
-							collid != DEFAULT_COLLATION_OID)
-							add_object_address(OCLASS_COLLATION, collid, 0,
-											   context->addrs);
-					}
 					break;
 				default:
 					break;

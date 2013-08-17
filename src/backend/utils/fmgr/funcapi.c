@@ -375,7 +375,11 @@ internal_get_result_type(Oid funcid,
 		case TYPEFUNC_SCALAR:
 			break;
 		case TYPEFUNC_RECORD:
-			/* We must get the tupledesc from call context */
+			/*
+			 * We prefer to get the tupledesc from the call context since
+			 * that is already built. If there isn't one, we try and cons it
+			 * up from the funccol* fields of FuncExpr.
+			 */
 			if (rsinfo && IsA(rsinfo, ReturnSetInfo) &&
 				rsinfo->expectedDesc != NULL)
 			{
@@ -383,6 +387,22 @@ internal_get_result_type(Oid funcid,
 				if (resultTupleDesc)
 					*resultTupleDesc = rsinfo->expectedDesc;
 				/* Assume no polymorphic columns here, either */
+			}
+			else if (call_expr && IsA(call_expr, FuncExpr))
+			{
+				FuncExpr *func = (FuncExpr *) call_expr;
+
+				if (func->funccoltypes != NIL)
+				{
+					tupdesc = BuildDescFromLists(func->funccolnames,
+												 func->funccoltypes,
+												 func->funccoltypmods,
+												 func->funccolcollations);
+					result = TYPEFUNC_COMPOSITE;
+					if (resultTupleDesc)
+						*resultTupleDesc = tupdesc;
+					/* Assume no polymorphic columns here, either */
+				}
 			}
 			break;
 		default:

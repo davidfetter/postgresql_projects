@@ -153,6 +153,7 @@ static void doNegateFloat(Value *v);
 static Node *makeAArrayExpr(List *elements, int location);
 static Node *makeXmlExpr(XmlExprOp op, char *name, List *named_args,
 						 List *args, int location);
+static void processTableFuncColdef(RangeFunction *n, List *coldeflist, int location, core_yyscan_t yyscanner);
 static List *mergeTableFuncParameters(List *func_args, List *columns);
 static TypeName *TableFuncTypeName(List *columns);
 static RangeVar *makeRangeVarFromAnyName(List *names, int position, core_yyscan_t yyscanner);
@@ -405,6 +406,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				columnref in_expr having_clause array_expr
 				ExclusionWhereClause
 %type <list>    func_table func_table_list func_table_single
+%type <list>    func_table_def opt_col_def_list
 %type <boolean> opt_ordinality
 %type <list>	ExclusionConstraintList ExclusionConstraintElem
 %type <list>	func_arg_list
@@ -9601,7 +9603,9 @@ table_ref:	relation_expr opt_alias_clause
 					n->is_table = (list_length($1) > 1);
 					n->funccallnodes = linitial($1);
 					n->alias = linitial($3);
-					n->coldeflist = lsecond($3);
+
+					processTableFuncColdef(n, lsecond($3), @3, yyscanner);
+
 					$$ = (Node *) n;
 				}
 			| LATERAL_P func_table opt_ordinality func_alias_clause
@@ -9612,7 +9616,9 @@ table_ref:	relation_expr opt_alias_clause
 					n->is_table = (list_length($2) > 1);
 					n->funccallnodes = linitial($2);
 					n->alias = linitial($4);
-					n->coldeflist = lsecond($4);
+
+					processTableFuncColdef(n, lsecond($4), @4, yyscanner);
+
 					$$ = (Node *) n;
 				}
 			| select_with_parens opt_alias_clause
@@ -9938,8 +9944,36 @@ func_table: func_table_single { $$ = list_make1($1); }
             | TABLE '(' func_table_list ')' { $$ = list_make2($3,NIL); }
         ;
 
-func_table_list: func_table_single                          { $$ = $1; }
-               | func_table_list ',' func_table_single      { $$ = list_concat($1,$3); }
+func_table_list: func_table_def                            { $$ = $1; }
+               | func_table_list ',' func_table_def        { $$ = list_concat($1,$3); }
+
+func_table_def: func_table_single opt_col_def_list
+            {
+				if (list_length($1) == 1 && list_length($2) > 0)
+				{
+					FuncCall *n = (FuncCall *) linitial($1);
+
+					if (!IsA(n, FuncCall))
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("a column definition list is not allowed for this expression"),
+								 parser_errposition(@2)));
+
+					n->coldeflist = $2;
+				}
+				else if (list_length($2) > 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("a column definition list is not allowed for unnest with multiple arguments"),
+							 errhint("consider using separate unnest calls with one argument each"),
+							 parser_errposition(@2)));
+
+				$$ = $1;
+			}
+
+opt_col_def_list: AS '(' TableFuncElementList ')'          { $$ = $3; }
+                | /*EMPTY*/                                { $$ = NIL; }
+        ;
 
 func_table_single: func_expr_windowless
             {
@@ -13396,6 +13430,52 @@ makeXmlExpr(XmlExprOp op, char *name, List *named_args, List *args,
 	x->type = InvalidOid;			/* marks the node as not analyzed */
 	x->location = location;
 	return (Node *) x;
+}
+
+static void
+processTableFuncColdef(RangeFunction *n, List *coldeflist,
+					   int location,  core_yyscan_t yyscanner)
+{
+	/*
+	 * coldeflist is allowed only for exactly one
+	 * function (if more than one, then the coldeflist
+	 * must be applied inside TABLE() not outside.
+	 */
+	if (coldeflist != NIL)
+	{
+		FuncCall *fn = linitial(n->funccallnodes);
+
+		if (list_length(n->funccallnodes) > 1)
+		{
+			if (n->is_table)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("a column definition list is not allowed for TABLE() with multiple functions"),
+						 errhint("consider using column definition lists for individual functions inside TABLE()"),
+						 parser_errposition(location)));
+			else
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("a column definition list is not allowed for unnest with multiple arguments"),
+						 errhint("consider using TABLE() with separate unnest calls with one argument each"),
+						 parser_errposition(location)));
+		}
+
+		if (!IsA(fn, FuncCall))
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("a column definition list is not allowed for this expression"),
+					 parser_errposition(location)));
+
+		if (fn->coldeflist != NIL)
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("multiple column definition lists are not allowed for the same function"),
+					 errhint("remove one of the definition lists"),
+					 parser_errposition(location)));
+
+		fn->coldeflist = coldeflist;
+	}
 }
 
 /*

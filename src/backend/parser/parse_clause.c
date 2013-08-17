@@ -558,7 +558,12 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 	pstate->p_lateral_active = false;
 
 	/*
-	 * We must assign collations now so that we can fill funccolcollations.
+	 * Assign collations now.
+	 *
+	 * This comment used to say that this was required to fill in
+	 * funccolcollations, but that does not appear to have been the case
+	 * (assignment of funccolcollations was since moved to the Expr handling
+	 * above)
 	 */
 	assign_list_collations(pstate, funcexprs);
 
@@ -573,23 +578,6 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 	 */
 	rte = addRangeTableEntryForFunction(pstate, funcnames, funcexprs,
 										r, is_lateral, true);
-
-	/*
-	 * If a coldeflist was supplied, ensure it defines a legal set of names
-	 * (no duplicates) and datatypes (no pseudo-types, for instance).
-	 * addRangeTableEntryForFunction looked up the type names but didn't check
-	 * them further than that.
-	 */
-	if (r->coldeflist)
-	{
-		TupleDesc	tupdesc;
-
-		tupdesc = BuildDescFromLists(rte->eref->colnames,
-									 rte->funccoltypes,
-									 rte->funccoltypmods,
-									 rte->funccolcollations);
-		CheckAttributeNamesTypes(tupdesc, RELKIND_COMPOSITE_TYPE, false);
-	}
 
 	return rte;
 }

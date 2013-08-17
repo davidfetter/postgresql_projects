@@ -1235,7 +1235,6 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	Oid			funcrettype;
 	TupleDesc	tupdesc;
 	Alias	   *alias = rangefunc->alias;
-	List	   *coldeflist = rangefunc->coldeflist;
 	Alias	   *eref;
 	char       *aliasname;
 	Oid        *funcrettypes = NULL;
@@ -1248,9 +1247,6 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	rte->relid = InvalidOid;
 	rte->subquery = NULL;
 	rte->funcexprs = funcexprs;
-	rte->funccoltypes = NIL;
-	rte->funccoltypmods = NIL;
-	rte->funccolcollations = NIL;
 	rte->alias = alias;
 
     /*
@@ -1282,13 +1278,23 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	 * Now determine if the function returns a simple or composite type.
 	 *
 	 * If there's more than one function, the result must be composite,
-	 * and none of the functions must return RECORD.
+	 * and we have to produce a merged tupdesc.
 	 */
 	if (nfuncs == 1)
 	{
 		functypclass = get_expr_result_type(linitial(funcexprs),
 											&funcrettype,
 											&tupdesc);
+
+		/*
+		 * TYPEFUNC_RECORD is only possible here if a column definition list
+		 * was not supplied.
+		 */
+		if (functypclass == TYPEFUNC_RECORD)
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("a column definition list is required for functions returning \"record\""),
+					 parser_errposition(pstate, exprLocation(linitial(funcexprs)))));
 	}
 	else
 	{
@@ -1314,9 +1320,13 @@ addRangeTableEntryForFunction(ParseState *pstate,
 			switch (functypclass)
 			{
 				case TYPEFUNC_RECORD:
+					/*
+					 * Only gets here if no column definition list was supplied for
+					 * a function returning an unspecified RECORD.
+					 */
 					ereport(ERROR,
 							(errcode(ERRCODE_SYNTAX_ERROR),
-							 errmsg("functions returning unspecified \"record\" may not be combined in TABLE()"),
+							 errmsg("a column definition list is required for functions returning \"record\""),
 							 parser_errposition(pstate, exprLocation(lfirst(lc)))));
 
 				case TYPEFUNC_SCALAR:
@@ -1367,27 +1377,6 @@ addRangeTableEntryForFunction(ParseState *pstate,
 		tupdesc = CreateTupleDescCopyMany(functupdescs, nfuncs);
 	}
 
-	/*
-	 * A coldeflist is required if the function returns RECORD and hasn't got
-	 * a predetermined record type, and is prohibited otherwise.
-	 */
-	if (coldeflist != NIL)
-	{
-		if (functypclass != TYPEFUNC_RECORD)
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("a column definition list is only allowed for functions returning \"record\""),
-					 parser_errposition(pstate, exprLocation(linitial(funcexprs)))));
-	}
-	else
-	{
-		if (functypclass == TYPEFUNC_RECORD)
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("a column definition list is required for functions returning \"record\""),
-					 parser_errposition(pstate, exprLocation(linitial(funcexprs)))));
-	}
-
 	if (functypclass == TYPEFUNC_COMPOSITE)
 	{
 		/* Composite data type, e.g. a table's row type */
@@ -1401,45 +1390,6 @@ addRangeTableEntryForFunction(ParseState *pstate,
 		buildScalarFunctionAlias(linitial(funcexprs),
 								 linitial(funcnames), rangefunc->is_table,
 								 alias, eref, rangefunc->ordinality);
-	}
-	else if (functypclass == TYPEFUNC_RECORD)
-	{
-		/* Return type is RECORD of unspecified structure */
-		ListCell   *col;
-
-		if (rangefunc->ordinality)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("WITH ORDINALITY is not supported for functions returning \"record\""),
-					 parser_errposition(pstate, exprLocation(linitial(funcexprs)))));
-
-		/*
-		 * Use the column definition list to form the alias list and
-		 * funccoltypes/funccoltypmods/funccolcollations lists.
-		 */
-		foreach(col, coldeflist)
-		{
-			ColumnDef  *n = (ColumnDef *) lfirst(col);
-			char	   *attrname;
-			Oid			attrtype;
-			int32		attrtypmod;
-			Oid			attrcollation;
-
-			attrname = pstrdup(n->colname);
-			if (n->typeName->setof)
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						 errmsg("column \"%s\" cannot be declared SETOF",
-								attrname),
-						 parser_errposition(pstate, n->typeName->location)));
-			typenameTypeIdAndMod(pstate, n->typeName, &attrtype, &attrtypmod);
-			attrcollation = GetColumnDefCollation(pstate, n, attrtype);
-			eref->colnames = lappend(eref->colnames, makeString(attrname));
-			rte->funccoltypes = lappend_oid(rte->funccoltypes, attrtype);
-			rte->funccoltypmods = lappend_int(rte->funccoltypmods, attrtypmod);
-			rte->funccolcollations = lappend_oid(rte->funccolcollations,
-												 attrcollation);
-		}
 	}
 	else
 		ereport(ERROR,
@@ -1936,45 +1886,6 @@ expandRTE(RangeTblEntry *rte, int rtindex, int sublevels_up,
 
 						++atts_done;
 					}
-					else if (functypclass == TYPEFUNC_RECORD)
-					{
-						/* unspecified RECORD type; must be alone on list */
-						Assert(atts_done == 0);
-						Assert(lnext(lc) == NULL);
-
-						if (colnames)
-							*colnames = copyObject(rte->eref->colnames);
-
-						if (colvars)
-						{
-							ListCell   *l1;
-							ListCell   *l2;
-							ListCell   *l3;
-							int			attnum = 0;
-
-							forthree(l1, rte->funccoltypes,
-									 l2, rte->funccoltypmods,
-									 l3, rte->funccolcollations)
-							{
-								Oid			attrtype = lfirst_oid(l1);
-								int32		attrtypmod = lfirst_int(l2);
-								Oid			attrcollation = lfirst_oid(l3);
-								Var		   *varnode;
-
-								attnum++;
-								varnode = makeVar(rtindex,
-												  attnum,
-												  attrtype,
-												  attrtypmod,
-												  attrcollation,
-												  sublevels_up);
-								varnode->location = location;
-								*colvars = lappend(*colvars, varnode);
-							}
-						}
-
-						/* note, ordinality is not allowed in this case */
-					}
 					else
 					{
 						/* addRangeTableEntryForFunction should've caught this */
@@ -2470,17 +2381,6 @@ get_rte_attribute_type(RangeTblEntry *rte, AttrNumber attnum,
 
 						++atts_done;
 					}
-					else if (functypclass == TYPEFUNC_RECORD)
-					{
-						/* unspecified RECORD type; must be alone on list */
-						Assert(atts_done == 0);
-						Assert(lnext(lc) == NULL);
-
-						*vartype = list_nth_oid(rte->funccoltypes, attnum - 1);
-						*vartypmod = list_nth_int(rte->funccoltypmods, attnum - 1);
-						*varcollid = list_nth_oid(rte->funccolcollations, attnum - 1);
-						return;
-					}
 					else
 					{
 						/* addRangeTableEntryForFunction should've caught this */
@@ -2654,15 +2554,6 @@ get_rte_attribute_is_dropped(RangeTblEntry *rte, AttrNumber attnum)
 						}
 
 						++atts_done;
-					}
-					else if (functypclass == TYPEFUNC_RECORD)
-					{
-						/* unspecified RECORD type; must be alone on list */
-						Assert(atts_done == 0);
-						Assert(lnext(lc) == NULL);
-
-						result = false;
-						break;
 					}
 					else
 					{

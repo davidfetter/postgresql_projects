@@ -518,9 +518,6 @@ _outFunctionScan(StringInfo str, const FunctionScan *node)
 
 	WRITE_NODE_FIELD(funcexprs);
 	WRITE_NODE_FIELD(funccolnames);
-	WRITE_NODE_FIELD(funccoltypes);
-	WRITE_NODE_FIELD(funccoltypmods);
-	WRITE_NODE_FIELD(funccolcollations);
 	WRITE_BOOL_FIELD(funcordinality);
 }
 
@@ -1011,6 +1008,10 @@ _outFuncExpr(StringInfo str, const FuncExpr *node)
 	WRITE_OID_FIELD(funccollid);
 	WRITE_OID_FIELD(inputcollid);
 	WRITE_NODE_FIELD(args);
+	WRITE_NODE_FIELD(funccolnames);
+	WRITE_NODE_FIELD(funccoltypes);
+	WRITE_NODE_FIELD(funccoltypmods);
+	WRITE_NODE_FIELD(funccolcollations);
 	WRITE_LOCATION_FIELD(location);
 }
 
@@ -2088,6 +2089,7 @@ _outFuncCall(StringInfo str, const FuncCall *node)
 	WRITE_BOOL_FIELD(agg_distinct);
 	WRITE_BOOL_FIELD(func_variadic);
 	WRITE_NODE_FIELD(over);
+	WRITE_NODE_FIELD(coldeflist);
 	WRITE_LOCATION_FIELD(location);
 }
 
@@ -2379,9 +2381,6 @@ _outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
 			break;
 		case RTE_FUNCTION:
 			WRITE_NODE_FIELD(funcexprs);
-			WRITE_NODE_FIELD(funccoltypes);
-			WRITE_NODE_FIELD(funccoltypmods);
-			WRITE_NODE_FIELD(funccolcollations);
 			WRITE_BOOL_FIELD(funcordinality);
 			break;
 		case RTE_VALUES:
@@ -2620,7 +2619,6 @@ _outRangeFunction(StringInfo str, const RangeFunction *node)
 	WRITE_BOOL_FIELD(is_table);
 	WRITE_NODE_FIELD(funccallnodes);
 	WRITE_NODE_FIELD(alias);
-	WRITE_NODE_FIELD(coldeflist);
 }
 
 static void

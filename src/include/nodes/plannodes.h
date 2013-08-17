@@ -425,11 +425,8 @@ typedef struct FunctionScan
 {
 	Scan		scan;
 	List	   *funcexprs;		/* expression trees for func calls */
+	List       *funccolnames;   /* result column names */
 	bool        funcordinality; /* WITH ORDINALITY */
-	List	   *funccolnames;	/* output column names (string Value nodes) */
-	List	   *funccoltypes;	/* OID list of column type OIDs */
-	List	   *funccoltypmods; /* integer list of column typmods */
-	List	   *funccolcollations;		/* OID list of column collation OIDs */
 } FunctionScan;
 
 /* ----------------

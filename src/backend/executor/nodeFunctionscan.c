@@ -379,20 +379,6 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 
 			++atts_done;
 		}
-		else if (functypclass == TYPEFUNC_RECORD)
-		{
-			/*
-			 * Unspecified RECORD as the return type, with a column definition
-			 * list supplied in the call; must be the only function present
-			 */
-			Assert(atts_done == 0);
-			Assert(lnext(lc) == NULL);
-
-			tupdesc = BuildDescFromLists(node->funccolnames,
-										 node->funccoltypes,
-										 node->funccoltypmods,
-										 node->funccolcollations);
-		}
 		else
 		{
 			/* crummy error message, but parser should have caught this */

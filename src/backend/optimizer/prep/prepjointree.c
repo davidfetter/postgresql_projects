@@ -577,9 +577,6 @@ inline_set_returning_functions(PlannerInfo *root)
 				rte->rtekind = RTE_SUBQUERY;
 				rte->subquery = funcquery;
 				rte->funcexprs = NULL;
-				rte->funccoltypes = NIL;
-				rte->funccoltypmods = NIL;
-				rte->funccolcollations = NIL;
 			}
 		}
 	}

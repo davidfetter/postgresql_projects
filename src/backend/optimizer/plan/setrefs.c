@@ -382,9 +382,6 @@ add_rte_to_flat_rtable(PlannerGlobal *glob, RangeTblEntry *rte)
 	newrte->subquery = NULL;
 	newrte->joinaliasvars = NIL;
 	newrte->funcexprs = NULL;
-	newrte->funccoltypes = NIL;
-	newrte->funccoltypmods = NIL;
-	newrte->funccolcollations = NIL;
 	newrte->values_lists = NIL;
 	newrte->values_collations = NIL;
 	newrte->ctecoltypes = NIL;

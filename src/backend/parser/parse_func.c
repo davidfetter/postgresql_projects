@@ -15,6 +15,8 @@
 #include "postgres.h"
 
 #include "access/htup_details.h"
+#include "catalog/heap.h"
+#include "catalog/pg_class.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
@@ -22,6 +24,7 @@
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "parser/parse_agg.h"
+#include "parser/parse_clause.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_func.h"
 #include "parser/parse_relation.h"
@@ -61,10 +64,16 @@ static Node *ParseComplexProjection(ParseState *pstate, char *funcname,
  */
 Node *
 ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
-				  List *agg_order, Expr *agg_filter,
-				  bool agg_star, bool agg_distinct, bool func_variadic,
-				  WindowDef *over, bool is_column, int location)
+				  int location, FuncCall *fn)
 {
+	List       *agg_order = (fn ? fn->agg_order : NIL);
+	Expr       *agg_filter = NULL;
+	bool        agg_star = (fn ? fn->agg_star : false);
+	bool        agg_distinct = (fn ? fn->agg_distinct : false);
+	bool        func_variadic = (fn ? fn->func_variadic : false);
+	WindowDef  *over = (fn ? fn->over : NULL);
+	List       *coldeflist = (fn ? fn->coldeflist : NIL);
+	bool        is_column = (fn == NULL);
 	Oid			rettype;
 	Oid			funcid;
 	ListCell   *l;
@@ -96,6 +105,15 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 						   FUNC_MAX_ARGS,
 						   FUNC_MAX_ARGS),
 				 parser_errposition(pstate, location)));
+
+	/*
+	 * Transform the aggregate filter using transformWhereClause(), to which
+	 * FILTER is virtually identical...
+	 */
+	if (fn && fn->agg_filter != NULL)
+		agg_filter = (Expr *)
+			transformWhereClause(pstate, (Node *) fn->agg_filter,
+								 EXPR_KIND_FILTER, "FILTER");
 
 	/*
 	 * Extract arg type info in preparation for function lookup.
@@ -413,6 +431,68 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		/* funccollid and inputcollid will be set by parse_collate.c */
 		funcexpr->args = fargs;
 		funcexpr->location = location;
+
+		/*
+		 * If we're called in the FROM-clause, we might have a column
+		 * definition list if we return RECORD. The grammar should prevent
+		 * supplying a list in other contexts. Missing coldeflists are
+		 * checked for in parse_relation.c
+		 */
+		if (coldeflist != NIL)
+		{
+			TypeFuncClass functypclass;
+			ListCell   *col;
+			TupleDesc	tupdesc;
+
+			Assert(pstate->p_expr_kind == EXPR_KIND_FROM_FUNCTION);
+
+			functypclass = get_func_result_type(funcid, NULL, NULL);
+
+			if (functypclass != TYPEFUNC_RECORD)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("a column definition list is only allowed for functions returning \"record\""),
+						 parser_errposition(pstate, location)));
+
+			/*
+			 * Use the column definition list to form the
+			 * funccolnames/funccoltypes/funccoltypmods/funccolcollations
+			 * lists.
+			 */
+			foreach(col, coldeflist)
+			{
+				ColumnDef  *n = (ColumnDef *) lfirst(col);
+				char	   *attrname;
+				Oid			attrtype;
+				int32		attrtypmod;
+				Oid			attrcollation;
+
+				attrname = pstrdup(n->colname);
+				if (n->typeName->setof)
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+							 errmsg("column \"%s\" cannot be declared SETOF",
+									attrname),
+							 parser_errposition(pstate, n->typeName->location)));
+				typenameTypeIdAndMod(pstate, n->typeName, &attrtype, &attrtypmod);
+				attrcollation = GetColumnDefCollation(pstate, n, attrtype);
+				funcexpr->funccolnames = lappend(funcexpr->funccolnames, makeString(attrname));
+				funcexpr->funccoltypes = lappend_oid(funcexpr->funccoltypes, attrtype);
+				funcexpr->funccoltypmods = lappend_int(funcexpr->funccoltypmods, attrtypmod);
+				funcexpr->funccolcollations = lappend_oid(funcexpr->funccolcollations,
+														  attrcollation);
+			}
+
+			/*
+			 * Ensure it defines a legal set of names (no duplicates) and
+			 * datatypes (no pseudo-types, for instance).
+			 */
+			tupdesc = BuildDescFromLists(funcexpr->funccolnames,
+										 funcexpr->funccoltypes,
+										 funcexpr->funccoltypmods,
+										 funcexpr->funccolcollations);
+			CheckAttributeNamesTypes(tupdesc, RELKIND_COMPOSITE_TYPE, false);
+		}
 
 		retval = (Node *) funcexpr;
 	}

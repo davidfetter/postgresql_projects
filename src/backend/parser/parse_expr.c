@@ -463,8 +463,8 @@ transformIndirection(ParseState *pstate, Node *basenode, List *indirection)
 			newresult = ParseFuncOrColumn(pstate,
 										  list_make1(n),
 										  list_make1(result),
-										  NIL, NULL, false, false, false,
-										  NULL, true, location);
+										  location,
+										  NULL);
 			if (newresult == NULL)
 				unknown_attribute(pstate, result, strVal(n), location);
 			result = newresult;
@@ -631,8 +631,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 					node = ParseFuncOrColumn(pstate,
 											 list_make1(makeString(colname)),
 											 list_make1(node),
-											 NIL, NULL, false, false, false,
-											 NULL, true, cref->location);
+											 cref->location, NULL);
 				}
 				break;
 			}
@@ -676,8 +675,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 					node = ParseFuncOrColumn(pstate,
 											 list_make1(makeString(colname)),
 											 list_make1(node),
-											 NIL, NULL, false, false, false,
-											 NULL, true, cref->location);
+											 cref->location, NULL);
 				}
 				break;
 			}
@@ -734,8 +732,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 					node = ParseFuncOrColumn(pstate,
 											 list_make1(makeString(colname)),
 											 list_make1(node),
-											 NIL, NULL, false, false, false,
-											 NULL, true, cref->location);
+											 cref->location, NULL);
 				}
 				break;
 			}
@@ -1242,7 +1239,6 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 {
 	List	   *targs;
 	ListCell   *args;
-	Expr	   *tagg_filter;
 
 	/* Transform the list of arguments ... */
 	targs = NIL;
@@ -1252,28 +1248,12 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 													(Node *) lfirst(args)));
 	}
 
-	/*
-	 * Transform the aggregate filter using transformWhereClause(), to which
-	 * FILTER is virtually identical...
-	 */
-	tagg_filter = NULL;
-	if (fn->agg_filter != NULL)
-		tagg_filter = (Expr *)
-			transformWhereClause(pstate, (Node *) fn->agg_filter,
-								 EXPR_KIND_FILTER, "FILTER");
-
 	/* ... and hand off to ParseFuncOrColumn */
 	return ParseFuncOrColumn(pstate,
 							 fn->funcname,
 							 targs,
-							 fn->agg_order,
-							 tagg_filter,
-							 fn->agg_star,
-							 fn->agg_distinct,
-							 fn->func_variadic,
-							 fn->over,
-							 false,
-							 fn->location);
+							 fn->location,
+							 fn);
 }
 
 static Node *

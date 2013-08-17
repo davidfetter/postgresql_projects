@@ -497,6 +497,10 @@ makeFuncExpr(Oid funcid, Oid rettype, List *args,
 	funcexpr->funccollid = funccollid;
 	funcexpr->inputcollid = inputcollid;
 	funcexpr->args = args;
+	funcexpr->funccolnames = NIL;
+	funcexpr->funccoltypes = NIL;
+	funcexpr->funccoltypmods = NIL;
+	funcexpr->funccolcollations = NIL;
 	funcexpr->location = -1;
 
 	return funcexpr;
@@ -562,6 +566,7 @@ makeFuncCall(List *name, List *args, int location)
 	n->agg_distinct = FALSE;
 	n->func_variadic = FALSE;
 	n->over = NULL;
+	n->coldeflist = NULL;
 	return n;
 }
 

@@ -116,8 +116,7 @@ static TidScan *make_tidscan(List *qptlist, List *qpqual, Index scanrelid,
 			 List *tidquals);
 static FunctionScan *make_functionscan(List *qptlist, List *qpqual,
 				  Index scanrelid, List *funcexprs, bool ordinality,
-                  List *funccolnames, List *funccoltypes, List *funccoltypmods,
-				  List *funccolcollations);
+                  List *funccolnames);
 static ValuesScan *make_valuesscan(List *qptlist, List *qpqual,
 				Index scanrelid, List *values_lists);
 static CteScan *make_ctescan(List *qptlist, List *qpqual,
@@ -1734,10 +1733,7 @@ create_functionscan_plan(PlannerInfo *root, Path *best_path,
 	scan_plan = make_functionscan(tlist, scan_clauses, scan_relid,
 								  funcexprs,
 								  rte->funcordinality,
-								  rte->eref->colnames,
-								  rte->funccoltypes,
-								  rte->funccoltypmods,
-								  rte->funccolcollations);
+								  rte->eref->colnames);
 
 	copy_path_costsize(&scan_plan->scan.plan, best_path);
 
@@ -3368,10 +3364,7 @@ make_functionscan(List *qptlist,
 				  Index scanrelid,
 				  List *funcexprs,
 				  bool ordinality,
-				  List *funccolnames,
-				  List *funccoltypes,
-				  List *funccoltypmods,
-				  List *funccolcollations)
+				  List *funccolnames)
 {
 	FunctionScan *node = makeNode(FunctionScan);
 	Plan	   *plan = &node->scan.plan;
@@ -3385,9 +3378,6 @@ make_functionscan(List *qptlist,
 	node->funcexprs = funcexprs;
 	node->funcordinality = ordinality;
 	node->funccolnames = funccolnames;
-	node->funccoltypes = funccoltypes;
-	node->funccoltypmods = funccoltypmods;
-	node->funccolcollations = funccolcollations;
 
 	return node;
 }

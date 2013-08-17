@@ -304,6 +304,7 @@ typedef struct FuncCall
 	bool		agg_distinct;	/* arguments were labeled DISTINCT */
 	bool		func_variadic;	/* last argument was labeled VARIADIC */
 	struct WindowDef *over;		/* OVER clause, if any */
+	List       *coldeflist;     /* column definition list for record funcs */
 	int			location;		/* token location, or -1 if unknown */
 } FuncCall;
 
@@ -478,8 +479,6 @@ typedef struct RangeFunction
 	bool        is_table;       /* result of TABLE() syntax */
 	List	   *funccallnodes;	/* untransformed function call trees */
 	Alias	   *alias;			/* table alias & optional column aliases */
-	List	   *coldeflist;		/* list of ColumnDef nodes to describe result
-								 * of function returning RECORD */
 } RangeFunction;
 
 /*
@@ -761,20 +760,16 @@ typedef struct RangeTblEntry
 	/*
 	 * Fields valid for a function RTE (else NULL):
 	 *
-	 * If the function returns an otherwise-unspecified RECORD, funccoltypes
-	 * lists the column types declared in the RTE's column type specification,
-	 * funccoltypmods lists their declared typmods, funccolcollations their
-	 * collations.  Note that in this case, ORDINALITY is not permitted, so
-	 * there is no extra ordinal column to be allowed for.
+	 * If the function returns an otherwise-unspecified RECORD, we used to
+	 * store type lists here; we now push those down to the individual
+	 * FuncExpr nodes, so that we can handle multiple RECORD functions and/or
+	 * RECORD functions with ordinality.
 	 *
-     * Otherwise, those fields are NIL, and the result column types must be
-	 * derived from the funcexpr while treating the ordinal column, if
-	 * present, as a special case.  (see get_rte_attribute_*)
+	 * So, in all cases the result column types can be determined from the
+	 * funcexprs, with the ordinality column, if present, appended to the
+	 * end.
 	 */
 	List	   *funcexprs;		/* expression trees for func calls */
-	List	   *funccoltypes;	/* OID list of column type OIDs */
-	List	   *funccoltypmods; /* integer list of column typmods */
-	List	   *funccolcollations;		/* OID list of column collation OIDs */
 	bool		funcordinality;	/* is this called WITH ORDINALITY? */
 
 	/*

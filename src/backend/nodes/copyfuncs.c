@@ -506,9 +506,6 @@ _copyFunctionScan(const FunctionScan *from)
 	 */
 	COPY_NODE_FIELD(funcexprs);
 	COPY_NODE_FIELD(funccolnames);
-	COPY_NODE_FIELD(funccoltypes);
-	COPY_NODE_FIELD(funccoltypmods);
-	COPY_NODE_FIELD(funccolcollations);
 	COPY_SCALAR_FIELD(funcordinality);
 
 	return newnode;
@@ -1205,6 +1202,10 @@ _copyFuncExpr(const FuncExpr *from)
 	COPY_SCALAR_FIELD(funccollid);
 	COPY_SCALAR_FIELD(inputcollid);
 	COPY_NODE_FIELD(args);
+	COPY_NODE_FIELD(funccolnames);
+	COPY_NODE_FIELD(funccoltypes);
+	COPY_NODE_FIELD(funccoltypmods);
+	COPY_NODE_FIELD(funccolcollations);
 	COPY_LOCATION_FIELD(location);
 
 	return newnode;
@@ -1980,9 +1981,6 @@ _copyRangeTblEntry(const RangeTblEntry *from)
 	COPY_SCALAR_FIELD(jointype);
 	COPY_NODE_FIELD(joinaliasvars);
 	COPY_NODE_FIELD(funcexprs);
-	COPY_NODE_FIELD(funccoltypes);
-	COPY_NODE_FIELD(funccoltypmods);
-	COPY_NODE_FIELD(funccolcollations);
 	COPY_SCALAR_FIELD(funcordinality);
 	COPY_NODE_FIELD(values_lists);
 	COPY_NODE_FIELD(values_collations);
@@ -2173,6 +2171,7 @@ _copyFuncCall(const FuncCall *from)
 	COPY_SCALAR_FIELD(agg_distinct);
 	COPY_SCALAR_FIELD(func_variadic);
 	COPY_NODE_FIELD(over);
+	COPY_NODE_FIELD(coldeflist);
 	COPY_LOCATION_FIELD(location);
 
 	return newnode;
@@ -2302,7 +2301,6 @@ _copyRangeFunction(const RangeFunction *from)
 	COPY_SCALAR_FIELD(is_table);
 	COPY_NODE_FIELD(funccallnodes);
 	COPY_NODE_FIELD(alias);
-	COPY_NODE_FIELD(coldeflist);
 
 	return newnode;
 }
