@@ -397,6 +397,9 @@ typedef struct ErrorData
 	int			internalpos;	/* cursor index into internalquery */
 	char	   *internalquery;	/* text of internally-generated query */
 	int			saved_errno;	/* errno at entry */
+
+	/* context containing associated non-constant strings */
+	struct MemoryContextData *assoc_context;
 } ErrorData;
 
 extern void EmitErrorReport(void);
@@ -425,6 +428,7 @@ typedef enum
 extern int	Log_error_verbosity;
 extern char *Log_line_prefix;
 extern int	Log_destination;
+extern char *Log_destination_string;
 
 /* Log destination bitmap */
 #define LOG_DESTINATION_STDERR	 1
