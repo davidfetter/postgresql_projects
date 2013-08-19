@@ -194,6 +194,23 @@ AggregateCreate(const char *aggName,
 					if (aggTransType != InvalidOid)
 						fnArgs[numArgs + numOrderedArgs] = aggTransType;
 				}
+				else
+				{
+					if (variadic_type == ANYOID)
+					{
+						if (numOrderedArgs != 1)
+							ereport(ERROR,
+								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+						 		errmsg("Variadic 'any' must have only a single ordered argument of 'any' type")));
+
+						if (aggArgTypes[numArgs] != ANYOID)
+							ereport(ERROR,
+								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+						 		errmsg("Variadic 'any' cannot have any other argument type other than any")));
+					}
+
+				}
+
 			}
 		}
 		else

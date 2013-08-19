@@ -196,13 +196,60 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 
 		foreach(lc, linitial(args))
 		{
-			TypeName   *curTypeName = (TypeName *) lfirst(lc);
+			TypeName *curTypeName = NULL;
+			if (IsA(lc, List))
+			{
+				curTypeName = linitial(lfirst(lc));
+				variadic_type = typenameTypeId(NULL, curTypeName);
 
-			aggArgTypes[i++] = typenameTypeId(NULL, curTypeName);
+				switch (variadic_type)
+				{
+					case ANYOID:
+							variadic_type = ANYOID;
+							break;
+					case ANYARRAYOID:
+							variadic_type = ANYELEMENTOID;
+							break;
+					default:
+							if (!OidIsValid(get_element_type(variadic_type)))
+								elog(ERROR, "variadic parameter is not an array");
+							break;
+				}
+
+			}
+			else
+			{		
+				curTypeName = (TypeName *) lfirst(lc);
+				aggArgTypes[i++] = typenameTypeId(NULL, curTypeName);
+			}
+
+			
 		}
 
 		if (isOrderedSet)
 		{
+			if (variadic_type != InvalidOid)
+			{
+				if (!IsA(lsecond(args), List))
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					 		errmsg("Ordered arguments must be variadic any")));
+
+				if (list_length(lsecond(args)) != 1)
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					 		errmsg("Invalid ordered arguments for variadic")));
+
+				if (variadic_type == ANYOID)
+					if (typenameTypeId(NULL, linitial(lsecond(args))) != variadic_type)
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+						 		errmsg("Variadic types do not match")));
+
+				if (!OidIsValid(get_element_type(variadic_type)))
+					elog(ERROR, "variadic parameter is not an array");
+			}
+
 			foreach(lc, lsecond(args))
 			{
 				TypeName   *curTypeName = (TypeName *) lfirst(lc);
@@ -252,29 +299,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 		}
 
 	}
-
-	/*
-	 * Variadic check
-	 */
-
-	/*if (IsA(llast(linitial(args)), List))
-	{
-		variadic_type = typenameTypeId(NULL, (linitial(llast(linitial(args)))));
-
-		if (list_length(lsecond(args)) == 1)
-		{
-			if (typenameTypeId(NULL, linitial(lsecond(args))) != variadic_type)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-						 errmsg("Variadic types do not match")));
-			}
-		}
-	}
-	else if (IsA(llast(lsecond(args)), List))
-	{
-		variadic_type = typenameTypeId(NULL, (linitial(llast(lsecond(args)))));
-	}*/
 
 	/*
 	 * If we have an initval, and it's not for a pseudotype (particularly a
