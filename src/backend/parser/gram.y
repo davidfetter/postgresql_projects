@@ -343,7 +343,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				execute_param_clause using_clause returning_clause
 				opt_enum_val_list enum_val_list table_func_column_list
 				create_generic_options alter_generic_options
-				relation_expr_list dostmt_opt_list
+				relation_expr_list dostmt_opt_list ord_args
 
 %type <list>	opt_fdw_options fdw_options
 %type <defelt>	fdw_option
@@ -494,6 +494,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <boolean> opt_if_not_exists
 %type <node>    filter_clause
 %type <list> 	within_group_clause
+%type <list>	opt_within_group
 
 /*
  * Non-keyword token types.  These are hard-wired into the "flex" lexer.
@@ -4605,14 +4606,14 @@ DropAssertStmt:
  *****************************************************************************/
 
 DefineStmt:
-			CREATE AGGREGATE func_name aggr_args definition
+			CREATE AGGREGATE func_name aggr_args opt_within_group definition
 				{
 					DefineStmt *n = makeNode(DefineStmt);
 					n->kind = OBJECT_AGGREGATE;
 					n->oldstyle = false;
 					n->defnames = $3;
-					n->args = $4;
-					n->definition = $5;
+					n->args = list_make2($4,$5);
+					n->definition = $6;
 					$$ = (Node *)n;
 				}
 			| CREATE AGGREGATE func_name old_aggr_definition
@@ -4762,7 +4763,14 @@ def_arg:	func_type						{ $$ = (Node *)$1; }
 		;
 
 aggr_args:	'(' type_list ')'						{ $$ = $2; }
-			| '(' '*' ')'							{ $$ = NIL; }
+			|  '(' type_list ',' VARIADIC Typename ')'		{ $$ = lappend($2, list_make1($5)); }
+ 			| '(' VARIADIC Typename ')'				{ $$ = list_make1($3); }
+			| '(' '*' ')'						{ $$ = NIL; }
+		;
+
+ord_args:	'(' type_list ')'						{ $$ = $2; }
+			|  '(' type_list ',' VARIADIC Typename ')'		{ $$ = lappend($2, list_make1($5)); }
+ 			| '(' VARIADIC Typename ')'				{ $$ = list_make1($3); }
 		;
 
 old_aggr_definition: '(' old_aggr_list ')'			{ $$ = $2; }
@@ -4867,6 +4875,10 @@ CreateOpClassStmt:
 opclass_item_list:
 			opclass_item							{ $$ = list_make1($1); }
 			| opclass_item_list ',' opclass_item	{ $$ = lappend($1, $3); }
+		;
+
+opt_within_group: WITHIN GROUP_P ord_args {$$ = $3;} 
+			| {$$ = NIL;}
 		;
 
 opclass_item:

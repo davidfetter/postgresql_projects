@@ -56,14 +56,19 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	List	   *transfuncName = NIL;
 	List	   *finalfuncName = NIL;
 	List	   *sortoperatorName = NIL;
+	List	   *transsortoperatorName = NIL;
 	TypeName   *baseType = NULL;
 	TypeName   *transType = NULL;
 	char	   *initval = NULL;
 	Oid		   *aggArgTypes;
 	int			numArgs;
-	Oid			transTypeId;
+	int			numOrderedArgs = 0;
+	Oid			transTypeId = InvalidOid;
 	char		transTypeType;
 	ListCell   *pl;
+	bool		ishypothetical = false;
+	bool		isOrderedSet = false;
+	Oid 		variadic_type = InvalidOid;
 
 	/* Convert list of names to a name and namespace */
 	aggNamespace = QualifiedNameGetCreationNamespace(name, &aggName);
@@ -73,6 +78,15 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	if (aclresult != ACLCHECK_OK)
 		aclcheck_error(aclresult, ACL_KIND_NAMESPACE,
 					   get_namespace_name(aggNamespace));
+
+	if (list_length(args) > 1)
+	{
+		if (lsecond(args) != NULL)
+		{
+			//elog(WARNING,"second args is not NULL %d", list_length(args));
+			isOrderedSet = true;
+		}
+	}
 
 	foreach(pl, parameters)
 	{
@@ -100,6 +114,10 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 			initval = defGetString(defel);
 		else if (pg_strcasecmp(defel->defname, "initcond1") == 0)
 			initval = defGetString(defel);
+		else if (pg_strcasecmp(defel->defname, "hypothetical") == 0)
+			ishypothetical = true;
+		else if (pg_strcasecmp(defel->defname, "transsortop") == 0)
+			transsortoperatorName = defGetQualifiedName(defel);
 		else
 			ereport(WARNING,
 					(errcode(ERRCODE_SYNTAX_ERROR),
@@ -107,17 +125,20 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 							defel->defname)));
 	}
 
-	/*
-	 * make sure we have our required definitions
-	 */
-	if (transType == NULL)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-				 errmsg("aggregate stype must be specified")));
-	if (transfuncName == NIL)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-				 errmsg("aggregate sfunc must be specified")));
+	if (!isOrderedSet)
+	{
+		/*
+	 	* make sure we have our required definitions
+	 	*/
+		if (transType == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+						errmsg("aggregate stype must be specified")));
+		if (transfuncName == NIL)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					 errmsg("aggregate sfunc must be specified")));
+	}
 
 	/*
 	 * look up the aggregate's input datatype(s).
@@ -161,18 +182,40 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 					 errmsg("basetype is redundant with aggregate input type specification")));
 
-		numArgs = list_length(args);
-		aggArgTypes = (Oid *) palloc(sizeof(Oid) * numArgs);
-		foreach(lc, args)
+		numArgs = list_length(linitial(args));
+		if (isOrderedSet)
+		{
+			int totalnumArgs = list_length(linitial(args)) + list_length(lsecond(args));
+			aggArgTypes = (Oid *) palloc(sizeof(Oid) * totalnumArgs);
+			numOrderedArgs = list_length(lsecond(args));
+		}
+		else
+		{
+			aggArgTypes = (Oid *) palloc(sizeof(Oid) * numArgs);
+		}
+
+		foreach(lc, linitial(args))
 		{
 			TypeName   *curTypeName = (TypeName *) lfirst(lc);
 
 			aggArgTypes[i++] = typenameTypeId(NULL, curTypeName);
 		}
+
+		if (isOrderedSet)
+		{
+			foreach(lc, lsecond(args))
+			{
+				TypeName   *curTypeName = (TypeName *) lfirst(lc);
+
+				aggArgTypes[i++] = typenameTypeId(NULL, curTypeName);
+			}
+
+		}
 	}
 
 	/*
-	 * look up the aggregate's transtype.
+	 * look up the aggregate's transtype.The lookup happens only if the
+	 * aggregate function is not an ordered set function.
 	 *
 	 * transtype can't be a pseudo-type, since we need to be able to store
 	 * values of the transtype.  However, we can allow polymorphic transtype
@@ -182,19 +225,56 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	 * worse) by connecting up incompatible internal-using functions in an
 	 * aggregate.
 	 */
-	transTypeId = typenameTypeId(NULL, transType);
-	transTypeType = get_typtype(transTypeId);
-	if (transTypeType == TYPTYPE_PSEUDO &&
-		!IsPolymorphicType(transTypeId))
+	if (transType)
 	{
-		if (transTypeId == INTERNALOID && superuser())
-			 /* okay */ ;
-		else
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("aggregate transition data type cannot be %s",
-							format_type_be(transTypeId))));
+		transTypeId = typenameTypeId(NULL, transType);
+		transTypeType = get_typtype(transTypeId);
+		if (transTypeType == TYPTYPE_PSEUDO &&
+			!IsPolymorphicType(transTypeId))
+		{
+			if (!isOrderedSet)
+			{
+				if (transTypeId == INTERNALOID && superuser())
+					 /* okay */ ;
+				else
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+						 errmsg("aggregate transition data type cannot be %s",
+								format_type_be(transTypeId))));
+			}
+			else
+			{
+				if (transTypeId == INTERNALOID && superuser())
+					ereport(ERROR,
+						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+						 errmsg("aggregate transition data type cannot be INTERNALOID for ordered set functions")));
+			}
+		}
+
 	}
+
+	/*
+	 * Variadic check
+	 */
+
+	/*if (IsA(llast(linitial(args)), List))
+	{
+		variadic_type = typenameTypeId(NULL, (linitial(llast(linitial(args)))));
+
+		if (list_length(lsecond(args)) == 1)
+		{
+			if (typenameTypeId(NULL, linitial(lsecond(args))) != variadic_type)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+						 errmsg("Variadic types do not match")));
+			}
+		}
+	}
+	else if (IsA(llast(lsecond(args)), List))
+	{
+		variadic_type = typenameTypeId(NULL, (linitial(llast(lsecond(args)))));
+	}*/
 
 	/*
 	 * If we have an initval, and it's not for a pseudotype (particularly a
@@ -205,13 +285,16 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	 * value.  However, if it's an incorrect value it seems much more
 	 * user-friendly to complain at CREATE AGGREGATE time.
 	 */
-	if (initval && transTypeType != TYPTYPE_PSEUDO)
+	if (transType)
 	{
-		Oid			typinput,
-					typioparam;
+		if (initval && transTypeType != TYPTYPE_PSEUDO)
+		{
+			Oid			typinput,
+						typioparam;
 
-		getTypeInputInfo(transTypeId, &typinput, &typioparam);
-		(void) OidInputFunctionCall(typinput, initval, typioparam, -1);
+			getTypeInputInfo(transTypeId, &typinput, &typioparam);
+			(void) OidInputFunctionCall(typinput, initval, typioparam, -1);
+		}
 	}
 
 	/*
@@ -221,9 +304,14 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 						   aggNamespace,		/* namespace */
 						   aggArgTypes, /* input data type(s) */
 						   numArgs,
+						   numOrderedArgs,
 						   transfuncName,		/* step function name */
 						   finalfuncName,		/* final function name */
 						   sortoperatorName,	/* sort operator name */
+						   transsortoperatorName,  /* transsort operator name */
 						   transTypeId, /* transition data type */
-						   initval);	/* initial condition */
+						   initval,  /* initial condition */
+						   variadic_type,  /* The Oid of the variadic type, if applicable */
+						   isOrderedSet,  /* If the function is an ordered set */
+						   ishypothetical);  /* If the function is a hypothetical set */
 }
