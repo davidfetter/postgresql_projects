@@ -178,9 +178,6 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("CONCURRENTLY and WITH NO DATA options cannot be used together")));
 
-	/* We're not using materialized views in the system catalogs. */
-	Assert(!IsSystemRelation(matviewRel));
-
 	/* We don't allow an oid column for a materialized view. */
 	Assert(!matviewRel->rd_rel->relhasoids);
 
@@ -767,8 +764,6 @@ refresh_by_heap_swap(Oid matviewOid, Oid OIDNewHeap)
 {
 	finish_heap_swap(matviewOid, OIDNewHeap, false, false, true, true,
 					 RecentXmin, ReadNextMultiXactId());
-
-	RelationCacheInvalidateEntry(matviewOid);
 }
 
 

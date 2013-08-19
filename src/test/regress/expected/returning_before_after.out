@@ -93,7 +93,7 @@ JOIN foo3 f3 ON f2.bar1 = f3.bar1;
 UPDATE view_join SET bar1=bar1+5, bar2=bar2||'join', bar=bar1*2, bar4=7 RETURNING before.*, after.*;
 ERROR:  cannot update view "view_join"
 DETAIL:  Views that do not select from a single table or view are not automatically updatable.
-HINT:  To make the view updatable, provide an unconditional ON UPDATE DO INSTEAD rule or an INSTEAD OF UPDATE trigger.
+HINT:  To enable updating the view, provide an INSTEAD OF UPDATE trigger or an unconditional ON UPDATE DO INSTEAD rule.
 -- check triggers
 CREATE FUNCTION returning_trig() returns trigger as $$
 BEGIN
