@@ -924,7 +924,6 @@ pull_up_simple_subquery(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte,
 	 */
 	parse->targetList = (List *)
 		pullup_replace_vars((Node *) parse->targetList, &rvcontext);
-
 	parse->returningList = (List *)
 		pullup_replace_vars((Node *) parse->returningList, &rvcontext);
 	replace_vars_in_jointree((Node *) parse->jointree, &rvcontext,
