@@ -174,6 +174,8 @@ preprocess_targetlist(PlannerInfo *root, List *tlist)
 					var->varno = result_relation;
 					if(strcmp(rte->eref->aliasname,"before") == 0)
 						var->varoattno = list_length(tlist) + 1;
+					else
+						continue;
 				}
 			}
 

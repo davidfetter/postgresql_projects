@@ -191,7 +191,7 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
 
 			if (root->parse->commandType == CMD_UPDATE)
 			{
-				rte = ((RangeTblEntry *) list_nth(root->parse->rtable, (var->varno)-1));
+				rte = ((RangeTblEntry *) list_nth(root->parse->rtable, varno-1));
 				if(rte->rtekind == RTE_BEFORE)
 						continue;
 			}
@@ -205,10 +205,8 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
 			{
 				/* Variable not yet requested, so add to reltargetlist */
 				/* XXX is copyObject necessary here? */
-				Var *var2 = copyObject(var);
-				var2->varno = varno;
 				rel->reltargetlist = lappend(rel->reltargetlist,
-											 var2);
+											 copyObject(var));
 			}
 			rel->attr_needed[attno] = bms_add_members(rel->attr_needed[attno],
 													  where_needed);
