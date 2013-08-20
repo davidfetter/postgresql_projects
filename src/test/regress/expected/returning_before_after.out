@@ -75,14 +75,22 @@ UPDATE foo2 SET bar1=bar1*2, bar=bar1+5, bar2=bar1::text || bar::text RETURNING 
     1 | b    |   5 |    2 | 15   |   6 |    2 | 15   |   6
 (1 row)
 
+UPDATE foo SET bar1=bar1+1, bar2=bar2 || 'z' RETURNING before.*, after.*;
+ bar1 | bar2 | bar1 | bar2  
+------+------+------+-------
+    4 | xzab |    5 | xzabz
+    5 | yzab |    6 | yzabz
+    2 | 15   |    3 | 15z
+(3 rows)
+
 -- check views
 CREATE VIEW view_foo AS SELECT * FROM foo;
-UPDATE foo SET bar1=bar1+1 RETURNING before.*, bar1, bar2;
- bar1 | bar2 | bar1 | bar2 
-------+------+------+------
-    4 | xzab |    5 | xzab
-    5 | yzab |    6 | yzab
-    2 | 15   |    3 | 15
+UPDATE view_foo SET bar1=bar1+1 RETURNING before.*, bar1, bar2;
+ bar1 | bar2  | bar1 | bar2  
+------+-------+------+-------
+    5 | xzabz |    6 | xzabz
+    6 | yzabz |    7 | yzabz
+    3 | 15z   |    4 | 15z
 (3 rows)
 
 CREATE TABLE foo3 (bar1 INTEGER, bar4 FLOAT);
@@ -104,10 +112,10 @@ DROP TABLE foo2 CASCADE;
 NOTICE:  drop cascades to view view_join
 CREATE TRIGGER bef_foo BEFORE UPDATE ON foo FOR EACH ROW EXECUTE PROCEDURE returning_trig();
 UPDATE foo SET bar1=bar1+1, bar2=bar2 || 'z' RETURNING before.*, after.*, *;
- bar1 | bar2 | bar1 | bar2  | bar1 | bar2  
-------+------+------+-------+------+-------
-    5 | xzab |    6 | xzabz |   36 | xzabz
-    6 | yzab |    7 | yzabz |   49 | yzabz
+ bar1 | bar2  | bar1 |  bar2  | bar1 |  bar2  
+------+-------+------+--------+------+--------
+    6 | xzabz |    7 | xzabzz |   49 | xzabzz
+    7 | yzabz |    8 | yzabzz |   64 | yzabzz
 (2 rows)
 
 DROP TABLE foo CASCADE;

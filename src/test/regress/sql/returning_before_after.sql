@@ -36,12 +36,13 @@ CREATE TABLE foo2 (bar INTEGER) INHERITS(foo);
 INSERT INTO foo2 VALUES (1,'b',5);
 
 UPDATE foo2 SET bar1=bar1*2, bar=bar1+5, bar2=bar1::text || bar::text RETURNING before.*, after.*, *;
+UPDATE foo SET bar1=bar1+1, bar2=bar2 || 'z' RETURNING before.*, after.*;
 
 -- check views
 
 CREATE VIEW view_foo AS SELECT * FROM foo;
 
-UPDATE foo SET bar1=bar1+1 RETURNING before.*, bar1, bar2;
+UPDATE view_foo SET bar1=bar1+1 RETURNING before.*, bar1, bar2;
 
 CREATE TABLE foo3 (bar1 INTEGER, bar4 FLOAT);
 
