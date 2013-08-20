@@ -134,7 +134,7 @@ static List *set_returning_clause_references(PlannerInfo *root,
 static bool fix_opfuncids_walker(Node *node, void *context);
 static bool extract_query_dependencies_walker(Node *node,
 								  PlannerInfo *context);
-static void fix_varno_varattno(List *rlist, int aft);
+static void fix_varno_varattno(List *rlist, int bef, int aft);
 
 
 /*****************************************************************************
@@ -1737,7 +1737,10 @@ fix_join_expr_mutator(Node *node, fix_join_expr_context *context)
 			var = copyVar(var);
 			var->varno += context->rtoffset;
 			if (var->varnoold > 0)
-				var->varnoold += context->rtoffset;
+			{
+				if(((RangeTblEntry *)list_nth(context->root->parse->rtable,var->varnoold-1))->rtekind != RTE_BEFORE)
+					var->varnoold += context->rtoffset;
+			}
 			return (Node *) var;
 		}
 
@@ -1915,7 +1918,7 @@ fix_upper_expr_mutator(Node *node, fix_upper_expr_context *context)
  * Note: resultRelation is not yet adjusted by rtoffset.
  */
 
-void fix_varno_varattno(List *rlist, int aft)
+void fix_varno_varattno(List *rlist, int bef, int aft)
 {
 	ListCell   *temp;
 	Var *var = NULL;
@@ -1933,7 +1936,7 @@ void fix_varno_varattno(List *rlist, int aft)
 		{
 			if( IsA(var, Var) )
 			{
-				if(var->varnoold == aft)
+				if(var->varnoold == aft || var->varnoold == bef)
 				{
 					var->varno = OUTER_VAR;
 					var->varattno = var->varoattno;
@@ -1941,11 +1944,11 @@ void fix_varno_varattno(List *rlist, int aft)
 			}
 			else if( IsA(var, OpExpr ))
 			{
-				fix_varno_varattno(((OpExpr*)var)->args, aft);
+				fix_varno_varattno(((OpExpr*)var)->args, bef, aft);
 			}
 			else if( IsA(var, FuncExpr ))
 			{
-				fix_varno_varattno(((FuncExpr*)var)->args, aft);
+				fix_varno_varattno(((FuncExpr*)var)->args, bef, aft);
 			}
 		}
 	}
@@ -1959,7 +1962,7 @@ set_returning_clause_references(PlannerInfo *root,
 								int rtoffset)
 {
 	indexed_tlist *itlist;
-	int after_index=0;
+	int after_index=0, before_index;
 	Query      *parse = root->parse;
 
 	ListCell   *rt;
@@ -1973,7 +1976,10 @@ set_returning_clause_references(PlannerInfo *root,
 		if(strcmp(bef->eref->aliasname,"after") == 0 && bef->rtekind == RTE_BEFORE )
 		{
 			after_index = index_rel;
-			break;
+		}
+		if(strcmp(bef->eref->aliasname,"before") == 0 && bef->rtekind == RTE_BEFORE )
+		{
+			before_index = index_rel;
 		}
 		index_rel++;
 	}
@@ -2000,7 +2006,7 @@ set_returning_clause_references(PlannerInfo *root,
 						  resultRelation,
 						  rtoffset);
 
-	fix_varno_varattno(rlist, after_index);
+	fix_varno_varattno(rlist, before_index, after_index);
 	pfree(itlist);
 
 	return rlist;

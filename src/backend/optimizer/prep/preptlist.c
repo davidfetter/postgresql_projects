@@ -165,6 +165,18 @@ preprocess_targetlist(PlannerInfo *root, List *tlist)
 				var->varno == result_relation)
 				continue;		/* don't need it */
 
+			if (command_type == CMD_UPDATE)
+			{
+				RangeTblEntry *rte = ((RangeTblEntry *) list_nth(root->parse->rtable, (var->varno)-1));
+
+				if(rte->rtekind == RTE_BEFORE)
+				{
+					var->varno = result_relation;
+					if(strcmp(rte->eref->aliasname,"before") == 0)
+						var->varoattno = list_length(tlist) + 1;
+				}
+			}
+
 			if (tlist_member((Node *) var, tlist))
 				continue;		/* already got it */
 
