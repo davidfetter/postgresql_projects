@@ -1954,7 +1954,7 @@ set_returning_clause_references(PlannerInfo *root,
 								int rtoffset)
 {
 	indexed_tlist *itlist;
-	int after_index=0, before_index;
+	int after_index=0, before_index=0;
 	Query      *parse = root->parse;
 
 	ListCell   *rt;
