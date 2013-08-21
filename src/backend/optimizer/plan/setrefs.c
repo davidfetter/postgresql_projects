@@ -1877,9 +1877,9 @@ fix_upper_expr_mutator(Node *node, fix_upper_expr_context *context)
  * 	places in slot.
  *
  * 'rlist': the RETURNING targetlist to be fixed
- * 'bef': index of RTE_ALIAS "before" in rtable
+ * 'before': index of RTE_ALIAS "before" in rtable
  * 			value 2 in most cases
- * 'aft': index of RTE_ALIAS "after" in rtable
+ * 'after': index of RTE_ALIAS "after" in rtable
  * 			value 3 in most cases
  */
 static void 
