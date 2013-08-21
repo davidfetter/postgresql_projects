@@ -136,6 +136,7 @@ static bool extract_query_dependencies_walker(Node *node,
 								  PlannerInfo *context);
 static void bind_returning_variables(List *rlist, int before, int after);
 
+
 /*****************************************************************************
  *
  *		SUBPLAN REFERENCES
