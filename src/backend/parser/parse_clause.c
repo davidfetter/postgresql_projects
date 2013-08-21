@@ -84,7 +84,8 @@ static WindowClause *findWindowClause(List *wclist, const char *name);
 static Node *transformFrameOffset(ParseState *pstate, int frameOptions,
 					 Node *clause);
 
-void addAliases(ParseState *pstate)
+void
+addAliases(ParseState *pstate)
 {
 	const int n_aliases = 2;
 	char	*aliases[] = { "before", "after" };
