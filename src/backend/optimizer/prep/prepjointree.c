@@ -652,7 +652,7 @@ pull_up_subqueries_recurse(PlannerInfo *root, Node *jtnode,
 		int			varno = ((RangeTblRef *) jtnode)->rtindex;
 		RangeTblEntry *rte = rt_fetch(varno, root->parse->rtable);
 
-		if (rte->rtekind == RTE_BEFORE)
+		if (rte->rtekind == RTE_ALIAS)
 			return NULL;
 
 		/*
@@ -992,7 +992,7 @@ pull_up_simple_subquery(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte,
 				case RTE_RELATION:
 				case RTE_JOIN:
 				case RTE_CTE:
-				case RTE_BEFORE:
+				case RTE_ALIAS:
 					/* these can't contain any lateral references */
 					break;
 			}
@@ -1639,7 +1639,7 @@ replace_vars_in_jointree(Node *jtnode,
 					case RTE_RELATION:
 					case RTE_JOIN:
 					case RTE_CTE:
-					case RTE_BEFORE:
+					case RTE_ALIAS:
 						/* these shouldn't be marked LATERAL */
 						Assert(false);
 						break;
@@ -1797,7 +1797,7 @@ pullup_replace_vars_callback(Var *var,
 		  var->varno <= list_length(rcon->root->parse->rtable) )
 		{
 			RangeTblEntry *rte = rt_fetch(((Var*)var)->varnoold, rcon->root->parse->rtable);
-			if(rte->rtekind == RTE_BEFORE)
+			if(rte->rtekind == RTE_ALIAS)
 			{
 				((Var*)newnode)->varoattno = ((Var*)var)->varoattno;
 				((Var*)newnode)->varnoold = ((Var*)var)->varnoold;

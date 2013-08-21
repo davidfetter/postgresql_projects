@@ -192,7 +192,7 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
 			if (root->parse->commandType == CMD_UPDATE)
 			{
 				rte = ((RangeTblEntry *) list_nth(root->parse->rtable, varno-1));
-				if(rte->rtekind == RTE_BEFORE)
+				if(rte->rtekind == RTE_ALIAS)
 						continue;
 			}
 			rel = find_base_rel(root, varno);

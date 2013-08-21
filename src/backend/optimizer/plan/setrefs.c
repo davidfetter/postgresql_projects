@@ -134,8 +134,7 @@ static List *set_returning_clause_references(PlannerInfo *root,
 static bool fix_opfuncids_walker(Node *node, void *context);
 static bool extract_query_dependencies_walker(Node *node,
 								  PlannerInfo *context);
-static void bind_returning_variables(List *rlist, int bef, int aft);
-
+static void bind_returning_variables(List *rlist, int before, int after);
 
 /*****************************************************************************
  *
@@ -1717,7 +1716,7 @@ fix_join_expr_mutator(Node *node, fix_join_expr_context *context)
 			var->varno += context->rtoffset;
 			if (var->varnoold > 0)
 			{
-				if(((RangeTblEntry *)list_nth(context->root->parse->rtable,var->varnoold-1))->rtekind != RTE_BEFORE)
+				if(((RangeTblEntry *)list_nth(context->root->parse->rtable,var->varnoold-1))->rtekind != RTE_ALIAS)
 					var->varnoold += context->rtoffset;
 			}
 			return (Node *) var;
@@ -1877,42 +1876,44 @@ fix_upper_expr_mutator(Node *node, fix_upper_expr_context *context)
  * 	places in slot.
  *
  * 'rlist': the RETURNING targetlist to be fixed
- * 'bef': index of RTE_BEFORE "before" in rtable
+ * 'bef': index of RTE_ALIAS "before" in rtable
  * 			value 2 in most cases
- * 'aft': index of RTE_BEFORE "after" in rtable
+ * 'aft': index of RTE_ALIAS "after" in rtable
  * 			value 3 in most cases
  */
-void bind_returning_variables(List *rlist, int bef, int aft)
+static void 
+bind_returning_variables(List *rlist, int before, int after)
 {
 	ListCell   *temp;
 	Var *var = NULL;
+
 	foreach(temp, rlist){
 		TargetEntry *tle = (TargetEntry *)lfirst(temp);
 
 		var = NULL;
-		if(IsA(tle, TargetEntry))
+		if (IsA(tle, TargetEntry))
 		{
 			var = (Var*)tle->expr;
 		}
-		else if(IsA(tle, Var)) 
-			var=(Var*)tle;
-		if(var)
+		else if (IsA(tle, Var)) 
+			var = (Var*)tle;
+		if (var)
 		{
-			if( IsA(var, Var) )
+			if (IsA(var, Var))
 			{
-				if(var->varnoold == aft || var->varnoold == bef)
+				if (var->varnoold == after || var->varnoold == before)
 				{
 					var->varno = OUTER_VAR;
 					var->varattno = var->varoattno;
 				}
 			}
-			else if( IsA(var, OpExpr ))
+			else if (IsA(var, OpExpr))
 			{
-				bind_returning_variables(((OpExpr*)var)->args, bef, aft);
+				bind_returning_variables(((OpExpr*)var)->args, before, after);
 			}
-			else if( IsA(var, FuncExpr ))
+			else if (IsA(var, FuncExpr))
 			{
-				bind_returning_variables(((FuncExpr*)var)->args, bef, aft);
+				bind_returning_variables(((FuncExpr*)var)->args, before, after);
 			}
 		}
 	}
@@ -1960,16 +1961,16 @@ set_returning_clause_references(PlannerInfo *root,
 	ListCell   *rt;
 	RangeTblEntry *bef;
 
-	int index_rel=1;
+	int index_rel = 1;
 
 	foreach(rt,parse->rtable)
 	{
 		bef = (RangeTblEntry *)lfirst(rt);
-		if(strcmp(bef->eref->aliasname,"after") == 0 && bef->rtekind == RTE_BEFORE )
+		if (strcmp(bef->eref->aliasname,"after") == 0 && bef->rtekind == RTE_ALIAS )
 		{
 			after_index = index_rel;
 		}
-		if(strcmp(bef->eref->aliasname,"before") == 0 && bef->rtekind == RTE_BEFORE )
+		if (strcmp(bef->eref->aliasname,"before") == 0 && bef->rtekind == RTE_ALIAS )
 		{
 			before_index = index_rel;
 		}

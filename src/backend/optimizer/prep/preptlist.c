@@ -169,7 +169,7 @@ preprocess_targetlist(PlannerInfo *root, List *tlist)
 			{
 				RangeTblEntry *rte = ((RangeTblEntry *) list_nth(root->parse->rtable, (var->varno)-1));
 
-				if(rte->rtekind == RTE_BEFORE)
+				if(rte->rtekind == RTE_ALIAS)
 				{
 					var->varno = result_relation;
 					if(strcmp(rte->eref->aliasname,"before") == 0)
