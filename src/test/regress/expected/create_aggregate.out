@@ -59,3 +59,6 @@ create aggregate aggfns(integer,integer,text) (
    sfunc = aggfns_trans, stype = aggtype[],
    initcond = '{}'
 );
+-- ordered set functions
+create aggregate percentile_cont_test2(float8) within group (float8) ( finalfunc = percentile_cont_final );
+create aggregate percentile_disc2(float8) within group (anyelement) ( finalfunc = percentile_disc_final );

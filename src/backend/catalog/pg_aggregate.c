@@ -296,7 +296,7 @@ AggregateCreate(const char *aggName,
 	/*
 	 * permission checks on used types
 	 */
-	for (i = 0; i < numArgs; i++)
+	for (i = 0; i < numArgs + numOrderedArgs; i++)
 	{
 		aclresult = pg_type_aclcheck(aggArgTypes[i], GetUserId(), ACL_USAGE);
 		if (aclresult != ACLCHECK_OK)
