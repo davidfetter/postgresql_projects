@@ -194,10 +194,12 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 			aggArgTypes = (Oid *) palloc(sizeof(Oid) * numArgs);
 		}
 
+		//elog_node_display(NOTICE, "args", args, true);
+		
 		foreach(lc, linitial(args))
 		{
 			TypeName *curTypeName = NULL;
-			if (IsA(lc, List))
+			if (IsA(lfirst(lc), List))
 			{
 				curTypeName = linitial(lfirst(lc));
 				variadic_type = typenameTypeId(NULL, curTypeName);
@@ -230,7 +232,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 		{
 			if (variadic_type != InvalidOid)
 			{
-				if (!IsA(lsecond(args), List))
+				if (!IsA(linitial(lsecond(args)), List))
 					ereport(ERROR,
 							(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 					 		errmsg("Ordered arguments must be variadic any")));
