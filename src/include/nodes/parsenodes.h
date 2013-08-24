@@ -708,7 +708,7 @@ typedef enum RTEKind
 	RTE_FUNCTION,				/* function in FROM */
 	RTE_VALUES,					/* VALUES (<exprlist>), (<exprlist>), ... */
 	RTE_CTE,						/* common table expr (WITH list element) */
-	RTE_BEFORE						/* for before/after statements */
+	RTE_ALIAS						/* for before/after statements */
 } RTEKind;
 
 typedef struct RangeTblEntry

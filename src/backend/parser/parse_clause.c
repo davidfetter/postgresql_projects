@@ -84,12 +84,11 @@ static WindowClause *findWindowClause(List *wclist, const char *name);
 static Node *transformFrameOffset(ParseState *pstate, int frameOptions,
 					 Node *clause);
 
-extern void addAliases(ParseState *pstate);
-
-void addAliases(ParseState *pstate)
+void
+addAliases(ParseState *pstate)
 {
-	const int noal = 2;
-	char	*aliases[] = {"before","after"};
+	const int n_aliases = 2;
+	char	*aliases[] = { "before", "after" };
 	int		i;
 	ListCell   *l;
 	ParseNamespaceItem *nsitem;
@@ -107,7 +106,7 @@ void addAliases(ParseState *pstate)
 		if (nsitem->p_lateral_only && !pstate->p_lateral_active)
 			continue;
 
-		for(i=0 ; i<noal; i++)
+		for (i=0 ; i < n_aliases; i++)
 		{
 			if (aliases[i] && strcmp(rte->eref->aliasname, aliases[i]) == 0)
 			{
@@ -119,15 +118,15 @@ void addAliases(ParseState *pstate)
 	l = pstate->p_namespace->head;
 	nsitem = (ParseNamespaceItem *) lfirst(l);
 
-	for(i=0 ; i<noal; i++)
+	for (i=0 ; i < n_aliases; i++)
 	{
 		if (aliases[i])
 		{
 			rte = makeNode(RangeTblEntry);
 			rte->eref = makeAlias(aliases[i], nsitem->p_rte->eref->colnames);
 			rte->inh = INH_NO;
-			rte->rtekind = RTE_BEFORE;
-			rte->relkind = RELKIND_BEFORE;
+			rte->rtekind = RTE_ALIAS;
+			rte->relkind = RELKIND_RELATION;
 			rte->relid = nsitem->p_rte->relid;
 			pstate->p_rtable = lappend(pstate->p_rtable, rte);
 			addRTEtoQuery(pstate, rte, true, true, false);

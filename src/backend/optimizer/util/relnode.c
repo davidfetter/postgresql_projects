@@ -136,7 +136,7 @@ build_simple_rel(PlannerInfo *root, int relid, RelOptKind reloptkind)
 			/* Table --- retrieve statistics from the system catalogs */
 			get_relation_info(root, rte->relid, rte->inh, rel);
 			break;
-		case RTE_BEFORE:
+		case RTE_ALIAS:
 			break;
 		case RTE_SUBQUERY:
 		case RTE_FUNCTION:
@@ -508,7 +508,7 @@ build_joinrel_tlist(PlannerInfo *root, RelOptInfo *joinrel,
 				 (int) nodeTag(var));
 
 		rte = ((RangeTblEntry *) list_nth(root->parse->rtable, (var->varno)-1));
-		if(rte->rtekind == RTE_BEFORE)
+		if(rte->rtekind == RTE_ALIAS)
 			continue;
 
 		/* Get the Var's original base rel */

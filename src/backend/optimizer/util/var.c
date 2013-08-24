@@ -701,7 +701,7 @@ flatten_join_alias_vars_mutator(Node *node,
 			var->varno <= list_length(context->root->parse->rtable))
 		{
 			RangeTblEntry *rt = rt_fetch(var->varno, context->root->parse->rtable);
-			if(rt->rtekind == RTE_BEFORE)
+			if(rt->rtekind == RTE_ALIAS)
 			{
 				((Var*)newvar)->varoattno = ((Var*)var)->varoattno;
 				((Var*)newvar)->varnoold = ((Var*)var)->varnoold;
