@@ -139,26 +139,6 @@ FunctionNext(FunctionScanState *node)
 			 * call is fast, so the overhead shouldn't be an issue.
 			 */
 			tuplestore_rescan(tstore);
-
-			/*
-			 * If doing mark/restore, allocate a read pointer for the mark.
-			 */
-			if (node->eflags & EXEC_FLAG_MARK)
-			{
-				int ptrno = tuplestore_alloc_read_pointer(tstore, EXEC_FLAG_REWIND);
-
-				/*
-				 * We can't tolerate having the main tuplestore read pointer
-				 * not be number 0 (there's no way to query which pointer is
-				 * current). So we bail out if any additional read pointers
-				 * exist. (This can't be just an assert, as in the similar
-				 * case in nodeMaterial, because the function might have
-				 * allocated the tuplestore itself in materialize mode.)
-				 */
-
-				if (ptrno != 1)
-					elog(ERROR,"table function must not allocate tuplestore read pointers");
-			}
 		}
 
 		/*
@@ -276,6 +256,9 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	int         ntupdescs = nfuncs + (ordinality ? 1 : 0);
 	int         i, atts_done;
 	ListCell   *lc;
+
+	/* check for unsupported flags */
+	Assert(!(eflags & EXEC_FLAG_MARK));
 
 	/*
 	 * FunctionScan should not have any children.
@@ -472,7 +455,6 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	 * Other node-specific setup
 	 */
 	scanstate->ordinal = 0;
-	scanstate->mark_ordinal = -1;
 
 	scanstate->tuplestorestates = palloc(nfuncs * sizeof(Tuplestorestate *));
 	for (i = 0; i < nfuncs; ++i)
@@ -531,82 +513,6 @@ ExecEndFunctionScan(FunctionScanState *node)
 }
 
 /* ----------------------------------------------------------------
- *		ExecFunctionScanMarkPos
- *
- *		Calls tuplestore to save the current position in the stored file.
- * ----------------------------------------------------------------
- */
-void
-ExecFunctionScanMarkPos(FunctionScanState *node)
-{
-	int i;
-	int nfuncs = list_length(node->funcexprs);
-
-	Assert(node->eflags & EXEC_FLAG_MARK);
-
-	/*
-	 * if we haven't materialized yet, return, but note that we marked
-	 * the non-materialized state.
-	 */
-	if (!node->tuplestorestates[0])
-	{
-		node->mark_ordinal = -1;
-		return;
-	}
-
-	node->mark_ordinal = node->ordinal;
-
-	for (i = 0; i < nfuncs; ++i)
-		tuplestore_copy_read_pointer(node->tuplestorestates[i], 0, 1);
-}
-
-/* ----------------------------------------------------------------
- *		ExecFunctionScanRestrPos
- *
- *		Calls tuplestore to restore the last saved file position.
- * ----------------------------------------------------------------
- */
-void
-ExecFunctionScanRestrPos(FunctionScanState *node)
-{
-	int i;
-	int nfuncs = list_length(node->funcexprs);
-
-	Assert(node->eflags & EXEC_FLAG_MARK);
-
-	/*
-	 * if we haven't materialized yet, just return.
-	 */
-	if (!node->tuplestorestates[0])
-		return;
-
-	/*
-	 * If we marked the pre-materialized state, then treat it as
-	 * a rewind. In that case, also re-mark the state in the
-	 * rewound position.
-	 */
-	if (node->mark_ordinal == -1)
-	{
-		for (i = 0; i < nfuncs; ++i)
-		{
-			tuplestore_rescan(node->tuplestorestates[i]);
-			tuplestore_copy_read_pointer(node->tuplestorestates[i], 0, 1);
-		}
-		node->mark_ordinal = 0;
-	}
-	else
-	{
-		/*
-		 * copy the mark to the active read pointer.
-		 */
-		for (i = 0; i < nfuncs; ++i)
-			tuplestore_copy_read_pointer(node->tuplestorestates[i], 1, 0);
-	}
-
-	node->ordinal = node->mark_ordinal;
-}
-
-/* ----------------------------------------------------------------
  *		ExecReScanFunctionScan
  *
  *		Rescans the relation.
@@ -633,8 +539,6 @@ ExecReScanFunctionScan(FunctionScanState *node)
 	if (!node->tuplestorestates[0])
 		return;
 
-	node->mark_ordinal = -1;
-
 	/*
 	 * Here we have a choice whether to drop the tuplestores (and recompute the
 	 * function outputs) or just rescan them.  We must recompute if the
@@ -653,10 +557,6 @@ ExecReScanFunctionScan(FunctionScanState *node)
 				node->rowcounts[i] = -1;
 		}
 		else
-		{
 			tuplestore_rescan(node->tuplestorestates[i]);
-			if (node->eflags & EXEC_FLAG_MARK)
-				tuplestore_copy_read_pointer(node->tuplestorestates[i], 0, 1);
-		}
 	}
 }
