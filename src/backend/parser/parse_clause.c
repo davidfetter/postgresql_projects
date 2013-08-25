@@ -544,15 +544,16 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 	 * Have to get this info now, because FigureColname only works on raw
 	 * parsetree. Actually deciding what to do with the names is left up to
 	 * addRangeTableEntryForFunction (which does not see the raw parsenodes).
-	 *
-	 * Note, we make funcnames a list of char*, not nodes.
 	 */
 
 	foreach(lc, r->funccallnodes)
 	{
+		Node   *node = lfirst(lc);
+
 		funcexprs = lappend(funcexprs,
-							transformExpr(pstate, lfirst(lc), EXPR_KIND_FROM_FUNCTION));
-		funcnames = lappend(funcnames, FigureColname(lfirst(lc)));
+							transformExpr(pstate, node, EXPR_KIND_FROM_FUNCTION));
+
+		funcnames = lappend(funcnames, makeString(FigureColname(node)));
 	}
 
 	pstate->p_lateral_active = false;
