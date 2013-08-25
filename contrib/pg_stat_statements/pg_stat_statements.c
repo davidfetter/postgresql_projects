@@ -1456,7 +1456,7 @@ JumbleRangeTable(pgssJumbleState *jstate, List *rtable)
 				APP_JUMB(rte->jointype);
 				break;
 			case RTE_FUNCTION:
-				JumbleExpr(jstate, rte->funcexpr);
+				JumbleExpr(jstate, (Node *) rte->funcexprs);
 				break;
 			case RTE_VALUES:
 				JumbleExpr(jstate, (Node *) rte->values_lists);
