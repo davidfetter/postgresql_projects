@@ -19,8 +19,6 @@
  *		ExecInitFunctionScan	creates and initializes a functionscan node.
  *		ExecEndFunctionScan		releases any storage allocated.
  *		ExecReScanFunctionScan	rescans the function
- *		ExecFunctionScanMarkPos	marks position in the result set
- *		ExecFunctionScanRestrPos	restores the marked position
  */
 #include "postgres.h"
 
