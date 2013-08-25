@@ -20,7 +20,5 @@ extern FunctionScanState *ExecInitFunctionScan(FunctionScan *node, EState *estat
 extern TupleTableSlot *ExecFunctionScan(FunctionScanState *node);
 extern void ExecEndFunctionScan(FunctionScanState *node);
 extern void ExecReScanFunctionScan(FunctionScanState *node);
-extern void ExecFunctionScanMarkPos(FunctionScanState *node);
-extern void ExecFunctionScanRestrPos(FunctionScanState *node);
 
 #endif   /* NODEFUNCTIONSCAN_H */

@@ -1269,7 +1269,7 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	else if (rangefunc->is_table)
 		aliasname = "table";
 	else
-		aliasname = linitial(funcnames);
+		aliasname = strVal(linitial(funcnames));
 
 	eref = makeAlias(aliasname, NIL);
 	rte->eref = eref;
@@ -1346,7 +1346,7 @@ addRangeTableEntryForFunction(ParseState *pstate,
 						 * If not, use the function name as the column name.
 						 */
 						if (!pname)
-							pname = lfirst(lc2);
+							pname = strVal(lfirst(lc2));
 
 						functupdescs[i] = CreateTemplateTupleDesc(1, false);
 						TupleDescInitEntry(functupdescs[i],
@@ -1365,7 +1365,7 @@ addRangeTableEntryForFunction(ParseState *pstate,
 					ereport(ERROR,
 							(errcode(ERRCODE_DATATYPE_MISMATCH),
 							 errmsg("function \"%s\" in FROM has unsupported return type %s",
-									(char *) lfirst(lc2), format_type_be(funcrettype)),
+									strVal(lfirst(lc2)), format_type_be(funcrettype)),
 							 parser_errposition(pstate, exprLocation(lfirst(lc)))));
 			}
 
@@ -1388,14 +1388,14 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	{
 		/* Base data type, i.e. scalar */
 		buildScalarFunctionAlias(linitial(funcexprs),
-								 linitial(funcnames), rangefunc->is_table,
+								 strVal(linitial(funcnames)), rangefunc->is_table,
 								 alias, eref, rangefunc->ordinality);
 	}
 	else
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
 			 errmsg("function \"%s\" in FROM has unsupported return type %s",
-					(char *) linitial(funcnames), format_type_be(funcrettype)),
+					strVal(linitial(funcnames)), format_type_be(funcrettype)),
 				 parser_errposition(pstate, exprLocation(linitial(funcexprs)))));
 
 	/*

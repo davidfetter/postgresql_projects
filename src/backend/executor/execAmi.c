@@ -291,10 +291,6 @@ ExecMarkPos(PlanState *node)
 			ExecValuesMarkPos((ValuesScanState *) node);
 			break;
 
-		case T_FunctionScanState:
-			ExecFunctionScanMarkPos((FunctionScanState *) node);
-			break;
-
 		case T_MaterialState:
 			ExecMaterialMarkPos((MaterialState *) node);
 			break;
@@ -352,10 +348,6 @@ ExecRestrPos(PlanState *node)
 			ExecValuesRestrPos((ValuesScanState *) node);
 			break;
 
-		case T_FunctionScanState:
-			ExecFunctionScanRestrPos((FunctionScanState *) node);
-			break;
-
 		case T_MaterialState:
 			ExecMaterialRestrPos((MaterialState *) node);
 			break;
@@ -396,7 +388,6 @@ ExecSupportsMarkRestore(NodeTag plantype)
 		case T_IndexOnlyScan:
 		case T_TidScan:
 		case T_ValuesScan:
-		case T_FunctionScan:
 		case T_Material:
 		case T_Sort:
 			return true;
