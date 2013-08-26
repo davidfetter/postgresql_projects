@@ -3400,6 +3400,8 @@ make_functionscan(List *qptlist,
 	node->funcexprs = funcexprs;
 	node->funcordinality = ordinality;
 	node->funccolnames = funccolnames;
+	/* finalize_plan will fill this in if need be */
+	node->funcparams = NIL;
 
 	return node;
 }

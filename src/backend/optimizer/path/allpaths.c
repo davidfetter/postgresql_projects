@@ -1278,6 +1278,11 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		Var        *var = NULL;
 		AttrNumber  ordattno = list_length(rte->eref->colnames);
 
+		/*
+		 * Find corresponding Var in our tlist by searching for matching
+		 * attno.
+		 */
+
 		foreach(lc, rel->reltargetlist)
 		{
 			Var    *node = lfirst(lc);
@@ -1291,6 +1296,17 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 				break;
 			}
 		}
+
+		/*
+		 * The Var might not be found in the tlist, but that should only
+		 * happen if the ordinality column is never referenced anywhere
+		 * in the query - in which case nobody can possibly care about the
+		 * ordering of it. So just leave the pathkeys NIL in that case.
+		 *
+		 * Also, build_expression_pathkey will only build the pathkey if
+		 * there's already an equivalence class; if there isn't, it indicates
+		 * that nothing cares about the ordering.
+		 */
 
 		if (var)
 		{

@@ -161,21 +161,24 @@ FunctionNext(FunctionScanState *node)
 
 		natts = node->func_tupdescs[funcno]->natts;
 
-		/*
-		 * If we ran out of data for this function in the forward direction
-		 * then we now know how many rows it returned. We need to know this
-		 * in order to handle backwards scans. The row count we store is
-		 * actually 1+ the actual number, because we have to position the
-		 * tuplestore 1 off its end sometimes.
-		 */
-
 		Assert(rowcounts);
 
 		if (TupIsNull(slot))
 		{
+			/*
+			 * If we ran out of data for this function in the forward
+			 * direction then we now know how many rows it returned. We need
+			 * to know this in order to handle backwards scans. The row count
+			 * we store is actually 1+ the actual number, because we have to
+			 * position the tuplestore 1 off its end sometimes.
+			 */
+
 			if (ScanDirectionIsForward(direction) && rowcounts[funcno] == -1)
 				rowcounts[funcno] = node->ordinal;
 
+			/*
+			 * populate our result cols with null
+			 */
 			for (i = 0; i < natts; ++i, ++att)
 			{
 				scanslot->tts_values[att] = (Datum) 0;
@@ -184,6 +187,10 @@ FunctionNext(FunctionScanState *node)
 		}
 		else
 		{
+			/*
+			 * we have a result, so just copy it to the result cols.
+			 */
+
 			slot_getallattrs(slot);
 
 			for (i = 0; i < natts; ++i, ++att)
@@ -192,11 +199,20 @@ FunctionNext(FunctionScanState *node)
 				scanslot->tts_isnull[att] = slot->tts_isnull[i];
 			}
 
+			/*
+			 * We're not done until every function result is exhausted; we
+			 * pad the shorter results with nulls until then.
+			 */
+
 			alldone = false;
 		}
 
 		++funcno;
 	}
+
+	/*
+	 * ordinal col is always last, per spec.
+	 */
 
 	if (node->ordinality)
 	{
@@ -272,7 +288,22 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	scanstate->ss.ps.state = estate;
 	scanstate->eflags = eflags;
 
+	/*
+	 * are we adding an ordinality column?
+	 */
 	scanstate->ordinality = ordinality;
+
+	/*
+	 * Ordinal 0 represents the "before the first row" position.
+	 *
+	 * We need to track ordinal position even when not adding an ordinality
+	 * column to the result, in order to handle backwards scanning properly
+	 * with multiple functions with different result sizes. (We can't position
+	 * any individual function's tuplestore any more than 1 place beyond its
+	 * end, so when scanning backwards, we need to know when to start
+	 * including the function in the scan again.)
+	 */
+	scanstate->ordinal = 0;
 
 	/*
 	 * Miscellaneous initialization
@@ -296,6 +327,9 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	scanstate->ss.ps.qual = (List *)
 		ExecInitExpr((Expr *) node->scan.plan.qual,
 					 (PlanState *) scanstate);
+
+	scanstate->funcexprs = (List *) ExecInitExpr((Expr *) node->funcexprs,
+												 (PlanState *) scanstate);
 
 	/*
 	 * Set up to initialize a tupdesc for each function, plus one for the
@@ -370,9 +404,10 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	}
 
 	/*
-	 * If doing ordinality, we need a new tupdesc with one additional column
-	 * tacked on, always of type "bigint". The name to use has already been
-	 * recorded by the parser as the last element of funccolnames.
+	 * If doing ordinality, we need a new tupdesc with one column, always of
+	 * type "bigint", to add to the end of the collection of tupdescs. The
+	 * column name to use has already been recorded by the parser as the last
+	 * element of funccolnames.
 	 *
 	 * Without ordinality or multiple functions, the scan result tupdesc is
 	 * the same as the function result tupdesc. (No need to make a copy.)
@@ -393,6 +428,9 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 			func_tupdescs[nfuncs] = tupdesc;
 		}
 
+		/*
+		 * Produce the final combined tupdesc
+		 */
 		scan_tupdesc = CreateTupleDescCopyMany(func_tupdescs, ntupdescs);
 	}
 	else
@@ -436,24 +474,22 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	}
 
 	/*
-	 * Other node-specific setup
+	 * Need to track one tuplestore per function, but we don't allocate the
+	 * tuplestores; the actual call to the function does that. NULL flags
+	 * that we have not called the function yet (or need to call it again
+	 * after a rescan).
 	 */
-	scanstate->ordinal = 0;
-
 	scanstate->tuplestorestates = palloc(nfuncs * sizeof(Tuplestorestate *));
 	for (i = 0; i < nfuncs; ++i)
 		scanstate->tuplestorestates[i] = NULL;
-
-	scanstate->funcexprs = (List *) ExecInitExpr((Expr *) node->funcexprs,
-												 (PlanState *) scanstate);
-
-	scanstate->ss.ps.ps_TupFromTlist = false;
 
 	/*
 	 * Initialize result tuple type and projection info.
 	 */
 	ExecAssignResultTypeFromTL(&scanstate->ss.ps);
 	ExecAssignScanProjectionInfo(&scanstate->ss);
+
+	scanstate->ss.ps.ps_TupFromTlist = false;
 
 	return scanstate;
 }
@@ -508,7 +544,6 @@ ExecReScanFunctionScan(FunctionScanState *node)
 	int         i;
 	int         nfuncs = list_length(node->funcexprs);
 	Bitmapset  *chgparam = node->ss.ps.chgParam;
-	List       *funcparams = ((FunctionScan *) node->ss.ps.plan)->funcparams;
 
 	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
 	if (node->func_slots)
@@ -533,6 +568,7 @@ ExecReScanFunctionScan(FunctionScanState *node)
 	 */
 	if (chgparam)
 	{
+		List       *funcparams = ((FunctionScan *) node->ss.ps.plan)->funcparams;
 		ListCell   *lc;
 
 		i = 0;

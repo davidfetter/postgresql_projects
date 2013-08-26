@@ -13432,14 +13432,19 @@ makeXmlExpr(XmlExprOp op, char *name, List *named_args, List *args,
 	return (Node *) x;
 }
 
+/*
+ * Support the old column definition list syntax, either when TABLE() was
+ * not used, or when TABLE(func()) was used with only one function.
+ *
+ * This handles pushing the coldeflist down into the function call node.
+ */
 static void
 processTableFuncColdef(RangeFunction *n, List *coldeflist,
 					   int location,  core_yyscan_t yyscanner)
 {
 	/*
-	 * coldeflist is allowed only for exactly one
-	 * function (if more than one, then the coldeflist
-	 * must be applied inside TABLE() not outside.
+	 * coldeflist is allowed only for exactly one function; if more than one,
+	 * then the coldeflist must be applied inside TABLE() not outside.
 	 */
 	if (coldeflist != NIL)
 	{
