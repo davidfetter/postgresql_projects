@@ -505,8 +505,10 @@ ExecEndFunctionScan(FunctionScanState *node)
 void
 ExecReScanFunctionScan(FunctionScanState *node)
 {
-	int i;
-	int nfuncs = list_length(node->funcexprs);
+	int         i;
+	int         nfuncs = list_length(node->funcexprs);
+	Bitmapset  *chgparam = node->ss.ps.chgParam;
+	List       *funcparams = ((FunctionScan *) node->ss.ps.plan)->funcparams;
 
 	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
 	if (node->func_slots)
@@ -518,29 +520,38 @@ ExecReScanFunctionScan(FunctionScanState *node)
 	node->ordinal = 0;
 
 	/*
-	 * If we haven't materialized yet, just return.
+	 * Here we have a choice whether to drop the tuplestores (and recompute
+	 * the function outputs) or just rescan them.  We must recompute if the
+	 * expression contains changed parameters, else we rescan.
+	 *
+	 * Note that if chgparam is NULL, it's possible that the funcparams list
+	 * may be empty (if there never were any params and so finalize_plan was
+	 * never called), so we have to be careful about iterating or referencing
+	 * it.
+	 *
+	 * XXX maybe we should recompute if the function is volatile?
 	 */
-	if (!node->tuplestorestates[0])
-		return;
+	if (chgparam)
+	{
+		ListCell   *lc;
 
-	/*
-	 * Here we have a choice whether to drop the tuplestores (and recompute the
-	 * function outputs) or just rescan them.  We must recompute if the
-	 * expression contains parameters, else we rescan.	XXX maybe we should
-	 * recompute if the function is volatile?  Work out what params belong
-	 * to what functions?
-	 */
+		i = 0;
+		foreach(lc, funcparams)
+		{
+			if (bms_overlap(chgparam, lfirst(lc)))
+			{
+				if (node->tuplestorestates[i] != NULL)
+					tuplestore_end(node->tuplestorestates[i]);
+				node->tuplestorestates[i] = NULL;
+				if (node->rowcounts)
+					node->rowcounts[i] = -1;
+			}
+			++i;
+		}
+	}
 	for (i = 0; i < nfuncs; ++i)
 	{
-		if (node->ss.ps.chgParam != NULL)
-		{
-			if (node->tuplestorestates[i] != NULL)
-				tuplestore_end(node->tuplestorestates[i]);
-			node->tuplestorestates[i] = NULL;
-			if (node->rowcounts)
-				node->rowcounts[i] = -1;
-		}
-		else
+		if (node->tuplestorestates[i] != NULL)
 			tuplestore_rescan(node->tuplestorestates[i]);
 	}
 }

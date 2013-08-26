@@ -2136,9 +2136,39 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 			break;
 
 		case T_FunctionScan:
-			finalize_primnode((Node *) ((FunctionScan *) plan)->funcexprs,
-							  &context);
-			context.paramids = bms_add_members(context.paramids, scan_params);
+			{
+				finalize_primnode_context funccontext;
+				FunctionScan *fscan = (FunctionScan *) plan;
+				ListCell   *lc;
+
+				/*
+				 * Call finalize_primnode independently on each funcexpr so
+				 * that we can record which params are referenced in each, in
+				 * order to decide which need re-evaluating.
+				 */
+
+				funccontext = context;
+
+				Assert(fscan->funcparams == NIL);
+
+				foreach(lc, fscan->funcexprs)
+				{
+					funccontext.paramids = NULL;
+
+					finalize_primnode(lfirst(lc), &funccontext);
+
+					/* add the function's params to the overall set */
+					context.paramids = bms_add_members(context.paramids,
+													   funccontext.paramids);
+
+					/* hand off the function's params to the node's list */
+					fscan->funcparams = lappend(fscan->funcparams,
+												funccontext.paramids);
+				}
+
+				context.paramids = bms_add_members(context.paramids,
+												   scan_params);
+			}
 			break;
 
 		case T_ValuesScan:

@@ -427,6 +427,8 @@ typedef struct FunctionScan
 	List	   *funcexprs;		/* expression trees for func calls */
 	List       *funccolnames;   /* result column names */
 	bool        funcordinality; /* WITH ORDINALITY */
+	/* keep this last due to nonstandard output */
+	List       *funcparams;     /* Bitmapsets for params used by each func */
 } FunctionScan;
 
 /* ----------------

@@ -495,6 +495,7 @@ static FunctionScan *
 _copyFunctionScan(const FunctionScan *from)
 {
 	FunctionScan *newnode = makeNode(FunctionScan);
+	ListCell   *lc;
 
 	/*
 	 * copy node superclass fields
@@ -507,6 +508,14 @@ _copyFunctionScan(const FunctionScan *from)
 	COPY_NODE_FIELD(funcexprs);
 	COPY_NODE_FIELD(funccolnames);
 	COPY_SCALAR_FIELD(funcordinality);
+
+	/*
+	 * copy the param bitmap list by shallow-copying the list
+	 * structure, then replacing the values with copies
+	 */
+	newnode->funcparams = list_copy(from->funcparams);
+	foreach(lc, newnode->funcparams)
+		lfirst(lc) = bms_copy(lfirst(lc));
 
 	return newnode;
 }

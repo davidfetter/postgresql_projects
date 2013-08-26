@@ -512,6 +512,8 @@ _outSubqueryScan(StringInfo str, const SubqueryScan *node)
 static void
 _outFunctionScan(StringInfo str, const FunctionScan *node)
 {
+	ListCell   *lc;
+
 	WRITE_NODE_TYPE("FUNCTIONSCAN");
 
 	_outScanInfo(str, (const Scan *) node);
@@ -519,6 +521,13 @@ _outFunctionScan(StringInfo str, const FunctionScan *node)
 	WRITE_NODE_FIELD(funcexprs);
 	WRITE_NODE_FIELD(funccolnames);
 	WRITE_BOOL_FIELD(funcordinality);
+
+	appendStringInfoString(str, " :funcparams");
+	foreach(lc, node->funcparams)
+	{
+		appendStringInfoChar(str, ' ');
+		_outBitmapset(str, lfirst(lc));
+	}
 }
 
 static void
