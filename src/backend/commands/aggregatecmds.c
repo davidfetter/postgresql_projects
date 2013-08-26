@@ -69,6 +69,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 	bool		ishypothetical = false;
 	bool		isOrderedSet = false;
 	Oid 		variadic_type = InvalidOid;
+	Oid		ord_variadic_type = InvalidOid;
 
 	/* Convert list of names to a name and namespace */
 	aggNamespace = QualifiedNameGetCreationNamespace(name, &aggName);
@@ -218,6 +219,8 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 							break;
 				}
 
+				aggArgTypes[i++] = variadic_type;
+
 			}
 			else
 			{		
@@ -235,28 +238,47 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 				if (!IsA(linitial(lsecond(args)), List))
 					ereport(ERROR,
 							(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 		errmsg("Ordered arguments must be variadic any")));
+					 		errmsg("Ordered arguments must be variadic")));
 
 				if (list_length(lsecond(args)) != 1)
 					ereport(ERROR,
 							(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 					 		errmsg("Invalid ordered arguments for variadic")));
 
-				if (variadic_type == ANYOID)
-					if (typenameTypeId(NULL, linitial(lsecond(args))) != variadic_type)
+				/*if (variadic_type == ANYOID)
+					if (typenameTypeId(NULL, lfirst(lsecond(args))) != variadic_type)
 						ereport(ERROR,
 								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-						 		errmsg("Variadic types do not match")));
+						 		errmsg("Variadic types do not match")));*/
 
-				if (!OidIsValid(get_element_type(variadic_type)))
-					elog(ERROR, "variadic parameter is not an array");
+				if (variadic_type != ANYOID)
+					if (!OidIsValid(get_element_type(variadic_type)))
+						elog(ERROR, "variadic parameter is not an array");
 			}
 
 			foreach(lc, lsecond(args))
 			{
-				TypeName   *curTypeName = (TypeName *) lfirst(lc);
+				//elog_node_display(NOTICE, "args", args, true);
+				if (IsA(lfirst(lc), List))
+				{
+					//elog(WARNING,"In List condition");
+					ord_variadic_type = typenameTypeId(NULL, linitial(linitial(lfirst(lc))));
 
-				aggArgTypes[i++] = typenameTypeId(NULL, curTypeName);
+					if (ord_variadic_type != ANYOID)
+						if (!OidIsValid(get_element_type(ord_variadic_type)))
+									elog(ERROR, "variadic parameter is not an array");
+
+					aggArgTypes[i++] = ord_variadic_type;
+
+					//elog(WARNING,"type is %d",ord_variadic_type);
+				}
+				else
+				{
+					//elog(WARNING,"In non List condition");
+					TypeName *curTypeName = (TypeName *) lfirst(lc);
+
+					aggArgTypes[i++] = typenameTypeId(NULL, curTypeName);
+				}
 			}
 
 		}
@@ -337,7 +359,8 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters)
 						   transsortoperatorName,  /* transsort operator name */
 						   transTypeId, /* transition data type */
 						   initval,  /* initial condition */
-						   variadic_type,  /* The Oid of the variadic type, if applicable */
+						   variadic_type,  /* The Oid of the variadic type in direct args, if applicable */
+						   ord_variadic_type,   /* The Oid of the variadic type in ordered args, if applicable */
 						   isOrderedSet,  /* If the function is an ordered set */
 						   ishypothetical);  /* If the function is a hypothetical set */
 }

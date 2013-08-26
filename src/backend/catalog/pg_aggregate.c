@@ -55,6 +55,7 @@ AggregateCreate(const char *aggName,
 				Oid aggTransType,
 				const char *agginitval,
 				Oid variadic_type,
+				Oid ord_variadic_type,
 				bool isOrderedSet,
 				bool isHypotheticalSet)
 {
@@ -177,22 +178,44 @@ AggregateCreate(const char *aggName,
 			}
 			else
 			{
+				int sizeAllocation = 0;
+
 				if (variadic_type == InvalidOid)
-				{
-					int sizeAllocation = 0;
-					if (aggTransType != InvalidOid)
+				{	
+					if (ord_variadic_type != InvalidOid)
 					{
-						sizeAllocation = numArgs + numOrderedArgs + 1;
+						if (aggTransType != InvalidOid)
+						{
+							sizeAllocation = numArgs + 2;
+						}
+						else
+						{
+							sizeAllocation = numArgs + 1;
+						}
+
+						fnArgs = (Oid *) palloc(sizeAllocation * sizeof(Oid));
+						memcpy(fnArgs, aggArgTypes, (numArgs * sizeof(Oid)));
+						fnArgs[numArgs] = ord_variadic_type;
+
+						if (aggTransType != InvalidOid)
+							fnArgs[numArgs + 1] = aggTransType;
 					}
 					else
 					{
-						sizeAllocation = numArgs + numOrderedArgs;
-					}
+						if (aggTransType != InvalidOid)
+						{
+							sizeAllocation = numArgs + numOrderedArgs + 1;
+						}
+						else
+						{
+							sizeAllocation = numArgs + numOrderedArgs;
+						}
 
-					fnArgs = (Oid *) palloc(sizeAllocation * sizeof(Oid));
-					memcpy(fnArgs, (aggArgTypes), (numArgs + numOrderedArgs) * sizeof(Oid));
-					if (aggTransType != InvalidOid)
-						fnArgs[numArgs + numOrderedArgs] = aggTransType;
+						fnArgs = (Oid *) palloc(sizeAllocation * sizeof(Oid));
+						memcpy(fnArgs, (aggArgTypes), (numArgs + numOrderedArgs) * sizeof(Oid));
+						if (aggTransType != InvalidOid)
+							fnArgs[numArgs + numOrderedArgs] = aggTransType;
+					}
 				}
 				else
 				{
@@ -203,13 +226,33 @@ AggregateCreate(const char *aggName,
 								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 						 		errmsg("Variadic 'any' must have only a single ordered argument of 'any' type")));
 
-						if (aggArgTypes[numArgs] != ANYOID)
+						if (ord_variadic_type != ANYOID)
 							ereport(ERROR,
 								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-						 		errmsg("Variadic 'any' cannot have any other argument type other than any")));
+						 		errmsg("Variadic 'any' cannot have any other argument type other than any %d",ord_variadic_type)));
+
+						if (aggTransType != InvalidOid)
+						{
+							sizeAllocation = numArgs + 2;
+						}
+						else
+						{
+							sizeAllocation = numArgs + 1;
+						}
+
+						fnArgs = (Oid *) palloc(sizeAllocation * sizeof(Oid));
+
+						memcpy(fnArgs, (aggArgTypes), (numArgs) * sizeof(Oid));
+						fnArgs[numArgs] = variadic_type;
+
+						if (aggTransType != InvalidOid)
+							fnArgs[numArgs + 1] = aggTransType;
+
 					}
 
 				}
+
+				
 
 			}
 		}
