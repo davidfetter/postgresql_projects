@@ -261,6 +261,7 @@ extern Oid AggregateCreate(const char *aggName,
 				Oid aggTransType,
 				const char *agginitval,
 				Oid variadic_type,
+				Oid ord_variadic_type,
 				bool isOrderedSetFunc,
 				bool isHypotheticalSet);
 

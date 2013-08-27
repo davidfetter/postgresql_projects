@@ -4764,13 +4764,13 @@ def_arg:	func_type						{ $$ = (Node *)$1; }
 
 aggr_args:	'(' type_list ')'						{ $$ = $2; }
 			|  '(' type_list ',' VARIADIC Typename ')'		{ $$ = lappend($2, list_make1($5)); }
- 			| '(' VARIADIC Typename ')'				{ $$ = list_make1($3); }
+ 			| '(' VARIADIC Typename ')'				{ $$ = list_make1(list_make1($3)); }
 			| '(' '*' ')'						{ $$ = NIL; }
 		;
 
 ord_args:	'(' type_list ')'						{ $$ = $2; }
 			|  '(' type_list ',' VARIADIC Typename ')'		{ $$ = lappend($2, list_make1($5)); }
- 			| '(' VARIADIC Typename ')'				{ $$ = list_make1($3); }
+ 			| '(' VARIADIC type_list ')'				{ $$ = list_make1(list_make1($3)); }
 		;
 
 old_aggr_definition: '(' old_aggr_list ')'			{ $$ = $2; }

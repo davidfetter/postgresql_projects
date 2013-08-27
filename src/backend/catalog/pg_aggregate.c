@@ -55,6 +55,7 @@ AggregateCreate(const char *aggName,
 				Oid aggTransType,
 				const char *agginitval,
 				Oid variadic_type,
+				Oid ord_variadic_type,
 				bool isOrderedSet,
 				bool isHypotheticalSet)
 {
@@ -177,23 +178,82 @@ AggregateCreate(const char *aggName,
 			}
 			else
 			{
+				int sizeAllocation = 0;
+
 				if (variadic_type == InvalidOid)
-				{
-					int sizeAllocation = 0;
-					if (aggTransType != InvalidOid)
+				{	
+					if (ord_variadic_type != InvalidOid)
 					{
-						sizeAllocation = numArgs + numOrderedArgs + 1;
+						if (aggTransType != InvalidOid)
+						{
+							sizeAllocation = numArgs + 2;
+						}
+						else
+						{
+							sizeAllocation = numArgs + 1;
+						}
+
+						fnArgs = (Oid *) palloc(sizeAllocation * sizeof(Oid));
+						memcpy(fnArgs, aggArgTypes, (numArgs * sizeof(Oid)));
+						fnArgs[numArgs] = ord_variadic_type;
+
+						if (aggTransType != InvalidOid)
+							fnArgs[numArgs + 1] = aggTransType;
 					}
 					else
 					{
-						sizeAllocation = numArgs + numOrderedArgs;
+						if (aggTransType != InvalidOid)
+						{
+							sizeAllocation = numArgs + numOrderedArgs + 1;
+						}
+						else
+						{
+							sizeAllocation = numArgs + numOrderedArgs;
+						}
+
+						fnArgs = (Oid *) palloc(sizeAllocation * sizeof(Oid));
+						memcpy(fnArgs, (aggArgTypes), (numArgs + numOrderedArgs) * sizeof(Oid));
+						if (aggTransType != InvalidOid)
+							fnArgs[numArgs + numOrderedArgs] = aggTransType;
+					}
+				}
+				else
+				{
+					if (variadic_type == ANYOID)
+					{
+						if (numOrderedArgs != 1)
+							ereport(ERROR,
+								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+						 		errmsg("Variadic 'any' must have only a single ordered argument of 'any' type")));
+
+						if (ord_variadic_type != ANYOID)
+							ereport(ERROR,
+								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+						 		errmsg("Variadic 'any' cannot have any other argument type other than any %d",ord_variadic_type)));
+
+						if (aggTransType != InvalidOid)
+						{
+							sizeAllocation = numArgs + 2;
+						}
+						else
+						{
+							sizeAllocation = numArgs + 1;
+						}
+
+						fnArgs = (Oid *) palloc(sizeAllocation * sizeof(Oid));
+
+						memcpy(fnArgs, (aggArgTypes), (numArgs) * sizeof(Oid));
+						fnArgs[numArgs] = variadic_type;
+
+						if (aggTransType != InvalidOid)
+							fnArgs[numArgs + 1] = aggTransType;
+
 					}
 
-					fnArgs = (Oid *) palloc(sizeAllocation * sizeof(Oid));
-					memcpy(fnArgs, (aggArgTypes), (numArgs + numOrderedArgs) * sizeof(Oid));
-					if (aggTransType != InvalidOid)
-						fnArgs[numArgs + numOrderedArgs] = aggTransType;
 				}
+
+				
+
 			}
 		}
 		else
@@ -279,7 +339,7 @@ AggregateCreate(const char *aggName,
 	/*
 	 * permission checks on used types
 	 */
-	for (i = 0; i < numArgs; i++)
+	for (i = 0; i < numArgs + numOrderedArgs; i++)
 	{
 		aclresult = pg_type_aclcheck(aggArgTypes[i], GetUserId(), ACL_USAGE);
 		if (aclresult != ACLCHECK_OK)
