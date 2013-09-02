@@ -509,7 +509,7 @@ List *
 build_expression_pathkey(PlannerInfo *root,
 						 RelOptInfo *rel,
 						 Expr *expr,
-						 Oid operator,
+						 Oid opno,
 						 bool nulls_first)
 {
 	List       *pathkeys = NIL;

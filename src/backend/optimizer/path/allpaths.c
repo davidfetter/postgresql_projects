@@ -1310,11 +1310,11 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 		if (var)
 		{
-			Oid operator = get_opfamily_member(INTEGER_BTREE_FAM_OID,
-											   var->vartype, var->vartype,
-											   BTLessStrategyNumber);
+			Oid opno = get_opfamily_member(INTEGER_BTREE_FAM_OID,
+										   var->vartype, var->vartype,
+										   BTLessStrategyNumber);
 
-			pathkeys = build_expression_pathkey(root, rel, (Expr*) var, operator, false);
+			pathkeys = build_expression_pathkey(root, rel, (Expr*) var, opno, false);
 		}
 	}
 
