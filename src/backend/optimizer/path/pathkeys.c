@@ -519,10 +519,10 @@ build_expression_pathkey(PlannerInfo *root,
 	PathKey    *cpathkey;
 
 	/* Find the operator in pg_amop --- failure shouldn't happen */
-	if (!get_ordering_op_properties(operator,
+	if (!get_ordering_op_properties(opno,
 									&opfamily, &opcintype, &strategy))
 		elog(ERROR, "operator %u is not a valid ordering operator",
-			 operator);
+			 opno);
 
 	cpathkey = make_pathkey_from_sortinfo(root,
 										  expr,
