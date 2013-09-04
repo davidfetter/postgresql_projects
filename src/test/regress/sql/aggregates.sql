@@ -499,3 +499,6 @@ select percentile_cont(0.5) within group (order by b),sum(b) from aggtest;
 select percentile_cont(0.5) within group (order by thousand) from tenk1;
 select percentile_disc(0.5) within group (order by thousand) from tenk1;
 
+-- variadic aggregates
+select least_agg(q1,q2) from int8_tbl;
+select least_agg(variadic array[q1,q2]) from int8_tbl;

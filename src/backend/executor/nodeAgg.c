@@ -1809,6 +1809,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			/* build expression trees using actual argument & result types */
 			build_aggregate_fnexprs(inputTypes,
 									numArguments,
+									aggref->aggvariadic,
 									aggtranstype,
 									aggref->aggtype,
 									aggref->inputcollid,

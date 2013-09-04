@@ -250,6 +250,7 @@ typedef struct Aggref
 	List	   *orddirectargs;	/* Direct arguments for ordered set functions */
 	Expr	   *aggfilter;		/* FILTER expression */
 	bool		aggstar;		/* TRUE if argument list was really '*' */
+	bool		aggvariadic;	/* TRUE if VARIADIC was used in call */
 	bool		isordset;	/* If node is from an ordered set function */
 	bool		ishypothetical;	/* If node is from a hypothetical set function */
 	Index		agglevelsup;	/* > 0 if agg belongs to outer query */
