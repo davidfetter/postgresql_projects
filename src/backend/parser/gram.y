@@ -3661,7 +3661,7 @@ AlterExtensionContentsStmt:
 					n->action = $4;
 					n->objtype = OBJECT_AGGREGATE;
 					n->objname = $6;
-					n->objargs = extractArgTypes($7);
+					n->objargs = extractArgTypes(linitial($7));
 					$$ = (Node *)n;
 				}
 			| ALTER EXTENSION name add_drop CAST '(' Typename AS Typename ')'
@@ -5240,7 +5240,7 @@ CommentStmt:
 					CommentStmt *n = makeNode(CommentStmt);
 					n->objtype = OBJECT_AGGREGATE;
 					n->objname = $4;
-					n->objargs = extractArgTypes($5);
+					n->objargs = extractArgTypes(linitial($5));
 					n->comment = $7;
 					$$ = (Node *) n;
 				}
@@ -5406,7 +5406,7 @@ SecLabelStmt:
 					n->provider = $3;
 					n->objtype = OBJECT_AGGREGATE;
 					n->objname = $6;
-					n->objargs = extractArgTypes($7);
+					n->objargs = extractArgTypes(linitial($7));
 					n->label = $9;
 					$$ = (Node *) n;
 				}
@@ -6406,9 +6406,53 @@ aggr_arg:	func_arg
 				}
 		;
 
-/* Zero-argument aggregates are named with * for consistency with COUNT(*) */
-aggr_args:	'(' aggr_args_list ')'					{ $$ = $2; }
-			| '(' '*' ')'							{ $$ = NIL; }
+/*
+ * Aggregate args (for create aggregate, etc.) are treated as follows:
+ *
+ * (*)                              - no args
+ * (func_arg,func_arg,...)          - normal agg with args
+ * () within group (func_arg,...)   - ordered set func with no direct args
+ * (func_arg,...) within group (func_arg,...)  - ordered set func with args
+ * (func_arg,...) within group (*)  - ordered set func variadic special case
+ *
+ * This doesn't correspond to anything in the spec because the spec doesn't
+ * have any DDL to create or modify ordered set functions, so we're winging
+ * it here.
+ *
+ * Almost everything we do with an ordered set function treats its arguments
+ * as though they were a single list, with the direct and grouped arg types
+ * concatenated. So for simplicity, we construct a single list here.
+ *
+ * But we still need to know when creating an agg (but not for referring to it
+ * later) where the division between direct and ordered args is; so this
+ * production returns a pair (arglist,num) where num is the number of direct
+ * args, or -1 if no within group clause was used. Most users of aggr_args,
+ * other than CREATE AGGREGATE, therefore only need to pay attention to
+ * linitial($n).
+ */
+
+aggr_args:  '(' '*' ')'
+				{
+					$$ = list_make2(NIL, makeInteger(-1));
+				}
+			| '(' aggr_args_list ')'
+				{
+					$$ = list_make2($2, makeInteger(-1));
+				}
+			| '(' ')' WITHIN GROUP_P '(' aggr_args_list ')'
+				{
+					$$ = list_make2($6, makeInteger(0));
+				}
+			| '(' aggr_args_list ')' WITHIN GROUP_P '(' aggr_args_list ')'
+				{
+					int n = list_length($2);
+					$$ = list_make2(list_concat($2,$7), makeInteger(n));
+				}
+			| '(' aggr_args_list ')' WITHIN GROUP_P '(' '*' ')'
+				{
+					int n = list_length($2);
+					$$ = list_make2($2, makeInteger(n));
+				}
 		;
 
 aggr_args_list:
@@ -6614,7 +6658,7 @@ RemoveAggrStmt:
 					DropStmt *n = makeNode(DropStmt);
 					n->removeType = OBJECT_AGGREGATE;
 					n->objects = list_make1($3);
-					n->arguments = list_make1(extractArgTypes($4));
+					n->arguments = list_make1(extractArgTypes(linitial($4)));
 					n->behavior = $5;
 					n->missing_ok = false;
 					n->concurrent = false;
@@ -6625,7 +6669,7 @@ RemoveAggrStmt:
 					DropStmt *n = makeNode(DropStmt);
 					n->removeType = OBJECT_AGGREGATE;
 					n->objects = list_make1($5);
-					n->arguments = list_make1(extractArgTypes($6));
+					n->arguments = list_make1(extractArgTypes(linitial($6)));
 					n->behavior = $7;
 					n->missing_ok = true;
 					n->concurrent = false;
@@ -6841,7 +6885,7 @@ RenameStmt: ALTER AGGREGATE func_name aggr_args RENAME TO name
 					RenameStmt *n = makeNode(RenameStmt);
 					n->renameType = OBJECT_AGGREGATE;
 					n->object = $3;
-					n->objarg = extractArgTypes($4);
+					n->objarg = extractArgTypes(linitial($4));
 					n->newname = $7;
 					n->missing_ok = false;
 					$$ = (Node *)n;
@@ -7315,7 +7359,7 @@ AlterObjectSchemaStmt:
 					AlterObjectSchemaStmt *n = makeNode(AlterObjectSchemaStmt);
 					n->objectType = OBJECT_AGGREGATE;
 					n->object = $3;
-					n->objarg = extractArgTypes($4);
+					n->objarg = extractArgTypes(linitial($4));
 					n->newschema = $7;
 					n->missing_ok = false;
 					$$ = (Node *)n;
@@ -7544,7 +7588,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_AGGREGATE;
 					n->object = $3;
-					n->objarg = extractArgTypes($4);
+					n->objarg = extractArgTypes(linitial($4));
 					n->newowner = $7;
 					$$ = (Node *)n;
 				}

@@ -274,8 +274,13 @@ interpret_function_parameter_list(List *parameters,
 		/* handle input parameters */
 		if (fp->mode != FUNC_PARAM_OUT && fp->mode != FUNC_PARAM_TABLE)
 		{
-			/* other input parameters can't follow a VARIADIC parameter */
-			if (varCount > 0)
+			/*
+			 * For functions, other input parameters can't follow a VARIADIC
+			 * parameter; for aggregates, we might be dealing with an ordered
+			 * set function which have more complex rules for variadics, so
+			 * punt the error checking for that case to the caller.
+			 */
+			if (varCount > 0 && !is_aggregate)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 						 errmsg("VARIADIC parameter must be the last input parameter")));

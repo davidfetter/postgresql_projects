@@ -46,7 +46,7 @@ Oid
 AggregateCreate(const char *aggName,
 				Oid aggNamespace,
 				int numArgs,
-				int numOrderedArgs,
+				int numDirectArgs,
 				oidvector *parameterTypes,
 				Datum allParameterTypes,
 				Datum parameterModes,
@@ -58,7 +58,6 @@ AggregateCreate(const char *aggName,
 				List *aggtranssortopName,
 				Oid aggTransType,
 				const char *agginitval,
-				Oid variadic_type,
 				bool isOrderedSet,
 				bool isHypotheticalSet)
 {
@@ -67,17 +66,18 @@ AggregateCreate(const char *aggName,
 	bool		nulls[Natts_pg_aggregate];
 	Datum		values[Natts_pg_aggregate];
 	Form_pg_proc proc;
-	Oid			transfn = InvalidOid;
+	Oid			transfn = InvalidOid;	/* can be omitted */
 	Oid			finalfn = InvalidOid;	/* can be omitted */
 	Oid			sortop = InvalidOid;	/* can be omitted */
 	Oid			transsortop = InvalidOid;  /* Can be omitted */
 	Oid		   *aggArgTypes = parameterTypes->values;
 	bool		hasPolyArg;
 	bool		hasInternalArg;
+	int         variadic_arg = -1;
+	Oid         variadic_type = InvalidOid;
 	Oid			rettype;
 	Oid			finaltype;
-	Oid		   *fnArgs = NULL;
-	int			nargs_transfn;
+	Oid		   *fnArgs = palloc((numArgs + 1) * sizeof(Oid));
 	Oid			procOid;
 	TupleDesc	tupDesc;
 	int			i;
@@ -93,6 +93,8 @@ AggregateCreate(const char *aggName,
 	{
 		if (aggtransfnName)
 			elog(ERROR, "Ordered set functions cannot have transition functions");
+		if (!aggfinalfnName)
+			elog(ERROR, "Ordered set functions must have final functions");
 	}
 	else
 	{
@@ -103,7 +105,7 @@ AggregateCreate(const char *aggName,
 	/* check for polymorphic and INTERNAL arguments */
 	hasPolyArg = false;
 	hasInternalArg = false;
-	for (i = 0; i < (numArgs + numOrderedArgs); i++)
+	for (i = 0; i < numArgs; i++)
 	{
 		if (IsPolymorphicType(aggArgTypes[i]))
 			hasPolyArg = true;
@@ -111,37 +113,171 @@ AggregateCreate(const char *aggName,
 			hasInternalArg = true;
 	}
 
+	/*-
+	 * Argument mode checks. If there were no variadics, we should have been
+	 * passed a NULL pointer for parameterModes, so we can skip this if so.
+	 * Otherwise, the allowed cases are as follows:
+	 *
+	 * aggfn(..., variadic sometype)   - normal agg with variadic arg last
+	 * aggfn(..., variadic "any")      - normal agg with "any" variadic
+	 *
+	 * ordfn(..., variadic sometype) within group (...)
+	 *  - ordered set func with variadic direct arg last, followed by ordered
+	 *    args, none of which are variadic
+	 *    (implies finalfn(..., sometype, ..., [transtype]))
+	 *
+	 * ordfn(..., variadic "any") within group (*)
+	 *  - ordered set func with "any" variadic in direct args, which requires
+	 *    that the ordered args also be variadic any which we represent
+	 *    specially; this is the common case for hypothetical set functions.
+	 *    Note this is the only case where numDirectArgs == numArgs on input
+	 *    (implies finalfn(..., variadic "any"))
+	 *
+	 * ordfn(...) within group (..., variadic "any")
+	 *  - ordered set func with no variadic in direct args, but allowing any
+	 *    types of ordered args.
+	 *    (implies finalfn(..., ..., variadic "any"))
+	 *
+	 * We don't allow variadic ordered args other than "any"; we don't allow
+	 * anything after variadic "any" except the special-case (*).
+	 */
+
+	if (parameterModes != PointerGetDatum(NULL))
+	{
+		/*
+		 * We expect the array to be a 1-D CHAR array; verify that. We don't
+		 * need to use deconstruct_array() since the array data is just going
+		 * to look like a C array of char values.
+		 */
+		ArrayType  *modesArray = (ArrayType *) DatumGetPointer(parameterModes);
+		char       *paramModes;
+		int         modesCount;
+		int         i;
+
+		if (ARR_NDIM(modesArray) != 1 ||
+			ARR_HASNULL(modesArray) ||
+			ARR_ELEMTYPE(modesArray) != CHAROID)
+			elog(ERROR, "parameterModes is not a 1-D char array");
+
+		paramModes = (char *) ARR_DATA_PTR(modesArray);
+		modesCount = ARR_DIMS(modesArray)[0];
+
+		for (i = 0; i < modesCount; ++i)
+		{
+			switch (paramModes[i])
+			{
+				case PROARGMODE_VARIADIC:
+					if (variadic_arg >= 0)
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+								 errmsg("VARIADIC can not be specified more than once")));
+					variadic_arg = i;
+					variadic_type = aggArgTypes[i];
+
+					/* enforce restrictions on ordered args */
+
+					if (numDirectArgs >= 0
+						&& i >= numDirectArgs
+						&& variadic_type != ANYOID)
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+								 errmsg("VARIADIC ordered arguments must be of type ANY")));
+
+					break;
+
+				case PROARGMODE_IN:
+					if (variadic_arg >= 0)
+					{
+						/*
+						 * IN arg may only follow VARIADIC arg if the IN arg
+						 * is ordered and the variadic is not "any"
+						 */
+						if (numDirectArgs == -1
+							|| i < numDirectArgs
+							|| variadic_type == ANYOID)
+							ereport(ERROR,
+									(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+									 errmsg("VARIADIC argument must be last")));
+					}
+					break;
+
+				default:
+					elog(ERROR, "invalid argument mode");
+			}
+		}
+	}
+
+	switch (variadic_type)
+	{
+		case InvalidOid:
+		case ANYARRAYOID:
+		case ANYOID:
+			/* okay */
+			break;
+		default:
+			if (!OidIsValid(get_element_type(variadic_type)))
+				elog(ERROR, "VARIADIC parameter must be an array");
+			break;
+	}
+
+	if (isHypotheticalSet)
+	{
+		if (numArgs != numDirectArgs
+			|| variadic_type != ANYOID)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					 errmsg("Invalid argument types for hypothetical set function"),
+					 errhint("Required declaration is (..., variadic \"any\") WITHIN GROUP (*)")));
+
+		/* flag for special processing for hypothetical sets */
+		numDirectArgs = -2;
+	}
+	else if (numArgs == numDirectArgs)
+	{
+		if (variadic_type == ANYOID)
+		{
+			/*
+			 * this case allows the number of direct args to be truly variable
+			 */
+			numDirectArgs = -1;
+		}
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					 errmsg("Invalid argument types for ordered set function"),
+					 errhint("WITHIN GROUP (*) is not allowed without variadic \"any\"")));
+	}
+
 	/*
 	 * If transtype is polymorphic, must have polymorphic argument also; else
 	 * we will have no way to deduce the actual transtype.
 	 */
+	if (IsPolymorphicType(aggTransType) && !hasPolyArg)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("cannot determine transition data type"),
+				 errdetail("An aggregate using a polymorphic transition type must have at least one polymorphic argument.")));
+
 	if (!isOrderedSet)
 	{
-		if (IsPolymorphicType(aggTransType) && !hasPolyArg)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("cannot determine transition data type"),
-					 errdetail("An aggregate using a polymorphic transition type must have at least one polymorphic argument.")));
-
 		/* find the transfn */		
-			nargs_transfn = numArgs + 1;
-			fnArgs = (Oid *) palloc(nargs_transfn * sizeof(Oid));
-			fnArgs[0] = aggTransType;
-			memcpy(fnArgs + 1, aggArgTypes, numArgs * sizeof(Oid));
 
-			transfn = lookup_agg_function(aggtransfnName, nargs_transfn, fnArgs,
+		fnArgs[0] = aggTransType;
+		memcpy(fnArgs + 1, aggArgTypes, numArgs * sizeof(Oid));
+
+		transfn = lookup_agg_function(aggtransfnName, numArgs + 1, fnArgs,
 									  &rettype);
 
 		/*
-	 	* Return type of transfn (possibly after refinement by
-	 	* enforce_generic_type_consistency, if transtype isn't polymorphic) must
-	 	* exactly match declared transtype.
-	 	*
+		 * Return type of transfn (possibly after refinement by
+		 * enforce_generic_type_consistency, if transtype isn't polymorphic)
+		 * must exactly match declared transtype.
+		 *
 		 * In the non-polymorphic-transtype case, it might be okay to allow a
-	 	* rettype that's binary-coercible to transtype, but I'm not quite
-	 	* convinced that it's either safe or useful.  When transtype is
-	 	* polymorphic we *must* demand exact equality.
-	 	*/
+		 * rettype that's binary-coercible to transtype, but I'm not quite
+		 * convinced that it's either safe or useful.  When transtype is
+		 * polymorphic we *must* demand exact equality.
+		 */
 		if (rettype != aggTransType)
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
@@ -155,9 +291,10 @@ AggregateCreate(const char *aggName,
 		proc = (Form_pg_proc) GETSTRUCT(tup);
 
 		/*
-	 	 * If the transfn is strict and the initval is NULL, make sure first input
-	 	 * type and transtype are the same (or at least binary-compatible), so
-	 	 * that it's OK to use the first input value as the initial transValue.
+	 	 * If the transfn is strict and the initval is NULL, make sure first
+	 	 * input type and transtype are the same (or at least
+	 	 * binary-compatible), so that it's OK to use the first input value as
+	 	 * the initial transValue.
 	 	 */
 		if (proc->proisstrict && agginitval == NULL)
 		{
@@ -171,43 +308,22 @@ AggregateCreate(const char *aggName,
 	}
 
 	/* handle finalfn, if supplied */
-	if (aggfinalfnName)
+	if (isOrderedSet)
 	{
-		if (isOrderedSet)
-		{
-			if (isHypotheticalSet)
-			{
-				fnArgs = (Oid *) palloc((numArgs) * sizeof(Oid));
-				memcpy(fnArgs, (aggArgTypes), numArgs * sizeof(Oid));
-			}
-			else
-			{
-				if (variadic_type == InvalidOid)
-				{
-					int sizeAllocation = 0;
-					if (aggTransType != InvalidOid)
-					{
-						sizeAllocation = numArgs + numOrderedArgs + 1;
-					}
-					else
-					{
-						sizeAllocation = numArgs + numOrderedArgs;
-					}
+		int num_final_args = numArgs;
 
-					fnArgs = (Oid *) palloc(sizeAllocation * sizeof(Oid));
-					memcpy(fnArgs, (aggArgTypes), (numArgs + numOrderedArgs) * sizeof(Oid));
-					if (aggTransType != InvalidOid)
-						fnArgs[numArgs + numOrderedArgs] = aggTransType;
-				}
-			}
-		}
-		else
-		{
-			fnArgs[0] = aggTransType;	
-		}
+		memcpy(fnArgs, aggArgTypes, num_final_args * sizeof(Oid));
+		if (aggTransType != InvalidOid && variadic_type != ANYOID)
+			fnArgs[num_final_args++] = aggTransType;
 
+		finalfn = lookup_agg_function(aggfinalfnName, num_final_args, fnArgs,
+									  &finaltype);
+	}
+	else if (aggfinalfnName)
+	{
+		fnArgs[0] = aggTransType;
 		finalfn = lookup_agg_function(aggfinalfnName, 1, fnArgs,
-                    				&finaltype);
+									  &finaltype);
 	}
 	else
 	{
@@ -219,15 +335,6 @@ AggregateCreate(const char *aggName,
 
 	if (aggTransType != InvalidOid)
 		Assert(OidIsValid(finaltype));
-
-	/*if (finaltype != InvalidOid)
-	{
-		elog(WARNING,"finaltype is not InvalidOid");
-	}
-	else
-	{
-		elog(WARNING,"finaltype is InvalidOid");
-	}*/
 
 	/*
 	 * If finaltype (i.e. aggregate return type) is polymorphic, inputs must
@@ -272,13 +379,13 @@ AggregateCreate(const char *aggName,
 	/* handle transsortop, if supplied */
 	if (aggtranssortopName)
 	{
-		if (numArgs != 1)
+		if (!isOrderedSet || !OidIsValid(aggTransType))
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("sort operator can only be specified for single-argument aggregates")));
-		sortop = LookupOperName(NULL, aggsortopName,
-								aggArgTypes[0], aggArgTypes[0],
-								false, -1);
+					 errmsg("transition sort operator can only be specified for ordered set functions with transition types")));
+		transsortop = LookupOperName(NULL, aggtranssortopName,
+									 aggTransType, aggTransType,
+									 false, -1);
 	}
 
 	/*
@@ -291,14 +398,16 @@ AggregateCreate(const char *aggName,
 			aclcheck_error_type(aclresult, aggArgTypes[i]);
 	}
 
-	aclresult = pg_type_aclcheck(aggTransType, GetUserId(), ACL_USAGE);
-	if (aclresult != ACLCHECK_OK)
-		aclcheck_error_type(aclresult, aggTransType);
+	if (OidIsValid(aggTransType))
+	{
+		aclresult = pg_type_aclcheck(aggTransType, GetUserId(), ACL_USAGE);
+		if (aclresult != ACLCHECK_OK)
+			aclcheck_error_type(aclresult, aggTransType);
+	}
 
 	aclresult = pg_type_aclcheck(finaltype, GetUserId(), ACL_USAGE);
 	if (aclresult != ACLCHECK_OK)
 		aclcheck_error_type(aclresult, finaltype);
-
 
 	/*
 	 * Everything looks okay.  Try to create the pg_proc entry for the
@@ -346,30 +455,11 @@ AggregateCreate(const char *aggName,
 	values[Anum_pg_aggregate_aggtransfn - 1] = ObjectIdGetDatum(transfn);
 	values[Anum_pg_aggregate_aggfinalfn - 1] = ObjectIdGetDatum(finalfn);
 	values[Anum_pg_aggregate_aggsortop - 1] = ObjectIdGetDatum(sortop);
-	if (transsortop != InvalidOid)
-		values[Anum_pg_aggregate_aggtranssortop - 1] = ObjectIdGetDatum(transsortop);
+	values[Anum_pg_aggregate_aggtranssortop - 1] = ObjectIdGetDatum(transsortop);
+	values[Anum_pg_aggregate_aggtranstype - 1] = ObjectIdGetDatum(aggTransType);
+	values[Anum_pg_aggregate_aggisordsetfunc - 1] = BoolGetDatum(isOrderedSet);
+	values[Anum_pg_aggregate_aggordnargs - 1] = Int32GetDatum(numDirectArgs);
 
-	if (aggTransType != InvalidOid)
-		values[Anum_pg_aggregate_aggtranstype - 1] = ObjectIdGetDatum(aggTransType);
-
-	if (isOrderedSet)
-		values[Anum_pg_aggregate_aggisordsetfunc - 1] = BoolGetDatum(true);
-	else
-		values[Anum_pg_aggregate_aggisordsetfunc - 1] = BoolGetDatum(false);
-
-	if (isOrderedSet)
-	{
-		if (isHypotheticalSet)
-			values[Anum_pg_aggregate_aggordnargs - 1] = Int32GetDatum(-2);
-		else
-			values[Anum_pg_aggregate_aggordnargs - 1] = Int32GetDatum(numArgs);
-	}
-	else
-	{
-		values[Anum_pg_aggregate_aggordnargs - 1] = Int32GetDatum(-1);
-	}
-
-	values[Anum_pg_aggregate_aggfinalfn - 1] = ObjectIdGetDatum(finalfn);
 	if (agginitval)
 		values[Anum_pg_aggregate_agginitval - 1] = CStringGetTextDatum(agginitval);
 	else
@@ -387,8 +477,10 @@ AggregateCreate(const char *aggName,
 
 	/*
 	 * Create dependencies for the aggregate (above and beyond those already
-	 * made by ProcedureCreate).  Note: we don't need an explicit dependency
-	 * on aggTransType since we depend on it indirectly through transfn.
+	 * made by ProcedureCreate).  Normal aggs don't need an explicit
+	 * dependency on aggTransType since we depend on it indirectly through
+	 * transfn, but ordered set functions with variadic "any" do need one
+	 * (ordered set functions without variadic depend on it via the finalfn).
 	 */
 	myself.classId = ProcedureRelationId;
 	myself.objectId = procOid;
@@ -417,6 +509,24 @@ AggregateCreate(const char *aggName,
 	{
 		referenced.classId = OperatorRelationId;
 		referenced.objectId = sortop;
+		referenced.objectSubId = 0;
+		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	}
+
+	/* Depends on transsort operator, if any */
+	if (OidIsValid(transsortop))
+	{
+		referenced.classId = OperatorRelationId;
+		referenced.objectId = transsortop;
+		referenced.objectSubId = 0;
+		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	}
+
+	/* May depend on aggTransType if any */
+	if (OidIsValid(aggTransType) && isOrderedSet && variadic_type == ANYOID)
+	{
+		referenced.classId = TypeRelationId;
+		referenced.objectId = aggTransType;
 		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}

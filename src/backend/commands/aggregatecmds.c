@@ -44,9 +44,12 @@
  *	DefineAggregate
  *
  * "oldstyle" signals the old (pre-8.2) style where the aggregate input type
- * is specified by a BASETYPE element in the parameters.  Otherwise,
- * "args" is a list of FunctionParameter structs defining the agg's arguments.
- * "parameters" is a list of DefElem representing the agg's definition clauses.
+ * is specified by a BASETYPE element in the parameters.  Otherwise, "args" is
+ * a pair, whose first element is a list of FunctionParameter structs defining
+ * the agg's arguments (both direct and ordered), and whose second element is
+ * an Integer node with the number of direct args, or -1 if this isn't an
+ * ordered set func.  "parameters" is a list of DefElem representing the agg's
+ * definition clauses.
  */
 Oid
 DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
@@ -63,7 +66,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 	TypeName   *transType = NULL;
 	char	   *initval = NULL;
 	int			numArgs;
-	int			numOrderedArgs = 0;
+	int			numDirectArgs = -1;
 	Oid			transTypeId = InvalidOid;
 	oidvector  *parameterTypes;
 	ArrayType  *allParameterTypes;
@@ -74,7 +77,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 	ListCell   *pl;
 	bool		ishypothetical = false;
 	bool		isOrderedSet = false;
-	Oid 		variadic_type = InvalidOid;
 
 	/* Convert list of names to a name and namespace */
 	aggNamespace = QualifiedNameGetCreationNamespace(name, &aggName);
@@ -85,16 +87,13 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 		aclcheck_error(aclresult, ACL_KIND_NAMESPACE,
 					   get_namespace_name(aggNamespace));
 
-#if 0 /* XXX FIXME */
-	if (list_length(args) > 1)
+	Assert(args == NIL || list_length(args) == 2);
+
+	if (list_length(args) == 2)
 	{
-		if (lsecond(args) != NULL)
-		{
-			//elog(WARNING,"second args is not NULL %d", list_length(args));
-			isOrderedSet = true;
-		}
+		numDirectArgs = intVal(lsecond(args));
+		isOrderedSet = (numDirectArgs != -1);
 	}
-#endif
 
 	foreach(pl, parameters)
 	{
@@ -136,8 +135,8 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 	if (!isOrderedSet)
 	{
 		/*
-	 	* make sure we have our required definitions
-	 	*/
+		 * make sure we have our required definitions
+		 */
 		if (transType == NULL)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
@@ -146,6 +145,13 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 					 errmsg("aggregate sfunc must be specified")));
+	}
+	else
+	{
+		if (transfuncName != NIL)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					 errmsg("sfunc must not be specified for ordered set functions")));
 	}
 
 	/*
@@ -196,10 +202,15 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 					 errmsg("basetype is redundant with aggregate input type specification")));
 
-		/* XXX add in ordered args here somehow */
+		/*
+		 * The grammar has already concatenated the direct and ordered
+		 * args (if any) for us. Note that error checking for position
+		 * and number of VARIADIC args is not done for us, we have to
+		 * do it ourselves later (in AggregateCreate)
+		 */
 
-		numArgs = list_length(args);
-		interpret_function_parameter_list(args,
+		numArgs = list_length(linitial(args));
+		interpret_function_parameter_list(linitial(args),
 										  InvalidOid,
 										  true, /* is an aggregate */
 										  queryString,
@@ -216,8 +227,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 	}
 
 	/*
-	 * look up the aggregate's transtype.The lookup happens only if the
-	 * aggregate function is not an ordered set function.
+	 * look up the aggregate's transtype, if specified.
 	 *
 	 * transtype can't be a pseudo-type, since we need to be able to store
 	 * values of the transtype.  However, we can allow polymorphic transtype
@@ -256,29 +266,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 	}
 
 	/*
-	 * Variadic check
-	 */
-
-	/*if (IsA(llast(linitial(args)), List))
-	{
-		variadic_type = typenameTypeId(NULL, (linitial(llast(linitial(args)))));
-
-		if (list_length(lsecond(args)) == 1)
-		{
-			if (typenameTypeId(NULL, linitial(lsecond(args))) != variadic_type)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-						 errmsg("Variadic types do not match")));
-			}
-		}
-	}
-	else if (IsA(llast(lsecond(args)), List))
-	{
-		variadic_type = typenameTypeId(NULL, (linitial(llast(lsecond(args)))));
-	}*/
-
-	/*
 	 * If we have an initval, and it's not for a pseudotype (particularly a
 	 * polymorphic type), make sure it's acceptable to the type's input
 	 * function.  We will store the initval as text, because the input
@@ -305,7 +292,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 	return AggregateCreate(aggName,		/* aggregate name */
 						   aggNamespace,		/* namespace */
 						   numArgs,
-						   numOrderedArgs,
+						   numDirectArgs,
 						   parameterTypes,
 						   PointerGetDatum(allParameterTypes),
 						   PointerGetDatum(parameterModes),
@@ -317,7 +304,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 						   transsortoperatorName,  /* transsort operator name */
 						   transTypeId, /* transition data type */
 						   initval,  /* initial condition */
-						   variadic_type,  /* The Oid of the variadic type, if applicable */
 						   isOrderedSet,  /* If the function is an ordered set */
 						   ishypothetical);  /* If the function is a hypothetical set */
 }

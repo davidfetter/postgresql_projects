@@ -252,7 +252,7 @@ DATA(insert ( 3968 	- 			rank_final			0 	16 	59 t -2 "f"));
 extern Oid AggregateCreate(const char *aggName,
 				Oid aggNamespace,
 				int numArgs,
-				int numOrderedArgs,
+				int numDirectArgs,
 				oidvector *parameterTypes,
 				Datum allParameterTypes,
 				Datum parameterModes,
@@ -264,7 +264,6 @@ extern Oid AggregateCreate(const char *aggName,
 				List *aggtranssortopName,
 				Oid aggTransType,
 				const char *agginitval,
-				Oid variadic_type,
 				bool isOrderedSetFunc,
 				bool isHypotheticalSet);
 
