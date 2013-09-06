@@ -3885,7 +3885,6 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	char	   *rulename;
 	char		ev_type;
 	Oid			ev_class;
-	int16		ev_attr;
 	bool		is_instead;
 	char	   *ev_qual;
 	char	   *ev_action;
@@ -3911,11 +3910,6 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
 	Assert(!isnull);
 	ev_class = DatumGetObjectId(dat);
-
-	fno = SPI_fnumber(rulettc, "ev_attr");
-	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
-	Assert(!isnull);
-	ev_attr = DatumGetInt16(dat);
 
 	fno = SPI_fnumber(rulettc, "is_instead");
 	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
@@ -3971,10 +3965,6 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 	/* The relation the rule is fired on */
 	appendStringInfo(buf, " TO %s", generate_relation_name(ev_class, NIL));
-	if (ev_attr > 0)
-		appendStringInfo(buf, ".%s",
-						 quote_identifier(get_relid_attribute_name(ev_class,
-																   ev_attr)));
 
 	/* If the rule has an event qualification, add it */
 	if (ev_qual == NULL)
@@ -4076,7 +4066,6 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	Query	   *query;
 	char		ev_type;
 	Oid			ev_class;
-	int16		ev_attr;
 	bool		is_instead;
 	char	   *ev_qual;
 	char	   *ev_action;
@@ -4093,9 +4082,6 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 	fno = SPI_fnumber(rulettc, "ev_class");
 	ev_class = (Oid) SPI_getbinval(ruletup, rulettc, fno, &isnull);
-
-	fno = SPI_fnumber(rulettc, "ev_attr");
-	ev_attr = (int16) SPI_getbinval(ruletup, rulettc, fno, &isnull);
 
 	fno = SPI_fnumber(rulettc, "is_instead");
 	is_instead = (bool) SPI_getbinval(ruletup, rulettc, fno, &isnull);
@@ -4116,7 +4102,7 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 	query = (Query *) linitial(actions);
 
-	if (ev_type != '1' || ev_attr >= 0 || !is_instead ||
+	if (ev_type != '1' || !is_instead ||
 		strcmp(ev_qual, "<>") != 0 || query->commandType != CMD_SELECT)
 	{
 		appendStringInfo(buf, "Not a view");
