@@ -22,6 +22,7 @@
 #include "access/sysattr.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
+#include "catalog/pg_aggregate.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_constraint.h"
@@ -293,6 +294,9 @@ static text *pg_get_expr_worker(text *expr, Oid relid, const char *relname,
 static int print_function_arguments(StringInfo buf, HeapTuple proctup,
 						 bool print_table_args, bool print_defaults);
 static void print_function_rettype(StringInfo buf, HeapTuple proctup);
+static void print_aggregate_arguments(StringInfo buf,
+									  HeapTuple proctup, HeapTuple aggtup,
+									  bool print_defaults);
 static void set_rtable_names(deparse_namespace *dpns, List *parent_namespaces,
 				 Bitmapset *rels_used);
 static bool refname_is_unique(char *refname, deparse_namespace *dpns,
@@ -2265,6 +2269,151 @@ print_function_arguments(StringInfo buf, HeapTuple proctup,
 	}
 
 	return argsprinted;
+}
+
+
+/*
+ * pg_get_aggregate_arguments
+ *		Get a nicely-formatted list of arguments for an aggregate.
+ *		This is everything that would go after the function name
+ *		in CREATE AGGREGATE, _including_ the parens, because in the
+ *      case of ordered set funcs, we emit the WITHIN GROUP clause
+ *      too.
+ */
+Datum
+pg_get_aggregate_arguments(PG_FUNCTION_ARGS)
+{
+	Oid			funcid = PG_GETARG_OID(0);
+	StringInfoData buf;
+	HeapTuple	proctup;
+	HeapTuple	aggtup;
+
+	initStringInfo(&buf);
+
+	proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
+	if (!HeapTupleIsValid(proctup))
+		elog(ERROR, "cache lookup failed for function %u", funcid);
+
+	aggtup = SearchSysCache1(AGGFNOID, ObjectIdGetDatum(funcid));
+	if (!HeapTupleIsValid(aggtup))
+		elog(ERROR, "function %u is not an aggregate function", funcid);
+
+	(void) print_aggregate_arguments(&buf, proctup, aggtup, true);
+
+	ReleaseSysCache(aggtup);
+	ReleaseSysCache(proctup);
+
+	PG_RETURN_TEXT_P(string_to_text(buf.data));
+}
+
+/*
+ * pg_get_aggregate_identity_arguments
+ *		Get a formatted list of arguments for an aggregate.
+ *		This is everything that would go after the function name in
+ *		ALTER AGGREGATE, etc.  In particular, don't print defaults.
+ *      Currently, this is identical to pg_get_aggregate_arguments,
+ *      but if we ever allow defaults that will change.
+ */
+Datum
+pg_get_aggregate_identity_arguments(PG_FUNCTION_ARGS)
+{
+	Oid			funcid = PG_GETARG_OID(0);
+	StringInfoData buf;
+	HeapTuple	proctup;
+	HeapTuple	aggtup;
+
+	initStringInfo(&buf);
+
+	proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
+	if (!HeapTupleIsValid(proctup))
+		elog(ERROR, "cache lookup failed for function %u", funcid);
+
+	aggtup = SearchSysCache1(AGGFNOID, ObjectIdGetDatum(funcid));
+	if (!HeapTupleIsValid(aggtup))
+		elog(ERROR, "function %u is not an aggregate function", funcid);
+
+	(void) print_aggregate_arguments(&buf, proctup, aggtup, false);
+
+	ReleaseSysCache(aggtup);
+	ReleaseSysCache(proctup);
+
+	PG_RETURN_TEXT_P(string_to_text(buf.data));
+}
+
+
+/*
+ * Common code for pg_get_aggregate_arguments
+ * We print argument defaults only if print_defaults is true.
+ */
+static void
+print_aggregate_arguments(StringInfo buf,
+						  HeapTuple proctup, HeapTuple aggtup,
+						  bool print_defaults)
+{
+	Form_pg_aggregate agg = (Form_pg_aggregate) GETSTRUCT(aggtup);
+	int			numargs;
+	bool        ordsetfunc = agg->aggisordsetfunc;
+	int         numdirectargs = agg->aggordnargs;
+	Oid		   *argtypes;
+	char	  **argnames;
+	char	   *argmodes;
+	int			i;
+
+	/* defaults not supported at this time */
+	(void) print_defaults;
+
+	numargs = get_func_arg_info(proctup,
+								&argtypes, &argnames, &argmodes);
+
+	appendStringInfoChar(buf, '(');
+
+	for (i = 0; i < numargs; i++)
+	{
+		Oid			argtype = argtypes[i];
+		char	   *argname = argnames ? argnames[i] : NULL;
+		char		argmode = argmodes ? argmodes[i] : PROARGMODE_IN;
+		const char *modename;
+
+		switch (argmode)
+		{
+			case PROARGMODE_IN:
+				modename = "";
+				break;
+			case PROARGMODE_VARIADIC:
+				modename = "VARIADIC ";
+				break;
+			default:
+				elog(ERROR, "invalid parameter mode '%c'", argmode);
+				modename = NULL;	/* keep compiler quiet */
+				break;
+		}
+
+		if (i == numdirectargs)
+		{
+			appendStringInfoString(buf, ") WITHIN GROUP (");
+		}
+		else if (i > 0)
+			appendStringInfoString(buf, ", ");
+
+		appendStringInfoString(buf, modename);
+
+		if (argname && argname[0])
+			appendStringInfo(buf, "%s ", quote_identifier(argname));
+
+		appendStringInfoString(buf, format_type_be(argtype));
+	}
+
+	if (ordsetfunc)
+	{
+		if (numdirectargs < 0 || numdirectargs == numargs)
+			appendStringInfoString(buf, ") WITHIN GROUP (");
+		if (numdirectargs == numargs)
+			appendStringInfoChar(buf, '*');
+	}
+	else if (numargs == 0)
+		appendStringInfoChar(buf, '*');
+
+	appendStringInfoChar(buf, ')');
 }
 
 

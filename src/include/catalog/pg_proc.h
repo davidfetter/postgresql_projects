@@ -1964,6 +1964,10 @@ DATA(insert OID = 2232 (  pg_get_function_identity_arguments	   PGNSP PGUID 12 1
 DESCR("identity argument list of a function");
 DATA(insert OID = 2165 (  pg_get_function_result	   PGNSP PGUID 12 1 0 0 0 f f f f t f s 1 0 25 "26" _null_ _null_ _null_ _null_ pg_get_function_result _null_ _null_ _null_ ));
 DESCR("result type of a function");
+DATA(insert OID = 3178 (  pg_get_aggregate_arguments    PGNSP PGUID 12 1 0 0 0 f f f f t f s 1 0 25 "26" _null_ _null_ _null_ _null_ pg_get_aggregate_arguments _null_ _null_ _null_ ));
+DESCR("argument list of an aggregate function");
+DATA(insert OID = 3179 (  pg_get_aggregate_identity_arguments	   PGNSP PGUID 12 1 0 0 0 f f f f t f s 1 0 25 "26" _null_ _null_ _null_ _null_ pg_get_aggregate_identity_arguments _null_ _null_ _null_ ));
+DESCR("identity argument list of an aggregate function");
 
 DATA(insert OID = 1686 (  pg_get_keywords		PGNSP PGUID 12 10 400 0 0 f f f f t t s 0 0 2249 "" "{25,18,25}" "{o,o,o}" "{word,catcode,catdesc}" _null_ pg_get_keywords _null_ _null_ _null_ ));
 DESCR("list of SQL keywords");

@@ -229,6 +229,7 @@ static void getTableData(TableInfo *tblinfo, int numTables, bool oids);
 static void makeTableDataInfo(TableInfo *tbinfo, bool oids);
 static void buildMatViewRefreshDependencies(Archive *fout);
 static void getTableDataFKConstraints(void);
+static char *format_aggregate_arguments(FuncInfo *finfo, char *funcargs);
 static char *format_function_arguments(FuncInfo *finfo, char *funcargs,
 									   bool is_agg);
 static char *format_function_arguments_old(Archive *fout,
@@ -9363,6 +9364,22 @@ dumpProcLang(Archive *fout, ProcLangInfo *plang)
 }
 
 /*
+ * format_aggregate_arguments: generate function name and argument list
+ *
+ * This is used when we can rely on pg_get_aggregate_arguments to format
+ * the argument list.
+ */
+static char *
+format_aggregate_arguments(FuncInfo *finfo, char *funcargs)
+{
+	PQExpBufferData fn;
+
+	initPQExpBuffer(&fn);
+	appendPQExpBuffer(&fn, "%s%s", fmtId(finfo->dobj.name), funcargs);
+	return fn.data;
+}
+
+/*
  * format_function_arguments: generate function name and argument list
  *
  * This is used when we can rely on pg_get_function_arguments to format
@@ -11418,14 +11435,18 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	int			i_aggtransfn;
 	int			i_aggfinalfn;
 	int			i_aggsortop;
+	int			i_aggtranssortop;
+	int			i_hypothetical;
 	int			i_aggtranstype;
 	int			i_agginitval;
 	int			i_convertok;
 	const char *aggtransfn;
 	const char *aggfinalfn;
 	const char *aggsortop;
+	const char *aggtranssortop;
 	const char *aggtranstype;
 	const char *agginitval;
+	bool        hypothetical;
 	bool		convertok;
 
 	/* Skip if not to be dumped */
@@ -11442,11 +11463,29 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	selectSourceSchema(fout, agginfo->aggfn.dobj.namespace->dobj.name);
 
 	/* Get aggregate-specific details */
-	if (fout->remoteVersion >= 80400)
+	if (fout->remoteVersion >= 90400)
 	{
 		appendPQExpBuffer(query, "SELECT aggtransfn, "
 						  "aggfinalfn, aggtranstype::pg_catalog.regtype, "
 						  "aggsortop::pg_catalog.regoperator, "
+						  "aggtranssortop::pg_catalog.regoperator, "
+						  "(aggordnargs = -2) as hypothetical, "
+						  "agginitval, "
+						  "'t'::boolean AS convertok, "
+						  "pg_catalog.pg_get_aggregate_arguments(p.oid) AS funcargs, "
+						  "pg_catalog.pg_get_aggregate_identity_arguments(p.oid) AS funciargs "
+					  "FROM pg_catalog.pg_aggregate a, pg_catalog.pg_proc p "
+						  "WHERE a.aggfnoid = p.oid "
+						  "AND p.oid = '%u'::pg_catalog.oid",
+						  agginfo->aggfn.dobj.catId.oid);
+	}
+	else if (fout->remoteVersion >= 80400)
+	{
+		appendPQExpBuffer(query, "SELECT aggtransfn, "
+						  "aggfinalfn, aggtranstype::pg_catalog.regtype, "
+						  "aggsortop::pg_catalog.regoperator, "
+						  "0 as aggtranssortop, "
+						  "false as hypothetical, "
 						  "agginitval, "
 						  "'t'::boolean AS convertok, "
 						  "pg_catalog.pg_get_function_arguments(p.oid) AS funcargs, "
@@ -11461,6 +11500,8 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 		appendPQExpBuffer(query, "SELECT aggtransfn, "
 						  "aggfinalfn, aggtranstype::pg_catalog.regtype, "
 						  "aggsortop::pg_catalog.regoperator, "
+						  "0 as aggtranssortop, "
+						  "false as hypothetical, "
 						  "agginitval, "
 						  "'t'::boolean AS convertok "
 						  "FROM pg_catalog.pg_aggregate a, pg_catalog.pg_proc p "
@@ -11473,6 +11514,8 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 		appendPQExpBuffer(query, "SELECT aggtransfn, "
 						  "aggfinalfn, aggtranstype::pg_catalog.regtype, "
 						  "0 AS aggsortop, "
+						  "0 as aggtranssortop, "
+						  "'f'::boolean as hypothetical, "
 						  "agginitval, "
 						  "'t'::boolean AS convertok "
 					  "FROM pg_catalog.pg_aggregate a, pg_catalog.pg_proc p "
@@ -11485,6 +11528,8 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 		appendPQExpBuffer(query, "SELECT aggtransfn, aggfinalfn, "
 						  "format_type(aggtranstype, NULL) AS aggtranstype, "
 						  "0 AS aggsortop, "
+						  "0 as aggtranssortop, "
+						  "'f'::boolean as hypothetical, "
 						  "agginitval, "
 						  "'t'::boolean AS convertok "
 						  "FROM pg_aggregate "
@@ -11497,6 +11542,8 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "aggfinalfn, "
 						  "(SELECT typname FROM pg_type WHERE oid = aggtranstype1) AS aggtranstype, "
 						  "0 AS aggsortop, "
+						  "0 as aggtranssortop, "
+						  "'f'::boolean as hypothetical, "
 						  "agginitval1 AS agginitval, "
 						  "(aggtransfn2 = 0 and aggtranstype2 = 0 and agginitval2 is null) AS convertok "
 						  "FROM pg_aggregate "
@@ -11509,6 +11556,8 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	i_aggtransfn = PQfnumber(res, "aggtransfn");
 	i_aggfinalfn = PQfnumber(res, "aggfinalfn");
 	i_aggsortop = PQfnumber(res, "aggsortop");
+	i_aggtranssortop = PQfnumber(res, "aggtranssortop");
+	i_hypothetical = PQfnumber(res, "hypothetical");
 	i_aggtranstype = PQfnumber(res, "aggtranstype");
 	i_agginitval = PQfnumber(res, "agginitval");
 	i_convertok = PQfnumber(res, "convertok");
@@ -11516,11 +11565,24 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	aggtransfn = PQgetvalue(res, 0, i_aggtransfn);
 	aggfinalfn = PQgetvalue(res, 0, i_aggfinalfn);
 	aggsortop = PQgetvalue(res, 0, i_aggsortop);
+	aggtranssortop = PQgetvalue(res, 0, i_aggtranssortop);
+	hypothetical = (PQgetvalue(res, 0, i_hypothetical)[0] == 't');
 	aggtranstype = PQgetvalue(res, 0, i_aggtranstype);
 	agginitval = PQgetvalue(res, 0, i_agginitval);
 	convertok = (PQgetvalue(res, 0, i_convertok)[0] == 't');
 
-	if (fout->remoteVersion >= 80400)
+	if (fout->remoteVersion >= 90400)
+	{
+		/* 9.4 or later; we rely on server-side code for almost all of the work */
+		char	   *funcargs;
+		char	   *funciargs;
+
+		funcargs = PQgetvalue(res, 0, PQfnumber(res, "funcargs"));
+		funciargs = PQgetvalue(res, 0, PQfnumber(res, "funciargs"));
+		aggfullsig = format_aggregate_arguments(&agginfo->aggfn, funcargs);
+		aggsig = format_aggregate_arguments(&agginfo->aggfn, funciargs);
+	}
+	else if (fout->remoteVersion >= 80400)
 	{
 		/* 8.4 or later; we rely on server-side code for most of the work */
 		char	   *funcargs;
@@ -11550,21 +11612,25 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	if (fout->remoteVersion >= 70300)
 	{
 		/* If using 7.3's regproc or regtype, data is already quoted */
-		appendPQExpBuffer(details, "    SFUNC = %s,\n    STYPE = %s",
-						  aggtransfn,
-						  aggtranstype);
+		/* either or both might be missing in >90400 */
+		if (strcmp(aggtransfn,"-") != 0)
+			appendPQExpBuffer(details, "\n    SFUNC = %s,", aggtransfn);
+		if (hypothetical)
+			appendPQExpBuffer(details, "\n    HYPOTHETICAL,");
+		if (strcmp(aggtranstype,"-") != 0)
+			appendPQExpBuffer(details, "\n    STYPE = %s", aggtranstype);
 	}
 	else if (fout->remoteVersion >= 70100)
 	{
 		/* format_type quotes, regproc does not */
-		appendPQExpBuffer(details, "    SFUNC = %s,\n    STYPE = %s",
+		appendPQExpBuffer(details, "\n    SFUNC = %s,\n    STYPE = %s",
 						  fmtId(aggtransfn),
 						  aggtranstype);
 	}
 	else
 	{
 		/* need quotes all around */
-		appendPQExpBuffer(details, "    SFUNC = %s,\n",
+		appendPQExpBuffer(details, "\n    SFUNC = %s,\n",
 						  fmtId(aggtransfn));
 		appendPQExpBuffer(details, "    STYPE = %s",
 						  fmtId(aggtranstype));
@@ -11589,6 +11655,13 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  aggsortop);
 	}
 
+	aggtranssortop = convertOperatorReference(fout, aggtranssortop);
+	if (aggtranssortop)
+	{
+		appendPQExpBuffer(details, ",\n    TRANSSORTOP = %s",
+						  aggsortop);
+	}
+
 	/*
 	 * DROP must be fully qualified in case same name appears in pg_catalog
 	 */
@@ -11596,7 +11669,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 					  fmtId(agginfo->aggfn.dobj.namespace->dobj.name),
 					  aggsig);
 
-	appendPQExpBuffer(q, "CREATE AGGREGATE %s (\n%s\n);\n",
+	appendPQExpBuffer(q, "CREATE AGGREGATE %s (%s\n);\n",
 					  aggfullsig, details->data);
 
 	appendPQExpBuffer(labelq, "AGGREGATE %s", aggsig);
