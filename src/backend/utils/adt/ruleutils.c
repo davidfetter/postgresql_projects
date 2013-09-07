@@ -2406,9 +2406,7 @@ print_aggregate_arguments(StringInfo buf,
 	if (ordsetfunc)
 	{
 		if (numdirectargs < 0 || numdirectargs == numargs)
-			appendStringInfoString(buf, ") WITHIN GROUP (");
-		if (numdirectargs == numargs)
-			appendStringInfoChar(buf, '*');
+			appendStringInfoString(buf, ") WITHIN GROUP (*");
 	}
 	else if (numargs == 0)
 		appendStringInfoChar(buf, '*');

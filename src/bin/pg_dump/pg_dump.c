@@ -11659,7 +11659,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	if (aggtranssortop)
 	{
 		appendPQExpBuffer(details, ",\n    TRANSSORTOP = %s",
-						  aggsortop);
+						  aggtranssortop);
 	}
 
 	/*
