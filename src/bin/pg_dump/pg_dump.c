@@ -11448,6 +11448,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	const char *agginitval;
 	bool        hypothetical;
 	bool		convertok;
+	bool        has_comma = false;
 
 	/* Skip if not to be dumped */
 	if (!agginfo->aggfn.dobj.dump || dataOnly)
@@ -11612,13 +11613,21 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	if (fout->remoteVersion >= 70300)
 	{
 		/* If using 7.3's regproc or regtype, data is already quoted */
-		/* either or both might be missing in >90400 */
+		/*
+		 * either or both of SFUNC and STYPE might be missing in >90400,
+		 * but if SFUNC is missing, then FINALFUNC will always be present,
+		 * and if SFUNC is present then STYPE must also be present; the
+		 * code below relies on these conditions to keep the commas in the
+		 * right places
+		 */
+
 		if (strcmp(aggtransfn,"-") != 0)
 			appendPQExpBuffer(details, "\n    SFUNC = %s,", aggtransfn);
-		if (hypothetical)
-			appendPQExpBuffer(details, "\n    HYPOTHETICAL,");
+
 		if (strcmp(aggtranstype,"-") != 0)
 			appendPQExpBuffer(details, "\n    STYPE = %s", aggtranstype);
+		else
+			has_comma = true;
 	}
 	else if (fout->remoteVersion >= 70100)
 	{
@@ -11636,16 +11645,20 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  fmtId(aggtranstype));
 	}
 
+	if (strcmp(aggfinalfn, "-") != 0)
+	{
+		appendPQExpBuffer(details, "%s\n    FINALFUNC = %s",
+						  (has_comma ? "" : ","),
+						  aggfinalfn);
+	}
+
+	if (hypothetical)
+		appendPQExpBuffer(details, ",\n    HYPOTHETICAL");
+
 	if (!PQgetisnull(res, 0, i_agginitval))
 	{
 		appendPQExpBuffer(details, ",\n    INITCOND = ");
 		appendStringLiteralAH(details, agginitval, fout);
-	}
-
-	if (strcmp(aggfinalfn, "-") != 0)
-	{
-		appendPQExpBuffer(details, ",\n    FINALFUNC = %s",
-						  aggfinalfn);
 	}
 
 	aggsortop = convertOperatorReference(fout, aggsortop);
