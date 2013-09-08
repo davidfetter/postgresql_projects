@@ -23,6 +23,7 @@
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "parser/parse_agg.h"
+#include "parser/parse_clause.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_func.h"
 #include "parser/parse_relation.h"
@@ -58,15 +59,21 @@ static Node *ParseComplexProjection(ParseState *pstate, char *funcname,
  *	Also, when is_column is true, we return NULL on failure rather than
  *	reporting a no-such-function error.
  *
- *	The argument expressions (in fargs) and filter must have been transformed
- *	already.  But the agg_order expressions, if any, have not been.
+ *	The argument expressions (in fargs) must have been transformed
+ *	already.
  */
 Node *
 ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
-				  List *agg_order, Expr *agg_filter,
-				  bool agg_star, bool agg_distinct, bool func_variadic,
-				  bool agg_within_group, WindowDef *over, bool is_column, int location)
+				  int location, FuncCall *fn)
 {
+	List       *agg_order = (fn ? fn->agg_order : NIL);
+	Expr       *agg_filter = NULL;
+	bool        agg_star = (fn ? fn->agg_star : false);
+	bool        agg_distinct = (fn ? fn->agg_distinct : false);
+	bool        agg_within_group = (fn ? fn->has_within_group : false);
+	bool        func_variadic = (fn ? fn->func_variadic : false);
+	WindowDef  *over = (fn ? fn->over : NULL);
+	bool        is_column = (fn == NULL);
 	Oid			rettype;
 	Oid			funcid;
 	ListCell   *l;
@@ -104,6 +111,15 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 						   FUNC_MAX_ARGS,
 						   FUNC_MAX_ARGS),
 				 parser_errposition(pstate, location)));
+
+	/*
+	 * Transform the aggregate filter using transformWhereClause(), to which
+	 * FILTER is virtually identical...
+	 */
+	if (fn && fn->agg_filter != NULL)
+		agg_filter = (Expr *)
+			transformWhereClause(pstate, (Node *) fn->agg_filter,
+								 EXPR_KIND_FILTER, "FILTER");
 
 	/*
 	 * Extract arg type info in preparation for function lookup.
