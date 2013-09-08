@@ -58,6 +58,7 @@ AggregateCreate(const char *aggName,
 				List *aggtranssortopName,
 				Oid aggTransType,
 				const char *agginitval,
+				bool isStrict,
 				bool isOrderedSet,
 				bool isHypotheticalSet)
 {
@@ -100,6 +101,8 @@ AggregateCreate(const char *aggName,
 	{
 		if (!aggtransfnName)
 			elog(ERROR, "aggregate must have a transition function");
+		if (isStrict)
+			elog(ERROR, "aggregate with transition function must not be explicitly STRICT");
 	}
 
 	/* check for polymorphic and INTERNAL arguments */
@@ -321,7 +324,9 @@ AggregateCreate(const char *aggName,
 
 		/*
 		 * this is also checked at runtime for security reasons, but check
-		 * here too to provide a friendly error
+		 * here too to provide a friendly error (the requirement is because
+		 * the finalfn will be passed null dummy args for type resolution
+		 * purposes)
 		 */
 
 		if (func_strict(finalfn))
@@ -437,7 +442,7 @@ AggregateCreate(const char *aggName,
 							  false,	/* security invoker (currently not
 										 * definable for agg) */
 							  false,	/* isLeakProof */
-							  false,	/* isStrict (not needed for agg) */
+							  isStrict,	/* isStrict (needed for ordered set funcs) */
 							  PROVOLATILE_IMMUTABLE,	/* volatility (not
 														 * needed for agg) */
 							  parameterTypes,	/* paramTypes */

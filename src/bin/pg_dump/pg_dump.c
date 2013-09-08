@@ -11437,6 +11437,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	int			i_aggsortop;
 	int			i_aggtranssortop;
 	int			i_hypothetical;
+	int			i_isstrict;
 	int			i_aggtranstype;
 	int			i_agginitval;
 	int			i_convertok;
@@ -11447,6 +11448,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	const char *aggtranstype;
 	const char *agginitval;
 	bool        hypothetical;
+	bool        isstrict;
 	bool		convertok;
 	bool        has_comma = false;
 
@@ -11471,6 +11473,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "aggsortop::pg_catalog.regoperator, "
 						  "aggtranssortop::pg_catalog.regoperator, "
 						  "(aggordnargs = -2) as hypothetical, "
+						  "p.proisstrict as isstrict, "
 						  "agginitval, "
 						  "'t'::boolean AS convertok, "
 						  "pg_catalog.pg_get_aggregate_arguments(p.oid) AS funcargs, "
@@ -11487,6 +11490,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "aggsortop::pg_catalog.regoperator, "
 						  "0 as aggtranssortop, "
 						  "false as hypothetical, "
+						  "false as isstrict, "
 						  "agginitval, "
 						  "'t'::boolean AS convertok, "
 						  "pg_catalog.pg_get_function_arguments(p.oid) AS funcargs, "
@@ -11503,6 +11507,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "aggsortop::pg_catalog.regoperator, "
 						  "0 as aggtranssortop, "
 						  "false as hypothetical, "
+						  "false as isstrict, "
 						  "agginitval, "
 						  "'t'::boolean AS convertok "
 						  "FROM pg_catalog.pg_aggregate a, pg_catalog.pg_proc p "
@@ -11517,6 +11522,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "0 AS aggsortop, "
 						  "0 as aggtranssortop, "
 						  "'f'::boolean as hypothetical, "
+						  "'f'::boolean as isstrict, "
 						  "agginitval, "
 						  "'t'::boolean AS convertok "
 					  "FROM pg_catalog.pg_aggregate a, pg_catalog.pg_proc p "
@@ -11531,6 +11537,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "0 AS aggsortop, "
 						  "0 as aggtranssortop, "
 						  "'f'::boolean as hypothetical, "
+						  "'f'::boolean as isstrict, "
 						  "agginitval, "
 						  "'t'::boolean AS convertok "
 						  "FROM pg_aggregate "
@@ -11545,6 +11552,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "0 AS aggsortop, "
 						  "0 as aggtranssortop, "
 						  "'f'::boolean as hypothetical, "
+						  "'f'::boolean as isstrict, "
 						  "agginitval1 AS agginitval, "
 						  "(aggtransfn2 = 0 and aggtranstype2 = 0 and agginitval2 is null) AS convertok "
 						  "FROM pg_aggregate "
@@ -11559,6 +11567,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	i_aggsortop = PQfnumber(res, "aggsortop");
 	i_aggtranssortop = PQfnumber(res, "aggtranssortop");
 	i_hypothetical = PQfnumber(res, "hypothetical");
+	i_isstrict = PQfnumber(res, "isstrict");
 	i_aggtranstype = PQfnumber(res, "aggtranstype");
 	i_agginitval = PQfnumber(res, "agginitval");
 	i_convertok = PQfnumber(res, "convertok");
@@ -11568,6 +11577,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	aggsortop = PQgetvalue(res, 0, i_aggsortop);
 	aggtranssortop = PQgetvalue(res, 0, i_aggtranssortop);
 	hypothetical = (PQgetvalue(res, 0, i_hypothetical)[0] == 't');
+	isstrict = (PQgetvalue(res, 0, i_isstrict)[0] == 't');
 	aggtranstype = PQgetvalue(res, 0, i_aggtranstype);
 	agginitval = PQgetvalue(res, 0, i_agginitval);
 	convertok = (PQgetvalue(res, 0, i_convertok)[0] == 't');
@@ -11618,11 +11628,14 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 		 * but if SFUNC is missing, then FINALFUNC will always be present,
 		 * and if SFUNC is present then STYPE must also be present; the
 		 * code below relies on these conditions to keep the commas in the
-		 * right places
+		 * right places. STRICT must be forced to false if SFUNC is present.
 		 */
 
 		if (strcmp(aggtransfn,"-") != 0)
+		{
 			appendPQExpBuffer(details, "\n    SFUNC = %s,", aggtransfn);
+			isstrict = false;
+		}
 
 		if (strcmp(aggtranstype,"-") != 0)
 			appendPQExpBuffer(details, "\n    STYPE = %s", aggtranstype);
@@ -11654,6 +11667,9 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 
 	if (hypothetical)
 		appendPQExpBuffer(details, ",\n    HYPOTHETICAL");
+
+	if (isstrict)
+		appendPQExpBuffer(details, ",\n    STRICT");
 
 	if (!PQgetisnull(res, 0, i_agginitval))
 	{
@@ -11711,7 +11727,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	/*
 	 * Since there is no GRANT ON AGGREGATE syntax, we have to make the ACL
 	 * command look like a function's GRANT; in particular this affects the
-	 * syntax for zero-argument aggregates.
+	 * syntax for zero-argument aggregates and ordered set functions.
 	 */
 	free(aggsig);
 	free(aggsig_tag);

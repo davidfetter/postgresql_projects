@@ -77,6 +77,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 	ListCell   *pl;
 	bool		ishypothetical = false;
 	bool		isOrderedSet = false;
+	bool		isStrict = false;
 
 	/* Convert list of names to a name and namespace */
 	aggNamespace = QualifiedNameGetCreationNamespace(name, &aggName);
@@ -123,6 +124,8 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 			initval = defGetString(defel);
 		else if (pg_strcasecmp(defel->defname, "hypothetical") == 0)
 			ishypothetical = true;
+		else if (pg_strcasecmp(defel->defname, "strict") == 0)
+			isStrict = true;
 		else if (pg_strcasecmp(defel->defname, "transsortop") == 0)
 			transsortoperatorName = defGetQualifiedName(defel);
 		else
@@ -145,6 +148,10 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 					 errmsg("aggregate sfunc must be specified")));
+		if (isStrict)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					 errmsg("aggregate with sfunc may not be explicitly declared STRICT")));
 	}
 	else
 	{
@@ -308,6 +315,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 						   transsortoperatorName,  /* transsort operator name */
 						   transTypeId, /* transition data type */
 						   initval,  /* initial condition */
+						   isStrict,  /* is explicitly STRICT */
 						   isOrderedSet,  /* If the function is an ordered set */
 						   ishypothetical);  /* If the function is a hypothetical set */
 }

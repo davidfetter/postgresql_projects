@@ -264,6 +264,7 @@ extern Oid AggregateCreate(const char *aggName,
 				List *aggtranssortopName,
 				Oid aggTransType,
 				const char *agginitval,
+				bool isStrict,
 				bool isOrderedSetFunc,
 				bool isHypotheticalSet);
 
