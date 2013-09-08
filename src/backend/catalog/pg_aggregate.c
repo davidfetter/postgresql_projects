@@ -174,7 +174,7 @@ AggregateCreate(const char *aggName,
 			switch (paramModes[i])
 			{
 				case PROARGMODE_VARIADIC:
-					if (variadic_arg >= 0)
+					if (OidIsValid(variadic_type))
 						ereport(ERROR,
 								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 								 errmsg("VARIADIC can not be specified more than once")));
