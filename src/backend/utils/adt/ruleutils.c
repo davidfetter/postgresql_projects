@@ -3735,7 +3735,6 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	char	   *rulename;
 	char		ev_type;
 	Oid			ev_class;
-	int16		ev_attr;
 	bool		is_instead;
 	char	   *ev_qual;
 	char	   *ev_action;
@@ -3761,11 +3760,6 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
 	Assert(!isnull);
 	ev_class = DatumGetObjectId(dat);
-
-	fno = SPI_fnumber(rulettc, "ev_attr");
-	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
-	Assert(!isnull);
-	ev_attr = DatumGetInt16(dat);
 
 	fno = SPI_fnumber(rulettc, "is_instead");
 	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
@@ -3821,10 +3815,6 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 	/* The relation the rule is fired on */
 	appendStringInfo(buf, " TO %s", generate_relation_name(ev_class, NIL));
-	if (ev_attr > 0)
-		appendStringInfo(buf, ".%s",
-						 quote_identifier(get_relid_attribute_name(ev_class,
-																   ev_attr)));
 
 	/* If the rule has an event qualification, add it */
 	if (ev_qual == NULL)
@@ -3926,7 +3916,6 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	Query	   *query;
 	char		ev_type;
 	Oid			ev_class;
-	int16		ev_attr;
 	bool		is_instead;
 	char	   *ev_qual;
 	char	   *ev_action;
@@ -3943,9 +3932,6 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 	fno = SPI_fnumber(rulettc, "ev_class");
 	ev_class = (Oid) SPI_getbinval(ruletup, rulettc, fno, &isnull);
-
-	fno = SPI_fnumber(rulettc, "ev_attr");
-	ev_attr = (int16) SPI_getbinval(ruletup, rulettc, fno, &isnull);
 
 	fno = SPI_fnumber(rulettc, "is_instead");
 	is_instead = (bool) SPI_getbinval(ruletup, rulettc, fno, &isnull);
@@ -3966,7 +3952,7 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 	query = (Query *) linitial(actions);
 
-	if (ev_type != '1' || ev_attr >= 0 || !is_instead ||
+	if (ev_type != '1' || !is_instead ||
 		strcmp(ev_qual, "<>") != 0 || query->commandType != CMD_SELECT)
 	{
 		appendStringInfo(buf, "Not a view");
@@ -7406,6 +7392,7 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 	Oid			argtypes[FUNC_MAX_ARGS];
 	List	   *arglist;
 	int			nargs;
+	bool		use_variadic;
 	ListCell   *l;
 
 	/* Extract the regular arguments, ignoring resjunk stuff for the moment */
@@ -7431,13 +7418,26 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 	appendStringInfo(buf, "%s(%s",
 					 generate_function_name(aggref->aggfnoid, nargs,
 											NIL, argtypes,
-											false, NULL),
+											aggref->aggvariadic,
+											&use_variadic),
 					 (aggref->aggdistinct != NIL) ? "DISTINCT " : "");
+
 	/* aggstar can be set only in zero-argument aggregates */
 	if (aggref->aggstar)
 		appendStringInfoChar(buf, '*');
 	else
-		get_rule_expr((Node *) arglist, context, true);
+	{
+		nargs = 0;
+		foreach(l, arglist)
+		{
+			if (nargs++ > 0)
+				appendStringInfoString(buf, ", ");
+			if (use_variadic && lnext(l) == NULL)
+				appendStringInfoString(buf, "VARIADIC ");
+			get_rule_expr((Node *) lfirst(l), context, true);
+		}
+	}
+
 	if (aggref->aggorder != NIL)
 	{
 		appendStringInfoString(buf, " ORDER BY ");
@@ -8677,7 +8677,7 @@ generate_relation_name(Oid relid, List *namespaces)
  *		types.	(Those matter because of ambiguous-function resolution rules.)
  *
  * If we're dealing with a potentially variadic function (in practice, this
- * means a FuncExpr and not some other way of calling the function), then
+ * means a FuncExpr or Aggref, not some other way of calling a function), then
  * was_variadic must specify whether VARIADIC appeared in the original call,
  * and *use_variadic_p will be set to indicate whether to print VARIADIC in
  * the output.	For non-FuncExpr cases, was_variadic should be FALSE and
