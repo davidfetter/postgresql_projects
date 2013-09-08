@@ -73,7 +73,9 @@ typedef struct
 static bool assign_query_collations_walker(Node *node, ParseState *pstate);
 static bool assign_collations_walker(Node *node,
 						 assign_collations_context *context);
-
+static void assign_aggregate_collations(Aggref *aggref,
+						assign_collations_context *context,
+						assign_collations_context *loccontext);
 
 /*
  * assign_query_collations()
@@ -564,154 +566,13 @@ assign_collations_walker(Node *node, assign_collations_context *context)
 					case T_Aggref:
 						{
 							/*
-							 * Aggref is a special case because expressions
-							 * used only for ordering shouldn't be taken to
-							 * conflict with each other or with regular args.
-							 * So we apply assign_expr_collations() to them
-							 * rather than passing down our loccontext.
-							 *
-							 * Note that we recurse to each TargetEntry, not
-							 * directly to its contained expression, so that
-							 * the case above for T_TargetEntry will apply
-							 * appropriate checks to agg ORDER BY items.
-							 *
-							 * Likewise, we assign collations for the (bool)
-							 * expression in aggfilter, independently of any
-							 * other args.
-							 *
-							 * We need not recurse into the aggorder or
-							 * aggdistinct lists, because those contain only
-							 * SortGroupClause nodes which we need not
-							 * process.
-							 *
-							 * For ordered set functions, it's unfortunately
-							 * unclear how best to proceed. The spec-defined
-							 * inverse distribution functions have only one
-							 * sort column and don't allow collatable types,
-							 * but this is clearly unsatisfactory in the
-							 * general case. Compromise by taking the sort
-							 * column as part of the collation determination
-							 * if, and only if, there is only one such
-							 * column, and force the final choice of input
-							 * collation down into the sort column if need
-							 * be. This ugly wart is justified by the fact
-							 * that there seems to be no other good way to
-							 * get a result collation for percentile_*
-							 * applied to a collatable type.
-							 *
-							 * But hypothetical set functions are special;
-							 * they must have pairwise-assigned collations
-							 * for each matching pair of args, and again we
-							 * need to force the final choice of collation
-							 * down into the sort column to ensure that the
-							 * sort happens on the chosen collation. If
-							 * there are any additional args (not allowed in
-							 * the spec, but a user-defined function might
-							 * have some), those contribute to the result
-							 * collation in the normal way.
-							 * 
+							 * Aggref is special enough that we give it its own
+							 * function. The FILTER clause is independent of the
+							 * rest of the aggregate, however.
 							 */
 							Aggref	   *aggref = (Aggref *) node;
-							ListCell   *lc;
 
-							if (!aggref->ishypothetical)
-							{
-								if (aggref->isordset && list_length(aggref->args) == 1)
-								{
-									TargetEntry *tle = (TargetEntry *) linitial(aggref->args);
-
-									(void) assign_collations_walker((Node *) aggref->orddirectargs,
-																	&loccontext);
-
-									(void) assign_collations_walker((Node *) tle,
-																	&loccontext);
-
-									if (type_is_collatable(exprType((Node *)(tle->expr))))
-									{
-										if (loccontext.strength == COLLATE_CONFLICT)
-											ereport(ERROR,
-		(errcode(ERRCODE_COLLATION_MISMATCH),
-		 errmsg("collation mismatch between implicit collations \"%s\" and \"%s\"",
-				get_collation_name(loccontext.collation),
-				get_collation_name(loccontext.collation2)),
-		 errhint("You can choose the collation by applying the COLLATE clause to one or both expressions."),
-		 parser_errposition(context->pstate, loccontext.location2)));
-
-										if (exprCollation((Node *)(tle->expr)) != loccontext.collation)
-										{
-											RelabelType *node = makeNode(RelabelType);
-											node->arg = tle->expr;
-											node->resulttype = exprType((Node *)(tle->expr));
-											node->resulttypmod = exprTypmod((Node *)(tle->expr));
-											node->resultcollid = loccontext.collation;
-											node->relabelformat = COERCE_IMPLICIT_CAST;
-											node->location = exprLocation((Node *)(tle->expr));
-											tle->expr = (Expr *) node;
-										}
-									}
-								}
-								else
-								{
-									(void) assign_collations_walker((Node *) aggref->orddirectargs,
-																	&loccontext);
-
-									foreach(lc, aggref->args)
-									{
-										TargetEntry *tle = (TargetEntry *) lfirst(lc);
-
-										Assert(IsA(tle, TargetEntry));
-										if (tle->resjunk)
-											assign_expr_collations(context->pstate,
-																   (Node *) tle);
-										else
-											(void) assign_collations_walker((Node *) tle,
-																			&loccontext);
-									}
-								}
-							}
-							else
-							{
-								int initial_args = list_length(aggref->orddirectargs) - list_length(aggref->args);
-								ListCell *h_arg = list_head(aggref->orddirectargs);
-								ListCell *s_arg = list_head(aggref->args);
-
-								Assert(initial_args >= 0);
-
-								while (initial_args-- > 0)
-								{
-									(void) assign_collations_walker((Node *) lfirst(h_arg), &loccontext);
-									h_arg = lnext(h_arg);
-								}
-
-								for_each_cell(h_arg,h_arg)
-								{
-									TargetEntry *tle = (TargetEntry *) lfirst(s_arg);
-									Oid coll = select_common_collation(context->pstate,
-																	   list_make2(lfirst(h_arg),lfirst(s_arg)),
-																	   false);
-
-									/*
-									 * we can only get InvalidOid here if the type is not
-									 * collatable, so no need to try and relabel in that
-									 * case.
-									 */
-
-									if (OidIsValid(coll)
-										&& coll != exprCollation((Node *)(tle->expr)))
-									{
-										RelabelType *node = makeNode(RelabelType);
-										node->arg = tle->expr;
-										node->resulttype = exprType((Node *)(tle->expr));
-										node->resulttypmod = exprTypmod((Node *)(tle->expr));
-										node->resultcollid = coll;
-										node->relabelformat = COERCE_IMPLICIT_CAST;
-										node->location = exprLocation((Node *)(tle->expr));
-										tle->expr = (Expr *) node;
-									}
-
-									s_arg = lnext(s_arg);
-								}
-							}
+							assign_aggregate_collations(aggref, context, &loccontext);
 
 							assign_expr_collations(context->pstate,
 												   (Node *) aggref->aggfilter);
@@ -914,4 +775,160 @@ assign_collations_walker(Node *node, assign_collations_context *context)
 	}
 
 	return false;
+}
+
+
+/*
+ * Aggref is a special case because expressions used only for ordering
+ * shouldn't be taken to conflict with each other or with regular args.  So we
+ * apply assign_expr_collations() to them rather than passing down our
+ * loccontext.
+ *
+ * Note that we recurse to each TargetEntry, not directly to its contained
+ * expression, so that the case above for T_TargetEntry will apply appropriate
+ * checks to agg ORDER BY items.
+ *
+ * We need not recurse into the aggorder or aggdistinct lists, because those
+ * contain only SortGroupClause nodes which we need not process.
+ *
+ * For ordered set functions, it's unfortunately unclear how best to proceed.
+ * The spec-defined inverse distribution functions have only one sort column
+ * and don't allow collatable types, but this is clearly unsatisfactory in the
+ * general case. Compromise by taking the sort column as part of the collation
+ * determination if, and only if, there is only one such column, and force the
+ * final choice of input collation down into the sort column if need be; but
+ * don't error out unless actually necessary (leaving it up to the function to
+ * handle the issue at runtime). This ugly wart is justified by the fact that
+ * there seems to be no other good way to get a result collation for
+ * percentile_* applied to a collatable type.
+ *
+ * But hypothetical set functions are special; they must have
+ * pairwise-assigned collations for each matching pair of args, and again we
+ * need to force the final choice of collation down into the sort column to
+ * ensure that the sort happens on the chosen collation. If there are any
+ * additional args (not allowed in the spec, but a user-defined function might
+ * have some), those contribute to the result collation in the normal way.
+ * (The hypothetical paired args never contribute to the result collation at
+ * all.)
+ */
+
+static Expr *
+relabel_expr_collation(Expr *expr, Oid newcollation)
+{
+	RelabelType *node = makeNode(RelabelType);
+	node->arg = expr;
+	node->resulttype = exprType((Node *)expr);
+	node->resulttypmod = exprTypmod((Node *)expr);
+	node->resultcollid = newcollation;
+	node->relabelformat = COERCE_IMPLICIT_CAST;
+	node->location = exprLocation((Node *)expr);
+	return (Expr *) node;
+}
+
+static void
+assign_aggregate_collations(Aggref *aggref,
+							assign_collations_context *context,
+							assign_collations_context *loccontext)
+{
+	ListCell   *lc;
+
+	if (aggref->ishypothetical)
+	{
+		/*-
+		 * Hypothetical set function, i.e.
+		 *   func(..., a,b,c,...) within group (p,q,r,...)
+		 *
+		 * Any initial set of direct args (before "a") contributes to the
+		 * result collation in the usual way for function args. But none of
+		 * a,b,c... or p,q,r... contribute at all; instead, they must be
+		 * paired up (as though UNIONed) and the sorted col's collation forced
+		 * to the chosen value (so that we sort it correctly).
+		 */
+		int initial_args = list_length(aggref->orddirectargs) - list_length(aggref->args);
+		ListCell *h_arg = list_head(aggref->orddirectargs);
+		ListCell *s_arg = list_head(aggref->args);
+
+		Assert(initial_args >= 0);
+
+		while (initial_args-- > 0)
+		{
+			(void) assign_collations_walker((Node *) lfirst(h_arg), loccontext);
+			h_arg = lnext(h_arg);
+		}
+
+		for_each_cell(h_arg,h_arg)
+		{
+			TargetEntry *tle = (TargetEntry *) lfirst(s_arg);
+			Oid coll = select_common_collation(context->pstate,
+											   list_make2(lfirst(h_arg),lfirst(s_arg)),
+											   false);
+
+			/*
+			 * we can only get InvalidOid here if the type is not collatable,
+			 * so no need to try and relabel in that case.
+			 */
+
+			if (OidIsValid(coll)
+				&& coll != exprCollation((Node *)(tle->expr)))
+			{
+				tle->expr = relabel_expr_collation(tle->expr, coll);
+			}
+
+			s_arg = lnext(s_arg);
+		}
+	}
+	else if (aggref->isordset && list_length(aggref->args) == 1)
+	{
+		/*
+		 * Ordered set func with one sorted arg
+		 */
+		TargetEntry *tle = (TargetEntry *) linitial(aggref->args);
+
+		/* do the TLE first so that it won't error out on conflicts */
+
+		(void) assign_collations_walker((Node *) tle,
+										loccontext);
+
+		(void) assign_collations_walker((Node *) aggref->orddirectargs,
+										loccontext);
+
+		/*
+		 * If the sort col is a collatable type, and we chose a collation,
+		 * and it's not the one the sort col already has, then force the
+		 * sort col's collation (which can't have been explicit) to the
+		 * chosen one. Otherwise leave it alone.
+		 */
+		if (type_is_collatable(exprType((Node *)(tle->expr)))
+			&& (loccontext->strength == COLLATE_IMPLICIT
+				|| loccontext->strength == COLLATE_EXPLICIT)
+			&& exprCollation((Node *)(tle->expr)) != loccontext->collation)
+		{
+			tle->expr = relabel_expr_collation(tle->expr, loccontext->collation);
+		}
+	}
+	else
+	{
+		/*
+		 * For this case, we do the direct args (if any) together, as is
+		 * normal for functions, but args which are either used only for
+		 * sorting or are only part of a WITHIN GROUP are processed
+		 * individually.
+		 */
+
+		(void) assign_collations_walker((Node *) aggref->orddirectargs,
+										loccontext);
+
+		foreach(lc, aggref->args)
+		{
+			TargetEntry *tle = (TargetEntry *) lfirst(lc);
+
+			Assert(IsA(tle, TargetEntry));
+			if (tle->resjunk)
+				assign_expr_collations(context->pstate,
+									   (Node *) tle);
+			else
+				(void) assign_collations_walker((Node *) tle,
+												loccontext);
+		}
+	}
 }

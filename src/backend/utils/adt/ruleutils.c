@@ -7708,7 +7708,7 @@ get_windowfunc_expr(WindowFunc *wfunc, deparse_context *context)
 	if (wfunc->aggfilter != NULL)
 	{
 		appendStringInfoString(buf, ") FILTER (WHERE ");
-		get_rule_expr((Node *)wfunc->aggfilter, context, false);
+		get_rule_expr((Node *) wfunc->aggfilter, context, false);
 	}
 
 	appendStringInfoString(buf, ") OVER ");
