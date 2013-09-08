@@ -273,9 +273,7 @@ ProcedureCreate(const char *procedureName,
 		/*
 		 * Only the last input parameter can be variadic; if it is, save its
 		 * element type.  Errors here are just elog since caller should have
-		 * checked this already.  We don't check this for aggregates since it's
-		 * more complex for that, and the information needed isn't available
-		 * here, so rely on the caller.
+		 * checked this already.
 		 */
 		for (i = 0; i < allParamCount; i++)
 		{
@@ -283,7 +281,7 @@ ProcedureCreate(const char *procedureName,
 			{
 				case PROARGMODE_IN:
 				case PROARGMODE_INOUT:
-					if (OidIsValid(variadicType) && !isAgg)
+					if (OidIsValid(variadicType))
 						elog(ERROR, "variadic parameter must be last");
 					break;
 				case PROARGMODE_OUT:
@@ -291,7 +289,7 @@ ProcedureCreate(const char *procedureName,
 					/* okay */
 					break;
 				case PROARGMODE_VARIADIC:
-					if (OidIsValid(variadicType) && !isAgg)
+					if (OidIsValid(variadicType))
 						elog(ERROR, "variadic parameter must be last");
 					switch (allParams[i])
 					{

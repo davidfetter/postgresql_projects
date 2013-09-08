@@ -74,7 +74,6 @@ AggregateCreate(const char *aggName,
 	Oid		   *aggArgTypes = parameterTypes->values;
 	bool		hasPolyArg;
 	bool		hasInternalArg;
-	int         variadic_arg = -1;
 	Oid         variadic_type = InvalidOid;
 	Oid			rettype;
 	Oid			finaltype;
@@ -124,11 +123,6 @@ AggregateCreate(const char *aggName,
 	 * aggfn(..., variadic sometype)   - normal agg with variadic arg last
 	 * aggfn(..., variadic "any")      - normal agg with "any" variadic
 	 *
-	 * ordfn(..., variadic sometype) within group (...)
-	 *  - ordered set func with variadic direct arg last, followed by ordered
-	 *    args, none of which are variadic
-	 *    (implies finalfn(..., sometype, ..., [transtype]))
-	 *
 	 * ordfn(..., variadic "any") within group (*)
 	 *  - ordered set func with "any" variadic in direct args, which requires
 	 *    that the ordered args also be variadic any which we represent
@@ -143,6 +137,16 @@ AggregateCreate(const char *aggName,
 	 *
 	 * We don't allow variadic ordered args other than "any"; we don't allow
 	 * anything after variadic "any" except the special-case (*).
+	 *
+	 * We might like to support this one:
+	 *
+	 * ordfn(..., variadic sometype) within group (...)
+	 *  - ordered set func with variadic direct arg last, followed by ordered
+	 *    args, none of which are variadic
+	 *    (implies finalfn(..., sometype, ..., [transtype]))
+	 *
+	 * but currently it seems to be too intrusive to do so; the assumption
+	 * that variadic args can only come last is quite widespread.
 	 */
 
 	if (parameterModes != PointerGetDatum(NULL))
@@ -174,7 +178,6 @@ AggregateCreate(const char *aggName,
 						ereport(ERROR,
 								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 								 errmsg("VARIADIC can not be specified more than once")));
-					variadic_arg = i;
 					variadic_type = aggArgTypes[i];
 
 					/* enforce restrictions on ordered args */
@@ -189,19 +192,10 @@ AggregateCreate(const char *aggName,
 					break;
 
 				case PROARGMODE_IN:
-					if (variadic_arg >= 0)
-					{
-						/*
-						 * IN arg may only follow VARIADIC arg if the IN arg
-						 * is ordered and the variadic is not "any"
-						 */
-						if (numDirectArgs == -1
-							|| i < numDirectArgs
-							|| variadic_type == ANYOID)
-							ereport(ERROR,
-									(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-									 errmsg("VARIADIC argument must be last")));
-					}
+					if (OidIsValid(variadic_type))
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+								 errmsg("VARIADIC argument must be last")));
 					break;
 
 				default:
