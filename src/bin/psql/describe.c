@@ -72,7 +72,11 @@ describeAggregates(const char *pattern, bool verbose, bool showSystem)
 					  gettext_noop("Name"),
 					  gettext_noop("Result data type"));
 
-	if (pset.sversion >= 80400)
+	if (pset.sversion >= 90400)
+		appendPQExpBuffer(&buf,
+					      " pg_catalog.pg_get_aggregate_arguments(p.oid) AS \"%s\",\n",
+						  gettext_noop("Argument data types"));
+	else if (pset.sversion >= 80400)
 		appendPQExpBuffer(&buf,
 						  "  CASE WHEN p.pronargs = 0\n"
 						  "    THEN CAST('*' AS pg_catalog.text)\n"
@@ -254,7 +258,26 @@ describeFunctions(const char *functypes, const char *pattern, bool verbose, bool
 					  gettext_noop("Schema"),
 					  gettext_noop("Name"));
 
-	if (pset.sversion >= 80400)
+	if (pset.sversion >= 90400)
+		appendPQExpBuffer(&buf,
+					"  pg_catalog.pg_get_function_result(p.oid) as \"%s\",\n"
+				 "  CASE WHEN p.proisagg THEN pg_catalog.pg_get_aggregate_arguments(p.oid)\n"
+                 "       ELSE pg_catalog.pg_get_function_arguments(p.oid) END as \"%s\",\n"
+						  " CASE\n"
+						  "  WHEN p.proisagg THEN '%s'\n"
+						  "  WHEN p.proiswindow THEN '%s'\n"
+						  "  WHEN p.prorettype = 'pg_catalog.trigger'::pg_catalog.regtype THEN '%s'\n"
+						  "  ELSE '%s'\n"
+						  " END as \"%s\"",
+						  gettext_noop("Result data type"),
+						  gettext_noop("Argument data types"),
+		/* translator: "agg" is short for "aggregate" */
+						  gettext_noop("agg"),
+						  gettext_noop("window"),
+						  gettext_noop("trigger"),
+						  gettext_noop("normal"),
+						  gettext_noop("Type"));
+	else if (pset.sversion >= 80400)
 		appendPQExpBuffer(&buf,
 					"  pg_catalog.pg_get_function_result(p.oid) as \"%s\",\n"
 				 "  pg_catalog.pg_get_function_arguments(p.oid) as \"%s\",\n"
