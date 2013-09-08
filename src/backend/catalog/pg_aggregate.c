@@ -318,6 +318,16 @@ AggregateCreate(const char *aggName,
 
 		finalfn = lookup_agg_function(aggfinalfnName, num_final_args, fnArgs,
 									  &finaltype);
+
+		/*
+		 * this is also checked at runtime for security reasons, but check
+		 * here too to provide a friendly error
+		 */
+
+		if (func_strict(finalfn))
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					 errmsg("ordered set final functions must not be declared STRICT")));
 	}
 	else if (aggfinalfnName)
 	{
@@ -333,8 +343,7 @@ AggregateCreate(const char *aggName,
 		finaltype = aggTransType;
 	}
 
-	if (aggTransType != InvalidOid)
-		Assert(OidIsValid(finaltype));
+	Assert(OidIsValid(finaltype));
 
 	/*
 	 * If finaltype (i.e. aggregate return type) is polymorphic, inputs must
@@ -344,7 +353,6 @@ AggregateCreate(const char *aggName,
 	 * that itself violates the rule against polymorphic result with no
 	 * polymorphic input.)
 	 */
-
 	if (IsPolymorphicType(finaltype) && !hasPolyArg)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),

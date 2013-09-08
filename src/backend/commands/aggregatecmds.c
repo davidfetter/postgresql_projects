@@ -152,6 +152,10 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 					 errmsg("sfunc must not be specified for ordered set functions")));
+		if (finalfuncName == NIL)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					 errmsg("finalfunc must be specified for ordered set functions")));
 	}
 
 	/*
