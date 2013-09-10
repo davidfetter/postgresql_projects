@@ -4760,6 +4760,18 @@ DESCR("hypothetical rank");
 DATA(insert OID = 3969 ( rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 20 2276 "{2276}" "{v}" _null_ _null_	hypothetical_rank_final _null_ _null_ _null_ ));
 DESCR("hypothetical_rank_final");
 
+DATA(insert OID = 3970 ( dense_rank		PGNSP PGUID 12 1 0 2276 0 t f f f f f s 1 0 20 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
+DESCR("hypothetical dense rank");
+
+DATA(insert OID = 3971 ( dense_rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 20 2276 "{2276}" "{v}" _null_ _null_	hypothetical_dense_rank_final _null_ _null_ _null_ ));
+DESCR("hypothetical_dense_rank_final");
+
+DATA(insert OID = 3972 ( percent_rank		PGNSP PGUID 12 1 0 2276 0 t f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
+DESCR("hypothetical percent rank");
+
+DATA(insert OID = 3973 ( percent_rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	hypothetical_percent_rank_final _null_ _null_ _null_ ));
+DESCR("hypothetical_percent_rank_final");
+
 
 /*
  * Symbolic values for provolatile column: these indicate whether the result

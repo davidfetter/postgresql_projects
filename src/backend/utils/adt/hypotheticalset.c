@@ -116,7 +116,7 @@ hypothetical_rank_final(PG_FUNCTION_ARGS)
  * dense_rank(float8)  - discrete (nearest) percentile
  */
 Datum
-hypothetical_dense_rank(PG_FUNCTION_ARGS)
+hypothetical_dense_rank_final(PG_FUNCTION_ARGS)
 {
 	Tuplesortstate *sorter = NULL;
 	TupleDesc tupdesc = NULL;
@@ -188,4 +188,16 @@ hypothetical_dense_rank(PG_FUNCTION_ARGS)
 
 	rank = rank - duplicate_count;
 	PG_RETURN_INT64(rank);
+}
+
+Datum
+hypothetical_percent_rank_final(PG_FUNCTION_ARGS)
+{
+	Datum rank = hypothetical_rank_final(fcinfo);
+	int64 rank_val = DatumGetInt64(rank);
+	int64 rowcount = (AggSetGetRowCount(fcinfo)) + 1;
+
+	float8 result_val = (float8) (rank_val - 1) / (float8) (rowcount - 1);
+
+	PG_RETURN_FLOAT8(result_val);
 }

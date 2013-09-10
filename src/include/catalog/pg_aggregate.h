@@ -246,6 +246,8 @@ DATA(insert ( 3931 	- 			percentile_disc_final		0 	0 	0 t 1 _null_));
 DATA(insert ( 3935 	- 			percentile_cont_final		0 	0 	0 t 1 _null_));
 DATA(insert ( 3939 	- 			percentile_interval_cont_final	0 	0 	0 t 1 _null_));
 DATA(insert ( 3968 	- 			rank_final			0 	16 	59 t -2 "f"));
+DATA(insert ( 3970 	- 			dense_rank_final			0 	16 	59 t -2 "f"));
+DATA(insert ( 3972 	- 			percent_rank_final			0 	16 	59 t -2 "f"));
 /*
  * prototypes for functions in pg_aggregate.c
  */
