@@ -676,6 +676,9 @@ extern int AggSetGetDistinctOperators(FunctionCallInfo fcinfo,
 									  Oid **sortEqOperators,
 									  FmgrInfo **equalfns);
 
+extern void AggSetGetPerTupleContext(FunctionCallInfo fcinfo,
+						 MemoryContext *memcontext);
+
 /*
  * We allow plugin modules to hook function entry/exit.  This is intended
  * as support for loadable security policy modules, which may want to

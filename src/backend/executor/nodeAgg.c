@@ -2383,3 +2383,14 @@ AggSetGetDistinctOperators(FunctionCallInfo fcinfo,
 		elog(ERROR, "AggSetGetDistinctOperators called on non ordered set function");
 	}
 }
+
+void
+AggSetGetPerTupleContext(FunctionCallInfo fcinfo,
+						 MemoryContext *memcontext)
+{
+	if (fcinfo->context && IsA(fcinfo->context, AggState))
+	{
+		AggState *aggstate = (AggState *) fcinfo->context;
+		*memcontext = aggstate->tmpcontext->ecxt_per_tuple_memory;
+	}
+}
