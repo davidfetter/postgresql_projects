@@ -2388,9 +2388,9 @@ void
 AggSetGetPerTupleContext(FunctionCallInfo fcinfo,
 						 MemoryContext *memcontext)
 {
-	if (fcinfo->context && IsA(fcinfo->context, AggState))
+	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
 	{
-		AggState *aggstate = (AggState *) fcinfo->context;
-		*memcontext = aggstate->tmpcontext->ecxt_per_tuple_memory;
+		AggStatePerAggData *peraggstate = (AggStatePerAggData *) fcinfo->context;
+		*memcontext = peraggstate->aggstate->tmpcontext->ecxt_per_tuple_memory;
 	}
 }
