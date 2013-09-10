@@ -12212,7 +12212,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
    <xref linkend="functions-inversedist-table"> and
    <xref linkend="functions-hypothetical-table">.
    The special syntax considerations for ordered set functions
-   functions are explained in <xref linkend="syntax-aggregate">.
+   are explained in <xref linkend="syntax-orderedset">.
   </para>
 
   <table id="functions-inversedist-table">
