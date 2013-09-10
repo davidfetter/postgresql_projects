@@ -9,20 +9,17 @@
   </indexterm>
 
   <para>
-   Aggregate functions  in <productname>PostgreSQL</productname>
-   are expressed in terms of <firstterm>state values</firstterm>
-   and <firstterm>state transition functions</firstterm>.
-   That is, an aggregate operates using a state value that is updated
-   as each successive input row is processed.
-   To define a new aggregate
-   function, one selects a data type for the state value,
-   an initial value for the state, and a state transition
-   function.  The state transition function is just an
-   ordinary function that could also be used outside the
-   context of the aggregate.  A <firstterm>final function</firstterm>
-   can also be specified, in case the desired result of the aggregate
-   is different from the data that needs to be kept in the running
-   state value.
+   Aggregate functions (other than ordered set functions)
+   in <productname>PostgreSQL</productname> are expressed in terms
+   of <firstterm>state values</firstterm> and <firstterm>state transition
+   functions</firstterm>.  That is, an aggregate operates using a state value
+   that is updated as each successive input row is processed.  To define a new
+   aggregate function, one selects a data type for the state value, an initial
+   value for the state, and a state transition function.  The state transition
+   function is just an ordinary function that could also be used outside the
+   context of the aggregate.  A <firstterm>final function</firstterm> can also
+   be specified, in case the desired result of the aggregate is different from
+   the data that needs to be kept in the running state value.
   </para>
 
   <para>

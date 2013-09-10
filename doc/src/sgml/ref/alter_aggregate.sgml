@@ -21,12 +21,17 @@ PostgreSQL documentation
 
  <refsynopsisdiv>
 <synopsis>
-ALTER AGGREGATE <replaceable>name</replaceable> ( [ <replaceable>argmode</replaceable> ] [ <replaceable>arg_name</replaceable> ] <replaceable>arg_data_type</replaceable> [ , ... ] )
+ALTER AGGREGATE
   RENAME TO <replaceable>new_name</replaceable>
 ALTER AGGREGATE <replaceable>name</replaceable> ( [ <replaceable>argmode</replaceable> ] [ <replaceable>arg_name</replaceable> ] <replaceable>arg_data_type</replaceable> [ , ... ] )
   OWNER TO <replaceable>new_owner</replaceable>
 ALTER AGGREGATE <replaceable>name</replaceable> ( [ <replaceable>argmode</replaceable> ] [ <replaceable>arg_name</replaceable> ] <replaceable>arg_data_type</replaceable> [ , ... ] )
   SET SCHEMA <replaceable>new_schema</replaceable>
+
+<phrase>where <replaceable>aggregate_signature</replaceable> is one of:</phrase>
+
+<replaceable>name</replaceable> ( * | [ <replaceable>argmode</replaceable> ] [ <replaceable>arg_name</replaceable> ] <replaceable>arg_data_type</replaceable> [ , ... ] )
+<replaceable>name</replaceable> ( [ [ <replaceable>argmode</replaceable> ] [ <replaceable>arg_name</replaceable> ] <replaceable>arg_data_type</replaceable> [ , ... ] ] ) WITHIN GROUP ( * | [ <replaceable>argmode</replaceable> ] [ <replaceable>arg_name</replaceable> ] <replaceable>arg_data_type</replaceable> [ , ... ] )
 </synopsis>
  </refsynopsisdiv>
 
@@ -148,10 +153,11 @@ ALTER AGGREGATE myavg(integer) OWNER TO joe;
   </para>
 
   <para>
-   To move the aggregate function <literal>myavg</literal> for type
-   <type>integer</type> into schema <literal>myschema</literal>:
+   To move the ordered set function <literal>mypercentile</literal> with
+   direct argument of type <type>float8</type> taking groups
+   of <type>integer</type> type into schema <literal>myschema</literal>:
 <programlisting>
-ALTER AGGREGATE myavg(integer) SET SCHEMA myschema;
+ALTER AGGREGATE mypercentile(float8) WITHIN GROUP (integer) SET SCHEMA myschema;
 </programlisting></para>
  </refsect1>
 

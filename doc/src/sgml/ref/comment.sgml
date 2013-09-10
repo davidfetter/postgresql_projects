@@ -23,7 +23,7 @@ PostgreSQL documentation
 <synopsis>
 COMMENT ON
 {
-  AGGREGATE <replaceable class="PARAMETER">agg_name</replaceable> ( [ <replaceable class="parameter">argmode</replaceable> ] [ <replaceable class="parameter">argname</replaceable> ] <replaceable class="parameter">agg_type</replaceable> [, ...] ) |
+  AGGREGATE <replaceable class="PARAMETER">agg_name</replaceable> ( [ <replaceable class="parameter">argmode</replaceable> ] [ <replaceable class="parameter">argname</replaceable> ] <replaceable class="parameter">agg_type</replaceable> [, ...] ) [ WITHIN GROUP ( * | [ <replaceable class="parameter">argmode</replaceable> ] [ <replaceable class="parameter">argname</replaceable> ] <replaceable class="parameter">agg_type</replaceable> [, ...] ) ] |
   CAST (<replaceable>source_type</replaceable> AS <replaceable>target_type</replaceable>) |
   COLLATION <replaceable class="PARAMETER">object_name</replaceable> |
   COLUMN <replaceable class="PARAMETER">relation_name</replaceable>.<replaceable class="PARAMETER">column_name</replaceable> |

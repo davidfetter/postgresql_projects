@@ -29,6 +29,15 @@ CREATE AGGREGATE <replaceable class="parameter">name</replaceable> ( [ <replacea
     [ , SORTOP = <replaceable class="PARAMETER">sort_operator</replaceable> ]
 )
 
+CREATE AGGREGATE <replaceable class="parameter">name</replaceable> ( [ <replaceable class="parameter">argmode</replaceable> ] [ <replaceable class="parameter">arg_name</replaceable> ] <replaceable class="parameter">arg_data_type</replaceable> [ , ... ] ) WITHIN GROUP ( * | [ <replaceable class="parameter">argmode</replaceable> ] [ <replaceable class="parameter">arg_name</replaceable> ] <replaceable class="parameter">arg_data_type</replaceable> [ , ... ] ) (
+    FINALFUNC = <replaceable class="PARAMETER">ffunc</replaceable>
+    [ , STRICT ]
+    [ , HYPOTHETICAL ]
+    [ , STYPE = <replaceable class="PARAMETER">state_data_type</replaceable> ]
+    [ , INITCOND = <replaceable class="PARAMETER">initial_condition</replaceable> ]
+    [ , TRANSSORTOP = <replaceable class="PARAMETER">state_sort_operator</replaceable> ]
+)
+
 <phrase>or the old syntax</phrase>
 
 CREATE AGGREGATE <replaceable class="PARAMETER">name</replaceable> (
@@ -70,7 +79,7 @@ CREATE AGGREGATE <replaceable class="PARAMETER">name</replaceable> (
   </para>
 
   <para>
-   An aggregate function is made from one or two ordinary
+   An ordinary aggregate function is made from one or two ordinary
    functions:
    a state transition function
    <replaceable class="PARAMETER">sfunc</replaceable>,
@@ -162,6 +171,14 @@ SELECT col FROM tab ORDER BY col USING sortop LIMIT 1;
    actually take effect unless the specified operator is the <quote>less
    than</quote> or <quote>greater than</quote> strategy member of a B-tree
    index operator class.
+  </para>
+
+  <para>
+   The <literal>WITHIN GROUP</literal> syntax denotes a special subset of
+   aggregate functions collectively called <quote>ordered set
+   functions</quote>. These functions operate over groups of sorted values
+   in order-dependent ways. As such, they are constructed differently; there
+   is no state transition function, but the final function is required.
   </para>
 
   <para>
@@ -278,6 +295,11 @@ SELECT col FROM tab ORDER BY col USING sortop LIMIT 1;
       aggregate's result, and the return type is <replaceable
       class="PARAMETER">state_data_type</replaceable>.
      </para>
+     <para>
+      For ordered set functions, the function arguments must instead
+      correspond to the input arguments (both direct and grouped) plus
+      the state type if any.
+     </para>
     </listitem>
    </varlistentry>
 
@@ -302,6 +324,39 @@ SELECT col FROM tab ORDER BY col USING sortop LIMIT 1;
       This is just an operator name (possibly schema-qualified).
       The operator is assumed to have the same input data types as
       the aggregate (which must be a single-argument aggregate).
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="PARAMETER">state_sort_operator</replaceable></term>
+    <listitem>
+     <para>
+      For ordered set functions only, this is a sort operator that can be
+      applied to
+      the <replaceable class="PARAMETER">state_data_type</replaceable>.
+      This is just an operator name (possibly schema-qualified).
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>STRICT</literal></term>
+    <listitem>
+     <para>
+      For ordered set functions only, this flag specifies that the function is
+      strict, i.e. that grouped rows containing nulls are skipped.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>HYPOTHETICAL</literal></term>
+    <listitem>
+     <para>
+      For ordered set functions only, this flag specifies that the aggregate
+      parameters are to be processed according to the requirements for
+      hypothetical set functions.
      </para>
     </listitem>
    </varlistentry>
