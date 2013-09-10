@@ -667,9 +667,14 @@ extern int AggSetGetSortOperators(FunctionCallInfo fcinfo,
 								  int16 **sortColIdx,
 								  Oid **sortOperators,
 								  Oid **sortCollations,
-								  bool **sortNullsFirst,
-								  Oid **sortEqOperators);
+								  bool **sortNullsFirst);
 
+/* int16 rather than AttrNumber here to avoid includes */
+extern int AggSetGetDistinctOperators(FunctionCallInfo fcinfo,
+									  fmTupleTableSlot **tupslot,
+									  int16 **sortColIdx,
+									  Oid **sortEqOperators,
+									  FmgrInfo **equalfns);
 
 /*
  * We allow plugin modules to hook function entry/exit.  This is intended

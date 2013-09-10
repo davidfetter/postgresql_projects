@@ -1911,6 +1911,11 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		 *
 		 * Note that by construction, if there is a DISTINCT clause then the
 		 * ORDER BY clause is a prefix of it (see transformDistinctClause).
+		 *
+		 * If we're doing an ordered set function, though, we want to do the
+		 * initialization for DISTINCT since the ordered set finalfn might
+		 * want it, and it's much easier to do it here. So set numDistinctCols
+		 * and let the later initialization take care of it.
 		 */
 		if (aggref->aggdistinct)
 		{
@@ -1922,7 +1927,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		{
 			sortlist = aggref->aggorder;
 			numSortCols = list_length(sortlist);
-			numDistinctCols = 0;
+			numDistinctCols = aggref->isordset ? numSortCols : 0;
 		}
 
 		/*
@@ -1960,7 +1965,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 			if (OidIsValid(sortop))
 			{
-				Assert(numDistinctCols == 0);
+				Assert(aggref->aggdistinct == NIL);
 
 				sortcl = makeNode(SortGroupClause);
 
@@ -1973,6 +1978,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 				sortlist = lappend(list_copy(sortlist), sortcl);
 				++numSortCols;
+				++numDistinctCols;
 			}
 
 			/* shallow-copy the passed-in lists, which we must not scribble on. */
@@ -2016,7 +2022,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 								&peraggstate->inputtypeLen,
 								&peraggstate->inputtypeByVal);
 			}
-			else if (numDistinctCols > 0)
+
+			if (numDistinctCols > 0 && (numInputs > 1 || aggref->isordset))
 			{
 				/* we will need an extra slot to store prior values */
 				peraggstate->uniqslot = ExecInitExtraTupleSlot(estate);
@@ -2035,6 +2042,12 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				(Oid *) palloc(numSortCols * sizeof(Oid));
 			peraggstate->sortNullsFirst =
 				(bool *) palloc(numSortCols * sizeof(bool));
+			if (numDistinctCols > 0)
+				peraggstate->equalfns =
+					(FmgrInfo *) palloc(numDistinctCols * sizeof(FmgrInfo));
+			else
+				peraggstate->equalfns = NULL;
+			
 
 			i = 0;
 			foreach(lc, sortlist)
@@ -2051,31 +2064,19 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				peraggstate->sortEqOperators[i] = sortcl->eqop;
 				peraggstate->sortCollations[i] = exprCollation((Node *) tle->expr);
 				peraggstate->sortNullsFirst[i] = sortcl->nulls_first;
+
+				/*
+				 * It's OK to get the equalfns here too, since we already
+				 * require that sortlist is aggref->aggdistinct for the normal
+				 * distinct case, and for ordered set functions using the
+				 * (possibly modified copy of) aggref->aggorder is correct
+				 */
+				if (peraggstate->equalfns)
+					fmgr_info(get_opcode(sortcl->eqop), &peraggstate->equalfns[i]);
+
 				i++;
 			}
 			Assert(i == numSortCols);
-		}
-
-		if (aggref->aggdistinct)
-		{
-			Assert(numArguments > 0);
-
-			/*
-			 * We need the equal function for each DISTINCT comparison we will
-			 * make.
-			 */
-			peraggstate->equalfns =
-				(FmgrInfo *) palloc(numDistinctCols * sizeof(FmgrInfo));
-
-			i = 0;
-			foreach(lc, aggref->aggdistinct)
-			{
-				SortGroupClause *sortcl = (SortGroupClause *) lfirst(lc);
-
-				fmgr_info(get_opcode(sortcl->eqop), &peraggstate->equalfns[i]);
-				i++;
-			}
-			Assert(i == numDistinctCols);
 		}
 
 		ReleaseSysCache(aggTuple);
@@ -2332,8 +2333,7 @@ AggSetGetSortOperators(FunctionCallInfo fcinfo,
 					   AttrNumber **sortColIdx,
 					   Oid **sortOperators,
 					   Oid **sortCollations,
-					   bool **sortNullsFirst,
-					   Oid **sortEqOperators)
+					   bool **sortNullsFirst)
 {
 	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
 	{
@@ -2347,13 +2347,39 @@ AggSetGetSortOperators(FunctionCallInfo fcinfo,
 			*sortCollations = peraggstate->sortCollations;
 		if (sortNullsFirst)
 			*sortNullsFirst = peraggstate->sortNullsFirst;
-		if (sortEqOperators)
-			*sortEqOperators = peraggstate->sortEqOperators;
 
 		return peraggstate->numSortCols;
 	}
 	else
 	{
 		elog(ERROR, "AggSetGetSortOperators called on non ordered set function");
+	}
+}
+
+int
+AggSetGetDistinctOperators(FunctionCallInfo fcinfo,
+						   TupleTableSlot **uniqslot,
+						   AttrNumber **sortColIdx,
+						   Oid **sortEqOperators,
+						   FmgrInfo **equalfns)
+{
+	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
+	{
+		AggStatePerAggData *peraggstate = (AggStatePerAggData *) fcinfo->context;
+
+		if (uniqslot)
+			*uniqslot = peraggstate->uniqslot;
+		if (sortColIdx)
+			*sortColIdx = peraggstate->sortColIdx;
+		if (sortEqOperators)
+			*sortEqOperators = peraggstate->sortEqOperators;
+		if (equalfns)
+			*equalfns = peraggstate->equalfns;
+
+		return peraggstate->numDistinctCols;
+	}
+	else
+	{
+		elog(ERROR, "AggSetGetDistinctOperators called on non ordered set function");
 	}
 }
