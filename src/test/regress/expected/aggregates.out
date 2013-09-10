@@ -1305,6 +1305,24 @@ select percentile_disc(0.5) within group (order by thousand) from tenk1;
              499
 (1 row)
 
+select cume_dist(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
+ cume_dist 
+-----------
+     0.875
+(1 row)
+
+select percent_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
+   percent_rank    
+-------------------
+ 0.571428571428571
+(1 row)
+
+select dense_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
+ dense_rank 
+------------
+          3
+(1 row)
+
 -- variadic aggregates
 select least_agg(q1,q2) from int8_tbl;
      least_agg     
