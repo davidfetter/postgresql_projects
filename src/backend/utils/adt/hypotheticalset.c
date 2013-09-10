@@ -159,7 +159,7 @@ hypothetical_dense_rank(PG_FUNCTION_ARGS)
 
 	tuplesort_performsort(sorter);
 
-	numDistinctCol = AggSetGetDistinctOperators(fcinfo, NULL, &colidx, NULL, &equalfns);
+	numDistinctCol = AggSetGetDistinctOperators(fcinfo, &slot2, &colidx, NULL, &equalfns);
 
 	AggSetGetPerTupleContext(fcinfo, &memcontext);
 
@@ -169,18 +169,19 @@ hypothetical_dense_rank(PG_FUNCTION_ARGS)
 		bool isnull;
 		Datum d = slot_getattr(slot, nargs + 1, &isnull);
 
-		if (execTuplesMatch(slot, slot2,
-						(numDistinctCol -1),
-						colidx,
-						equalfns,
-						memcontext))
-			++duplicate_count;		
+		if (!isnull && DatumGetBool(d))
+			break;
+
+		if (!TupIsNull(slot2))
+			if (execTuplesMatch(slot, slot2,
+							(numDistinctCol -1),
+							colidx,
+							equalfns,
+							memcontext))
+				++duplicate_count;		
 
 		slot2 = slot;
 		slot = tmpslot;
-
-		if (!isnull && DatumGetBool(d))
-			break;
 
 		++rank;
 	}
