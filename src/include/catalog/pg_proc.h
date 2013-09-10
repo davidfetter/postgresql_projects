@@ -4772,6 +4772,12 @@ DESCR("hypothetical percent rank");
 DATA(insert OID = 3973 ( percent_rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	hypothetical_percent_rank_final _null_ _null_ _null_ ));
 DESCR("hypothetical_percent_rank_final");
 
+DATA(insert OID = 3974 ( cume_dist		PGNSP PGUID 12 1 0 2276 0 t f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
+DESCR("hypothetical cume dist");
+
+DATA(insert OID = 3975 ( cume_dist_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	hypothetical_cume_dist_final _null_ _null_ _null_ ));
+DESCR("hypothetical_cume_dist_final");
+
 
 /*
  * Symbolic values for provolatile column: these indicate whether the result
