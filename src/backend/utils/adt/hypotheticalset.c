@@ -132,6 +132,8 @@ hypothetical_dense_rank(PG_FUNCTION_ARGS)
 	int numDistinctCol = 0;
 	MemoryContext memcontext;
 
+	AggSetGetSortInfo(fcinfo, &sorter, &tupdesc, &slot, &datumtype);
+
 	if (!tupdesc
 		|| (nargs + 1) != tupdesc->natts
 		|| tupdesc->attrs[nargs]->atttypid != BOOLOID)
