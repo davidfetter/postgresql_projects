@@ -21,13 +21,15 @@
 #include "catalog/pg_type.h"
 #include "utils/datetime.h"
 #include "utils/builtins.h"
+#include "executor/executor.h"
+
+Datum hypothetical_rank_final(PG_FUNCTION_ARGS);
+Datum hypothetical_dense_rank_final(PG_FUNCTION_ARGS);
+Datum hypothetical_percent_rank_final(PG_FUNCTION_ARGS);
 
 /*
  * rank(float8)  - discrete (nearest) percentile
  */
-
-Datum hypothetical_rank_final(PG_FUNCTION_ARGS);
-
 Datum
 hypothetical_rank_final(PG_FUNCTION_ARGS)
 {
