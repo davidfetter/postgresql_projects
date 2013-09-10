@@ -499,7 +499,7 @@ select percentile_cont(0.5) within group (order by b),sum(b) from aggtest;
 select percentile_cont(0.5) within group (order by thousand) from tenk1;
 select percentile_disc(0.5) within group (order by thousand) from tenk1;
 select cume_dist(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
-select percent_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
+select percent_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4),(5)) v(x);
 select dense_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
 
 -- variadic aggregates

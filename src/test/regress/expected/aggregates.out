@@ -1311,10 +1311,10 @@ select cume_dist(3) within group (order by x) from (values (1),(1),(2),(2),(3),(
      0.875
 (1 row)
 
-select percent_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
-   percent_rank    
--------------------
- 0.571428571428571
+select percent_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4),(5)) v(x);
+ percent_rank 
+--------------
+          0.5
 (1 row)
 
 select dense_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
