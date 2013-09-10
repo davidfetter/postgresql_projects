@@ -1706,6 +1706,54 @@ SELECT string_agg(a ORDER BY a, ',') FROM table;  -- incorrect
    </para>
   </sect2>
 
+  <sect2 id="syntax-orderedset">
+   <title>Ordered Set Functions</title>
+
+   <indexterm zone="syntax-orderedset">
+    <primary>ordered set function</primary>
+   </indexterm>
+
+   <indexterm zone="syntax-orderedset">
+    <primary>aggregate function</primary>
+    <secondary>ordered set function</secondary>
+   </indexterm>
+
+   <indexterm zone="syntax-orderedset">
+    <primary>WITHIN GROUP</primary>
+   </indexterm>
+
+   <para>
+    An <firstterm>ordered set function</firstterm> is a particular kind of
+    aggregate function which is applied to sorted groups of values and returns
+    a single result for each group which may be influenced by the sort
+    order. Like all aggregate functions, it reduces multiple inputs to a
+    single output value; typical ordered set functions return a percentile
+    extracted from the ordered group, or the rank a specified value would have
+    within that group.  The syntax of an ordered set function is:
+
+<synopsis>
+<replaceable>function_name</replaceable> ( [ <replaceable>expression</replaceable> [ , ... ] ] ) WITHIN GROUP ( <replaceable>order_by_clause</replaceable> ) [ FILTER ( WHERE <replaceable>filter_clause</replaceable> ) ]
+</synopsis>
+
+    where <replaceable>function_name</replaceable> is a previously
+    defined ordered set function (possibly qualified with a schema name) and
+    <replaceable>expression</replaceable> is any value expression that does
+    not itself contain an aggregate expression, a window function call, or any
+    reference to ungrouped columns of the source data.  The
+    mandatory <replaceable>order_by_clause</replaceable> has the same syntax
+    as for a query-level <literal>ORDER BY</> clause, as described
+    in <xref linkend="queries-order">, except that its expressions are always
+    just expressions and cannot be output-column names or numbers.  The
+    expressions of the <replaceable>order_by_clause</replaceable> may, and
+    almost invariably do, refer to the ungrouped columns of the input; the
+    clause defines the grouped input to the function. The optional
+    <replaceable>filter_clause</replaceable> is identical to that for
+    aggregate functions (see <xref linkend="syntax-aggregates">, and is applied
+    to input rows prior to the sort operation.
+   </para>
+
+  </sect2>
+
   <sect2 id="syntax-window-functions">
    <title>Window Function Calls</title>
 

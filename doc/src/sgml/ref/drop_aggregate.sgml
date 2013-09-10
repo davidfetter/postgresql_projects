@@ -21,9 +21,13 @@ PostgreSQL documentation
 
  <refsynopsisdiv>
 <synopsis>
-DROP AGGREGATE [ IF EXISTS ]
-  <replaceable class="parameter">name</replaceable> ( [ <replaceable class="parameter">argmode</replaceable> ] [ <replaceable class="parameter">arg_name</replaceable> ] <replaceable class="parameter">arg_data_type</replaceable> [ , ... ] )
+DROP AGGREGATE [ IF EXISTS ] <replaceable class="parameter">aggregate_signature</replaceable>
   [ CASCADE | RESTRICT ]
+
+<phrase>where <replaceable>aggregate_signature</replaceable> is one of:</phrase>
+
+<replaceable>name</replaceable> ( * | [ <replaceable>argmode</replaceable> ] [ <replaceable>arg_name</replaceable> ] <replaceable>arg_data_type</replaceable> [ , ... ] )
+<replaceable>name</replaceable> ( [ [ <replaceable>argmode</replaceable> ] [ <replaceable>arg_name</replaceable> ] <replaceable>arg_data_type</replaceable> [ , ... ] ] ) WITHIN GROUP ( * | [ <replaceable>argmode</replaceable> ] [ <replaceable>arg_name</replaceable> ] <replaceable>arg_data_type</replaceable> [ , ... ] )
 </synopsis>
  </refsynopsisdiv>
 
