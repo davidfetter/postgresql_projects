@@ -29,7 +29,7 @@ Datum hypothetical_percent_rank_final(PG_FUNCTION_ARGS);
 Datum hypothetical_cume_dist_final(PG_FUNCTION_ARGS);
 
 /*
- * rank(float8)  - discrete (nearest) percentile
+ * rank(float8)  - rank of hypothetical row
  */
 Datum
 hypothetical_rank_final(PG_FUNCTION_ARGS)
@@ -116,7 +116,8 @@ hypothetical_rank_final(PG_FUNCTION_ARGS)
 }
 
 /*
- * dense_rank(float8)  - discrete (nearest) percentile
+ * dense_rank(float8)  - rank of hypothetical row
+ *                       without gap in ranking
  */
 Datum
 hypothetical_dense_rank_final(PG_FUNCTION_ARGS)
@@ -193,6 +194,11 @@ hypothetical_dense_rank_final(PG_FUNCTION_ARGS)
 	PG_RETURN_INT64(rank);
 }
 
+/* percent_rank(float8)
+ * Calculates the relative ranking of hypothetical
+ * row within a group
+ */
+
 Datum
 hypothetical_percent_rank_final(PG_FUNCTION_ARGS)
 {
@@ -204,6 +210,10 @@ hypothetical_percent_rank_final(PG_FUNCTION_ARGS)
 
 	PG_RETURN_FLOAT8(result_val);
 }
+
+/* cume_dist - cumulative distribution of hypothetical
+ * row in a group
+ */
 
 Datum
 hypothetical_cume_dist_final(PG_FUNCTION_ARGS)

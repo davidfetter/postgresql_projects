@@ -255,23 +255,12 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 		if (transTypeType == TYPTYPE_PSEUDO &&
 			!IsPolymorphicType(transTypeId))
 		{
-			if (!isOrderedSet)
-			{
-				if (transTypeId == INTERNALOID && superuser())
-					 /* okay */ ;
-				else
+
+			if (transTypeId != INTERNALOID || !superuser() || isOrderedSet)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 						 errmsg("aggregate transition data type cannot be %s",
 								format_type_be(transTypeId))));
-			}
-			else
-			{
-				if (transTypeId == INTERNALOID && superuser())
-					ereport(ERROR,
-						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-						 errmsg("aggregate transition data type cannot be INTERNALOID for ordered set functions")));
-			}
 		}
 
 	}
@@ -295,6 +284,13 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 			getTypeInputInfo(transTypeId, &typinput, &typioparam);
 			(void) OidInputFunctionCall(typinput, initval, typioparam, -1);
 		}
+	}
+	else
+	{
+		if (initval)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+					errmsg("INITVAL must not be specified without STYPE")));
 	}
 
 	/*

@@ -1403,8 +1403,6 @@ func_get_detail(List *funcname,
 
 		ftup = SearchSysCache1(PROCOID,
 							   ObjectIdGetDatum(best_candidate->oid));
-
-		
 		if (!HeapTupleIsValid(ftup))	/* should not happen */
 			elog(ERROR, "cache lookup failed for function %u",
 				 best_candidate->oid);
@@ -1482,9 +1480,7 @@ func_get_detail(List *funcname,
 			}
 		}
 		if (pform->proisagg)
-		{
 			result = FUNCDETAIL_AGGREGATE;
-		}
 		else if (pform->proiswindow)
 			result = FUNCDETAIL_WINDOWFUNC;
 		else

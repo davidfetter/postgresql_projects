@@ -44,7 +44,9 @@ typedef struct
 	int			sublevels_up;
 } check_ungrouped_columns_context;
 
-static int	check_agg_arguments(ParseState *pstate, List *args, List *agg_ordset, Expr *filter);
+static int	check_agg_arguments(ParseState *pstate, 
+							List *args, 
+							List *agg_ordset, Expr *filter);
 static bool check_agg_arguments_walker(Node *node,
 						   check_agg_arguments_context *context);
 static void check_ungrouped_columns(Node *node, ParseState *pstate, Query *qry,
@@ -178,7 +180,8 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	 * Check the arguments to compute the aggregate's level and detect
 	 * improper nesting.
 	 */
-	min_varlevel = check_agg_arguments(pstate, agg->args, agg->orddirectargs, agg->aggfilter);
+	min_varlevel = check_agg_arguments(pstate, 
+										agg->args, agg->orddirectargs, agg->aggfilter);
 	agg->agglevelsup = min_varlevel;
 
 	/* Mark the correct pstate level as having aggregates */
@@ -851,7 +854,8 @@ check_ungrouped_columns_walker(Node *node,
 	else if (IsA(node, Aggref) &&
 			(int) ((Aggref *) node)->agglevelsup == context->sublevels_up)
 	{
-		return check_ungrouped_columns_walker((Node*)(((Aggref *)node)->orddirectargs), context);
+		return check_ungrouped_columns_walker((Node*)(((Aggref *)node)->orddirectargs), 
+														context);
 	}
 
 	/*

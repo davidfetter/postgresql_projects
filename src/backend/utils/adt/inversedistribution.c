@@ -89,10 +89,10 @@ percentile_disc_final(PG_FUNCTION_ARGS)
  * percentile_cont(float8)  - continuous (nearest) percentile
  */
 
-Datum percentile_cont_final(PG_FUNCTION_ARGS);
+Datum percentile_cont_float8_final(PG_FUNCTION_ARGS);
 
 Datum
-percentile_cont_final(PG_FUNCTION_ARGS)
+percentile_cont_float8_final(PG_FUNCTION_ARGS)
 {
 	float8 percentile = 0;
 	int64 rowcount = AggSetGetRowCount(fcinfo);
@@ -170,10 +170,10 @@ percentile_cont_final(PG_FUNCTION_ARGS)
  * percentile_interval_cont(Interval)  - continuous (nearest) percentile for Interval
  */
 
-Datum percentile_interval_cont_final(PG_FUNCTION_ARGS);
+Datum percentile_cont_interval_final(PG_FUNCTION_ARGS);
 
 Datum
-percentile_interval_cont_final(PG_FUNCTION_ARGS)
+percentile_cont_interval_final(PG_FUNCTION_ARGS)
 {
 	float8 percentile = 0;
 	int64 rowcount = AggSetGetRowCount(fcinfo);

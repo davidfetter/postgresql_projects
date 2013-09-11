@@ -243,8 +243,8 @@ DATA(insert ( 3175	json_agg_transfn	json_agg_finalfn		0	2281	0 f -1 _null_ ));
 
 /* ordered set function */
 DATA(insert ( 3931 	- 			percentile_disc_final		0 	0 	0 t 1 _null_));
-DATA(insert ( 3935 	- 			percentile_cont_final		0 	0 	0 t 1 _null_));
-DATA(insert ( 3939 	- 			percentile_interval_cont_final	0 	0 	0 t 1 _null_));
+DATA(insert ( 3935 	- 			percentile_cont_float8_final		0 	0 	0 t 1 _null_));
+DATA(insert ( 3939 	- 			percentile_cont_interval_final	0 	0 	0 t 1 _null_));
 DATA(insert ( 3968 	- 			rank_final			0 	16 	59 t -2 "f"));
 DATA(insert ( 3970 	- 			dense_rank_final			0 	16 	59 t -2 "f"));
 DATA(insert ( 3972 	- 			percent_rank_final			0 	16 	59 t -2 "f"));
