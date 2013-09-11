@@ -11088,6 +11088,22 @@ SELECT NULLIF(value, '(none)') ...
         <entry><literallayout class="monospaced">1
 2</literallayout>(2 rows)</entry>
        </row>
+       <row>
+        <entry>
+         <literal>
+          <function>unnest</function>(<type>anyarray</type>, <type>anyarray</type>[,...])
+         </literal>
+        </entry>
+        <entry><type>setof anyelement, anyelement[,...]</type></entry>
+        <entry>expand more than one array to a set of rows.  This is
+        only allowed in the FROM clause, and the input arrays can be
+        of different types. For more on table(), which forms the basis of <function>unnest</function>
+        with multiple arrays, see <xref linkend="queries-tablefunctions"></entry>
+        <entry><literal>unnest(ARRAY[1,2],ARRAY['foo','bar','baz'])</literal></entry>
+        <entry><literallayout class="monospaced">1    foo
+2    bar
+NULL baz</literallayout>(3 rows)</entry>
+       </row>
       </tbody>
      </tgroup>
     </table>
@@ -13138,7 +13154,8 @@ AND
    The most widely used functions in this class are series generating
    functions, as detailed in <xref linkend="functions-srf-series"> and
    <xref linkend="functions-srf-subscripts">.  Other, more specialized
-   set-returning functions are described elsewhere in this manual.
+   set-returning functions are described elsewhere in this manual. See <xref
+   linkend="queries-tablefunctions"> for combining multiple set-returning functions.
   </para>
 
   <table id="functions-srf-series">
