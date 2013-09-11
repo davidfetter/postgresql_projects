@@ -496,16 +496,31 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	 * When function is called with an explicit VARIADIC labeled parameter,
 	 * and the declared_arg_type is "any", then sanity check the actual
 	 * parameter type now - it must be an array.
+	 *
+	 * Also, it can't be a hypothetical set function, and if it's an ordered
+	 * set function, the variadic labeled parameter is the last _direct_ arg,
+	 * not an ordered arg. (In practice we're unlikely to get this far for
+	 * hypotheticals, since make_fn_arguments would probably fail to unify
+	 * types, but we can't change the order of these.)
 	 */
 	if (nargs > 0 && vatype == ANYOID && func_variadic)
 	{
-		Oid		va_arr_typid = actual_arg_types[nargs - 1];
+		int     ignore_args = (agg_within_group ? list_length(agg_order) : 0);
+		Oid		va_arr_typid = actual_arg_types[nargs - 1 - ignore_args];
+
+		if (ishypotheticalsetfunc)
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("explicit VARIADIC argument not allowed on hypothetical set function"),
+			  parser_errposition(pstate,
+								 exprLocation((Node *) list_nth(fargs, nargs - 1 - ignore_args)))));
 
 		if (!OidIsValid(get_element_type(va_arr_typid)))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("VARIADIC argument must be an array"),
-			  parser_errposition(pstate, exprLocation((Node *) llast(fargs)))));
+			  parser_errposition(pstate,
+								 exprLocation((Node *) list_nth(fargs, nargs - 1 - ignore_args)))));
 	}
 
 	/* build the appropriate output structure */

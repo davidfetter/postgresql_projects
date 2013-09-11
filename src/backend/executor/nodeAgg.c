@@ -121,6 +121,9 @@ typedef struct AggStatePerAggData
 	/* Pointer to parent AggState node */
 	AggState   *aggstate;
 
+	/* copied from aggref */
+	bool        isOrderedSet;
+
 	/*
 	 * number of arguments for aggregate function proper.
 	 * For ordered set functions, this includes the ORDER BY
@@ -153,8 +156,9 @@ typedef struct AggStatePerAggData
 	 * only check numArguments, while ordered set functions check
 	 * numInputs.
 	 *
-	 * Ordered set functions have a separate strictness state for
-	 * the finalfn, which is tested separately.
+	 * Ordered set functions are not allowed to have strict finalfns;
+	 * other aggregates respect the finalfn strict flag in the
+	 * FmgrInfo above.
 	 */
 	int         numStrict;
 
@@ -549,7 +553,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 			Assert(slot->tts_nvalid == peraggstate->numInputs);
 
 			/*
-			 * If the transfn is strict, we want to check for nullity before
+			 * If the aggregate is strict, we want to check for nullity before
 			 * storing the row in the sorter, to save space if there are a lot
 			 * of nulls.
 			 */
@@ -572,7 +576,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 			else
 				tuplesort_puttupleslot(peraggstate->sortstate, slot);
 
-			++peraggstate->number_of_rows;
+			peraggstate->number_of_rows++;
 		}
 		else
 		{
@@ -797,11 +801,14 @@ finalize_aggregate(AggState *aggstate,
 		FunctionCallInfoData fcinfo;
 		bool isnull = false;
 
-		if (!(peraggstate->aggref->isordset))
+		if (!(peraggstate->isOrderedSet))
 		{
-			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), 1,
-								 	peraggstate->aggCollation,
-								 	(void *) aggstate, NULL);
+			InitFunctionCallInfoData(fcinfo,
+									 &(peraggstate->finalfn),
+									 1,
+									 peraggstate->aggCollation,
+									 (void *) aggstate,
+									 NULL);
 
 			fcinfo.arg[0] = pergroupstate->transValue;
 			fcinfo.argnull[0] = isnull = pergroupstate->transValueIsNull;
@@ -810,20 +817,27 @@ finalize_aggregate(AggState *aggstate,
 		{
 			List     *args = peraggstate->aggrefstate->orddirectargs;
 			ListCell *lc;
-			int i = 0;
-			int numArguments = 0;
+			int       i = 0;
+			int       numArguments = peraggstate->numArguments;
 
-			InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn), peraggstate->numArguments,
-								 	peraggstate->aggCollation,
-								 	(void *) peraggstate, NULL);
+			ExecClearTuple(peraggstate->evalslot);
+			ExecClearTuple(peraggstate->uniqslot);
 
-			numArguments = peraggstate->numArguments;
+			InitFunctionCallInfoData(fcinfo,
+									 &(peraggstate->finalfn),
+									 peraggstate->numArguments,
+									 peraggstate->aggCollation,
+									 (void *) peraggstate,
+									 NULL);
 
 			foreach (lc, args)
 			{
 				ExprState *expr = (ExprState *) lfirst(lc);
 
-				fcinfo.arg[i] = ExecEvalExpr(expr, aggstate->ss.ps.ps_ExprContext,  &fcinfo.argnull[i], NULL);
+				fcinfo.arg[i] = ExecEvalExpr(expr,
+											 aggstate->ss.ps.ps_ExprContext,
+											 &fcinfo.argnull[i],
+											 NULL);
 				if (fcinfo.argnull[i])
 					isnull = true;
 
@@ -834,12 +848,17 @@ finalize_aggregate(AggState *aggstate,
 			{
 				fcinfo.arg[i] = (Datum) 0;
 				fcinfo.argnull[i] = true;
+				isnull = true;
 			}
 		}
 
 		if (isnull && fcinfo.flinfo->fn_strict)
 		{
-			/* don't call a strict function with NULL inputs */
+			/*
+			 * don't call a strict function with NULL inputs; for ordered set
+			 * functions this is paranoia, we already required that fn_strict
+			 * is false, but easy to check anyway
+			 */
 			*resultVal = (Datum) 0;
 			*resultIsNull = true;
 		}
@@ -1260,7 +1279,7 @@ agg_retrieve_direct(AggState *aggstate)
 
 			if (peraggstate->numSortCols > 0)
 			{
-				if (!(peraggstate->aggref->isordset))
+				if (!(peraggstate->isOrderedSet))
 				{
 					if (peraggstate->numInputs == 1)
 						process_ordered_aggregate_single(aggstate,
@@ -1648,10 +1667,12 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		int			numInputs;
 		int			numSortCols;
 		int			numDistinctCols;
+		bool        isOrderedSet = aggref->isordset;
 		List	   *sortlist;
 		HeapTuple	aggTuple;
 		Form_pg_aggregate aggform;
 		Oid			aggtranstype;
+		Oid			aggtranstypecoll;
 		AclResult	aclresult;
 		Oid			transfn_oid,
 					finalfn_oid;
@@ -1691,6 +1712,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		peraggstate->aggref = aggref;
 		peraggstate->aggrefstate = aggrefstate;
 
+		peraggstate->isOrderedSet = isOrderedSet;
+
 		/* Mark Aggref state node with assigned index in the result array */
 		aggrefstate->aggno = aggno;
 
@@ -1705,8 +1728,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		/*
 		 * Check that the definition hasn't somehow changed incompatibly.
 		 */
-
-		if ((aggref->isordset != (aggform->aggisordsetfunc))
+		if (isOrderedSet != (aggform->aggisordsetfunc)
 			|| (aggref->ishypothetical != (aggform->aggordnargs == -2)))
 			elog(ERROR, "Incompatible change to aggregate definition");
 
@@ -1775,8 +1797,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 											  inputTypes,
 											  inputCollations);
 
-		peraggstate->numArguments = numArguments;
-
 		/* resolve actual type of transition state, if polymorphic */
 		aggtranstype = aggform->aggtranstype;
 		if (OidIsValid(aggtranstype) && IsPolymorphicType(aggtranstype))
@@ -1804,9 +1824,12 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			pfree(declaredArgTypes);
 		}
 
-		if (!(aggref->isordset))
+		aggtranstypecoll = get_typcollation(aggtranstype);
+
+		/* build expression trees using actual argument & result types */
+
+		if (!isOrderedSet)
 		{
-			/* build expression trees using actual argument & result types */
 			build_aggregate_fnexprs(inputTypes,
 									numArguments,
 									aggref->aggvariadic,
@@ -1820,14 +1843,30 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		}
 		else
 		{
+			/*
+			 * The transvalue counts as an argument, but not for hypothetical
+			 * set funcs.
+			 */
+			if (OidIsValid(aggtranstype) && !(aggref->ishypothetical))
+			{
+				if (numArguments == FUNC_MAX_ARGS)
+					elog(ERROR, "Too many arguments to ordered set function");
+
+				inputTypes[numArguments++] = aggtranstype;
+				inputCollations[numArguments++] = aggtranstypecoll;
+			}
+
 			build_orderedset_fnexprs(inputTypes,
 									 numArguments,
+									 aggref->aggvariadic,
 									 aggref->aggtype,
 									 aggref->inputcollid,
 									 inputCollations,
 									 finalfn_oid,
 									 &finalfnexpr);
 		}
+
+		peraggstate->numArguments = numArguments;
 
 		if (OidIsValid(transfn_oid))
 		{
@@ -1841,14 +1880,14 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		{
 			fmgr_info(finalfn_oid, &peraggstate->finalfn);
 			fmgr_info_set_expr((Node *) finalfnexpr, &peraggstate->finalfn);
-			if (peraggstate->finalfn.fn_strict && aggref->isordset)
+			if (peraggstate->finalfn.fn_strict && isOrderedSet)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 						 errmsg("Ordered set functions's finalfns have to be defined as non strict")));
 		}
 
 		if (is_strict)
-			peraggstate->numStrict = (peraggstate->aggref->isordset ? numInputs : numArguments);
+			peraggstate->numStrict = (isOrderedSet ? numInputs : numArguments);
 		else
 			peraggstate->numStrict = 0;
 
@@ -1923,7 +1962,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		{
 			sortlist = aggref->aggorder;
 			numSortCols = list_length(sortlist);
-			numDistinctCols = aggref->isordset ? numSortCols : 0;
+			numDistinctCols = isOrderedSet ? numSortCols : 0;
 		}
 
 		/*
@@ -1936,7 +1975,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		 * possible place to put it; if there is one, it's very obscure.
 		 */
 
-		if (OidIsValid(aggtranstype) && aggref->isordset)
+		if (OidIsValid(aggtranstype) && isOrderedSet)
 		{
 			Oid sortop = aggform->aggtranssortop;
 			Const *node = makeNode(Const);
@@ -1945,7 +1984,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 			node->consttype = aggtranstype;
 			node->consttypmod = -1;
-			node->constcollid = get_typcollation(aggtranstype);
+			node->constcollid = aggtranstypecoll;
 			node->constlen = peraggstate->transtypeLen;
 			node->constvalue = peraggstate->initValue;
 			node->constisnull = peraggstate->initValueIsNull;
@@ -1980,7 +2019,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			/* shallow-copy the passed-in lists, which we must not scribble on. */
 
 			argexprs = lappend(list_copy(argexprs), (Node *) tle);
-			argexprstate = lappend(list_copy(argexprstate), ExecInitExpr((Expr *) tle, (PlanState *) aggstate));
+			argexprstate = lappend(list_copy(argexprstate),
+								   ExecInitExpr((Expr *) tle, (PlanState *) aggstate));
 		}
 
 		peraggstate->numSortCols = numSortCols;
@@ -2019,7 +2059,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 								&peraggstate->inputtypeByVal);
 			}
 
-			if (numDistinctCols > 0 && (numInputs > 1 || aggref->isordset))
+			if (numDistinctCols > 0 && (numInputs > 1 || isOrderedSet))
 			{
 				/* we will need an extra slot to store prior values */
 				peraggstate->uniqslot = ExecInitExtraTupleSlot(estate);
@@ -2293,7 +2333,11 @@ AggSetGetRowCount(FunctionCallInfo fcinfo)
  * ordered set functions.
  */
 void
-AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate **sortstate, TupleDesc *tupdesc, TupleTableSlot **tupslot, Oid *datumtype)
+AggSetGetSortInfo(FunctionCallInfo fcinfo,
+				  Tuplesortstate **sortstate,
+				  TupleDesc *tupdesc,
+				  TupleTableSlot **tupslot,
+				  Oid *datumtype)
 {
 	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
 	{
@@ -2319,15 +2363,37 @@ AggSetGetSortInfo(FunctionCallInfo fcinfo, Tuplesortstate **sortstate, TupleDesc
 			*tupslot = peraggstate->evalslot;
 	}
 	else
-	{
 		elog(ERROR, "AggSetSortInfo called on non ordered set function");
+}
+
+int
+AggSetGetDistinctInfo(FunctionCallInfo fcinfo,
+					  TupleTableSlot **uniqslot,
+					  AttrNumber **sortColIdx,
+					  FmgrInfo **equalfns)
+{
+	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
+	{
+		AggStatePerAggData *peraggstate = (AggStatePerAggData *) fcinfo->context;
+
+		if (uniqslot)
+			*uniqslot = peraggstate->uniqslot;
+		if (sortColIdx)
+			*sortColIdx = peraggstate->sortColIdx;
+		if (equalfns)
+			*equalfns = peraggstate->equalfns;
+
+		return peraggstate->numDistinctCols;
 	}
+	else
+		elog(ERROR, "AggSetGetDistinctOperators called on non ordered set function");
 }
 
 int
 AggSetGetSortOperators(FunctionCallInfo fcinfo,
 					   AttrNumber **sortColIdx,
 					   Oid **sortOperators,
+					   Oid **sortEqOperators,
 					   Oid **sortCollations,
 					   bool **sortNullsFirst)
 {
@@ -2339,6 +2405,8 @@ AggSetGetSortOperators(FunctionCallInfo fcinfo,
 			*sortColIdx = peraggstate->sortColIdx;
 		if (sortOperators)
 			*sortOperators = peraggstate->sortOperators;
+		if (sortEqOperators)
+			*sortEqOperators = peraggstate->sortEqOperators;
 		if (sortCollations)
 			*sortCollations = peraggstate->sortCollations;
 		if (sortNullsFirst)
@@ -2347,37 +2415,7 @@ AggSetGetSortOperators(FunctionCallInfo fcinfo,
 		return peraggstate->numSortCols;
 	}
 	else
-	{
 		elog(ERROR, "AggSetGetSortOperators called on non ordered set function");
-	}
-}
-
-int
-AggSetGetDistinctOperators(FunctionCallInfo fcinfo,
-						   TupleTableSlot **uniqslot,
-						   AttrNumber **sortColIdx,
-						   Oid **sortEqOperators,
-						   FmgrInfo **equalfns)
-{
-	if (fcinfo->context && IsA(fcinfo->context, AggStatePerAggData))
-	{
-		AggStatePerAggData *peraggstate = (AggStatePerAggData *) fcinfo->context;
-
-		if (uniqslot)
-			*uniqslot = peraggstate->uniqslot;
-		if (sortColIdx)
-			*sortColIdx = peraggstate->sortColIdx;
-		if (sortEqOperators)
-			*sortEqOperators = peraggstate->sortEqOperators;
-		if (equalfns)
-			*equalfns = peraggstate->equalfns;
-
-		return peraggstate->numDistinctCols;
-	}
-	else
-	{
-		elog(ERROR, "AggSetGetDistinctOperators called on non ordered set function");
-	}
 }
 
 void

@@ -650,11 +650,12 @@ extern void **find_rendezvous_variable(const char *varName);
 
 extern int AggCheckCallContext(FunctionCallInfo fcinfo,
 					MemoryContext *aggcontext);
-extern int64 AggSetGetRowCount(FunctionCallInfo fcinfo);
 
 typedef struct Tuplesortstate fmTuplesortstate;
 typedef struct tupleDesc *fmTupleDesc;
 typedef struct TupleTableSlot fmTupleTableSlot;
+
+extern int64 AggSetGetRowCount(FunctionCallInfo fcinfo);
 
 extern void AggSetGetSortInfo(FunctionCallInfo fcinfo,
 							  fmTuplesortstate **sortstate,
@@ -663,18 +664,18 @@ extern void AggSetGetSortInfo(FunctionCallInfo fcinfo,
 							  Oid *datumtype);
 
 /* int16 rather than AttrNumber here to avoid includes */
+extern int AggSetGetDistinctInfo(FunctionCallInfo fcinfo,
+								 fmTupleTableSlot **tupslot,
+								 int16 **sortColIdx,
+								 FmgrInfo **equalfns);
+
+/* int16 rather than AttrNumber here to avoid includes */
 extern int AggSetGetSortOperators(FunctionCallInfo fcinfo,
 								  int16 **sortColIdx,
 								  Oid **sortOperators,
+								  Oid **sortEqOperators,
 								  Oid **sortCollations,
 								  bool **sortNullsFirst);
-
-/* int16 rather than AttrNumber here to avoid includes */
-extern int AggSetGetDistinctOperators(FunctionCallInfo fcinfo,
-									  fmTupleTableSlot **tupslot,
-									  int16 **sortColIdx,
-									  Oid **sortEqOperators,
-									  FmgrInfo **equalfns);
 
 extern void AggSetGetPerTupleContext(FunctionCallInfo fcinfo,
 						 MemoryContext *memcontext);

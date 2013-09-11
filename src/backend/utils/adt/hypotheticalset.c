@@ -112,6 +112,8 @@ hypothetical_rank_final(PG_FUNCTION_ARGS)
 		++rank;
 	}
 
+	ExecClearTuple(slot);
+
 	PG_RETURN_INT64(rank);
 }
 
@@ -163,7 +165,9 @@ hypothetical_dense_rank_final(PG_FUNCTION_ARGS)
 
 	tuplesort_performsort(sorter);
 
-	numDistinctCol = AggSetGetDistinctOperators(fcinfo, &slot2, &colidx, NULL, &equalfns);
+	numDistinctCol = AggSetGetDistinctInfo(fcinfo, &slot2, &colidx, &equalfns);
+
+	ExecClearTuple(slot2);
 
 	AggSetGetPerTupleContext(fcinfo, &memcontext);
 
@@ -176,19 +180,22 @@ hypothetical_dense_rank_final(PG_FUNCTION_ARGS)
 		if (!isnull && DatumGetBool(d))
 			break;
 
-		if (!TupIsNull(slot2))
-			if (execTuplesMatch(slot, slot2,
-							(numDistinctCol -1),
-							colidx,
-							equalfns,
-							memcontext))
-				++duplicate_count;		
+		if (!TupIsNull(slot2)
+			&& execTuplesMatch(slot, slot2,
+							   (numDistinctCol - 1),
+							   colidx,
+							   equalfns,
+							   memcontext))
+			++duplicate_count;
 
 		slot2 = slot;
 		slot = tmpslot;
 
 		++rank;
 	}
+
+	ExecClearTuple(slot);
+	ExecClearTuple(slot2);
 
 	rank = rank - duplicate_count;
 	PG_RETURN_INT64(rank);

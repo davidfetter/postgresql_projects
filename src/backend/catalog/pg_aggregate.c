@@ -310,6 +310,12 @@ AggregateCreate(const char *aggName,
 		int num_final_args = numArgs;
 
 		memcpy(fnArgs, aggArgTypes, num_final_args * sizeof(Oid));
+
+		/*
+		 * If there's a transtype, it becomes the last arg to the finalfn;
+		 * but if the agg (and hence the finalfn) is variadic "any", then
+		 * this contributes nothing to the signature.
+		 */
 		if (aggTransType != InvalidOid && variadic_type != ANYOID)
 			fnArgs[num_final_args++] = aggTransType;
 

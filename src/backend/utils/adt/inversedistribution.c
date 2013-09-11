@@ -225,7 +225,6 @@ percentile_cont_interval_final(PG_FUNCTION_ARGS)
 
 	if (lower_row == higher_row)
 	{
-
 		val = first_row;
 	}
 	else

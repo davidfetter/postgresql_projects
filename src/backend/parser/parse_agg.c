@@ -77,7 +77,8 @@ static bool check_ungrouped_columns_walker(Node *node,
  */
 void
 transformAggregateCall(ParseState *pstate, Aggref *agg,
-					   List *args, List *aggorder, bool agg_distinct, bool agg_within_group)
+					   List *args, List *aggorder,
+					   bool agg_distinct, bool agg_within_group)
 {
 	List	   *tlist;
 	List	   *torder;
@@ -1077,16 +1078,17 @@ build_aggregate_fnexprs(Oid *agg_input_types,
 
 void
 build_orderedset_fnexprs(Oid *agg_input_types,
-						int agg_num_inputs,
-						Oid agg_result_type,
-						Oid agg_input_collation,
-						Oid *agg_input_collation_array,
-						Oid finalfn_oid,
-						Expr **finalfnexpr)
+						 int agg_num_inputs,
+						 bool agg_variadic,
+						 Oid agg_result_type,
+						 Oid agg_input_collation,
+						 Oid *agg_input_collation_array,
+						 Oid finalfn_oid,
+						 Expr **finalfnexpr)
 {
-
+	FuncExpr   *fexpr;
 	Param	   *argp;
-	List	   *args;
+	List	   *args = NIL;
 	int			i = 0;
 
 	/*
@@ -1095,10 +1097,6 @@ build_orderedset_fnexprs(Oid *agg_input_types,
 	 * get_fn_expr_argtype(), so it's okay to use Param nodes that don't
 	 * correspond to any real Param.
 	 */
-	
-
-	args = NIL;
-
 	for (i = 0; i < agg_num_inputs; i++)
 	{
 		argp = makeNode(Param);
@@ -1108,15 +1106,18 @@ build_orderedset_fnexprs(Oid *agg_input_types,
 		argp->paramtypmod = -1;
 		argp->paramcollid = agg_input_collation_array[i];
 		argp->location = -1;
+
 		args = lappend(args, argp);
 	}
 
-	*finalfnexpr = (Expr *) makeFuncExpr(finalfn_oid,
-										 agg_result_type,
-										 args,
-										 InvalidOid,
-										 agg_input_collation,
-										 COERCE_EXPLICIT_CALL);
+	fexpr = makeFuncExpr(finalfn_oid,
+						 agg_result_type,
+						 args,
+						 InvalidOid,
+						 agg_input_collation,
+						 COERCE_EXPLICIT_CALL);
+	fexpr->funcvariadic = agg_variadic;
+	*finalfnexpr = (Expr *) fexpr;
 }
 
 int get_aggregate_argtypes(Aggref *aggref, Oid *inputTypes, Oid *inputCollations)
