@@ -4736,19 +4736,19 @@ DESCR("list objects dropped by the current command");
 
 /* inverse distribution functions */
 DATA(insert OID = 3931 ( percentile_disc	PGNSP PGUID 12 1 0 0 0 t f f f t f i 2 0 2283 "701 2283" _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
-DESCR("percentile_disc");
+DESCR("discrete nearest percentile");
 
 DATA(insert OID = 3932 ( percentile_disc_final	PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2283 "701 2283" _null_ _null_ _null_ _null_ percentile_disc_final _null_ _null_ _null_ ));
 DESCR("percentile_disc_final");
 
 DATA(insert OID = 3935 ( percentile_cont	PGNSP PGUID 12 1 0 0 0 t f f f t f i 2 0 701 "701 701" _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
-DESCR("percentile_cont");
+DESCR("continous distribution percentile for float8");
 
 DATA(insert OID = 3936 ( percentile_cont_float8_final	PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 701 "701 701" _null_ _null_ _null_ _null_ percentile_cont_float8_final _null_ _null_ _null_ ));
 DESCR("percentile_cont_float8_final");
 
 DATA(insert OID = 3939 ( percentile_cont	PGNSP PGUID 12 1 0 0 0 t f f f t f i 2 0 1186 "701 1186" _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
-DESCR("percentile_interval_cont");
+DESCR("continous distribution percentile for intervals");
 
 DATA(insert OID = 3940 ( percentile_cont_interval_final	PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 1186 "701 1186" _null_ _null_ _null_ _null_ percentile_cont_interval_final _null_ _null_ _null_ ));
 DESCR("percentile_interval_cont_final");
@@ -4761,19 +4761,19 @@ DATA(insert OID = 3969 ( rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0
 DESCR("hypothetical_rank_final");
 
 DATA(insert OID = 3970 ( dense_rank		PGNSP PGUID 12 1 0 2276 0 t f f f f f s 1 0 20 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
-DESCR("hypothetical dense rank");
+DESCR("rank of hypothetical row without gap in ranking");
 
 DATA(insert OID = 3971 ( dense_rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 20 2276 "{2276}" "{v}" _null_ _null_	hypothetical_dense_rank_final _null_ _null_ _null_ ));
 DESCR("hypothetical_dense_rank_final");
 
 DATA(insert OID = 3972 ( percent_rank		PGNSP PGUID 12 1 0 2276 0 t f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
-DESCR("hypothetical percent rank");
+DESCR("relative ranking of hypothetical row within a group");
 
 DATA(insert OID = 3973 ( percent_rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	hypothetical_percent_rank_final _null_ _null_ _null_ ));
 DESCR("hypothetical_percent_rank_final");
 
 DATA(insert OID = 3974 ( cume_dist		PGNSP PGUID 12 1 0 2276 0 t f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
-DESCR("hypothetical cume dist");
+DESCR("cumulative distribution of hypothetical row in a group");
 
 DATA(insert OID = 3975 ( cume_dist_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	hypothetical_cume_dist_final _null_ _null_ _null_ ));
 DESCR("hypothetical_cume_dist_final");
