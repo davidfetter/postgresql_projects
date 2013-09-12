@@ -24,7 +24,7 @@
 #include "utils/array.h"
 
 /*
- * percentile_disc(float8)  - discrete (nearest) percentile
+ * percentile_disc(float8)  - discrete percentile
  */
 
 Datum percentile_disc_final(PG_FUNCTION_ARGS);
@@ -171,7 +171,7 @@ percentile_cont_final_common(FunctionCallInfo fcinfo,
 
 
 /*
- * percentile_cont(float8)  - continuous (nearest) percentile
+ * percentile_cont(float8)  - continuous percentile
  */
 
 Datum percentile_cont_float8_final(PG_FUNCTION_ARGS);
@@ -184,7 +184,7 @@ percentile_cont_float8_final(PG_FUNCTION_ARGS)
 }
 
 /*
- * percentile_interval_cont(Interval)  - continuous (nearest) percentile for Interval
+ * percentile_interval_cont(Interval)  - continuous percentile for Interval
  */
 
 Datum
@@ -291,7 +291,7 @@ mode_final(PG_FUNCTION_ARGS)
 
 
 /*
- * percentile_disc(float8[])  - discrete (nearest) percentiles
+ * percentile_disc(float8[])  - discrete percentiles
  */
 
 Datum percentile_disc_multi_final(PG_FUNCTION_ARGS);
@@ -613,7 +613,7 @@ percentile_cont_multi_final_common(FunctionCallInfo fcinfo,
 
 
 /*
- * percentile_cont(float8[]) within group (float8)  - continuous (nearest) percentiles
+ * percentile_cont(float8[]) within group (float8)  - continuous percentiles
  */
 
 Datum percentile_cont_float8_multi_final(PG_FUNCTION_ARGS);
@@ -628,7 +628,7 @@ percentile_cont_float8_multi_final(PG_FUNCTION_ARGS)
 }
 
 /*
- * percentile_cont(float8[]) within group (Interval)  - continuous (nearest) percentiles
+ * percentile_cont(float8[]) within group (Interval)  - continuous percentiles
  */
 
 Datum

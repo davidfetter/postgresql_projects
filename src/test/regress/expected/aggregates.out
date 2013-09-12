@@ -1305,6 +1305,12 @@ select percentile_disc(0.5) within group (order by thousand) from tenk1;
              499
 (1 row)
 
+select rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
+ rank 
+------
+    5
+(1 row)
+
 select cume_dist(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
  cume_dist 
 -----------
@@ -1323,6 +1329,133 @@ select dense_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),
           3
 (1 row)
 
+select percentile_disc(array[0,0.1,0.25,0.5,0.75,0.9,1]) within group (order by thousand) from tenk1;
+      percentile_disc       
+----------------------------
+ {0,99,249,499,749,899,999}
+(1 row)
+
+select percentile_cont(array[0,0.25,0.5,0.75,1]) within group (order by thousand) from tenk1;
+       percentile_cont       
+-----------------------------
+ {0,249.75,499.5,749.25,999}
+(1 row)
+
+select percentile_disc(array[[null,1,0.5],[0.75,0.25,null]]) within group (order by thousand) from tenk1;
+         percentile_disc         
+---------------------------------
+ {{NULL,999,499},{749,249,NULL}}
+(1 row)
+
+select percentile_cont(array[0,1,0.25,0.75,0.5,1]) within group (order by x)
+  from generate_series(1,6) x;
+    percentile_cont    
+-----------------------
+ {1,6,2.25,4.75,3.5,5}
+(1 row)
+
+select ten, mode() within group (order by string4) from tenk1 group by ten;
+ ten |  mode  
+-----+--------
+   0 | HHHHxx
+   1 | OOOOxx
+   2 | VVVVxx
+   3 | OOOOxx
+   4 | HHHHxx
+   5 | HHHHxx
+   6 | OOOOxx
+   7 | AAAAxx
+   8 | VVVVxx
+   9 | VVVVxx
+(10 rows)
+
+select percentile_disc(array[0.25,0.5,0.75]) within group (order by x)
+  from unnest('{fred,jim,fred,jack,jill,fred,jill,jim,jim,sheila,jim,sheila}'::text[]) u(x);
+ percentile_disc 
+-----------------
+ {fred,jill,jim}
+(1 row)
+
+-- ordered set funcs can't use ungrouped direct args:
+select rank(x) within group (order by x) from generate_series(1,5) x;
+ERROR:  column "x.x" must appear in the GROUP BY clause or be used in an aggregate function
+LINE 1: select rank(x) within group (order by x) from generate_serie...
+                    ^
+-- collation:
+select pg_collation_for(percentile_disc(1) within group (order by x collate "POSIX"))
+  from (values ('fred'),('jim')) v(x);
+ pg_collation_for 
+------------------
+ "POSIX"
+(1 row)
+
+-- hypothetical type unification and argument failures:
+select rank(3) within group (order by x) from (values ('fred'),('jim')) v(x);
+ERROR:  WITHIN GROUP types text and integer cannot be matched
+LINE 1: select rank(3) within group (order by x) from (values ('fred...
+                    ^
+select rank(3) within group (order by stringu1,stringu2) from tenk1;
+ERROR:  Incorrect number of arguments for hypothetical set function
+LINE 1: select rank(3) within group (order by stringu1,stringu2) fro...
+               ^
+select rank('fred') within group (order by x) from generate_series(1,5) x;
+ERROR:  invalid input syntax for integer: "fred"
+LINE 1: select rank('fred') within group (order by x) from generate_...
+                    ^
+select rank('adam'::text collate "C") within group (order by x collate "POSIX")
+  from (values ('fred'),('jim')) v(x);
+ERROR:  collation mismatch between explicit collations "C" and "POSIX"
+LINE 1: ...adam'::text collate "C") within group (order by x collate "P...
+                                                             ^
+-- hypothetical type unification successes:
+select rank('adam'::varchar) within group (order by x) from (values ('fred'),('jim')) v(x);
+ rank 
+------
+    1
+(1 row)
+
+select rank('3') within group (order by x) from generate_series(1,5) x;
+ rank 
+------
+    3
+(1 row)
+
+-- deparse and multiple features:
+create view aggordview1 as
+select ten,
+       percentile_disc(0.5) within group (order by thousand) as p50,
+       percentile_disc(0.5) within group (order by thousand) filter (where hundred=1) as px,
+       rank(5,'AZZZZ',50) within group (order by hundred, string4 desc, hundred)
+  from tenk1
+ group by ten order by ten;
+select pg_get_viewdef('aggordview1');
+                                                              pg_get_viewdef                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------
+  SELECT tenk1.ten,                                                                                                                       +
+     pg_catalog.percentile_disc((0.5)::double precision) WITHIN GROUP (ORDER BY tenk1.thousand) AS p50,                                   +
+     pg_catalog.percentile_disc((0.5)::double precision) WITHIN GROUP (ORDER BY tenk1.thousand) FILTER (WHERE (tenk1.hundred = 1)) AS px, +
+     rank(5, 'AZZZZ'::name, 50) WITHIN GROUP (ORDER BY tenk1.hundred, tenk1.string4 DESC, tenk1.hundred) AS rank                          +
+    FROM tenk1                                                                                                                            +
+   GROUP BY tenk1.ten                                                                                                                     +
+   ORDER BY tenk1.ten;
+(1 row)
+
+select * from aggordview1 order by ten;
+ ten | p50 | px  | rank 
+-----+-----+-----+------
+   0 | 490 |     |  101
+   1 | 491 | 401 |  101
+   2 | 492 |     |  101
+   3 | 493 |     |  101
+   4 | 494 |     |  101
+   5 | 495 |     |   67
+   6 | 496 |     |    1
+   7 | 497 |     |    1
+   8 | 498 |     |    1
+   9 | 499 |     |    1
+(10 rows)
+
+drop view aggordview1;
 -- variadic aggregates
 select least_agg(q1,q2) from int8_tbl;
      least_agg     
