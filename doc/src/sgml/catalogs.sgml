@@ -352,7 +352,7 @@
       <entry><structfield>aggtransfn</structfield></entry>
       <entry><type>regproc</type></entry>
       <entry><literal><link linkend="catalog-pg-proc"><structname>pg_proc</structname></link>.oid</literal></entry>
-      <entry>Transition function</entry>
+      <entry>Transition function (zero if none)</entry>
      </row>
      <row>
       <entry><structfield>aggfinalfn</structfield></entry>
@@ -370,25 +370,25 @@
       <entry><structfield>aggtranstype</structfield></entry>
       <entry><type>oid</type></entry>
       <entry><literal><link linkend="catalog-pg-type"><structname>pg_type</structname></link>.oid</literal></entry>
-      <entry>Data type of the aggregate function's internal transition (state) data</entry>
+      <entry>Data type of the aggregate function's internal transition (state) data (zero if none)</entry>
      </row>
      <row>
       <entry><structfield>aggtranssortop</structfield></entry>
       <entry><type>oid</type></entry>
-      <entry><literal><link linkend="catalog-pg-type"><structname>pg_type</structname></link>.oid</literal></entry>
+      <entry><literal><link linkend="catalog-pg-operator"><structname>pg_operator</structname></link>.oid</literal></entry>
       <entry>An optional sort operator for the type "aggtranstype", used for some kinds of ordered set functions</entry>
      </row>
      <row>
-      <entry><structfield>aggisordsetfunc</structfield></entry>
-      <entry><type>oid</type></entry>
-      <entry><literal><link linkend="catalog-pg-type"><structname>pg_type</structname></link>.oid</literal></entry>
-      <entry>A flag to represent whether a function is ordered set or not</entry>
+      <entry><structfield>aggordnargs</structfield></entry>
+      <entry><type>int4</type></entry>
+      <entry></entry>
+      <entry>Number of direct arguments to ordered set function; -2 for hypothetical set functions; -1 for ordinary aggregates.</entry>
      </row>
      <row>
-      <entry><structfield>aggordnargs</structfield></entry>
-      <entry><type>oid</type></entry>
-      <entry><literal><link linkend="catalog-pg-type"><structname>pg_type</structname></link>.oid</literal></entry>
-      <entry>Number of direct arguments to aggregate.</entry>
+      <entry><structfield>aggisordsetfunc</structfield></entry>
+      <entry><type>bool</type></entry>
+      <entry></entry>
+      <entry>A flag to represent whether a function is ordered set or not</entry>
      </row>
      <row>
       <entry><structfield>agginitval</structfield></entry>

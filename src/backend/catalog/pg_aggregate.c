@@ -470,8 +470,8 @@ AggregateCreate(const char *aggName,
 	values[Anum_pg_aggregate_aggsortop - 1] = ObjectIdGetDatum(sortop);
 	values[Anum_pg_aggregate_aggtranssortop - 1] = ObjectIdGetDatum(transsortop);
 	values[Anum_pg_aggregate_aggtranstype - 1] = ObjectIdGetDatum(aggTransType);
-	values[Anum_pg_aggregate_aggisordsetfunc - 1] = BoolGetDatum(isOrderedSet);
 	values[Anum_pg_aggregate_aggordnargs - 1] = Int32GetDatum(numDirectArgs);
+	values[Anum_pg_aggregate_aggisordsetfunc - 1] = BoolGetDatum(isOrderedSet);
 
 	if (agginitval)
 		values[Anum_pg_aggregate_agginitval - 1] = CStringGetTextDatum(agginitval);
