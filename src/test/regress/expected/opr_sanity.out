@@ -866,10 +866,12 @@ ORDER BY 1;
  count("any") | count()
 (1 row)
 
--- For the same reason, we avoid creating built-in variadic aggregates.
-SELECT oid, proname
-FROM pg_proc AS p
-WHERE proisagg AND provariadic != 0;
+-- For the same reason, we avoid creating built-in variadic aggregates, except
+-- ordered set functions (which have their own syntax and are not subject to
+-- the misplaced ORDER BY issue).
+SELECT p.oid, proname
+FROM pg_proc AS p JOIN pg_aggregate AS a ON (a.aggfnoid=p.oid)
+WHERE proisagg AND provariadic != 0 AND NOT a.aggisordsetfunc;
  oid | proname 
 -----+---------
 (0 rows)

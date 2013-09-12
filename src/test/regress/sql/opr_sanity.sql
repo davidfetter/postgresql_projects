@@ -694,11 +694,13 @@ WHERE p1.oid < p2.oid AND p1.proname = p2.proname AND
     array_dims(p1.proargtypes) != array_dims(p2.proargtypes)
 ORDER BY 1;
 
--- For the same reason, we avoid creating built-in variadic aggregates.
+-- For the same reason, we avoid creating built-in variadic aggregates, except
+-- ordered set functions (which have their own syntax and are not subject to
+-- the misplaced ORDER BY issue).
 
-SELECT oid, proname
-FROM pg_proc AS p
-WHERE proisagg AND provariadic != 0;
+SELECT p.oid, proname
+FROM pg_proc AS p JOIN pg_aggregate AS a ON (a.aggfnoid=p.oid)
+WHERE proisagg AND provariadic != 0 AND NOT a.aggisordsetfunc;
 
 -- For the same reason, built-in aggregates with default arguments are no good.
 
