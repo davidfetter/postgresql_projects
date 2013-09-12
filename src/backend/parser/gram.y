@@ -9478,7 +9478,7 @@ sortby:		a_expr USING qual_all_Op opt_nulls_order
 
 within_group_clause:
 			WITHIN GROUP_P '(' sort_clause ')'  { $$ = $4; }
-			| /*EMPTY*/                         { $$ = NULL; }
+			| /*EMPTY*/                         { $$ = NIL; }
          ;
 
 select_limit:
@@ -11204,7 +11204,7 @@ func_application: func_name '(' ')'
  */
 func_expr: func_application within_group_clause filter_clause over_clause 
 				{
-              		FuncCall *n = (FuncCall*)$1;
+              		FuncCall *n = (FuncCall *) $1;
 					/*
 					 * the order clause for WITHIN GROUP and the one
 					 * for aggregate ORDER BY share a field, so we
@@ -11213,9 +11213,9 @@ func_expr: func_application within_group_clause filter_clause over_clause
 					 * error position.  Other consistency checks are
 					 * deferred to parse_func.c or parse_agg.c
 					 */
-					if ($2)
+					if ($2 != NIL)
 					{
-						if (n->agg_order)
+						if (n->agg_order != NIL)
 							ereport(ERROR,
 									(errcode(ERRCODE_SYNTAX_ERROR),
 									 errmsg("Cannot have multiple ORDER BY clauses with WITHIN GROUP"),
@@ -11230,7 +11230,7 @@ func_expr: func_application within_group_clause filter_clause over_clause
 					}
 					n->agg_filter = $3;
 					n->over = $4;
-					$$ = (Node*)n;
+					$$ = (Node *) n;
 				} 
 			| func_expr_common_subexpr
 				{ $$ = $1; }

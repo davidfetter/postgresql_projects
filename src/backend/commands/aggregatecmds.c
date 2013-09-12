@@ -151,7 +151,7 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 		if (isStrict)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("aggregate with sfunc may not be explicitly declared STRICT")));
+					 errmsg("aggregate with sfunc must not be explicitly declared STRICT")));
 	}
 	else
 	{

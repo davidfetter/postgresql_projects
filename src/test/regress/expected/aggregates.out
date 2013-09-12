@@ -1278,7 +1278,7 @@ select p, sum() within group (order by x::float8)
 ERROR:  sum(double precision) is not an ordered set function
 select p, percentile_cont(p,p) from generate_series(1,5) x, 
 	(values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p;
-ERROR:  Ordered set function specified, but WITHIN GROUP not present
+ERROR:  WITHIN GROUP is required for call to ordered set function percentile_cont
 LINE 1: select p, percentile_cont(p,p) from generate_series(1,5) x, 
                   ^
 select percentile_cont(0.5) within group (order by b) from aggtest;

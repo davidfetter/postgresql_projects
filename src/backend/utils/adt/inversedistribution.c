@@ -39,9 +39,7 @@ percentile_disc_final(PG_FUNCTION_ARGS)
 	int64 skiprows;
 
 	if (PG_ARGISNULL(0))
-	{
 		PG_RETURN_NULL();
-	}
 
 	percentile = PG_GETARG_FLOAT8(0);
 	AggSetGetSortInfo(fcinfo, &sorter, NULL, NULL, &datumtype);
@@ -49,7 +47,7 @@ percentile_disc_final(PG_FUNCTION_ARGS)
 	if (percentile < 0 || percentile > 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-				 errmsg("percentile value %g is not between 0 and 1", percentile)));
+				 errmsg("percentile value %g must be between 0 and 1", percentile)));
 
 	if (rowcount < 1)
 		PG_RETURN_NULL();
@@ -110,9 +108,7 @@ percentile_cont_float8_final(PG_FUNCTION_ARGS)
 	int64 higher_row = 0;
 
 	if (PG_ARGISNULL(0))
-	{
 		PG_RETURN_NULL();
-	}
 
 	percentile = PG_GETARG_FLOAT8(0);
 	AggSetGetSortInfo(fcinfo, &sorter, NULL, NULL, &datumtype);
@@ -122,7 +118,7 @@ percentile_cont_float8_final(PG_FUNCTION_ARGS)
 	if (percentile < 0 || percentile > 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-				 errmsg("percentile value %g is not between 0 and 1", percentile)));
+				 errmsg("percentile value %g must be between 0 and 1", percentile)));
 
 	if (rowcount < 1)
 		PG_RETURN_NULL();
@@ -192,9 +188,7 @@ percentile_cont_interval_final(PG_FUNCTION_ARGS)
 	Datum add_result;
 
 	if (PG_ARGISNULL(0))
-	{
 		PG_RETURN_NULL();
-	}
 
 	percentile = PG_GETARG_FLOAT8(0);
 	AggSetGetSortInfo(fcinfo, &sorter, NULL, NULL, &datumtype);
@@ -204,7 +198,7 @@ percentile_cont_interval_final(PG_FUNCTION_ARGS)
 	if (percentile < 0 || percentile > 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-				 errmsg("percentile value %g is not between 0 and 1", percentile)));
+				 errmsg("percentile value %g must be between 0 and 1", percentile)));
 
 	if (rowcount < 1)
 		PG_RETURN_NULL();

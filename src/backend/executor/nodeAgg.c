@@ -1881,9 +1881,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			fmgr_info(finalfn_oid, &peraggstate->finalfn);
 			fmgr_info_set_expr((Node *) finalfnexpr, &peraggstate->finalfn);
 			if (peraggstate->finalfn.fn_strict && isOrderedSet)
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-						 errmsg("Ordered set functions's finalfns have to be defined as non strict")));
+				elog(ERROR, "Ordered set finalfns must not be strict");
 		}
 
 		if (is_strict)

@@ -177,7 +177,7 @@ AggregateCreate(const char *aggName,
 					if (OidIsValid(variadic_type))
 						ereport(ERROR,
 								(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-								 errmsg("VARIADIC can not be specified more than once")));
+								 errmsg("VARIADIC must not be specified more than once")));
 					variadic_type = aggArgTypes[i];
 
 					/* enforce restrictions on ordered args */
@@ -224,7 +224,7 @@ AggregateCreate(const char *aggName,
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 					 errmsg("Invalid argument types for hypothetical set function"),
-					 errhint("Required declaration is (..., variadic \"any\") WITHIN GROUP (*)")));
+					 errhint("Required declaration is (..., VARIADIC \"any\") WITHIN GROUP (*)")));
 
 		/* flag for special processing for hypothetical sets */
 		numDirectArgs = -2;
@@ -242,7 +242,7 @@ AggregateCreate(const char *aggName,
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 					 errmsg("Invalid argument types for ordered set function"),
-					 errhint("WITHIN GROUP (*) is not allowed without variadic \"any\"")));
+					 errhint("WITHIN GROUP (*) is not allowed without VARIADIC \"any\"")));
 	}
 
 	/*

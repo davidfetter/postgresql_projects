@@ -28,6 +28,32 @@ Datum hypothetical_dense_rank_final(PG_FUNCTION_ARGS);
 Datum hypothetical_percent_rank_final(PG_FUNCTION_ARGS);
 Datum hypothetical_cume_dist_final(PG_FUNCTION_ARGS);
 
+
+/*
+ * Common code to sanity-check args for hypothetical set functions. No need
+ * for friendly errors, these can only happen if someone's messing up the
+ * aggregate definitions. The checks are needed for security, however; but we
+ * only need them once per call site.  Store a pointer to the tupdesc as a
+ * sentinel.
+ */
+
+static void
+hypothetical_check_argtypes(FunctionCallInfo fcinfo, int nargs, TupleDesc tupdesc)
+{
+	int i;
+
+	if (!tupdesc
+		|| (nargs + 1) != tupdesc->natts
+		|| tupdesc->attrs[nargs]->atttypid != BOOLOID)
+		elog(ERROR, "type mismatch in hypothetical set function");
+
+	for (i = 0; i < nargs; ++i)
+		if (get_fn_expr_argtype(fcinfo->flinfo,i) != tupdesc->attrs[i]->atttypid)
+			elog(ERROR, "type mismatch in hypothetical set function");
+
+	fcinfo->flinfo->fn_extra = tupdesc;
+}
+
 /*
  * rank(float8)  - rank of hypothetical row
  */
@@ -44,46 +70,9 @@ hypothetical_rank_final(PG_FUNCTION_ARGS)
 
 	AggSetGetSortInfo(fcinfo, &sorter, &tupdesc, &slot, &datumtype);
 
-#if 0
-	for (i = 0; i < PG_NARGS(); ++i)
-	{
-		elog(NOTICE,"arg %d type %s", i+1, format_type_be(get_fn_expr_argtype(fcinfo->flinfo, i)));
-	}
-
-	if (!tupdesc)
-	{
-		elog(NOTICE,"sort col 1 type %s", format_type_be(datumtype));
-	}
-	else
-	{
-		for (i = 0; i < tupdesc->natts; ++i)
-		{
-			elog(NOTICE,"sort col %d type %s", i+1, format_type_be(tupdesc->attrs[i]->atttypid));
-		}
-	}
-
-	{
-		AttrNumber *colidx;
-		Oid *ops;
-		int nsort;
-
-		nsort = AggSetGetSortOperators(fcinfo, &colidx, &ops, NULL, NULL, NULL);
-
-		for (i = 0; i < nsort; ++i)
-			elog(NOTICE,"sort col %d idx %d op %u", i, (int) colidx[i], (unsigned) ops[i]);
-	}
-#endif
-
-	/* Sanity-check args. */
-
-	if (!tupdesc
-		|| (nargs + 1) != tupdesc->natts
-		|| tupdesc->attrs[nargs]->atttypid != BOOLOID)
-		elog(ERROR, "type mismatch in rank()");
-
-	for (i = 0; i < nargs; ++i)
-		if (get_fn_expr_argtype(fcinfo->flinfo,i) != tupdesc->attrs[i]->atttypid)
-			elog(ERROR, "type mismatch in rank()");
+	if (fcinfo->flinfo->fn_extra == NULL
+		|| fcinfo->flinfo->fn_extra != tupdesc)
+		hypothetical_check_argtypes(fcinfo, nargs, tupdesc);
 
 	/* insert the hypothetical row into the sort */
 
@@ -140,14 +129,9 @@ hypothetical_dense_rank_final(PG_FUNCTION_ARGS)
 
 	AggSetGetSortInfo(fcinfo, &sorter, &tupdesc, &slot, &datumtype);
 
-	if (!tupdesc
-		|| (nargs + 1) != tupdesc->natts
-		|| tupdesc->attrs[nargs]->atttypid != BOOLOID)
-		elog(ERROR, "type mismatch in rank()");
-
-	for (i = 0; i < nargs; ++i)
-		if (get_fn_expr_argtype(fcinfo->flinfo,i) != tupdesc->attrs[i]->atttypid)
-			elog(ERROR, "type mismatch in rank()");
+	if (fcinfo->flinfo->fn_extra == NULL
+		|| fcinfo->flinfo->fn_extra != tupdesc)
+		hypothetical_check_argtypes(fcinfo, nargs, tupdesc);
 
 	/* insert the hypothetical row into the sort */
 
@@ -211,7 +195,7 @@ hypothetical_percent_rank_final(PG_FUNCTION_ARGS)
 {
 	Datum rank = hypothetical_rank_final(fcinfo);
 	int64 rank_val = DatumGetInt64(rank);
-	int64 rowcount = (AggSetGetRowCount(fcinfo)) + 1;
+	int64 rowcount = AggSetGetRowCount(fcinfo) + 1;
 
 	float8 result_val = (float8) (rank_val - 1) / (float8) (rowcount - 1);
 

@@ -187,12 +187,11 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		}
 	}
 
-	if(agg_within_group && argnames)
-	{
+	if (agg_within_group && argnames)
 		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-			errmsg("Named arguments not allowed in WITHIN GROUP")));
-	}
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("ordered set functions cannot use named arguments"),
+				 parser_errposition(pstate, location)));
 
 	if (fargs)
 	{
@@ -200,14 +199,15 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		Assert(first_arg != NULL);
 	}
 
-	/* If WITHIN GROUP is present, we need to call transformExpr on each
+	/*
+	 * If WITHIN GROUP is present, we need to call transformExpr on each
 	 * SortBy node in agg_order, then call exprType and append to
-	 * actual_arg_types, in order to get the types of values in
-	 * WITHIN BY clause.
+	 * actual_arg_types, in order to get the types of values in WITHIN GROUP
+	 * clause.
 	 */
-	if(agg_within_group)
+	if (agg_within_group)
 	{
-		Assert(agg_order != NULL);
+		Assert(agg_order != NIL);
 
 		foreach(l, agg_order)
 		{
@@ -336,14 +336,14 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 		if (isordsetfunc)
 		{
-			if ((classForm->aggordnargs) == -2)
+			if (classForm->aggordnargs == -2)
 			{
 				ishypotheticalsetfunc = true;
 
 				if (nvargs != 2*list_length(agg_order))
 					ereport(ERROR,
 							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-							 errmsg("Wrong number of arguments for hypothetical set function"),
+							 errmsg("Incorrect number of arguments for hypothetical set function"),
 							 parser_errposition(pstate, location)));
 			}
 			else
@@ -351,26 +351,23 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 				number_of_args = classForm->aggordnargs;
 			}
 
-			if(!agg_within_group)
-			{
+			if (!agg_within_group)
 				ereport(ERROR,
 						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-						 errmsg("Ordered set function specified, but WITHIN GROUP not present"),
+						 errmsg("WITHIN GROUP is required for call to ordered set function %s",
+								NameListToString(funcname)),
 						 parser_errposition(pstate, location)));
-			}
 		
-			if(over)
-			{
+			if (over)
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("OVER clause in ordered set function not supported"),
+						 errmsg("OVER clause not supported for call to ordered set function %s",
+								NameListToString(funcname)),
 						 parser_errposition(pstate, location)));
-			}
 		}
 
 		ReleaseSysCache(tup);
 	}
-		
 	else if (!(fdresult == FUNCDETAIL_AGGREGATE ||
 			   fdresult == FUNCDETAIL_WINDOWFUNC))
 	{
@@ -511,7 +508,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		if (ishypotheticalsetfunc)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("explicit VARIADIC argument not allowed on hypothetical set function"),
+			  errmsg("explicit VARIADIC argument not allowed for hypothetical set function"),
 			  parser_errposition(pstate,
 								 exprLocation((Node *) list_nth(fargs, nargs - 1 - ignore_args)))));
 
@@ -544,13 +541,11 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		/* aggregate function */
 		Aggref	   *aggref = makeNode(Aggref);
 
-		if(agg_within_group && !isordsetfunc)
-		{
+		if (agg_within_group && !isordsetfunc)
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("%s is not an ordered set function",func_signature_string(funcname, nargs,
-											  NIL, actual_arg_types))));
-		}
+					 errmsg("%s is not an ordered set function",
+							func_signature_string(funcname, nargs, NIL, actual_arg_types))));
 
 		aggref->aggfnoid = funcid;
 		aggref->aggtype = rettype;
@@ -563,15 +558,14 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		/* agglevelsup will be set by transformAggregateCall */
 		aggref->location = location;
 
-		if (isordsetfunc)
-		{
-			if (number_of_args >= 0 && number_of_args != list_length(fargs))
-			{
-				ereport(ERROR,
+		if (isordsetfunc
+			&& number_of_args >= 0
+			&& number_of_args != list_length(fargs))
+			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("Number of arguments does not match fargs")));
-			}
-		}
+					 errmsg("Incorrect number of direct arguments to ordered set function %s",
+							NameListToString(funcname)),
+					 parser_errposition(pstate, location)));
 
 		/*
 		 * Reject attempt to call a parameterless aggregate without (*)
@@ -606,7 +600,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 					 parser_errposition(pstate, location)));
 
 		/* parse_agg.c does additional aggregate-specific processing */
-		transformAggregateCall(pstate, aggref, fargs, agg_order, agg_distinct, agg_within_group);
+		transformAggregateCall(pstate, aggref, fargs, agg_order,
+							   agg_distinct, agg_within_group);
 
 		retval = (Node *) aggref;
 	}
@@ -615,13 +610,11 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		/* window function */
 		WindowFunc *wfunc = makeNode(WindowFunc);
 
-		if(agg_within_group)
-		{
+		if (agg_within_group)
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 					 errmsg("WITHIN GROUP not allowed in window functions"),
 					 parser_errposition(pstate, location)));
-		}
 
 		/*
 		 * True window functions must be called with a window definition.
