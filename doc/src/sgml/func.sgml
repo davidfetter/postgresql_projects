@@ -12258,6 +12258,30 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <indexterm>
         <primary>percentile</primary>
+        <secondary>discrete</secondary>
+       </indexterm>
+       <function>percentile_disc(<replaceable class="parameter">fractions</replaceable>) WITHIN GROUP (ORDER BY <replaceable class="parameter">sort_expression</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>double precision[]</type> (all must be [0..1] or null)
+      </entry>
+      <entry>
+       any sortable type
+      </entry>
+      <entry>
+       array of input type
+      </entry>
+      <entry>
+        multiple discrete percentile; returns an array of results matching the
+        shape of the <literal>fractions</literal> parameter, with each
+        non-null element replaced by the input value at that percentile
+      </entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>percentile</primary>
         <secondary>continuous</secondary>
        </indexterm>
        <indexterm>
@@ -12276,6 +12300,52 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       </entry>
       <entry>
         continuous percentile; interpolates between adjacent items.
+      </entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>percentile</primary>
+        <secondary>continuous</secondary>
+       </indexterm>
+       <function>percentile_cont(<replaceable class="parameter">fractions</replaceable>) WITHIN GROUP (ORDER BY <replaceable class="parameter">sort_expression</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>double precision[]</type> (all must be [0..1] or null)
+      </entry>
+      <entry>
+       <type>double precision</type> or <type>interval</type>
+      </entry>
+      <entry>
+       array of input type
+      </entry>
+      <entry>
+        multiple continuous percentile; returns an array of results matching
+        the shape of the <literal>fractions</literal> parameter, with each
+        non-null element replaced by the value corresponding to that percentile
+      </entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>mode</primary>
+        <secondary>statistical</secondary>
+       </indexterm>
+       <function>mode() WITHIN GROUP (ORDER BY <replaceable class="parameter">sort_expression</replaceable>)</function>
+      </entry>
+      <entry>
+      </entry>
+      <entry>
+       any sortable type
+      </entry>
+      <entry>
+       same as sort expression
+      </entry>
+      <entry>
+       returns the most frequent input value (choosing one arbitrarily if
+       there are multiple equally good result)
       </entry>
      </row>
 
