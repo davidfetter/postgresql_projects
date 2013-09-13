@@ -32,6 +32,9 @@
  *	aggfinalfn			final function (0 if none)
  *	aggsortop			associated sort operator (0 if none)
  *	aggtranstype		type of aggregate's transition (state) data
+ *	aggtranssortop		An optional sort operator for the type aggtranstype
+ *	aggordnargs			Number of direct arguments to aggregate.
+ *	aggisordsetfunc		A flag to represent whether a function is ordered set or not
  *	agginitval			initial value for transition state (can be NULL)
  * ----------------------------------------------------------------
  */
