@@ -498,9 +498,51 @@ select percentile_cont(0.5) within group (order by b) from aggtest;
 select percentile_cont(0.5) within group (order by b),sum(b) from aggtest;
 select percentile_cont(0.5) within group (order by thousand) from tenk1;
 select percentile_disc(0.5) within group (order by thousand) from tenk1;
+select rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
 select cume_dist(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
 select percent_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4),(5)) v(x);
 select dense_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
+
+select percentile_disc(array[0,0.1,0.25,0.5,0.75,0.9,1]) within group (order by thousand) from tenk1;
+select percentile_cont(array[0,0.25,0.5,0.75,1]) within group (order by thousand) from tenk1;
+select percentile_disc(array[[null,1,0.5],[0.75,0.25,null]]) within group (order by thousand) from tenk1;
+select percentile_cont(array[0,1,0.25,0.75,0.5,1]) within group (order by x)
+  from generate_series(1,6) x;
+
+select ten, mode() within group (order by string4) from tenk1 group by ten;
+
+select percentile_disc(array[0.25,0.5,0.75]) within group (order by x)
+  from unnest('{fred,jim,fred,jack,jill,fred,jill,jim,jim,sheila,jim,sheila}'::text[]) u(x);
+
+-- ordered set funcs can't use ungrouped direct args:
+select rank(x) within group (order by x) from generate_series(1,5) x;
+
+-- collation:
+select pg_collation_for(percentile_disc(1) within group (order by x collate "POSIX"))
+  from (values ('fred'),('jim')) v(x);
+
+-- hypothetical type unification and argument failures:
+select rank(3) within group (order by x) from (values ('fred'),('jim')) v(x);
+select rank(3) within group (order by stringu1,stringu2) from tenk1;
+select rank('fred') within group (order by x) from generate_series(1,5) x;
+select rank('adam'::text collate "C") within group (order by x collate "POSIX")
+  from (values ('fred'),('jim')) v(x);
+-- hypothetical type unification successes:
+select rank('adam'::varchar) within group (order by x) from (values ('fred'),('jim')) v(x);
+select rank('3') within group (order by x) from generate_series(1,5) x;
+
+-- deparse and multiple features:
+create view aggordview1 as
+select ten,
+       percentile_disc(0.5) within group (order by thousand) as p50,
+       percentile_disc(0.5) within group (order by thousand) filter (where hundred=1) as px,
+       rank(5,'AZZZZ',50) within group (order by hundred, string4 desc, hundred)
+  from tenk1
+ group by ten order by ten;
+
+select pg_get_viewdef('aggordview1');
+select * from aggordview1 order by ten;
+drop view aggordview1;
 
 -- variadic aggregates
 select least_agg(q1,q2) from int8_tbl;

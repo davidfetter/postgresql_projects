@@ -39,7 +39,6 @@ typedef enum
 	FUNCDETAIL_AGGREGATE,		/* found a matching aggregate function */
 	FUNCDETAIL_WINDOWFUNC,		/* found a matching window function */
 	FUNCDETAIL_COERCION,			/* it's a type coercion request */
-	FUNCDETAIL_ORDERED		/* ordered function */
 } FuncDetailCode;
 
 extern Node *ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,

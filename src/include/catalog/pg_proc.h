@@ -4754,28 +4754,28 @@ DATA(insert OID = 3940 ( percentile_cont_interval_final	PGNSP PGUID 12 1 0 0 0 f
 DESCR("ordered set final function");
 
 /* hypothetical set functions */
-DATA(insert OID = 3968 ( rank		PGNSP PGUID 12 1 0 2276 0 t f f f f f s 1 0 20 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
+DATA(insert OID = 3968 ( rank		PGNSP PGUID 12 1 0 2276 0 t f f f f f i 1 0 20 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
 DESCR("hypothetical rank");
 
-DATA(insert OID = 3969 ( rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 20 2276 "{2276}" "{v}" _null_ _null_	hypothetical_rank_final _null_ _null_ _null_ ));
+DATA(insert OID = 3969 ( rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f i 1 0 20 2276 "{2276}" "{v}" _null_ _null_	hypothetical_rank_final _null_ _null_ _null_ ));
 DESCR("ordered set final function");
 
-DATA(insert OID = 3970 ( dense_rank		PGNSP PGUID 12 1 0 2276 0 t f f f f f s 1 0 20 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
+DATA(insert OID = 3970 ( dense_rank		PGNSP PGUID 12 1 0 2276 0 t f f f f f i 1 0 20 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
 DESCR("rank of hypothetical row without gaps");
 
-DATA(insert OID = 3971 ( dense_rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 20 2276 "{2276}" "{v}" _null_ _null_	hypothetical_dense_rank_final _null_ _null_ _null_ ));
+DATA(insert OID = 3971 ( dense_rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f i 1 0 20 2276 "{2276}" "{v}" _null_ _null_	hypothetical_dense_rank_final _null_ _null_ _null_ ));
 DESCR("ordered set final function");
 
-DATA(insert OID = 3972 ( percent_rank		PGNSP PGUID 12 1 0 2276 0 t f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
+DATA(insert OID = 3972 ( percent_rank		PGNSP PGUID 12 1 0 2276 0 t f f f f f i 1 0 701 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
 DESCR("fractional ranking of hypothetical row within a group");
 
-DATA(insert OID = 3973 ( percent_rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	hypothetical_percent_rank_final _null_ _null_ _null_ ));
+DATA(insert OID = 3973 ( percent_rank_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f i 1 0 701 2276 "{2276}" "{v}" _null_ _null_	hypothetical_percent_rank_final _null_ _null_ _null_ ));
 DESCR("ordered set final function");
 
-DATA(insert OID = 3974 ( cume_dist		PGNSP PGUID 12 1 0 2276 0 t f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
+DATA(insert OID = 3974 ( cume_dist		PGNSP PGUID 12 1 0 2276 0 t f f f f f i 1 0 701 2276 "{2276}" "{v}" _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
 DESCR("cumulative distribution of hypothetical row in a group");
 
-DATA(insert OID = 3975 ( cume_dist_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f s 1 0 701 2276 "{2276}" "{v}" _null_ _null_	hypothetical_cume_dist_final _null_ _null_ _null_ ));
+DATA(insert OID = 3975 ( cume_dist_final		PGNSP PGUID 12 1 0 2276 0 f f f f f f i 1 0 701 2276 "{2276}" "{v}" _null_ _null_	hypothetical_cume_dist_final _null_ _null_ _null_ ));
 DESCR("ordered set final function");
 
 DATA(insert OID = 3976 ( mode		PGNSP PGUID 12 1 0 0 0 t f f f t f i 1 0 2283 2283 _null_ _null_ _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));

@@ -61,12 +61,12 @@ Datum
 hypothetical_rank_final(PG_FUNCTION_ARGS)
 {
 	Tuplesortstate *sorter = NULL;
-	TupleDesc tupdesc = NULL;
+	TupleDesc	tupdesc = NULL;
     TupleTableSlot *slot = NULL;
-	Oid datumtype = InvalidOid;
-	int nargs = PG_NARGS();
-	int i;
-	int64 rank = 1;
+	Oid			datumtype = InvalidOid;
+	int			nargs = PG_NARGS();
+	int			i;
+	int64		rank = 1;
 
 	AggSetGetSortInfo(fcinfo, &sorter, &tupdesc, &slot, &datumtype);
 
@@ -114,17 +114,17 @@ Datum
 hypothetical_dense_rank_final(PG_FUNCTION_ARGS)
 {
 	Tuplesortstate *sorter = NULL;
-	TupleDesc tupdesc = NULL;
+	TupleDesc	tupdesc = NULL;
     TupleTableSlot *slot = NULL;
-	Oid datumtype = InvalidOid;
-	int nargs = PG_NARGS();
-	int i;
-	int64 rank = 1;
-	int duplicate_count = 0;
+	Oid			datumtype = InvalidOid;
+	int			nargs = PG_NARGS();
+	int			i;
+	int64		rank = 1;
+	int			duplicate_count = 0;
 	TupleTableSlot *slot2 = NULL;
 	AttrNumber *colidx;
-	FmgrInfo *equalfns;
-	int numDistinctCol = 0;
+	FmgrInfo   *equalfns;
+	int			numDistinctCol = 0;
 	MemoryContext memcontext;
 
 	AggSetGetSortInfo(fcinfo, &sorter, &tupdesc, &slot, &datumtype);
@@ -193,9 +193,9 @@ hypothetical_dense_rank_final(PG_FUNCTION_ARGS)
 Datum
 hypothetical_percent_rank_final(PG_FUNCTION_ARGS)
 {
-	Datum rank = hypothetical_rank_final(fcinfo);
-	int64 rank_val = DatumGetInt64(rank);
-	int64 rowcount = AggSetGetRowCount(fcinfo) + 1;
+	Datum		rank     = hypothetical_rank_final(fcinfo);
+	int64		rank_val = DatumGetInt64(rank);
+	int64		rowcount = AggSetGetRowCount(fcinfo) + 1;
 
 	float8 result_val = (float8) (rank_val - 1) / (float8) (rowcount - 1);
 
@@ -209,9 +209,9 @@ hypothetical_percent_rank_final(PG_FUNCTION_ARGS)
 Datum
 hypothetical_cume_dist_final(PG_FUNCTION_ARGS)
 {
-	Datum rank = hypothetical_rank_final(fcinfo);
-	int64 rank_val = DatumGetInt64(rank);
-	int64 rowcount = AggSetGetRowCount(fcinfo) + 1;
+	Datum		rank     = hypothetical_rank_final(fcinfo);
+	int64		rank_val = DatumGetInt64(rank);
+	int64		rowcount = AggSetGetRowCount(fcinfo) + 1;
 
 	float8 result_val = (float8) (rank_val) / (float8) (rowcount);
 
