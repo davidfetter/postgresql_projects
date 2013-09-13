@@ -1429,14 +1429,14 @@ select ten,
   from tenk1
  group by ten order by ten;
 select pg_get_viewdef('aggordview1');
-                                                              pg_get_viewdef                                                               
--------------------------------------------------------------------------------------------------------------------------------------------
-  SELECT tenk1.ten,                                                                                                                       +
-     pg_catalog.percentile_disc((0.5)::double precision) WITHIN GROUP (ORDER BY tenk1.thousand) AS p50,                                   +
-     pg_catalog.percentile_disc((0.5)::double precision) WITHIN GROUP (ORDER BY tenk1.thousand) FILTER (WHERE (tenk1.hundred = 1)) AS px, +
-     rank(5, 'AZZZZ'::name, 50) WITHIN GROUP (ORDER BY tenk1.hundred, tenk1.string4 DESC, tenk1.hundred) AS rank                          +
-    FROM tenk1                                                                                                                            +
-   GROUP BY tenk1.ten                                                                                                                     +
+                                                         pg_get_viewdef                                                         
+--------------------------------------------------------------------------------------------------------------------------------
+  SELECT tenk1.ten,                                                                                                            +
+     percentile_disc((0.5)::double precision) WITHIN GROUP (ORDER BY tenk1.thousand) AS p50,                                   +
+     percentile_disc((0.5)::double precision) WITHIN GROUP (ORDER BY tenk1.thousand) FILTER (WHERE (tenk1.hundred = 1)) AS px, +
+     rank(5, 'AZZZZ'::name, 50) WITHIN GROUP (ORDER BY tenk1.hundred, tenk1.string4 DESC, tenk1.hundred) AS rank               +
+    FROM tenk1                                                                                                                 +
+   GROUP BY tenk1.ten                                                                                                          +
    ORDER BY tenk1.ten;
 (1 row)
 

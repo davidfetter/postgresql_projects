@@ -7565,7 +7565,6 @@ get_ordset_expr(Aggref *aggref, deparse_context *context)
 	int			nargs;
 	ListCell   *l;
 
-	/* Extract the regular arguments, ignoring resjunk stuff for the moment */
 	arglist = NIL;
 	nargs = 0;
 
@@ -7589,8 +7588,6 @@ get_ordset_expr(Aggref *aggref, deparse_context *context)
 		Node	   *arg = (Node *) tle->expr;
 
 		Assert(!IsA(arg, NamedArgExpr));
-		if (tle->resjunk)
-			continue;
 		if (nargs >= FUNC_MAX_ARGS)		/* paranoia */
 			ereport(ERROR,
 					(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
