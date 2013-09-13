@@ -8090,7 +8090,8 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 														   context);
 							}
 
-							appendStringInfoString(buf, ", ");
+							if (lnext(lc))
+								appendStringInfoString(buf, ", ");
 						}
 					}
 					appendStringInfoChar(buf, ')');
