@@ -32,18 +32,19 @@ Datum percentile_disc_final(PG_FUNCTION_ARGS);
 Datum
 percentile_disc_final(PG_FUNCTION_ARGS)
 {
-	float8 percentile = 0;
-	int64 rowcount = AggSetGetRowCount(fcinfo);
+	float8		percentile;
 	Tuplesortstate *sorter;
-	Oid datumtype;
-	Datum val;
-	bool isnull;
-	int64 skiprows;
+	Oid			datumtype;
+	Datum		val;
+	bool		isnull;
+	int64		skiprows;
+	int64		rowcount   = AggSetGetRowCount(fcinfo);
 
 	if (PG_ARGISNULL(0))
 		PG_RETURN_NULL();
 
 	percentile = PG_GETARG_FLOAT8(0);
+
 	AggSetGetSortInfo(fcinfo, &sorter, NULL, NULL, &datumtype);
 
 	if (percentile < 0 || percentile > 1 || isnan(percentile))
@@ -61,6 +62,10 @@ percentile_disc_final(PG_FUNCTION_ARGS)
 	 * Therefore K >= N*percentile
 	 * Therefore K = ceil(N*percentile)
 	 * So we skip K-1 rows (if K>0) and return the next row fetched.
+	 *
+	 * We don't actually expect to see nulls in the input, our strict flag
+	 * should have filtered them out, but we're required to not crash if
+	 * there is one.
 	 */
 
 	skiprows = (int64) ceil(percentile * rowcount);
@@ -80,6 +85,12 @@ percentile_disc_final(PG_FUNCTION_ARGS)
 }
 
 
+/*
+ * For percentile_cont, we need a way to interpolate between consecutive
+ * values. Use a helper function for that, so that we can share the rest
+ * of the code between types.
+ */
+
 static Datum float8_lerp(Datum lo, Datum hi, float8 pct)
 {
 	float8 loval = DatumGetFloat8(lo);
@@ -90,7 +101,9 @@ static Datum float8_lerp(Datum lo, Datum hi, float8 pct)
 static Datum interval_lerp(Datum lo, Datum hi, float8 pct)
 {
 	Datum diff_result = DirectFunctionCall2(interval_mi, hi, lo);
-	Datum mul_result = DirectFunctionCall2(interval_mul, diff_result, Float8GetDatumFast(pct));
+	Datum mul_result  = DirectFunctionCall2(interval_mul,
+											diff_result,
+											Float8GetDatumFast(pct));
 	return DirectFunctionCall2(interval_pl, mul_result, lo);
 }
 
@@ -101,23 +114,24 @@ percentile_cont_final_common(FunctionCallInfo fcinfo,
 							 Oid expect_type,
 							 LerpFunc lerpfunc)
 {
-	float8 percentile = 0;
-	int64 rowcount = AggSetGetRowCount(fcinfo);
+	float8		percentile;
+	int64		rowcount = AggSetGetRowCount(fcinfo);
 	Tuplesortstate *sorter;
-	Oid datumtype;
-	Datum val;
-	Datum first_row;
-	Datum second_row;
-	float8 proportion;
-	bool isnull;
-	int64 skiprows;
-	int64 lower_row = 0;
-	int64 higher_row = 0;
+	Oid			datumtype;
+	Datum		val;
+	Datum		first_row;
+	Datum		second_row;
+	float8		proportion;
+	bool		isnull;
+	int64		skiprows;
+	int64		lower_row = 0;
+	int64		higher_row = 0;
 
 	if (PG_ARGISNULL(0))
 		PG_RETURN_NULL();
 
 	percentile = PG_GETARG_FLOAT8(0);
+
 	AggSetGetSortInfo(fcinfo, &sorter, NULL, NULL, &datumtype);
 
 	Assert(datumtype == expect_type);
@@ -204,16 +218,17 @@ Datum
 mode_final(PG_FUNCTION_ARGS)
 {
 	Tuplesortstate *sorter;
-	Oid datumtype;
-	bool isnull;
-	Datum val;
-	Datum last_val;
-	bool last_val_is_mode = false;
-	int64 val_freq = 0;
-	Datum mode_val;
-	int64 mode_freq = 0;
-	FmgrInfo *equalfn;
-	bool shouldfree;
+	Oid			datumtype;
+	bool		isnull;
+	Datum		val;
+	Datum		last_val;
+	bool		last_val_is_mode = false;
+	int64		val_freq = 0;
+	Datum		mode_val;
+	int64		mode_freq = 0;
+	FmgrInfo   *equalfn;
+	bool		shouldfree;
+
 	struct mode_type_info {
 		Oid typid;
 		int16 typLen;
@@ -227,7 +242,8 @@ mode_final(PG_FUNCTION_ARGS)
 	{
 		if (typinfo)
 			pfree(typinfo);
-		typinfo = MemoryContextAlloc(fcinfo->flinfo->fn_mcxt, sizeof(struct mode_type_info));
+		typinfo = MemoryContextAlloc(fcinfo->flinfo->fn_mcxt,
+									 sizeof(struct mode_type_info));
 		typinfo->typid = datumtype;
 		get_typlenbyval(datumtype, &typinfo->typLen, &typinfo->typByVal);
 	}
@@ -297,10 +313,10 @@ mode_final(PG_FUNCTION_ARGS)
 Datum percentile_disc_multi_final(PG_FUNCTION_ARGS);
 
 struct pct_info {
-	int64 first_row;
-	int64 second_row;
-	float8 proportion;
-	int idx;
+	int64	first_row;
+	int64	second_row;
+	float8	proportion;
+	int		idx;
 };
 
 static int pct_info_cmp(const void *pa, const void *pb)
@@ -320,7 +336,7 @@ static struct pct_info *setup_pct_info(int num_percentiles,
 									   bool continuous)
 {
 	struct pct_info *pct_info = palloc(num_percentiles * sizeof(struct pct_info));
-	int i;
+	int		i;
 
 	for (i = 0; i < num_percentiles; i++)
 	{
@@ -370,20 +386,21 @@ static struct pct_info *setup_pct_info(int num_percentiles,
 Datum
 percentile_disc_multi_final(PG_FUNCTION_ARGS)
 {
-	ArrayType *param;
-	Datum *percentiles_datum;
-	bool *percentiles_null;
-	int num_percentiles;
-	struct pct_info *pct_info;
-	int64 rowcount = AggSetGetRowCount(fcinfo);
-	int64 rownum = 0;
+	ArrayType  *param;
+	Datum	   *percentiles_datum;
+	bool	   *percentiles_null;
+	int			num_percentiles;
+	int64		rowcount = AggSetGetRowCount(fcinfo);
+	int64		rownum = 0;
 	Tuplesortstate *sorter;
-	Oid datumtype;
-	Datum val;
-	bool isnull;
-	Datum *result_datum;
-	bool *result_isnull;
-	int i;
+	Oid			datumtype;
+	Datum		val;
+	bool		isnull;
+	Datum	   *result_datum;
+	bool	   *result_isnull;
+	int			i;
+	struct pct_info *pct_info;
+
 	struct mode_type_info {
 		Oid typid;
 		int16 typLen;
@@ -400,9 +417,13 @@ percentile_disc_multi_final(PG_FUNCTION_ARGS)
 	{
 		if (typinfo)
 			pfree(typinfo);
-		typinfo = MemoryContextAlloc(fcinfo->flinfo->fn_mcxt, sizeof(struct mode_type_info));
+		typinfo = MemoryContextAlloc(fcinfo->flinfo->fn_mcxt,
+									 sizeof(struct mode_type_info));
 		typinfo->typid = datumtype;
-		get_typlenbyvalalign(datumtype, &typinfo->typLen, &typinfo->typByVal, &typinfo->typAlign);
+		get_typlenbyvalalign(datumtype,
+							 &typinfo->typLen,
+							 &typinfo->typByVal,
+							 &typinfo->typAlign);
 	}
 
 	param = PG_GETARG_ARRAYTYPE_P(0);
@@ -485,21 +506,22 @@ percentile_cont_multi_final_common(FunctionCallInfo fcinfo,
 								   int16 typLen, bool typByVal, char typAlign,
 								   LerpFunc lerpfunc)
 {
-	ArrayType *param;
-	Datum *percentiles_datum;
-	bool *percentiles_null;
-	int num_percentiles;
-	struct pct_info *pct_info;
-	int64 rowcount = AggSetGetRowCount(fcinfo);
-	int64 rownum = 0;
-	int64 rownum_second = 0;
+	ArrayType  *param;
+	Datum	   *percentiles_datum;
+	bool	   *percentiles_null;
+	int			num_percentiles;
+	int64		rowcount = AggSetGetRowCount(fcinfo);
+	int64		rownum = 0;
+	int64		rownum_second = 0;
 	Tuplesortstate *sorter;
-	Oid datumtype;
-	Datum first_val, second_val;
-	bool isnull;
-	Datum *result_datum;
-	bool *result_isnull;
-	int i;
+	Oid			datumtype;
+	Datum		first_val;
+	Datum		second_val;
+	bool		isnull;
+	Datum	   *result_datum;
+	bool	   *result_isnull;
+	int			i;
+	struct pct_info *pct_info;
 
 	if (PG_ARGISNULL(0) || rowcount < 1)
 		PG_RETURN_NULL();

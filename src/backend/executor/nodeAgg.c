@@ -3,7 +3,7 @@
  * nodeAgg.c
  *	  Routines to handle aggregate nodes.
  *
- *	  ExecAgg evaluates each aggregate in the following steps:
+ *	  ExecAgg evaluates each normal aggregate in the following steps:
  *
  *		 transvalue = initcond
  *		 foreach input_tuple do
@@ -66,6 +66,26 @@
  *	  AggState is available as context in earlier releases (back to 8.1),
  *	  but direct examination of the node is needed to use it before 9.0.
  *
+ *---
+ *
+ *    Ordered set functions modify the above process in a number of ways.
+ *    Most importantly, they do not have transfuncs at all; the same sort
+ *    mechanism used for ORDER BY/DISTINCT as described above is used to
+ *    process the input, but then the finalfunc is called without actually
+ *    running the sort (the finalfunc is allowed to insert rows first).
+ *    The finalfunc has access via a set of AggSet* API functions to the
+ *    Tuplesortstate, row count in the group, and other ancillary info.
+ *
+ *    Ordered set functions can, however, have a transvalue declared; this is
+ *    treated as a constant, and added to the end of the sort fields.
+ *    Hypothetical set functions use this to provide a flag that distinguishes
+ *    the hypothetical row from the input data.
+ *
+ *    Since they have no transfunc, ordered set functions have their own
+ *    'strict' flag stored in the aggregate's own pg_proc entry; this affects
+ *    whether rows containing nulls are placed in the sorter. But since we
+ *    pass dummy null arguments to the finalfunc for type resolution purposes,
+ *    no ordered set finalfunc is allowed to be strict.
  *
  * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
