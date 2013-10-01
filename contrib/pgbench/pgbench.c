@@ -369,7 +369,7 @@ usage(void)
 		   "  -N, --skip-some-updates  skip updates of pgbench_tellers and pgbench_branches\n"
 		   "  -P, --progress=NUM       show thread progress report every NUM seconds\n"
 		   "  -r, --report-latencies   report average latency per command\n"
-		   "  -R, --rate=SPEC          target rate in transactions per second\n"
+		   "  -R, --rate=NUM           target rate in transactions per second\n"
 		   "  -s, --scale=NUM          report this scale factor in output\n"
 		   "  -S, --select-only        perform SELECT-only transactions\n"
 		   "  -t, --transactions       number of transactions each client runs "
@@ -929,13 +929,17 @@ top:
 		 * that the series of delays will approximate a Poisson distribution
 		 * centered on the throttle_delay time.
                  *
-                 * 1000 implies a 6.9 (-log(1/1000)) to 0.0 (log 1.0) delay multiplier.
+		 * 10000 implies a 9.2 (-log(1/10000)) to 0.0 (log 1) delay multiplier,
+		 * and results in a 0.055 % target underestimation bias:
+		 *
+		 * SELECT 1.0/AVG(-LN(i/10000.0)) FROM generate_series(1,10000) AS i;
+		 * = 1.000552717032611116335474
 		 *
 		 * If transactions are too slow or a given wait is shorter than
 		 * a transaction, the next transaction will start right away.
 		 */
-		int64 wait = (int64)
-			throttle_delay * -log(getrand(thread, 1, 1000)/1000.0);
+		int64 wait = (int64) (throttle_delay *
+			1.00055271703 * -log(getrand(thread, 1, 10000)/10000.0));
 
 		thread->throttle_trigger += wait;
 
@@ -1533,11 +1537,13 @@ init(bool is_no_vacuum)
 	/*
 	 * Note: TPC-B requires at least 100 bytes per row, and the "filler"
 	 * fields in these table declarations were intended to comply with that.
-	 * But because they default to NULLs, they don't actually take any space.
-	 * We could fix that by giving them non-null default values. However, that
-	 * would completely break comparability of pgbench results with prior
-	 * versions.  Since pgbench has never pretended to be fully TPC-B
-	 * compliant anyway, we stick with the historical behavior.
+	 * The pgbench_accounts table complies with that because the "filler"
+	 * column is set to blank-padded empty string. But for all other tables the
+	 * column defaults to NULL and so don't actually take any space.  We could
+	 * fix that by giving them non-null default values.  However, that would
+	 * completely break comparability of pgbench results with prior versions.
+	 * Since pgbench has never pretended to be fully TPC-B compliant anyway, we
+	 * stick with the historical behavior.
 	 */
 	struct ddlinfo
 	{
@@ -1636,12 +1642,14 @@ init(bool is_no_vacuum)
 
 	for (i = 0; i < nbranches * scale; i++)
 	{
+		/* "filler" column defaults to NULL */
 		snprintf(sql, 256, "insert into pgbench_branches(bid,bbalance) values(%d,0)", i + 1);
 		executeStatement(con, sql);
 	}
 
 	for (i = 0; i < ntellers * scale; i++)
 	{
+		/* "filler" column defaults to NULL */
 		snprintf(sql, 256, "insert into pgbench_tellers(tid,bid,tbalance) values (%d,%d,0)",
 				 i + 1, i / ntellers + 1);
 		executeStatement(con, sql);
@@ -1671,6 +1679,7 @@ init(bool is_no_vacuum)
 	{
 		int64		j = k + 1;
 
+		/* "filler" column defaults to blank padded empty string */
 		snprintf(sql, 256, INT64_FORMAT "\t" INT64_FORMAT "\t%d\t\n", j, k / naccounts + 1, 0);
 		if (PQputline(con, sql))
 		{
