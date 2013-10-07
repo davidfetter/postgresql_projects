@@ -406,8 +406,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				a_expr b_expr c_expr AexprConst indirection_el
 				columnref in_expr having_clause array_expr
 				ExclusionWhereClause
-%type <node>	func_table_def
+%type <list>	func_table_def
 %type <list>	func_table_list
+%type <list>	func_table_single
 %type <list>    opt_col_def_list
 %type <boolean> opt_ordinality
 %type <list>	ExclusionConstraintList ExclusionConstraintElem
@@ -9718,63 +9719,14 @@ table_ref:	relation_expr opt_alias_clause
  *
  *----------
  */
-func_table_ref: func_expr_windowless opt_ordinality func_alias_clause
+func_table_ref: func_table_single opt_ordinality func_alias_clause
 				{
 					RangeFunction *n = makeNode(RangeFunction);
 
 					n->ordinality = $2;
 					n->is_table = false;
-					n->funccallnodes = list_make1($1);
+					n->funccallnodes = $1;
 					n->alias = linitial($3);
-
-					/*----------
-					 * Handle the spec's UNNEST syntax, by transforming
-					 *
-					 *   UNNEST(a, b, ...)
-					 *
-					 * into
-					 *
-					 *   TABLE (UNNEST(a), UNNEST(b), ...)
-					 *
-					 * We handle this here, rather than directly as grammar
-					 * rules, to avoid interfering with the use of unnest()
-					 * as a plain SRF in other contexts. Ugly, but effective.
-					 *
-					 * Note, strcmp not pg_strcasecmp, identifiers have
-					 * already been casefolded.
-					 *----------
-					 */
-					if (IsA($1, FuncCall) &&
-						list_length(((FuncCall *) $1)->funcname) == 1 &&
-						strcmp(strVal(linitial(((FuncCall *) $1)->funcname)), "unnest") == 0)
-					{
-						FuncCall *fc = (FuncCall *) $1;
-						List *funccalls;
-						ListCell *lc;
-
-						if (fc->agg_order != NIL || fc->func_variadic || fc->agg_star || fc->agg_distinct)
-							ereport(ERROR,
-									(errcode(ERRCODE_SYNTAX_ERROR),
-									 errmsg("invalid syntax for unnest()"),
-									 parser_errposition(@1)));
-
-						if (lsecond($3))
-							ereport(ERROR,
-									(errcode(ERRCODE_SYNTAX_ERROR),
-									 errmsg("a column definition list is not allowed for unnest with multiple arguments"),
-									 errhint("Use separate unnest calls with one argument each"),
-									 parser_errposition(@3)));
-
-						funccalls = NIL;
-						foreach(lc, fc->args)
-						{
-							funccalls = lappend(funccalls,
-												makeFuncCall(SystemFuncName("unnest"),
-															 list_make1(lfirst(lc)),
-															 fc->location));
-						}
-						n->funccallnodes = funccalls;
-					}
 
 					processTableFuncColdef(n, lsecond($3), @3, yyscanner);
 
@@ -10032,14 +9984,21 @@ relation_expr_opt_alias: relation_expr					%prec UMINUS
 				}
 		;
 
-func_table_list: func_table_def                      { $$ = list_make1($1); }
-               | func_table_list ',' func_table_def  { $$ = lappend($1, $3); }
+func_table_list: func_table_def                      { $$ = $1; }
+               | func_table_list ',' func_table_def  { $$ = list_concat($1, $3); }
 
-func_table_def: func_expr_windowless opt_col_def_list
+func_table_def: func_table_single opt_col_def_list
 			{
 				if (list_length($2) > 0)
 				{
-					Node	   *n = $1;
+					List   *l = $1;
+
+					if (list_length(l) > 1)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("a column definition list is not allowed for unnest with multiple arguments"),
+								 errhint("Use separate unnest calls with one argument each"),
+								 parser_errposition(@2)));
 
 					/*
 					 * A column definition list is only allowed for functions
@@ -10050,16 +10009,71 @@ func_table_def: func_expr_windowless opt_col_def_list
 					 * a function call but is handled as a separate expression
 					 * type, e.g COALESCE)
 					 */
-					if (!IsA(n, FuncCall))
+					if (!IsA(linitial(l), FuncCall))
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("a column definition list is not allowed for this expression"),
 								 parser_errposition(@2)));
 
-					((FuncCall *) n)->coldeflist = $2;
+					((FuncCall *) linitial(l))->coldeflist = $2;
 				}
 				$$ = $1;
 			}
+
+/*
+ * All table function calls in FROM come through here so that we can do the
+ * expansion of unnest().
+ */
+
+func_table_single: func_expr_windowless
+			{
+				/*----------
+				 * Handle the spec's UNNEST syntax, by transforming
+				 *
+				 *   UNNEST(a, b, ...)
+				 *
+				 * into
+				 *
+				 *   TABLE (UNNEST(a), UNNEST(b), ...)
+				 *
+				 * We handle this here, rather than directly as grammar
+				 * rules, to avoid interfering with the use of unnest()
+				 * as a plain SRF in other contexts. Ugly, but effective.
+				 *
+				 * Note, strcmp not pg_strcasecmp, identifiers have
+				 * already been casefolded.
+				 *----------
+				 */
+				if (IsA($1, FuncCall) &&
+					list_length(((FuncCall *) $1)->funcname) == 1 &&
+					strcmp(strVal(linitial(((FuncCall *) $1)->funcname)), "unnest") == 0)
+				{
+					FuncCall *fc = (FuncCall *) $1;
+					List	 *funccalls = NIL;
+					ListCell *lc;
+					
+					if (fc->agg_order != NIL || fc->func_variadic || fc->agg_star || fc->agg_distinct)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("invalid syntax for unnest()"),
+								 parser_errposition(@1)));
+					
+					foreach(lc, fc->args)
+					{
+						funccalls = lappend(funccalls,
+											makeFuncCall(SystemFuncName("unnest"),
+														 list_make1(lfirst(lc)),
+														 fc->location));
+					}
+
+					$$ = funccalls;
+				}
+				else
+				{
+					$$ = list_make1($1);
+				}
+			}
+		;
 
 opt_col_def_list: AS '(' TableFuncElementList ')'	{ $$ = $3; }
 				| /*EMPTY*/							{ $$ = NIL; }

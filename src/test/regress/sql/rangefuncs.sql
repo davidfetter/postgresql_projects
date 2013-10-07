@@ -29,6 +29,24 @@ select * from vw_ord;
 select definition from pg_views where viewname='vw_ord';
 drop view vw_ord;
 
+-- expansions of unnest()
+select * from unnest(array[10,20],array['foo','bar'],array[1.0]);
+select * from unnest(array[10,20],array['foo','bar'],array[1.0]) with ordinality as z(a,b,c,ord);
+select * from table(unnest(array[10,20],array['foo','bar'],array[1.0])) with ordinality as z(a,b,c,ord);
+select * from table(unnest(array[10,20],array['foo','bar']), generate_series(101,102)) with ordinality as z(a,b,c,ord);
+create temporary view vw_ord as select * from unnest(array[10,20],array['foo','bar'],array[1.0]) as z(a,b,c);
+select * from vw_ord;
+select definition from pg_views where viewname='vw_ord';
+drop view vw_ord;
+create temporary view vw_ord as select * from table(unnest(array[10,20],array['foo','bar'],array[1.0])) as z(a,b,c);
+select * from vw_ord;
+select definition from pg_views where viewname='vw_ord';
+drop view vw_ord;
+create temporary view vw_ord as select * from table(unnest(array[10,20],array['foo','bar']), generate_series(1,2)) as z(a,b,c);
+select * from vw_ord;
+select definition from pg_views where viewname='vw_ord';
+drop view vw_ord;
+
 -- ordinality and multiple functions vs. rewind and reverse scan
 begin;
 declare foo scroll cursor for select * from table(generate_series(1,5),generate_series(1,2)) with ordinality as g(i,j,o);

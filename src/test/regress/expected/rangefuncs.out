@@ -116,6 +116,89 @@ select definition from pg_views where viewname='vw_ord';
 (1 row)
 
 drop view vw_ord;
+-- expansions of unnest()
+select * from unnest(array[10,20],array['foo','bar'],array[1.0]);
+ unnest | unnest | unnest 
+--------+--------+--------
+     10 | foo    |    1.0
+     20 | bar    |       
+(2 rows)
+
+select * from unnest(array[10,20],array['foo','bar'],array[1.0]) with ordinality as z(a,b,c,ord);
+ a  |  b  |  c  | ord 
+----+-----+-----+-----
+ 10 | foo | 1.0 |   1
+ 20 | bar |     |   2
+(2 rows)
+
+select * from table(unnest(array[10,20],array['foo','bar'],array[1.0])) with ordinality as z(a,b,c,ord);
+ a  |  b  |  c  | ord 
+----+-----+-----+-----
+ 10 | foo | 1.0 |   1
+ 20 | bar |     |   2
+(2 rows)
+
+select * from table(unnest(array[10,20],array['foo','bar']), generate_series(101,102)) with ordinality as z(a,b,c,ord);
+ a  |  b  |  c  | ord 
+----+-----+-----+-----
+ 10 | foo | 101 |   1
+ 20 | bar | 102 |   2
+(2 rows)
+
+create temporary view vw_ord as select * from unnest(array[10,20],array['foo','bar'],array[1.0]) as z(a,b,c);
+select * from vw_ord;
+ a  |  b  |  c  
+----+-----+-----
+ 10 | foo | 1.0
+ 20 | bar |    
+(2 rows)
+
+select definition from pg_views where viewname='vw_ord';
+                                       definition                                       
+----------------------------------------------------------------------------------------
+  SELECT z.a,                                                                          +
+     z.b,                                                                              +
+     z.c                                                                               +
+    FROM unnest(ARRAY[10, 20], ARRAY['foo'::text, 'bar'::text], ARRAY[1.0]) z(a, b, c);
+(1 row)
+
+drop view vw_ord;
+create temporary view vw_ord as select * from table(unnest(array[10,20],array['foo','bar'],array[1.0])) as z(a,b,c);
+select * from vw_ord;
+ a  |  b  |  c  
+----+-----+-----
+ 10 | foo | 1.0
+ 20 | bar |    
+(2 rows)
+
+select definition from pg_views where viewname='vw_ord';
+                                       definition                                       
+----------------------------------------------------------------------------------------
+  SELECT z.a,                                                                          +
+     z.b,                                                                              +
+     z.c                                                                               +
+    FROM unnest(ARRAY[10, 20], ARRAY['foo'::text, 'bar'::text], ARRAY[1.0]) z(a, b, c);
+(1 row)
+
+drop view vw_ord;
+create temporary view vw_ord as select * from table(unnest(array[10,20],array['foo','bar']), generate_series(1,2)) as z(a,b,c);
+select * from vw_ord;
+ a  |  b  | c 
+----+-----+---
+ 10 | foo | 1
+ 20 | bar | 2
+(2 rows)
+
+select definition from pg_views where viewname='vw_ord';
+                                                    definition                                                    
+------------------------------------------------------------------------------------------------------------------
+  SELECT z.a,                                                                                                    +
+     z.b,                                                                                                        +
+     z.c                                                                                                         +
+    FROM TABLE(unnest(ARRAY[10, 20]), unnest(ARRAY['foo'::text, 'bar'::text]), generate_series(1, 2)) z(a, b, c);
+(1 row)
+
+drop view vw_ord;
 -- ordinality and multiple functions vs. rewind and reverse scan
 begin;
 declare foo scroll cursor for select * from table(generate_series(1,5),generate_series(1,2)) with ordinality as g(i,j,o);
