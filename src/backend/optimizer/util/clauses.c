@@ -3522,7 +3522,10 @@ simplify_boolean_equality(Oid opno, List *args)
  * polymorphic functions), result typmod, result collation, the input
  * collation to use for the function, the original argument list (not
  * const-simplified yet, unless process_args is false), and some flags;
- * also the context data for eval_const_expressions.
+ * also the context data for eval_const_expressions. The original funcexpr,
+ * if there was one, is passed in too so that fields of FuncExpr which are
+ * not interesting for simplification are nonetheless available to the
+ * transform function; currently that applies to the coldef list fields.
  *
  * Returns a simplified expression if successful, or NULL if cannot
  * simplify the function call.

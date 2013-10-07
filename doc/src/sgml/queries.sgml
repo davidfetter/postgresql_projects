@@ -674,11 +674,11 @@ TABLE( <replaceable>function_call</replaceable> <optional>, <replaceable>functio
      columns, as if <literal>UNNEST</literal>
      (see <xref linkend="functions-array">) had been called on each parameter
      separately and combined using the <literal>TABLE</literal> construct. The
-     number of result columns is determined by the sum of the arities of the
-     array element types; that is to say, any array of composite type is
-     expanded into separate result columns for each field of the type.
-     Likewise, the number of rows returned is determined by the largest array
-     parameter, with smaller values padded with NULLs.
+     number of result columns is determined by the sum of the number of columns
+     in each individual array element type; that is to say, any array of
+     composite type is expanded into separate result columns for each field of
+     the type.  Likewise, the number of rows returned is determined by the
+     largest array parameter, with smaller values padded with NULLs.
     </para>
 
 <synopsis>
