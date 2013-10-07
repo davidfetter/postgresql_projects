@@ -158,40 +158,6 @@ CreateTupleDescCopy(TupleDesc tupdesc)
 }
 
 /*
- * CreateTupleDescCopyExtend
- *		This function creates a new TupleDesc by copying from an existing
- *		TupleDesc, but adding space for more columns. The new tupdesc is
- *      not regarded as the same record type as the old one (and therefore
- *      does not inherit its typeid/typmod, which instead are left as an
- *      anonymous record type).
- *
- *      The additional column slots are not initialized in any way;
- *      callers must do their own TupleDescInitEntry on each.
- *
- * !!! Constraints and defaults are not copied !!!
- */
-TupleDesc
-CreateTupleDescCopyExtend(TupleDesc tupdesc, int moreatts)
-{
-	TupleDesc	desc;
-	int			i;
-	int         src_natts = tupdesc->natts;
-
-	Assert(moreatts >= 0);
-
-	desc = CreateTemplateTupleDesc(src_natts + moreatts, tupdesc->tdhasoid);
-
-	for (i = 0; i < src_natts; i++)
-	{
-		memcpy(desc->attrs[i], tupdesc->attrs[i], ATTRIBUTE_FIXED_PART_SIZE);
-		desc->attrs[i]->attnotnull = false;
-		desc->attrs[i]->atthasdef = false;
-	}
-
-	return desc;
-}
-
-/*
  * CreateTupleDescCopyConstr
  *		This function creates a new TupleDesc by copying from an existing
  *		TupleDesc (including its constraints and defaults).
@@ -566,8 +532,8 @@ TupleDescInitEntryCollation(TupleDesc desc,
  * * !!! Constraints and defaults are not copied !!!
  */
 void
-TupleDescCopyEntry(const TupleDesc src, AttrNumber srcAttno,
-				   TupleDesc dst, AttrNumber dstAttno)
+TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
+				   const TupleDesc src, AttrNumber srcAttno)
 {
 	/*
 	 * sanity checks

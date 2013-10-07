@@ -1396,7 +1396,7 @@ addRangeTableEntryForFunction(ParseState *pstate,
 		for (i = 0; i < nfuncs; i++)
 		{
 			for (j = 1; j <= functupdescs[i]->natts; j++)
-				TupleDescCopyEntry(functupdescs[i], j, tupdesc, ++natts);
+				TupleDescCopyEntry(tupdesc, ++natts, functupdescs[i], j);
 		}
 	}
 

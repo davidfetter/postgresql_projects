@@ -119,8 +119,8 @@ extern void TupleDescInitEntry(TupleDesc desc,
 extern void TupleDescInitEntryCollation(TupleDesc desc,
 							AttrNumber attributeNumber,
 							Oid collationid);
-extern void TupleDescCopyEntry(const TupleDesc src, AttrNumber srcAttno,
-				   TupleDesc dst, AttrNumber dstAttno);
+extern void TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
+				   const TupleDesc src, AttrNumber srcAttno);
 
 extern TupleDesc BuildDescForRelation(List *schema);
 

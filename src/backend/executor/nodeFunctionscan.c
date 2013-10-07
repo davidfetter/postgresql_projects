@@ -454,7 +454,7 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 			int j;
 
 			for (j = 1; j <= fs->tupdesc->natts; j++)
-				TupleDescCopyEntry(fs->tupdesc, j, scan_tupdesc, ++natts);
+				TupleDescCopyEntry(scan_tupdesc, ++natts, fs->tupdesc, j);
 		}
 
 		if (node->funcordinality)
