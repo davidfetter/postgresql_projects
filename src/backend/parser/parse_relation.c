@@ -1228,7 +1228,8 @@ addRangeTableEntryForSubquery(ParseState *pstate,
 }
 
 /*
- * Add an entry for a function to the pstate's range table (p_rtable).
+ * Add an entry for a function (or functions) to the pstate's range table
+ * (p_rtable).
  *
  * This is just like addRangeTableEntry() except that it makes a function RTE.
  */
@@ -1252,6 +1253,8 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	int         nfuncs = list_length(funcexprs);
 	ListCell   *lc, *lc2;
 	int         i;
+	int         j;
+	int			natts;
 
 	rte->rtekind = RTE_FUNCTION;
 	rte->relid = InvalidOid;
@@ -1321,6 +1324,7 @@ addRangeTableEntryForFunction(ParseState *pstate,
 		functupdescs = palloc(nfuncs * sizeof(TupleDesc));
 
 		i = 0;
+		natts = 0;
 		forboth(lc, funcexprs, lc2, funcnames)
 		{
 			functypclass = get_expr_result_type(lfirst(lc),
@@ -1331,8 +1335,8 @@ addRangeTableEntryForFunction(ParseState *pstate,
 			{
 				case TYPEFUNC_RECORD:
 					/*
-					 * Only gets here if no column definition list was supplied for
-					 * a function returning an unspecified RECORD.
+					 * Only gets here if no column definition list was supplied
+					 * for a function returning an unspecified RECORD.
 					 */
 					ereport(ERROR,
 							(errcode(ERRCODE_SYNTAX_ERROR),
@@ -1378,13 +1382,22 @@ addRangeTableEntryForFunction(ParseState *pstate,
 									strVal(lfirst(lc2)), format_type_be(funcrettype)),
 							 parser_errposition(pstate, exprLocation(lfirst(lc)))));
 			}
+			natts += functupdescs[i]->natts;
 
-			++i;
+			i++;
 		}
 
 		functypclass = TYPEFUNC_COMPOSITE;
 		funcrettype = RECORDOID;
-		tupdesc = CreateTupleDescCopyMany(functupdescs, nfuncs);
+
+		/* Merge the tuple descs of each function into a composite one */
+		tupdesc = CreateTemplateTupleDesc(natts, false);
+		natts = 0;
+		for (i = 0; i < nfuncs; i++)
+		{
+			for (j = 1; j <= functupdescs[i]->natts; j++)
+				TupleDescCopyEntry(functupdescs[i], j, tupdesc, ++natts);
+		}
 	}
 
 	if (functypclass == TYPEFUNC_COMPOSITE)

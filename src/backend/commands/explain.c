@@ -1984,21 +1984,22 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
 			break;
 		case T_FunctionScan:
 			{
-				List	   *funcexprs;
+				FunctionScan   *fscan = (FunctionScan *) plan;
 
 				/* Assert it's on a RangeFunction */
 				Assert(rte->rtekind == RTE_FUNCTION);
 
 				/*
-				 * If the expression is still a function call, we can get the
-				 * real name of the function.  Otherwise, punt (this can
-				 * happen if the optimizer simplified away the function call,
-				 * for example).
+				 * If the expression is still a function call of a single
+				 * function, we can get the real name of the function.
+				 * Otherwise, punt. (even if it was a single function call
+				 * originally, the optimizer could have simplified it away)
 				 */
-				funcexprs = ((FunctionScan *) plan)->funcexprs;
-				if (funcexprs && list_length(funcexprs) == 1 && IsA(linitial(funcexprs), FuncExpr))
+				if (fscan->funcexprs && list_length(fscan->funcexprs) == 1 &&
+					IsA(linitial(fscan->funcexprs), FuncExpr))
 				{
-					Oid			funcid = ((FuncExpr *) linitial(funcexprs))->funcid;
+					FuncExpr   *funcexpr = linitial(fscan->funcexprs);
+					Oid		funcid = funcexpr->funcid;
 
 					objectname = get_func_name(funcid);
 					if (es->verbose)

@@ -134,7 +134,7 @@ CreateTupleDesc(int natts, bool hasoid, Form_pg_attribute *attrs)
  *		This function creates a new TupleDesc by copying from an existing
  *		TupleDesc.
  *
- * !!! Constraints and defaults are not copied !!!
+ * !!! Constraint and default are not copied !!!
  */
 TupleDesc
 CreateTupleDescCopy(TupleDesc tupdesc)
@@ -186,43 +186,6 @@ CreateTupleDescCopyExtend(TupleDesc tupdesc, int moreatts)
 		memcpy(desc->attrs[i], tupdesc->attrs[i], ATTRIBUTE_FIXED_PART_SIZE);
 		desc->attrs[i]->attnotnull = false;
 		desc->attrs[i]->atthasdef = false;
-	}
-
-	return desc;
-}
-
-/*
- * CreateTupleDescCopyMany
- *		This function creates a new TupleDesc by copying from a set of
- *      existing TupleDescs. The new tupdesc is an anonymous record type
- *      (and never has oids)
- *
- * !!! Constraints and defaults are not copied !!!
- */
-TupleDesc
-CreateTupleDescCopyMany(TupleDesc *tupdescs, int numtupdescs)
-{
-	TupleDesc	desc;
-	int			i,j;
-	int         src_natts = 0;
-	int         att = 0;
-
-	for (i = 0; i < numtupdescs; ++i)
-		src_natts += tupdescs[i]->natts;
-
-	desc = CreateTemplateTupleDesc(src_natts, false);
-
-	for (i = 0; i < numtupdescs; ++i)
-	{
-		int natts = tupdescs[i]->natts;
-		for (j = 0; j < natts; j++)
-		{
-			memcpy(desc->attrs[att], tupdescs[i]->attrs[j], ATTRIBUTE_FIXED_PART_SIZE);
-			desc->attrs[att]->attnum = att + 1;
-			desc->attrs[att]->attnotnull = false;
-			desc->attrs[att]->atthasdef = false;
-			++att;
-		}
 	}
 
 	return desc;
@@ -595,6 +558,34 @@ TupleDescInitEntryCollation(TupleDesc desc,
 	desc->attrs[attributeNumber - 1]->attcollation = collationid;
 }
 
+/*
+ * TupleDescCopyEntry
+ *		This function copies a single attribute structure from one tuple
+ *		descriptor to another.
+ *
+ * * !!! Constraints and defaults are not copied !!!
+ */
+void
+TupleDescCopyEntry(const TupleDesc src, AttrNumber srcAttno,
+				   TupleDesc dst, AttrNumber dstAttno)
+{
+	/*
+	 * sanity checks
+	 */
+	AssertArg(PointerIsValid(src));
+	AssertArg(PointerIsValid(dst));
+	AssertArg(srcAttno >= 1);
+	AssertArg(srcAttno <= src->natts);
+	AssertArg(dstAttno >= 1);
+	AssertArg(dstAttno <= dst->natts);
+
+	memcpy(dst->attrs[dstAttno - 1], src->attrs[srcAttno - 1],
+		   ATTRIBUTE_FIXED_PART_SIZE);
+	dst->attrs[dstAttno - 1]->attnum = dstAttno;
+	dst->attrs[dstAttno - 1]->attcacheoff = -1;
+	dst->attrs[dstAttno - 1]->attnotnull = false;
+	dst->attrs[dstAttno - 1]->atthasdef = false;
+}
 
 /*
  * BuildDescForRelation

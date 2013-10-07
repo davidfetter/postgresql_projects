@@ -88,7 +88,6 @@ extern TupleDesc CreateTupleDesc(int natts, bool hasoid,
 
 extern TupleDesc CreateTupleDescCopy(TupleDesc tupdesc);
 extern TupleDesc CreateTupleDescCopyExtend(TupleDesc tupdesc, int moreatts);
-extern TupleDesc CreateTupleDescCopyMany(TupleDesc *tupdescs, int numtupdescs);
 
 extern TupleDesc CreateTupleDescCopyConstr(TupleDesc tupdesc);
 
@@ -117,10 +116,11 @@ extern void TupleDescInitEntry(TupleDesc desc,
 				   Oid oidtypeid,
 				   int32 typmod,
 				   int attdim);
-
 extern void TupleDescInitEntryCollation(TupleDesc desc,
 							AttrNumber attributeNumber,
 							Oid collationid);
+extern void TupleDescCopyEntry(const TupleDesc src, AttrNumber srcAttno,
+				   TupleDesc dst, AttrNumber dstAttno);
 
 extern TupleDesc BuildDescForRelation(List *schema);
 

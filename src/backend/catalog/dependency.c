@@ -1778,9 +1778,9 @@ find_expr_references_walker(Node *node,
 
 		/*
 		 * Add whole-relation refs for each plain relation mentioned in the
-		 * subquery's rtable. Refs for any datatypes and collations
-		 * used in RECORD function column definitions lists are now handled
-		 * under FuncExpr.
+		 * subquery's rtable. (Refs for any datatypes and collations used
+		 * in RECORD function column definitions lists are handled under
+		 * FuncExpr.)
 		 *
 		 * Note: query_tree_walker takes care of recursing into RTE_FUNCTION
 		 * RTEs, subqueries, etc, so no need to do that here.  But keep it

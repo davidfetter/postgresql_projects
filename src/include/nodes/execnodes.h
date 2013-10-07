@@ -1395,27 +1395,26 @@ typedef struct SubqueryScanState
  *		function appearing in FROM (typically a function returning set).
  *
  *		eflags				node's capability flags
- *		ordinal				column value for WITH ORDINALITY
- *      rowcounts           number of result rows for each func, when known
+ *		ordinality			is this scan WITH ORDINALITY?
+ *		ordinal				current ordinal column value
  *		scan_tupdesc		scan tuple descriptor 
- *		func_tupdescs		function tuple descriptors 
- *		func_slots			function result slots, or null
- *		tuplestorestates	private states of tuplestore.c
- *		funcexprs			state for function expressions being evaluated
+ *		nfuncs				number of functions being executed
+ *		funcstates			per-function execution states (private in
+ *							nodeFunctionscan.c)
  * ----------------
  */
+struct FunctionScanPerFuncState;
+
 typedef struct FunctionScanState
 {
 	ScanState	ss;				/* its first field is NodeTag */
 	int			eflags;
 	bool        ordinality;
+	bool		simple;
 	int64       ordinal;
-	int64      *rowcounts;
 	TupleDesc	scan_tupdesc;
-	TupleDesc  *func_tupdescs;
-	TupleTableSlot **func_slots;
-	Tuplestorestate **tuplestorestates;
-	List       *funcexprs;
+	int			nfuncs;
+	struct FunctionScanPerFuncState *funcstates; /* array of length nfuncs */
 } FunctionScanState;
 
 /* ----------------
