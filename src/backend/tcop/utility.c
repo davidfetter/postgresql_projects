@@ -688,7 +688,7 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_VariableSetStmt:
-			ExecSetVariableStmt((VariableSetStmt *) parsetree);
+			ExecSetVariableStmt((VariableSetStmt *) parsetree, isTopLevel);
 			break;
 
 		case T_VariableShowStmt:
@@ -754,6 +754,7 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_ConstraintsSetStmt:
+			RequireTransactionChain(isTopLevel, "SET CONSTRAINTS");
 			AfterTriggerSetState((ConstraintsSetStmt *) parsetree);
 			break;
 
@@ -2189,6 +2190,9 @@ CreateCommandTag(Node *parsetree)
 					break;
 				case DISCARD_TEMP:
 					tag = "DISCARD TEMP";
+					break;
+				case DISCARD_SEQUENCES:
+					tag = "DISCARD SEQUENCES";
 					break;
 				default:
 					tag = "???";

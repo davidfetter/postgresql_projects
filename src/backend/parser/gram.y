@@ -1680,7 +1680,7 @@ CheckPointStmt:
 
 /*****************************************************************************
  *
- * DISCARD { ALL | TEMP | PLANS }
+ * DISCARD { ALL | TEMP | PLANS | SEQUENCES }
  *
  *****************************************************************************/
 
@@ -1709,6 +1709,13 @@ DiscardStmt:
 					n->target = DISCARD_PLANS;
 					$$ = (Node *) n;
 				}
+			| DISCARD SEQUENCES
+				{
+					DiscardStmt *n = makeNode(DiscardStmt);
+					n->target = DISCARD_SEQUENCES;
+					$$ = (Node *) n;
+				}
+
 		;
 
 
