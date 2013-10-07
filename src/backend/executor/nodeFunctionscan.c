@@ -444,17 +444,20 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	}
 	else
 	{
+		AttrNumber attno = 0;
+
 		if (node->funcordinality)
 			natts++;
+
 		scan_tupdesc = CreateTemplateTupleDesc(natts, false);
-		natts = 0;
+
 		for (i = 0; i < nfuncs; i++)
 		{
-			FunctionScanPerFuncState *fs = &scanstate->funcstates[i];
+			TupleDesc tupdesc = scanstate->funcstates[i].tupdesc;
 			int j;
 
-			for (j = 1; j <= fs->tupdesc->natts; j++)
-				TupleDescCopyEntry(scan_tupdesc, ++natts, fs->tupdesc, j);
+			for (j = 1; j <= tupdesc->natts; j++)
+				TupleDescCopyEntry(scan_tupdesc, ++attno, tupdesc, j);
 		}
 
 		if (node->funcordinality)
@@ -465,12 +468,14 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 			 * as the last element of funccolnames.
 			 */
 			TupleDescInitEntry(scan_tupdesc,
-							   ++natts,
+							   ++attno,
 							   strVal(llast(node->funccolnames)),
 							   INT8OID,
 							   -1,
 							   0);
 		}
+
+		Assert(attno == natts);
 	}
 
 	/*
