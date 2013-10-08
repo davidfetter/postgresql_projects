@@ -649,7 +649,7 @@ transformTableConstraint(CreateStmtContext *cxt, Constraint *constraint)
 /*
  * transformTableLikeClause
  *
- * Change the LIKE <srctable> portion of a CREATE TABLE statement into
+ * Change the LIKE <srctable> portion of a CREATE [FOREIGN] TABLE statement into
  * column definitions which recreate the user defined column portions of
  * <srctable>.
  */
@@ -689,6 +689,25 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 						RelationGetRelationName(relation))));
 
 	cancel_parser_errposition_callback(&pcbstate);
+
+	/*
+	 * For foreign tables, disallow some options.
+	 */
+	if (cxt->isforeign)
+	{
+		if (table_like_clause->options & CREATE_TABLE_LIKE_CONSTRAINTS)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("ERROR: foreign tables do not support LIKE INCLUDING CONSTRAINTS")));
+		else if (table_like_clause->options & CREATE_TABLE_LIKE_INDEXES)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("ERROR: foreign tables do not support LIKE INCLUDING INDEXES")));
+		else if (table_like_clause->options & CREATE_TABLE_LIKE_STORAGE)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("ERROR: foreign tables do not support LIKE INCLUDING STORAGE")));
+	}
 
 	/*
 	 * Check for privileges
