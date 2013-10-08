@@ -20,6 +20,7 @@
 <synopsis>
 CREATE FOREIGN TABLE [ IF NOT EXISTS ] <replaceable class="PARAMETER">table_name</replaceable> ( [
     <replaceable class="PARAMETER">column_name</replaceable> <replaceable class="PARAMETER">data_type</replaceable> [ OPTIONS ( <replaceable class="PARAMETER">option</replaceable> '<replaceable class="PARAMETER">value</replaceable>' [, ... ] ) ] [ COLLATE <replaceable>collation</replaceable> ] [ <replaceable class="PARAMETER">column_constraint</replaceable> [ ... ] ]
+    | LIKE <replaceable>source_table</replaceable> [ <replaceable>like_option</replaceable> ... ] }
     [, ... ]
 ] )
   SERVER <replaceable class="parameter">server_name</replaceable>
@@ -111,6 +112,15 @@ CREATE FOREIGN TABLE [ IF NOT EXISTS ] <replaceable class="PARAMETER">table_name
       linkend="datatype">.
      </para>
     </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>LIKE <replaceable>source_table</replaceable></literal></term>
+    <listitem>
+     <para>
+      The <literal>LIKE</literal> clause specifies a table from which
+      the new foreign table automatically copies all column names and their data types.
+     </para>
    </varlistentry>
 
    <varlistentry>

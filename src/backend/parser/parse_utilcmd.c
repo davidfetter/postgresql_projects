@@ -669,10 +669,12 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 									  table_like_clause->relation->location);
 
 	/* we could support LIKE in many cases, but worry about it another day */
+	/* Let's see whether just dropping this enables LIKE :)
 	if (cxt->isforeign)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("LIKE is not supported for creating foreign tables")));
+	 */
 
 	relation = relation_openrv(table_like_clause->relation, AccessShareLock);
 
