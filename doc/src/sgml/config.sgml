@@ -1194,6 +1194,32 @@ include 'filename'
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-dynamic-shared-memory-type" xreflabel="dynamic_shared_memory_type">
+      <term><varname>dynamic_shared_memory_type</varname> (<type>enum</type>)</term>
+      <indexterm>
+       <primary><varname>dynamic_shared_memory_type</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Specifies the dynamic shared memory implementation that the server
+        should use.  Possible values are <literal>posix</> (for POSIX shared
+        memory allocated using <literal>shm_open</>), <literal>sysv</literal>
+        (for System V shared memory allocated via <literal>shmget</>),
+        <literal>windows</> (for Windows shared memory), <literal>mmap</>
+        (to simulate shared memory using memory-mapped files stored in the
+        data directory), and <literal>none</> (to disable this feature).
+        Not all values are supported on all platforms; the first supported
+        option is the default for that platform.  The use of the
+        <literal>mmap</> option, which is not the default on any platform,
+        is generally discouraged because the operating system may write
+        modified pages back to disk repeatedly, increasing system I/O load;
+        however, it may be useful for debugging, when the
+        <literal>pg_dynshmem</> directory is stored on a RAM disk, or when
+        other shared memory facilities are not available.
+       </para>
+      </listitem>
+     </varlistentry>
+
      </variablelist>
      </sect2>
 
@@ -2758,7 +2784,7 @@ include 'filename'
 
        <para>
         Random access to mechanical disk storage is normally much more expensive
-        than four-times sequential access.  However, a lower default is used
+        than four times sequential access.  However, a lower default is used
         (4.0) because the majority of random accesses to disk, such as indexed
         reads, are assumed to be in cache.  The default value can be thought of
         as modeling random access as 40 times slower than sequential, while
@@ -2841,9 +2867,17 @@ include 'filename'
       <listitem>
        <para>
         Sets the planner's assumption about the effective size of the
-        disk cache that is available to a single query.  This is
-        factored into estimates of the cost of using an index; a
-        higher value makes it more likely index scans will be used, a
+        disk cache that is available to a single query.  The default
+        setting of -1 selects a size equal to four times the size of <xref
+        linkend="guc-shared-buffers">, but not less than the size of one
+        shared buffer page, typically <literal>8kB</literal>.  This value
+        can be set manually if the automatic choice is too large or too
+        small.
+       </para>
+
+       <para>
+        This value is factored into estimates of the cost of using an index;
+        a higher value makes it more likely index scans will be used, a
         lower value makes it more likely sequential scans will be
         used. When setting this parameter you should consider both
         <productname>PostgreSQL</productname>'s shared buffers and the
@@ -2855,8 +2889,10 @@ include 'filename'
         memory allocated by <productname>PostgreSQL</productname>, nor
         does it reserve kernel disk cache; it is used only for estimation
         purposes.  The system also does not assume data remains in
-        the disk cache between queries.  The default is 128 megabytes
-        (<literal>128MB</>).
+        the disk cache between queries.  The auto-tuning
+        selected by the default setting of -1 should give reasonable
+        results if this database cluster can utilize most of the memory
+        on this server.
        </para>
       </listitem>
      </varlistentry>
@@ -3941,8 +3977,14 @@ local0.*    /var/log/postgresql
          that are replaced with status information as outlined below.
          Unrecognized escapes are ignored. Other
          characters are copied straight to the log line. Some escapes are
-         only recognized by session processes, and are ignored by
-         background processes such as the main server process.
+         only recognized by session processes, and will be treated as empty by
+         background processes such as the main server process. Status
+         information may be aligned either left or right by specifying a
+         numeric literal after the % and before the option. A negative
+         value will cause the status information to be padded on the
+         right with spaces to give it a minimum width, whereas a positive
+         value will pad on the left. Padding can be useful to aid human
+         readability in log files.
          This parameter can only be set in the <filename>postgresql.conf</>
          file or on the server command line. The default is an empty string.
 

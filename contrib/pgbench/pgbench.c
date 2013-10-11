@@ -172,6 +172,7 @@ int			agg_interval;		/* log aggregates instead of individual
 								 * transactions */
 int			progress = 0;       /* thread progress report every this seconds */
 int         progress_nclients = 0; /* number of clients for progress report */
+int			progress_nthreads = 0; /* number of threads for progress report */
 bool		is_connect;			/* establish connection for each transaction */
 bool		is_latencies;		/* report per-command latencies */
 int			main_pid;			/* main process id used in log filename */
@@ -214,6 +215,8 @@ typedef struct
 	int			nvariables;
 	instr_time	txn_begin;		/* used for measuring transaction latencies */
 	instr_time	stmt_begin;		/* used for measuring statement latencies */
+	int64		txn_latencies;	/* cumulated latencies */
+	int64		txn_sqlats;		/* cumulated square latencies */
 	bool		is_throttled;	/* whether transaction throttling is done */
 	int			use_file;		/* index in sql_files for this client */
 	bool		prepared[MAX_FILES];
@@ -243,6 +246,8 @@ typedef struct
 {
 	instr_time	conn_time;
 	int			xacts;
+	int64		latencies;
+	int64		sqlats;
 	int64       throttle_lag;
 	int64       throttle_lag_max;
 } TResult;
@@ -369,7 +374,7 @@ usage(void)
 		   "  -N, --skip-some-updates  skip updates of pgbench_tellers and pgbench_branches\n"
 		   "  -P, --progress=NUM       show thread progress report every NUM seconds\n"
 		   "  -r, --report-latencies   report average latency per command\n"
-		   "  -R, --rate=SPEC          target rate in transactions per second\n"
+		   "  -R, --rate=NUM           target rate in transactions per second\n"
 		   "  -s, --scale=NUM          report this scale factor in output\n"
 		   "  -S, --select-only        perform SELECT-only transactions\n"
 		   "  -t, --transactions       number of transactions each client runs "
@@ -929,13 +934,17 @@ top:
 		 * that the series of delays will approximate a Poisson distribution
 		 * centered on the throttle_delay time.
                  *
-                 * 1000 implies a 6.9 (-log(1/1000)) to 0.0 (log 1.0) delay multiplier.
+		 * 10000 implies a 9.2 (-log(1/10000)) to 0.0 (log 1) delay multiplier,
+		 * and results in a 0.055 % target underestimation bias:
+		 *
+		 * SELECT 1.0/AVG(-LN(i/10000.0)) FROM generate_series(1,10000) AS i;
+		 * = 1.000552717032611116335474
 		 *
 		 * If transactions are too slow or a given wait is shorter than
 		 * a transaction, the next transaction will start right away.
 		 */
-		int64 wait = (int64)
-			throttle_delay * -log(getrand(thread, 1, 1000)/1000.0);
+		int64 wait = (int64) (throttle_delay *
+			1.00055271703 * -log(getrand(thread, 1, 10000)/10000.0));
 
 		thread->throttle_trigger += wait;
 
@@ -1000,6 +1009,26 @@ top:
 			INSTR_TIME_ACCUM_DIFF(thread->exec_elapsed[cnum],
 								  now, st->stmt_begin);
 			thread->exec_count[cnum]++;
+		}
+
+		/* transaction finished: record latency under progress or throttling */
+		if ((progress || throttle_delay) && commands[st->state + 1] == NULL)
+		{
+			instr_time	diff;
+			int64		latency;
+
+			INSTR_TIME_SET_CURRENT(diff);
+			INSTR_TIME_SUBTRACT(diff, st->txn_begin);
+			latency = INSTR_TIME_GET_MICROSEC(diff);
+			st->txn_latencies += latency;
+			/*
+			 * XXX In a long benchmark run of high-latency transactions, this
+			 * int64 addition eventually overflows.  For example, 100 threads
+			 * running 10s transactions will overflow it in 2.56 hours.  With
+			 * a more-typical OLTP workload of .1s transactions, overflow
+			 * would take 256 hours.
+			 */
+			st->txn_sqlats += latency * latency;
 		}
 
 		/*
@@ -1191,8 +1220,8 @@ top:
 		goto top;
 	}
 
-	/* Record transaction start time if logging is enabled */
-	if (logfile && st->state == 0)
+	/* Record transaction start time under logging, progress or throttling */
+	if ((logfile || progress || throttle_delay) && st->state == 0)
 		INSTR_TIME_SET_CURRENT(st->txn_begin);
 
 	/* Record statement start time if per-command latencies are requested */
@@ -1533,11 +1562,13 @@ init(bool is_no_vacuum)
 	/*
 	 * Note: TPC-B requires at least 100 bytes per row, and the "filler"
 	 * fields in these table declarations were intended to comply with that.
-	 * But because they default to NULLs, they don't actually take any space.
-	 * We could fix that by giving them non-null default values. However, that
-	 * would completely break comparability of pgbench results with prior
-	 * versions.  Since pgbench has never pretended to be fully TPC-B
-	 * compliant anyway, we stick with the historical behavior.
+	 * The pgbench_accounts table complies with that because the "filler"
+	 * column is set to blank-padded empty string. But for all other tables the
+	 * column defaults to NULL and so don't actually take any space.  We could
+	 * fix that by giving them non-null default values.  However, that would
+	 * completely break comparability of pgbench results with prior versions.
+	 * Since pgbench has never pretended to be fully TPC-B compliant anyway, we
+	 * stick with the historical behavior.
 	 */
 	struct ddlinfo
 	{
@@ -1636,12 +1667,14 @@ init(bool is_no_vacuum)
 
 	for (i = 0; i < nbranches * scale; i++)
 	{
+		/* "filler" column defaults to NULL */
 		snprintf(sql, 256, "insert into pgbench_branches(bid,bbalance) values(%d,0)", i + 1);
 		executeStatement(con, sql);
 	}
 
 	for (i = 0; i < ntellers * scale; i++)
 	{
+		/* "filler" column defaults to NULL */
 		snprintf(sql, 256, "insert into pgbench_tellers(tid,bid,tbalance) values (%d,%d,0)",
 				 i + 1, i / ntellers + 1);
 		executeStatement(con, sql);
@@ -1671,6 +1704,7 @@ init(bool is_no_vacuum)
 	{
 		int64		j = k + 1;
 
+		/* "filler" column defaults to blank padded empty string */
 		snprintf(sql, 256, INT64_FORMAT "\t" INT64_FORMAT "\t%d\t\n", j, k / naccounts + 1, 0);
 		if (PQputline(con, sql))
 		{
@@ -2096,6 +2130,7 @@ static void
 printResults(int ttype, int normal_xacts, int nclients,
 			 TState *threads, int nthreads,
 			 instr_time total_time, instr_time conn_total_time,
+			 int64 total_latencies, int64 total_sqlats,
 			 int64 throttle_lag, int64 throttle_lag_max)
 {
 	double		time_include,
@@ -2135,6 +2170,22 @@ printResults(int ttype, int normal_xacts, int nclients,
 			   normal_xacts);
 	}
 
+	if (throttle_delay || progress)
+	{
+		/* compute and show latency average and standard deviation */
+		double latency = 0.001 * total_latencies / normal_xacts;
+		double sqlat = (double) total_sqlats / normal_xacts;
+		printf("latency average: %.3f ms\n"
+			   "latency stddev: %.3f ms\n",
+			   latency, 0.001 * sqrt(sqlat - 1000000.0 * latency * latency));
+	}
+	else
+ 	{
+		/* only an average latency computed from the duration is available */
+		printf("latency average: %.3f ms\n",
+			   1000.0 * duration * nclients / normal_xacts);
+	}
+
 	if (throttle_delay)
 	{
 		/*
@@ -2143,7 +2194,7 @@ printResults(int ttype, int normal_xacts, int nclients,
 		 * transaction.  The measured lag may be caused by thread/client load,
 		 * the database load, or the Poisson throttling process.
 		 */
-		printf("average rate limit schedule lag: %.3f ms (max %.3f ms)\n",
+		printf("rate limit schedule lag: avg %.3f (max %.3f) ms\n",
 			   0.001 * throttle_lag / normal_xacts, 0.001 * throttle_lag_max);
 	}
 
@@ -2254,7 +2305,9 @@ main(int argc, char **argv)
 	instr_time	start_time;		/* start up time */
 	instr_time	total_time;
 	instr_time	conn_total_time;
-	int			total_xacts;
+	int			total_xacts = 0;
+	int64		total_latencies = 0;
+	int64		total_sqlats = 0;
 	int64       throttle_lag = 0;
 	int64       throttle_lag_max = 0;
 
@@ -2608,6 +2661,7 @@ main(int argc, char **argv)
 	 */
 	main_pid = (int) getpid();
 	progress_nclients = nclients;
+	progress_nthreads = nthreads;
 
 	if (nclients > 1)
 	{
@@ -2816,7 +2870,6 @@ main(int argc, char **argv)
 	}
 
 	/* wait for threads and accumulate results */
-	total_xacts = 0;
 	INSTR_TIME_SET_ZERO(conn_total_time);
 	for (i = 0; i < nthreads; i++)
 	{
@@ -2832,6 +2885,8 @@ main(int argc, char **argv)
 			TResult    *r = (TResult *) ret;
 
 			total_xacts += r->xacts;
+			total_latencies += r->latencies;
+			total_sqlats += r->sqlats;
 			throttle_lag += r->throttle_lag;
 			if (r->throttle_lag_max > throttle_lag_max)
 				throttle_lag_max = r->throttle_lag_max;
@@ -2841,11 +2896,21 @@ main(int argc, char **argv)
 	}
 	disconnect_all(state, nclients);
 
-	/* get end time */
+	/*
+	 * XXX We compute results as though every client of every thread started
+	 * and finished at the same time.  That model can diverge noticeably from
+	 * reality for a short benchmark run involving relatively many threads.
+	 * The first thread may process notably many transactions before the last
+	 * thread begins.  Improving the model alone would bring limited benefit,
+	 * because performance during those periods of partial thread count can
+	 * easily exceed steady state performance.  This is one of the many ways
+	 * short runs convey deceptive performance figures.
+	 */
 	INSTR_TIME_SET_CURRENT(total_time);
 	INSTR_TIME_SUBTRACT(total_time, start_time);
 	printResults(ttype, total_xacts, nclients, threads, nthreads,
-				 total_time, conn_total_time, throttle_lag, throttle_lag_max);
+				 total_time, conn_total_time, total_latencies, total_sqlats,
+				 throttle_lag, throttle_lag_max);
 
 	return 0;
 }
@@ -2866,7 +2931,7 @@ threadRun(void *arg)
 	int64       thread_start = INSTR_TIME_GET_MICROSEC(thread->start_time);
 	int64		last_report = thread_start;
 	int64		next_report = last_report + progress * 1000000;
-	int64		last_count = 0;
+	int64		last_count = 0, last_lats = 0, last_sqlats = 0, last_lags = 0;
 
 	AggVals		aggs;
 
@@ -3066,21 +3131,40 @@ threadRun(void *arg)
 			if (now >= next_report)
 			{
 				/* generate and show report */
-				int64 count = 0;
+				int64 count = 0, lats = 0, sqlats = 0;
+				int64 lags = thread->throttle_lag;
 				int64 run = now - last_report;
-				float tps, total_run, latency;
+				double tps, total_run, latency, sqlat, stdev, lag;
 
 				for (i = 0 ; i < nstate ; i++)
+				{
 					count += state[i].cnt;
+					lats += state[i].txn_latencies;
+					sqlats += state[i].txn_sqlats;
+				}
 
 				total_run = (now - thread_start) / 1000000.0;
 				tps = 1000000.0 * (count - last_count) / run;
-				latency = 1000.0 * nstate / tps;
+				latency = 0.001 * (lats - last_lats) / (count - last_count);
+				sqlat = 1.0 * (sqlats - last_sqlats) / (count - last_count);
+				stdev = 0.001 * sqrt(sqlat - 1000000.0 * latency * latency);
+				lag = 0.001 * (lags - last_lags) / (count - last_count);
 
-				fprintf(stderr, "progress %d: %.1f s, %.1f tps, %.3f ms lat\n",
-						thread->tid, total_run, tps, latency);
+				if (throttle_delay)
+					fprintf(stderr,
+							"progress %d: %.1f s, %.1f tps, "
+							"lat %.3f ms stddev %.3f, lag %.3f ms\n",
+							thread->tid, total_run, tps, latency, stdev, lag);
+				else
+					fprintf(stderr,
+							"progress %d: %.1f s, %.1f tps, "
+							"lat %.3f ms stddev %.3f\n",
+							thread->tid, total_run, tps, latency, stdev);
 
 				last_count = count;
+				last_lats = lats;
+				last_sqlats = sqlats;
+				last_lags = lags;
 				last_report = now;
 				next_report += progress * 1000000;
 			}
@@ -3096,21 +3180,42 @@ threadRun(void *arg)
 			if (now >= next_report)
 			{
 				/* generate and show report */
-				int64 count = 0;
+				int64 count = 0, lats = 0, sqlats = 0, lags = 0;
 				int64 run = now - last_report;
-				float tps, total_run, latency;
+				double tps, total_run, latency, sqlat, lag, stdev;
 
 				for (i = 0 ; i < progress_nclients ; i++)
+				{
 					count += state[i].cnt;
+					lats   += state[i].txn_latencies;
+					sqlats += state[i].txn_sqlats;
+				}
+
+				for (i = 0 ; i < progress_nthreads ; i++)
+					lags += thread[i].throttle_lag;
 
 				total_run = (now - thread_start) / 1000000.0;
 				tps = 1000000.0 * (count - last_count) / run;
-				latency = 1000.0 * progress_nclients / tps;
+				latency = 0.001 * (lats - last_lats) / (count - last_count);
+				sqlat = 1.0 * (sqlats - last_sqlats) / (count - last_count);
+				stdev = 0.001 * sqrt(sqlat - 1000000.0 * latency * latency);
+				lag = 0.001 * (lags - last_lags) / (count - last_count);
 
-				fprintf(stderr, "progress: %.1f s, %.1f tps, %.3f ms lat\n",
-						total_run, tps, latency);
+				if (throttle_delay)
+					fprintf(stderr,
+							"progress: %.1f s, %.1f tps, "
+							"lat %.3f ms stddev %.3f, lag %.3f ms\n",
+							total_run, tps, latency, stdev, lag);
+				else
+					fprintf(stderr,
+							"progress: %.1f s, %.1f tps, "
+							"lat %.3f ms stddev %.3f\n",
+							total_run, tps, latency, stdev);
 
 				last_count = count;
+				last_lats = lats;
+				last_sqlats = sqlats;
+				last_lags = lags;
 				last_report = now;
 				next_report += progress * 1000000;
 			}
@@ -3122,8 +3227,14 @@ done:
 	INSTR_TIME_SET_CURRENT(start);
 	disconnect_all(state, nstate);
 	result->xacts = 0;
+	result->latencies = 0;
+	result->sqlats = 0;
 	for (i = 0; i < nstate; i++)
+	{
 		result->xacts += state[i].cnt;
+		result->latencies += state[i].txn_latencies;
+		result->sqlats += state[i].txn_sqlats;
+	}
 	result->throttle_lag = thread->throttle_lag;
 	result->throttle_lag_max = thread->throttle_lag_max;
 	INSTR_TIME_SET_CURRENT(end);

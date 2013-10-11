@@ -248,7 +248,7 @@ DATA(insert ( 3175	json_agg_transfn	json_agg_finalfn		0	2281	0 -1 f _null_ ));
 DATA(insert ( 3931 	- 			percentile_disc_final				0 	0 	0	1 t _null_));
 DATA(insert ( 3935 	- 			percentile_cont_float8_final		0 	0 	0	1 t _null_));
 DATA(insert ( 3939 	- 			percentile_cont_interval_final		0 	0 	0	1 t _null_));
-DATA(insert ( 3968 	- 			rank_final							0 	16 	59 -2 t "f"));
+DATA(insert ( 3920 	- 			rank_final							0 	16 	59 -2 t "f"));
 DATA(insert ( 3970 	- 			dense_rank_final					0 	16 	59 -2 t "f"));
 DATA(insert ( 3972 	- 			percent_rank_final					0 	16 	59 -2 t "f"));
 DATA(insert ( 3974 	- 			cume_dist_final						0 	16 	58 -2 t "f"));
