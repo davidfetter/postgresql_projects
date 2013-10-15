@@ -8123,6 +8123,12 @@ CREATE TYPE rainbow AS ENUM ('red', 'orange', 'yellow', 'green', 'blue', 'purple
         <entry><literal>circle(polygon '((0,0),(1,1),(2,0))')</literal></entry>
        </row>
        <row>
+        <entry><literal><function>line(<type>point</type>, <type>point</type>)</function></literal></entry>
+        <entry><type>line</type></entry>
+        <entry>points to line</entry>
+        <entry><literal>line(point '(-1,0)', point '(1,0)')</literal></entry>
+       </row>
+       <row>
         <entry>
          <indexterm>
           <primary>lseg</primary>
@@ -10089,7 +10095,7 @@ table2-mapping
        </entry>
        <entry><type>json</type></entry>
        <entry>
-         Returns JSON object pointed to by <parameter>path_elems</parameter>.
+         Returns JSON value pointed to by <parameter>path_elems</parameter>.
        </entry>
        <entry><literal>json_extract_path('{"f2":{"f3":1},"f4":{"f5":99,"f6":"foo"}}','f4')</literal></entry>
        <entry><literal>{"f5":99,"f6":"foo"}</literal></entry>
@@ -10103,7 +10109,7 @@ table2-mapping
        </entry>
        <entry><type>text</type></entry>
        <entry>
-         Returns JSON object pointed to by <parameter>path_elems</parameter>.
+         Returns JSON value pointed to by <parameter>path_elems</parameter>.
        </entry>
        <entry><literal>json_extract_path_text('{"f2":{"f3":1},"f4":{"f5":99,"f6":"foo"}}','f4', 'f6')</literal></entry>
        <entry><literal>foo</literal></entry>
@@ -10186,7 +10192,7 @@ table2-mapping
        </entry>
        <entry><type>SETOF json</type></entry>
        <entry>
-         Expands a JSON array to a set of JSON elements.
+         Expands a JSON array to a set of JSON values.
        </entry>
        <entry><literal>json_array_elements('[1,true, [2,false]]')</literal></entry>
        <entry>
@@ -10198,6 +10204,23 @@ table2-mapping
  [2,false]
 </programlisting>
        </entry>
+      </row>
+      <row>
+       <entry>
+         <indexterm>
+          <primary>json_typeof</primary>
+         </indexterm>
+         <literal>json_typeof(json)</literal>
+       </entry>
+       <entry><type>text</type></entry>
+       <entry>
+         Returns the type of the outermost JSON value as a text string.  The types are
+         <literal>object</>, <literal>array</>, <literal>string</>, <literal>number</>,
+         <literal>boolean</>, and <literal>null</>.  (See note below regarding the
+         distinction between a JSON <literal>null</> and a SQL NULL.)
+       </entry>
+       <entry><literal>json_typeof('-123.4')</literal></entry>
+       <entry><literal>number</literal></entry>
       </row>
      </tbody>
     </tgroup>
@@ -10228,6 +10251,14 @@ table2-mapping
       The <xref linkend="hstore"> extension has a cast from <type>hstore</type> to
       <type>json</type>, so that converted <type>hstore</type> values are represented as JSON objects,
       not as string values.
+    </para>
+  </note>
+
+  <note>
+    <para>
+      The <literal>json_typeof</> function's <literal>null</> return value should not be confused
+      with a SQL NULL.  While calling <literal>json_typeof('null'::json)</> will return <literal>null</>,
+      calling <literal>json_typeof(NULL::json)</> will return a SQL NULL.
     </para>
   </note>
 
@@ -12739,7 +12770,7 @@ WHERE EXISTS (SELECT 1 FROM tab2 WHERE col2 = tab1.col2);
 
   <para>
    See <xref linkend="row-wise-comparison"> for details about the meaning
-   of a row-wise comparison.
+   of a row constructor comparison.
   </para>
   </sect2>
 
@@ -12795,12 +12826,12 @@ WHERE EXISTS (SELECT 1 FROM tab2 WHERE col2 = tab1.col2);
 
   <para>
    See <xref linkend="row-wise-comparison"> for details about the meaning
-   of a row-wise comparison.
+   of a row constructor comparison.
   </para>
   </sect2>
 
   <sect2>
-   <title>Row-wise Comparison</title>
+   <title>Single-row Comparison</title>
 
    <indexterm zone="functions-subquery">
     <primary>comparison</primary>
@@ -12823,7 +12854,7 @@ WHERE EXISTS (SELECT 1 FROM tab2 WHERE col2 = tab1.col2);
 
   <para>
    See <xref linkend="row-wise-comparison"> for details about the meaning
-   of a row-wise comparison.
+   of a row constructor comparison.
   </para>
   </sect2>
  </sect1>
@@ -12853,12 +12884,22 @@ WHERE EXISTS (SELECT 1 FROM tab2 WHERE col2 = tab1.col2);
   </indexterm>
 
   <indexterm>
+   <primary>composite type</primary>
+   <secondary>comparison</secondary>
+  </indexterm>
+
+  <indexterm>
    <primary>row-wise comparison</primary>
   </indexterm>
 
   <indexterm>
    <primary>comparison</primary>
-   <secondary>row-wise</secondary>
+   <secondary>composite type</secondary>
+  </indexterm>
+
+  <indexterm>
+   <primary>comparison</primary>
+   <secondary>row constructor</secondary>
   </indexterm>
 
   <indexterm>
@@ -13023,7 +13064,7 @@ AND
   </sect2>
 
   <sect2 id="row-wise-comparison">
-   <title>Row-wise Comparison</title>
+   <title>Row Constructor Comparison</title>
 
 <synopsis>
 <replaceable>row_constructor</replaceable> <replaceable>operator</replaceable> <replaceable>row_constructor</replaceable>
@@ -13033,19 +13074,24 @@ AND
    Each side is a row constructor,
    as described in <xref linkend="sql-syntax-row-constructors">.
    The two row values must have the same number of fields.
-   Each side is evaluated and they are compared row-wise.  Row comparisons
-   are allowed when the <replaceable>operator</replaceable> is
+   Each side is evaluated and they are compared row-wise.  Row constructor
+   comparisons are allowed when the <replaceable>operator</replaceable> is
    <literal>=</>,
    <literal>&lt;&gt;</>,
    <literal>&lt;</>,
    <literal>&lt;=</>,
    <literal>&gt;</> or
-   <literal>&gt;=</>,
-   or has semantics similar to one of these.  (To be specific, an operator
-   can be a row comparison operator if it is a member of a B-tree operator
-   class, or is the negator of the <literal>=</> member of a B-tree operator
-   class.)
+   <literal>&gt;=</>.
+   Every row element must be of a type which has a default B-tree operator
+   class or the attempted comparison may generate an error.
   </para>
+
+  <note>
+   <para>
+    Errors related to the number or types of elements might not occur if
+    the comparison is resolved using earlier columns.
+   </para>
+  </note>
 
   <para>
    The <literal>=</> and <literal>&lt;&gt;</> cases work slightly differently
@@ -13104,20 +13150,64 @@ AND
    be either true or false, never null.
   </para>
 
-  <note>
-   <para>
-    The SQL specification requires row-wise comparison to return NULL if the
-    result depends on comparing two NULL values or a NULL and a non-NULL.
-    <productname>PostgreSQL</productname> does this only when comparing the
-    results of two row constructors or comparing a row constructor to the
-    output of a subquery (as in <xref linkend="functions-subquery">).
-    In other contexts where two composite-type values are compared, two
-    NULL field values are considered equal, and a NULL is considered larger
-    than a non-NULL.  This is necessary in order to have consistent sorting
-    and indexing behavior for composite types.
-   </para>
-  </note>
+  </sect2>
 
+  <sect2 id="composite-type-comparison">
+   <title>Composite Type Comparison</title>
+
+<synopsis>
+<replaceable>record</replaceable> <replaceable>operator</replaceable> <replaceable>record</replaceable>
+</synopsis>
+
+  <para>
+   The SQL specification requires row-wise comparison to return NULL if the
+   result depends on comparing two NULL values or a NULL and a non-NULL.
+   <productname>PostgreSQL</productname> does this only when comparing the
+   results of two row constructors (as in
+   <xref linkend="row-wise-comparison">) or comparing a row constructor
+   to the output of a subquery (as in <xref linkend="functions-subquery">).
+   In other contexts where two composite-type values are compared, two
+   NULL field values are considered equal, and a NULL is considered larger
+   than a non-NULL.  This is necessary in order to have consistent sorting
+   and indexing behavior for composite types.
+  </para>
+
+  <para>
+   Each side is evaluated and they are compared row-wise.  Composite type
+   comparisons are allowed when the <replaceable>operator</replaceable> is
+   <literal>=</>,
+   <literal>&lt;&gt;</>,
+   <literal>&lt;</>,
+   <literal>&lt;=</>,
+   <literal>&gt;</> or
+   <literal>&gt;=</>,
+   or has semantics similar to one of these.  (To be specific, an operator
+   can be a row comparison operator if it is a member of a B-tree operator
+   class, or is the negator of the <literal>=</> member of a B-tree operator
+   class.)  The default behavior of the above operators is the same as for
+   <literal>IS [ NOT ] DISTINCT FROM</literal> for row constructors (see
+   <xref linkend="row-wise-comparison">).
+  </para>
+
+  <para>
+   To support matching of rows which include elements without a default
+   B-tree operator class, the following operators are defined for composite
+   type comparison:
+   <literal>*=</>,
+   <literal>*&lt;&gt;</>,
+   <literal>*&lt;</>,
+   <literal>*&lt;=</>,
+   <literal>*&gt;</>, and
+   <literal>*&gt;=</>.
+   These operators compare the internal binary representation of the two
+   rows.  Two rows might have a different binary representation even
+   though comparisons of the two rows with the equality operator is true. 
+   The ordering of rows under these comparision operators is deterministic
+   but not otherwise meaningful.  These operators are used internally for
+   materialized views and might be useful for other specialized purposes
+   such as replication but are not intended to be generally useful for
+   writing queries.
+  </para>
   </sect2>
  </sect1>
 

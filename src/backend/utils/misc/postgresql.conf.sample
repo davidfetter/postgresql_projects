@@ -123,6 +123,13 @@
 #work_mem = 1MB				# min 64kB
 #maintenance_work_mem = 16MB		# min 1MB
 #max_stack_depth = 2MB			# min 100kB
+#dynamic_shared_memory_type = posix # the default is the first option
+					# supported by the operating system:
+					#   posix
+					#   sysv
+					#   windows
+					#   mmap
+					# use none to disable dynamic shared memory
 
 # - Disk -
 
@@ -268,7 +275,7 @@
 #cpu_tuple_cost = 0.01			# same scale as above
 #cpu_index_tuple_cost = 0.005		# same scale as above
 #cpu_operator_cost = 0.0025		# same scale as above
-#effective_cache_size = 128MB
+#effective_cache_size = -1
 
 # - Genetic Query Optimizer -
 

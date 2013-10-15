@@ -100,6 +100,7 @@ draft: postgres.sgml $(ALMOSTALLSGML) stylesheet.dsl
 html: html-stamp
 
 html-stamp: postgres.sgml $(ALLSGML) stylesheet.dsl
+	$(MAKE) check-tabs
 	$(MKDIR_P) html
 	$(JADE.html.call) -i include-index $<
 	cp $(srcdir)/stylesheet.css html/
@@ -251,7 +252,7 @@ regress_README.html: regress.sgml
 # $(srcdir) on the postgres.sgml dependency in this rule.  gmake bug?
 postgres.xml: $(srcdir)/postgres.sgml $(ALMOSTALLSGML)
 	$(OSX) -D. -x lower $< >postgres.xmltmp
-	$(PERL) -p -e 's/\[(amp|copy|egrave|gt|lt|mdash|nbsp|ouml|pi|quot|uuml) *\]/\&\1;/g;' \
+	$(PERL) -p -e 's/\[(aacute|acirc|aelig|agrave|amp|aring|atilde|auml|bull|copy|eacute|egrave|gt|iacute|lt|mdash|nbsp|ntilde|oacute|ocirc|oslash|ouml|pi|quot|scaron|uuml) *\]/\&\1;/gi;' \
 	           -e '$$_ .= qq{<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN" "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">\n} if $$. == 1;' \
 	  <postgres.xmltmp > $@
 	rm postgres.xmltmp
@@ -301,7 +302,7 @@ MAKEINFO = makeinfo
 ##
 
 # Quick syntax check without style processing
-check maintainer-check: postgres.sgml $(ALMOSTALLSGML) check-tabs
+check: postgres.sgml $(ALMOSTALLSGML) check-tabs
 	$(NSGMLS) $(SPFLAGS) $(SGMLINCLUDE) -s $<
 
 
