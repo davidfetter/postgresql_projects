@@ -221,10 +221,10 @@ mode_final(PG_FUNCTION_ARGS)
 	Oid			datumtype;
 	bool		isnull;
 	Datum		val;
-	Datum		last_val;
+	Datum		last_val = (Datum) 0;
 	bool		last_val_is_mode = false;
 	int64		val_freq = 0;
-	Datum		mode_val;
+	Datum		mode_val = (Datum) 0;
 	int64		mode_freq = 0;
 	FmgrInfo   *equalfn;
 	bool		shouldfree;

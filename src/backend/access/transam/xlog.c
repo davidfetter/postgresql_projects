@@ -1482,7 +1482,7 @@ CopyXLogRecordToWAL(int write_len, bool isLogSwitch, XLogRecData *rdata,
 	Assert(written == write_len);
 
 	/* Align the end position, so that the next record starts aligned */
-	CurrPos = MAXALIGN(CurrPos);
+	CurrPos = MAXALIGN64(CurrPos);
 
 	/*
 	 * If this was an xlog-switch, it's not enough to write the switch record,
@@ -4844,6 +4844,10 @@ ReadControlFile(void)
 				  " but the server was compiled without USE_FLOAT8_BYVAL."),
 				 errhint("It looks like you need to recompile or initdb.")));
 #endif
+
+	/* Make the fixed  settings visible as GUC variables, too */
+	SetConfigOption("data_checksums", DataChecksumsEnabled() ? "yes" : "no",
+					PGC_INTERNAL, PGC_S_OVERRIDE);
 }
 
 void

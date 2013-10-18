@@ -61,6 +61,7 @@
 #include "replication/walreceiver.h"
 #include "replication/walsender.h"
 #include "storage/bufmgr.h"
+#include "storage/dsm_impl.h"
 #include "storage/standby.h"
 #include "storage/fd.h"
 #include "storage/proc.h"
@@ -125,7 +126,6 @@ extern char *default_tablespace;
 extern char *temp_tablespaces;
 extern bool ignore_checksum_failure;
 extern bool synchronize_seqscans;
-extern int	ssl_renegotiation_limit;
 extern char *SSLCipherSuites;
 
 #ifdef TRACE_SORT
@@ -385,6 +385,7 @@ static const struct config_enum_entry synchronous_commit_options[] = {
  */
 extern const struct config_enum_entry wal_level_options[];
 extern const struct config_enum_entry sync_method_options[];
+extern const struct config_enum_entry dynamic_shared_memory_options[];
 
 /*
  * GUC option variables that are exported from this module
@@ -466,6 +467,7 @@ static int	max_identifier_length;
 static int	block_size;
 static int	segment_size;
 static int	wal_block_size;
+static bool	data_checksums;
 static int	wal_segment_size;
 static bool integer_datetimes;
 static int	effective_io_concurrency;
@@ -1457,6 +1459,17 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"data_checksums", PGC_INTERNAL, PRESET_OPTIONS,
+			gettext_noop("Shows whether data checksums are turned on for this cluster"),
+			NULL,
+			GUC_NOT_IN_SAMPLE | GUC_DISALLOW_IN_FILE
+		},
+		&data_checksums,
+		false,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL
@@ -2398,8 +2411,8 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_UNIT_BLOCKS,
 		},
 		&effective_cache_size,
-		DEFAULT_EFFECTIVE_CACHE_SIZE, 1, INT_MAX,
-		NULL, NULL, NULL
+		-1, -1, INT_MAX,
+		check_effective_cache_size, NULL, NULL
 	},
 
 	{
@@ -3324,6 +3337,16 @@ static struct config_enum ConfigureNamesEnum[] =
 	},
 
 	{
+		{"dynamic_shared_memory_type", PGC_POSTMASTER, RESOURCES_MEM,
+			gettext_noop("Selects the dynamic shared memory implementation used."),
+			NULL
+		},
+		&dynamic_shared_memory_type,
+		DEFAULT_DYNAMIC_SHARED_MEMORY_TYPE, dynamic_shared_memory_options,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"wal_sync_method", PGC_SIGHUP, WAL_SETTINGS,
 			gettext_noop("Selects the method used for forcing WAL updates to disk."),
 			NULL
@@ -4226,6 +4249,8 @@ SelectConfigFiles(const char *userDoption, const char *progname)
 	 */
 	pg_timezone_abbrev_initialize();
 
+	set_default_effective_cache_size();
+	    
 	/*
 	 * Figure out where pg_hba.conf is, and make sure the path is absolute.
 	 */
@@ -6240,7 +6265,7 @@ flatten_set_variable_args(const char *name, List *args)
  * SET command
  */
 void
-ExecSetVariableStmt(VariableSetStmt *stmt)
+ExecSetVariableStmt(VariableSetStmt *stmt, bool isTopLevel)
 {
 	GucAction	action = stmt->is_local ? GUC_ACTION_LOCAL : GUC_ACTION_SET;
 
@@ -6248,6 +6273,8 @@ ExecSetVariableStmt(VariableSetStmt *stmt)
 	{
 		case VAR_SET_VALUE:
 		case VAR_SET_CURRENT:
+			if (stmt->is_local)
+				RequireTransactionChain(isTopLevel, "SET LOCAL");
 			(void) set_config_option(stmt->name,
 									 ExtractSetVariableArgs(stmt),
 									 (superuser() ? PGC_SUSET : PGC_USERSET),
@@ -6257,7 +6284,6 @@ ExecSetVariableStmt(VariableSetStmt *stmt)
 									 0);
 			break;
 		case VAR_SET_MULTI:
-
 			/*
 			 * Special-case SQL syntaxes.  The TRANSACTION and SESSION
 			 * CHARACTERISTICS cases effectively set more than one variable
@@ -6268,6 +6294,8 @@ ExecSetVariableStmt(VariableSetStmt *stmt)
 			if (strcmp(stmt->name, "TRANSACTION") == 0)
 			{
 				ListCell   *head;
+
+				RequireTransactionChain(isTopLevel, "SET TRANSACTION");
 
 				foreach(head, stmt->args)
 				{
@@ -6317,6 +6345,8 @@ ExecSetVariableStmt(VariableSetStmt *stmt)
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							 errmsg("SET LOCAL TRANSACTION SNAPSHOT is not implemented")));
+
+				RequireTransactionChain(isTopLevel, "SET TRANSACTION");
 				Assert(IsA(con, A_Const));
 				Assert(nodeTag(&con->val) == T_String);
 				ImportSnapshot(strVal(&con->val));
@@ -6326,7 +6356,13 @@ ExecSetVariableStmt(VariableSetStmt *stmt)
 					 stmt->name);
 			break;
 		case VAR_SET_DEFAULT:
+			if (stmt->is_local)
+				RequireTransactionChain(isTopLevel, "SET LOCAL");
+			/* fall through */
 		case VAR_RESET:
+			if (strcmp(stmt->name, "transaction_isolation") == 0)
+				RequireTransactionChain(isTopLevel, "RESET TRANSACTION");
+
 			(void) set_config_option(stmt->name,
 									 NULL,
 									 (superuser() ? PGC_SUSET : PGC_USERSET),

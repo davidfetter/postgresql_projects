@@ -412,7 +412,11 @@ pgbench <optional> <replaceable>options</> </optional> <replaceable>dbname</>
       <term><option>--progress=</option><replaceable>sec</></term>
       <listitem>
        <para>
-        Show progress report every <literal>sec</> seconds.
+        Show progress report every <literal>sec</> seconds.  The report
+        includes the time since the beginning of the run, the tps since the
+        last report, and the transaction latency average and standard
+        deviation since the last report.  Under throttling (<option>-R</>), it
+        also includes the average schedule lag time since the last report.
        </para>
       </listitem>
      </varlistentry>
@@ -429,7 +433,7 @@ pgbench <optional> <replaceable>options</> </optional> <replaceable>dbname</>
        </para>
        <para>
         The rate is targeted by starting transactions along a
-        Poisson-distributed schedule time line.  The expected finish time
+        Poisson-distributed schedule time line.  The expected start time
         schedule moves forward based on when the client first started, not
         when the previous transaction ended.  That approach means that when
         transactions go past their original scheduled end time, it is
