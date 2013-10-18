@@ -343,7 +343,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 				if (nvargs != 2*list_length(agg_order))
 					ereport(ERROR,
 							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-							 errmsg("incorrect number of arguments for hypothetical set function"),
+							 errmsg("function %s has %d ordering columns but only %d hypothetical arguments",
+								NameListToString(funcname), list_length(agg_order), (nvargs - list_length(agg_order))),
 							 parser_errposition(pstate, location)));
 			}
 			else

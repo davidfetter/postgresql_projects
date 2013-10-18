@@ -1269,7 +1269,7 @@ select p, percentile_cont(p) within group (order by x::float8) from generate_ser
 select p, percentile_cont(p order by p) within group (order by x::float8) 
 	from generate_series(1,5) x, (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) 
 	group by p order by x;
-ERROR:  Cannot have multiple ORDER BY clauses with WITHIN GROUP
+ERROR:  cannot have multiple ORDER BY clauses with WITHIN GROUP
 LINE 1: select p, percentile_cont(p order by p) within group (order ...
                                                 ^
 select p, sum() within group (order by x::float8) 
@@ -1395,7 +1395,7 @@ ERROR:  WITHIN GROUP types text and integer cannot be matched
 LINE 1: select rank(3) within group (order by x) from (values ('fred...
                     ^
 select rank(3) within group (order by stringu1,stringu2) from tenk1;
-ERROR:  Incorrect number of arguments for hypothetical set function
+ERROR:  function rank has 2 ordering columns but only 1 hypothetical arguments
 LINE 1: select rank(3) within group (order by stringu1,stringu2) fro...
                ^
 select rank('fred') within group (order by x) from generate_series(1,5) x;
