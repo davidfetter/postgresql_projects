@@ -11218,12 +11218,12 @@ func_expr: func_application within_group_clause filter_clause over_clause
 						if (n->agg_order != NIL)
 							ereport(ERROR,
 									(errcode(ERRCODE_SYNTAX_ERROR),
-									 errmsg("Cannot have multiple ORDER BY clauses with WITHIN GROUP"),
+									 errmsg("cannot have multiple ORDER BY clauses with WITHIN GROUP"),
 									 parser_errposition(@2)));
 						if (n->agg_distinct)
 							ereport(ERROR,
 									(errcode(ERRCODE_SYNTAX_ERROR),
-									 errmsg("Cannot have DISTINCT and WITHIN GROUP together"),
+									 errmsg("cannot have DISTINCT and WITHIN GROUP together"),
 									 parser_errposition(@2)));
 						n->agg_order = $2;
 						n->has_within_group = TRUE;

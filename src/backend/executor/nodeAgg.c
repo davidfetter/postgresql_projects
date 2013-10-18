@@ -1750,7 +1750,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		 */
 		if (isOrderedSet != (aggform->aggisordsetfunc)
 			|| (aggref->ishypothetical != (aggform->aggordnargs == -2)))
-			elog(ERROR, "Incompatible change to aggregate definition");
+			elog(ERROR, "incompatible change to aggregate definition");
 
 		/* Check permission to call aggregate function */
 		aclresult = pg_proc_aclcheck(aggref->aggfnoid, GetUserId(),
@@ -1870,7 +1870,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			if (OidIsValid(aggtranstype) && !(aggref->ishypothetical))
 			{
 				if (numArguments == FUNC_MAX_ARGS)
-					elog(ERROR, "Too many arguments to ordered set function");
+					elog(ERROR, "too many arguments to ordered set function");
 
 				inputTypes[numArguments++] = aggtranstype;
 				inputCollations[numArguments++] = aggtranstypecoll;
@@ -1901,7 +1901,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			fmgr_info(finalfn_oid, &peraggstate->finalfn);
 			fmgr_info_set_expr((Node *) finalfnexpr, &peraggstate->finalfn);
 			if (peraggstate->finalfn.fn_strict && isOrderedSet)
-				elog(ERROR, "Ordered set finalfns must not be strict");
+				elog(ERROR, "ordered set finalfns must not be strict");
 		}
 
 		if (is_strict)

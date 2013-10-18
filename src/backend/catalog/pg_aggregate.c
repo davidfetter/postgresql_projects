@@ -92,9 +92,9 @@ AggregateCreate(const char *aggName,
 	if (isOrderedSet)
 	{
 		if (aggtransfnName)
-			elog(ERROR, "Ordered set functions cannot have transition functions");
+			elog(ERROR, "ordered set functions cannot have transition functions");
 		if (!aggfinalfnName)
-			elog(ERROR, "Ordered set functions must have final functions");
+			elog(ERROR, "ordered set functions must have final functions");
 	}
 	else
 	{
@@ -223,7 +223,7 @@ AggregateCreate(const char *aggName,
 			|| variadic_type != ANYOID)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("Invalid argument types for hypothetical set function"),
+					 errmsg("invalid argument types for hypothetical set function"),
 					 errhint("Required declaration is (..., VARIADIC \"any\") WITHIN GROUP (*)")));
 
 		/* flag for special processing for hypothetical sets */
@@ -241,7 +241,7 @@ AggregateCreate(const char *aggName,
 		else
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("Invalid argument types for ordered set function"),
+					 errmsg("invalid argument types for ordered set function"),
 					 errhint("WITHIN GROUP (*) is not allowed without VARIADIC \"any\"")));
 	}
 

@@ -343,7 +343,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 				if (nvargs != 2*list_length(agg_order))
 					ereport(ERROR,
 							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-							 errmsg("Incorrect number of arguments for hypothetical set function"),
+							 errmsg("incorrect number of arguments for hypothetical set function"),
 							 parser_errposition(pstate, location)));
 			}
 			else
@@ -563,7 +563,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 			&& number_of_args != list_length(fargs))
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("Incorrect number of direct arguments to ordered set function %s",
+					 errmsg("incorrect number of direct arguments to ordered set function %s",
 							NameListToString(funcname)),
 					 parser_errposition(pstate, location)));
 
