@@ -191,9 +191,11 @@ dsm_impl_op(dsm_op op, dsm_handle handle, uint64 request_size,
 			return dsm_impl_mmap(op, handle, request_size, impl_private,
 								 mapped_address, mapped_size, elevel);
 #endif
+		default:
+			elog(ERROR, "unexpected dynamic shared memory type: %d",
+				 dynamic_shared_memory_type);
+			return false;
 	}
-	elog(ERROR, "unexpected dynamic shared memory type: %d",
-		 dynamic_shared_memory_type);
 }
 
 /*
@@ -694,10 +696,6 @@ dsm_impl_windows(dsm_op op, dsm_handle handle, uint64 request_size,
 			 * modified.
 			 */
 			CloseHandle(hmap);
-			ereport(elevel,
-					(errcode_for_dynamic_shared_memory(),
-					 errmsg("could not open shared memory segment \"%s\": %m",
-						name)));
 			return false;
 		}
 	}

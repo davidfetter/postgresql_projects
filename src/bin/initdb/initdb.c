@@ -948,13 +948,10 @@ mkdatadir(const char *subdir)
 {
 	char	   *path;
 
-	path = pg_malloc(strlen(pg_data) + 2 +
-					 (subdir == NULL ? 0 : strlen(subdir)));
-
-	if (subdir != NULL)
-		sprintf(path, "%s/%s", pg_data, subdir);
+	if (subdir)
+		path = psprintf("%s/%s", pg_data, subdir);
 	else
-		strcpy(path, pg_data);
+		path = pg_strdup(pg_data);
 
 	if (pg_mkdir_p(path, S_IRWXU) == 0)
 		return true;
@@ -972,8 +969,7 @@ mkdatadir(const char *subdir)
 static void
 set_input(char **dest, char *filename)
 {
-	*dest = pg_malloc(strlen(share_path) + strlen(filename) + 2);
-	sprintf(*dest, "%s/%s", share_path, filename);
+	*dest = psprintf("%s/%s", share_path, filename);
 }
 
 /*
@@ -1027,15 +1023,9 @@ write_version_file(char *extrapath)
 	char	   *path;
 
 	if (extrapath == NULL)
-	{
-		path = pg_malloc(strlen(pg_data) + 12);
-		sprintf(path, "%s/PG_VERSION", pg_data);
-	}
+		path = psprintf("%s/PG_VERSION", pg_data);
 	else
-	{
-		path = pg_malloc(strlen(pg_data) + strlen(extrapath) + 13);
-		sprintf(path, "%s/%s/PG_VERSION", pg_data, extrapath);
-	}
+		path = psprintf("%s/%s/PG_VERSION", pg_data, extrapath);
 
 	if ((version_file = fopen(path, PG_BINARY_W)) == NULL)
 	{
@@ -1063,8 +1053,7 @@ set_null_conf(void)
 	FILE	   *conf_file;
 	char	   *path;
 
-	path = pg_malloc(strlen(pg_data) + 17);
-	sprintf(path, "%s/postgresql.conf", pg_data);
+	path = psprintf("%s/postgresql.conf", pg_data);
 	conf_file = fopen(path, PG_BINARY_W);
 	if (conf_file == NULL)
 	{
@@ -1172,6 +1161,7 @@ test_config_settings(void)
 				 SYSTEMQUOTE "\"%s\" --boot -x0 %s "
 				 "-c max_connections=%d "
 				 "-c shared_buffers=%d "
+				 "-c dynamic_shared_memory_type=none "
 				 "< \"%s\" > \"%s\" 2>&1" SYSTEMQUOTE,
 				 backend_exec, boot_options,
 				 test_conns, test_buffs,
@@ -2961,8 +2951,7 @@ setup_pgdata(void)
 	 * need quotes otherwise on Windows because paths there are most likely to
 	 * have embedded spaces.
 	 */
-	pgdata_set_env = pg_malloc(8 + strlen(pg_data));
-	sprintf(pgdata_set_env, "PGDATA=%s", pg_data);
+	pgdata_set_env = psprintf("PGDATA=%s", pg_data);
 	putenv(pgdata_set_env);
 }
 
@@ -3208,6 +3197,11 @@ setup_signals(void)
 #ifdef SIGPIPE
 	pqsignal(SIGPIPE, SIG_IGN);
 #endif
+
+	/* Prevent SIGSYS so we can probe for kernel calls that might not work */
+#ifdef SIGSYS
+	pqsignal(SIGSYS, SIG_IGN);
+#endif
 }
 
 
@@ -3356,8 +3350,7 @@ create_xlog_symlink(void)
 		}
 
 		/* form name of the place where the symlink must go */
-		linkloc = (char *) pg_malloc(strlen(pg_data) + 8 + 1);
-		sprintf(linkloc, "%s/pg_xlog", pg_data);
+		linkloc = psprintf("%s/pg_xlog", pg_data);
 
 #ifdef HAVE_SYMLINK
 		if (symlink(xlog_dir, linkloc) != 0)

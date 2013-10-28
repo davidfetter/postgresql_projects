@@ -1010,16 +1010,12 @@ Datum
 line_out(PG_FUNCTION_ARGS)
 {
 	LINE	   *line = PG_GETARG_LINE_P(0);
-	char	   *buf;
 	int			ndig = DBL_DIG + extra_float_digits;
 
 	if (ndig < 1)
 		ndig = 1;
 
-	buf = palloc(ndig * 3 + 5);
-	sprintf(buf, "{%.*g,%.*g,%.*g}", ndig, line->A, ndig, line->B, ndig, line->C);
-
-	PG_RETURN_CSTRING(buf);
+	PG_RETURN_CSTRING(psprintf("{%.*g,%.*g,%.*g}", ndig, line->A, ndig, line->B, ndig, line->C));
 }
 
 /*
@@ -1120,6 +1116,9 @@ line_construct_pts(LINE *line, Point *pt1, Point *pt2)
 		line->A = (pt2->y - pt1->y) / (pt2->x - pt1->x);
 		line->B = -1.0;
 		line->C = pt1->y - line->A * pt1->x;
+		/* on some platforms, the preceding expression tends to produce -0 */
+		if (line->C == 0.0)
+			line->C = 0.0;
 #ifdef GEODEBUG
 		printf("line_construct_pts- line is neither vertical nor horizontal (diffs x=%.*g, y=%.*g\n",
 			   DBL_DIG, (pt2->x - pt1->x), DBL_DIG, (pt2->y - pt1->y));
