@@ -56,6 +56,10 @@
 #include <signal.h>
 #include <time.h>
 
+#ifdef HAVE_SHM_OPEN
+#include "sys/mman.h"
+#endif
+
 #include "mb/pg_wchar.h"
 #include "getaddrinfo.h"
 #include "getopt_long.h"
@@ -150,6 +154,7 @@ static char *pgdata_native;
 /* defaults */
 static int	n_connections = 10;
 static int	n_buffers = 50;
+static char *dynamic_shared_memory_type = NULL;
 
 /*
  * Warning messages for authentication methods
@@ -182,6 +187,7 @@ const char *subdirs[] = {
 	"pg_xlog",
 	"pg_xlog/archive_status",
 	"pg_clog",
+	"pg_dynshmem",
 	"pg_notify",
 	"pg_serial",
 	"pg_snapshots",
@@ -942,13 +948,10 @@ mkdatadir(const char *subdir)
 {
 	char	   *path;
 
-	path = pg_malloc(strlen(pg_data) + 2 +
-					 (subdir == NULL ? 0 : strlen(subdir)));
-
-	if (subdir != NULL)
-		sprintf(path, "%s/%s", pg_data, subdir);
+	if (subdir)
+		path = psprintf("%s/%s", pg_data, subdir);
 	else
-		strcpy(path, pg_data);
+		path = pg_strdup(pg_data);
 
 	if (pg_mkdir_p(path, S_IRWXU) == 0)
 		return true;
@@ -966,8 +969,7 @@ mkdatadir(const char *subdir)
 static void
 set_input(char **dest, char *filename)
 {
-	*dest = pg_malloc(strlen(share_path) + strlen(filename) + 2);
-	sprintf(*dest, "%s/%s", share_path, filename);
+	*dest = psprintf("%s/%s", share_path, filename);
 }
 
 /*
@@ -1021,15 +1023,9 @@ write_version_file(char *extrapath)
 	char	   *path;
 
 	if (extrapath == NULL)
-	{
-		path = pg_malloc(strlen(pg_data) + 12);
-		sprintf(path, "%s/PG_VERSION", pg_data);
-	}
+		path = psprintf("%s/PG_VERSION", pg_data);
 	else
-	{
-		path = pg_malloc(strlen(pg_data) + strlen(extrapath) + 13);
-		sprintf(path, "%s/%s/PG_VERSION", pg_data, extrapath);
-	}
+		path = psprintf("%s/%s/PG_VERSION", pg_data, extrapath);
 
 	if ((version_file = fopen(path, PG_BINARY_W)) == NULL)
 	{
@@ -1057,8 +1053,7 @@ set_null_conf(void)
 	FILE	   *conf_file;
 	char	   *path;
 
-	path = pg_malloc(strlen(pg_data) + 17);
-	sprintf(path, "%s/postgresql.conf", pg_data);
+	path = psprintf("%s/postgresql.conf", pg_data);
 	conf_file = fopen(path, PG_BINARY_W);
 	if (conf_file == NULL)
 	{
@@ -1073,6 +1068,50 @@ set_null_conf(void)
 		exit_nicely();
 	}
 	free(path);
+}
+
+/*
+ * Determine which dynamic shared memory implementation should be used on
+ * this platform.  POSIX shared memory is preferable because the default
+ * allocation limits are much higher than the limits for System V on most
+ * systems that support both, but the fact that a platform has shm_open
+ * doesn't guarantee that that call will succeed when attempted.  So, we
+ * attempt to reproduce what the postmaster will do when allocating a POSIX
+ * segment in dsm_impl.c; if it doesn't work, we assume it won't work for
+ * the postmaster either, and configure the cluster for System V shared
+ * memory instead.
+ */
+static char *
+choose_dsm_implementation(void)
+{
+#ifdef HAVE_SHM_OPEN
+	int		ntries = 10;
+
+	while (ntries > 0)
+	{
+		uint32	handle;
+		char 	name[64];
+		int		fd;
+
+		handle = random();
+		snprintf(name, 64, "/PostgreSQL.%u", handle);
+		if ((fd = shm_open(name, O_CREAT | O_RDWR | O_EXCL, 0600)) != -1)
+		{
+			close(fd);
+			shm_unlink(name);
+			return "posix";
+		}
+		if (errno != EEXIST)
+			break;
+		--ntries;
+	}
+#endif
+
+#ifdef WIN32
+	return "windows";
+#else
+	return "sysv";
+#endif
 }
 
 /*
@@ -1122,6 +1161,7 @@ test_config_settings(void)
 				 SYSTEMQUOTE "\"%s\" --boot -x0 %s "
 				 "-c max_connections=%d "
 				 "-c shared_buffers=%d "
+				 "-c dynamic_shared_memory_type=none "
 				 "< \"%s\" > \"%s\" 2>&1" SYSTEMQUOTE,
 				 backend_exec, boot_options,
 				 test_conns, test_buffs,
@@ -1156,6 +1196,7 @@ test_config_settings(void)
 				 SYSTEMQUOTE "\"%s\" --boot -x0 %s "
 				 "-c max_connections=%d "
 				 "-c shared_buffers=%d "
+				 "-c dynamic_shared_memory_type=none "
 				 "< \"%s\" > \"%s\" 2>&1" SYSTEMQUOTE,
 				 backend_exec, boot_options,
 				 n_connections, test_buffs,
@@ -1170,6 +1211,11 @@ test_config_settings(void)
 		printf("%dMB\n", (n_buffers * (BLCKSZ / 1024)) / 1024);
 	else
 		printf("%dkB\n", n_buffers * (BLCKSZ / 1024));
+
+	printf(_("selecting dynamic shared memory implementation ... "));
+	fflush(stdout);
+	dynamic_shared_memory_type = choose_dsm_implementation();
+	printf("%s\n", dynamic_shared_memory_type);
 }
 
 /*
@@ -1263,6 +1309,11 @@ setup_config(void)
 				 escape_quotes(default_timezone));
 		conflines = replace_token(conflines, "#log_timezone = 'GMT'", repltok);
 	}
+
+	snprintf(repltok, sizeof(repltok), "dynamic_shared_memory_type = %s",
+			 dynamic_shared_memory_type);
+	conflines = replace_token(conflines, "#dynamic_shared_memory_type = posix",
+							  repltok);
 
 	snprintf(path, sizeof(path), "%s/postgresql.conf", pg_data);
 
@@ -2900,8 +2951,7 @@ setup_pgdata(void)
 	 * need quotes otherwise on Windows because paths there are most likely to
 	 * have embedded spaces.
 	 */
-	pgdata_set_env = pg_malloc(8 + strlen(pg_data));
-	sprintf(pgdata_set_env, "PGDATA=%s", pg_data);
+	pgdata_set_env = psprintf("PGDATA=%s", pg_data);
 	putenv(pgdata_set_env);
 }
 
@@ -3147,6 +3197,11 @@ setup_signals(void)
 #ifdef SIGPIPE
 	pqsignal(SIGPIPE, SIG_IGN);
 #endif
+
+	/* Prevent SIGSYS so we can probe for kernel calls that might not work */
+#ifdef SIGSYS
+	pqsignal(SIGSYS, SIG_IGN);
+#endif
 }
 
 
@@ -3295,8 +3350,7 @@ create_xlog_symlink(void)
 		}
 
 		/* form name of the place where the symlink must go */
-		linkloc = (char *) pg_malloc(strlen(pg_data) + 8 + 1);
-		sprintf(linkloc, "%s/pg_xlog", pg_data);
+		linkloc = psprintf("%s/pg_xlog", pg_data);
 
 #ifdef HAVE_SYMLINK
 		if (symlink(xlog_dir, linkloc) != 0)

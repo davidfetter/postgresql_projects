@@ -20,6 +20,7 @@
 #include <math.h>
 #include <unistd.h>
 
+#include "access/sysattr.h"
 #include "catalog/catalog.h"
 #include "catalog/pg_tablespace.h"
 #include "catalog/pg_type.h"
@@ -242,11 +243,6 @@ pg_tablespace_databases(PG_FUNCTION_ARGS)
 
 		fctx = palloc(sizeof(ts_db_fctx));
 
-		/*
-		 * size = tablespace dirname length + dir sep char + oid + terminator
-		 */
-		fctx->location = (char *) palloc(9 + 1 + OIDCHARS + 1 +
-								   strlen(TABLESPACE_VERSION_DIRECTORY) + 1);
 		if (tablespaceOid == GLOBALTABLESPACE_OID)
 		{
 			fctx->dirdesc = NULL;
@@ -256,9 +252,9 @@ pg_tablespace_databases(PG_FUNCTION_ARGS)
 		else
 		{
 			if (tablespaceOid == DEFAULTTABLESPACE_OID)
-				sprintf(fctx->location, "base");
+				fctx->location = psprintf("base");
 			else
-				sprintf(fctx->location, "pg_tblspc/%u/%s", tablespaceOid,
+				fctx->location = psprintf("pg_tblspc/%u/%s", tablespaceOid,
 						TABLESPACE_VERSION_DIRECTORY);
 
 			fctx->dirdesc = AllocateDir(fctx->location);
@@ -297,9 +293,7 @@ pg_tablespace_databases(PG_FUNCTION_ARGS)
 
 		/* if database subdir is empty, don't report tablespace as used */
 
-		/* size = path length + dir sep char + file name + terminator */
-		subdir = palloc(strlen(fctx->location) + 1 + strlen(de->d_name) + 1);
-		sprintf(subdir, "%s/%s", fctx->location, de->d_name);
+		subdir = psprintf("%s/%s", fctx->location, de->d_name);
 		dirdesc = AllocateDir(subdir);
 		while ((de = ReadDir(dirdesc, subdir)) != NULL)
 		{
@@ -547,17 +541,13 @@ pg_relation_is_updatable(PG_FUNCTION_ARGS)
 	Oid			reloid = PG_GETARG_OID(0);
 	bool		include_triggers = PG_GETARG_BOOL(1);
 
-	PG_RETURN_INT32(relation_is_updatable(reloid, include_triggers));
+	PG_RETURN_INT32(relation_is_updatable(reloid, include_triggers, NULL));
 }
 
 /*
  * pg_column_is_updatable - determine whether a column is updatable
  *
- * Currently we just check whether the column's relation is updatable.
- * Eventually we might allow views to have some updatable and some
- * non-updatable columns.
- *
- * Also, this function encapsulates the decision about just what
+ * This function encapsulates the decision about just what
  * information_schema.columns.is_updatable actually means.	It's not clear
  * whether deletability of the column's relation should be required, so
  * we want that decision in C code where we could change it without initdb.
@@ -567,6 +557,7 @@ pg_column_is_updatable(PG_FUNCTION_ARGS)
 {
 	Oid			reloid = PG_GETARG_OID(0);
 	AttrNumber	attnum = PG_GETARG_INT16(1);
+	AttrNumber	col = attnum - FirstLowInvalidHeapAttributeNumber;
 	bool		include_triggers = PG_GETARG_BOOL(2);
 	int			events;
 
@@ -574,7 +565,8 @@ pg_column_is_updatable(PG_FUNCTION_ARGS)
 	if (attnum <= 0)
 		PG_RETURN_BOOL(false);
 
-	events = relation_is_updatable(reloid, include_triggers);
+	events = relation_is_updatable(reloid, include_triggers,
+								   bms_make_singleton(col));
 
 	/* We require both updatability and deletability of the relation */
 #define REQ_EVENTS ((1 << CMD_UPDATE) | (1 << CMD_DELETE))

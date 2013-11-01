@@ -372,7 +372,7 @@ incompatible_module_error(const char *libname,
 	}
 
 	if (details.len == 0)
-		appendStringInfo(&details,
+		appendStringInfoString(&details,
 			  _("Magic block has unexpected length or padding difference."));
 
 	ereport(ERROR,
@@ -503,9 +503,7 @@ expand_dynamic_library_name(const char *name)
 		pfree(full);
 	}
 
-	new = palloc(strlen(name) + strlen(DLSUFFIX) + 1);
-	strcpy(new, name);
-	strcat(new, DLSUFFIX);
+	new = psprintf("%s%s", name, DLSUFFIX);
 
 	if (!have_slash)
 	{
@@ -554,7 +552,6 @@ static char *
 substitute_libpath_macro(const char *name)
 {
 	const char *sep_ptr;
-	char	   *ret;
 
 	AssertArg(name != NULL);
 
@@ -572,12 +569,7 @@ substitute_libpath_macro(const char *name)
 				 errmsg("invalid macro name in dynamic library path: %s",
 						name)));
 
-	ret = palloc(strlen(pkglib_path) + strlen(sep_ptr) + 1);
-
-	strcpy(ret, pkglib_path);
-	strcat(ret, sep_ptr);
-
-	return ret;
+	return psprintf("%s%s", pkglib_path, sep_ptr);
 }
 
 

@@ -443,6 +443,12 @@ pg_GSS_startup(PGconn *conn)
 	 */
 	maxlen = NI_MAXHOST + strlen(conn->krbsrvname) + 2;
 	temp_gbuf.value = (char *) malloc(maxlen);
+	if (!temp_gbuf.value)
+	{
+		printfPQExpBuffer(&conn->errorMessage,
+						  libpq_gettext("out of memory\n"));
+		return STATUS_ERROR;
+	}
 	snprintf(temp_gbuf.value, maxlen, "%s@%s",
 			 conn->krbsrvname, conn->pghost);
 	temp_gbuf.length = strlen(temp_gbuf.value);

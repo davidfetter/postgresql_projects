@@ -1286,9 +1286,7 @@ load_libraries(const char *libraries, const char *gucname, bool restricted)
 		{
 			char	   *expanded;
 
-			expanded = palloc(strlen("$libdir/plugins/") + strlen(filename) + 1);
-			strcpy(expanded, "$libdir/plugins/");
-			strcat(expanded, filename);
+			expanded = psprintf("$libdir/plugins/%s", filename);
 			pfree(filename);
 			filename = expanded;
 		}
