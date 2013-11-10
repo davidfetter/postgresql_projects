@@ -1395,7 +1395,7 @@ ERROR:  WITHIN GROUP types text and integer cannot be matched
 LINE 1: select rank(3) within group (order by x) from (values ('fred...
                     ^
 select rank(3) within group (order by stringu1,stringu2) from tenk1;
-ERROR:  function rank has 2 ordering columns but only 1 hypothetical arguments
+ERROR:  function rank has 2 ordering columns but 1 hypothetical arguments
 LINE 1: select rank(3) within group (order by stringu1,stringu2) fro...
                ^
 select rank('fred') within group (order by x) from generate_series(1,5) x;
