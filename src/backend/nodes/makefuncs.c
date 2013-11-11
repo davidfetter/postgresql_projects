@@ -569,4 +569,3 @@ makeFuncCall(List *name, List *args, int location)
 	n->coldeflist = NULL;
 	return n;
 }
-

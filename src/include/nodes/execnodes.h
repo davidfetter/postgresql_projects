@@ -1397,7 +1397,7 @@ typedef struct SubqueryScanState
  *		eflags				node's capability flags
  *		ordinality			is this scan WITH ORDINALITY?
  *		ordinal				current ordinal column value
- *		scan_tupdesc		scan tuple descriptor 
+ *		scan_tupdesc		scan tuple descriptor
  *		nfuncs				number of functions being executed
  *		funcstates			per-function execution states (private in
  *							nodeFunctionscan.c)
