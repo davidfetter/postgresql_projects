@@ -67,10 +67,10 @@ AggregateCreate(const char *aggName,
 	bool		nulls[Natts_pg_aggregate];
 	Datum		values[Natts_pg_aggregate];
 	Form_pg_proc proc;
-	Oid			transfn = InvalidOid;	/* can be omitted */
-	Oid			finalfn = InvalidOid;	/* can be omitted */
-	Oid			sortop = InvalidOid;	/* can be omitted */
-	Oid			transsortop = InvalidOid;  /* Can be omitted */
+	Oid			transfn = InvalidOid;		/* can be omitted */
+	Oid			finalfn = InvalidOid;		/* can be omitted */
+	Oid			sortop = InvalidOid;		/* can be omitted */
+	Oid			transsortop = InvalidOid;	/* can be omitted */
 	Oid		   *aggArgTypes = parameterTypes->values;
 	bool		hasPolyArg;
 	bool		hasInternalArg;
@@ -323,10 +323,10 @@ AggregateCreate(const char *aggName,
 									  &finaltype);
 
 		/*
-		 * this is also checked at runtime for security reasons, but check
+		 * This is also checked at runtime for security reasons, but check
 		 * here too to provide a friendly error (the requirement is because
 		 * the finalfn will be passed null dummy args for type resolution
-		 * purposes)
+		 * purposes).
 		 */
 
 		if (func_strict(finalfn))
