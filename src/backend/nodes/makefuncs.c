@@ -562,4 +562,3 @@ makeFuncCall(List *name, List *args, int location)
 	n->over = NULL;
 	return n;
 }
-
