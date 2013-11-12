@@ -15,46 +15,8 @@
 #include "postgres.h"
 
 #include "access/gin_private.h"
+#include "miscadmin.h"
 #include "utils/rel.h"
-
-/*
- * Merge two ordered arrays of itempointers, eliminating any duplicates.
- * Returns the number of items in the result.
- * Caller is responsible that there is enough space at *dst.
- */
-uint32
-ginMergeItemPointers(ItemPointerData *dst,
-					 ItemPointerData *a, uint32 na,
-					 ItemPointerData *b, uint32 nb)
-{
-	ItemPointerData *dptr = dst;
-	ItemPointerData *aptr = a,
-			   *bptr = b;
-
-	while (aptr - a < na && bptr - b < nb)
-	{
-		int			cmp = ginCompareItemPointers(aptr, bptr);
-
-		if (cmp > 0)
-			*dptr++ = *bptr++;
-		else if (cmp == 0)
-		{
-			/* we want only one copy of the identical items */
-			*dptr++ = *bptr++;
-			aptr++;
-		}
-		else
-			*dptr++ = *aptr++;
-	}
-
-	while (aptr - a < na)
-		*dptr++ = *aptr++;
-
-	while (bptr - b < nb)
-		*dptr++ = *bptr++;
-
-	return dptr - dst;
-}
 
 /*
  * Checks, should we move to right link...
@@ -105,7 +67,7 @@ dataLocateItem(GinBtree btree, GinBtreeStack *stack)
 	{
 		OffsetNumber mid = low + ((high - low) / 2);
 
-		pitem = (PostingItem *) GinDataPageGetItem(page, mid);
+		pitem = GinDataPageGetPostingItem(page, mid);
 
 		if (mid == maxoff)
 		{
@@ -117,7 +79,7 @@ dataLocateItem(GinBtree btree, GinBtreeStack *stack)
 		}
 		else
 		{
-			pitem = (PostingItem *) GinDataPageGetItem(page, mid);
+			pitem = GinDataPageGetPostingItem(page, mid);
 			result = ginCompareItemPointers(btree->items + btree->curitem, &(pitem->key));
 		}
 
@@ -135,7 +97,7 @@ dataLocateItem(GinBtree btree, GinBtreeStack *stack)
 	Assert(high >= FirstOffsetNumber && high <= maxoff);
 
 	stack->off = high;
-	pitem = (PostingItem *) GinDataPageGetItem(page, high);
+	pitem = GinDataPageGetPostingItem(page, high);
 	return PostingItemGetBlockNumber(pitem);
 }
 
@@ -176,7 +138,8 @@ dataLocateLeafItem(GinBtree btree, GinBtreeStack *stack)
 	{
 		OffsetNumber mid = low + ((high - low) / 2);
 
-		result = ginCompareItemPointers(btree->items + btree->curitem, (ItemPointer) GinDataPageGetItem(page, mid));
+		result = ginCompareItemPointers(btree->items + btree->curitem,
+										GinDataPageGetItemPointer(page, mid));
 
 		if (result == 0)
 		{
@@ -210,7 +173,7 @@ dataFindChildPtr(GinBtree btree, Page page, BlockNumber blkno, OffsetNumber stor
 	/* if page isn't changed, we return storedOff */
 	if (storedOff >= FirstOffsetNumber && storedOff <= maxoff)
 	{
-		pitem = (PostingItem *) GinDataPageGetItem(page, storedOff);
+		pitem = GinDataPageGetPostingItem(page, storedOff);
 		if (PostingItemGetBlockNumber(pitem) == blkno)
 			return storedOff;
 
@@ -220,7 +183,7 @@ dataFindChildPtr(GinBtree btree, Page page, BlockNumber blkno, OffsetNumber stor
 		 */
 		for (i = storedOff + 1; i <= maxoff; i++)
 		{
-			pitem = (PostingItem *) GinDataPageGetItem(page, i);
+			pitem = GinDataPageGetPostingItem(page, i);
 			if (PostingItemGetBlockNumber(pitem) == blkno)
 				return i;
 		}
@@ -231,7 +194,7 @@ dataFindChildPtr(GinBtree btree, Page page, BlockNumber blkno, OffsetNumber stor
 	/* last chance */
 	for (i = FirstOffsetNumber; i <= maxoff; i++)
 	{
-		pitem = (PostingItem *) GinDataPageGetItem(page, i);
+		pitem = GinDataPageGetPostingItem(page, i);
 		if (PostingItemGetBlockNumber(pitem) == blkno)
 			return i;
 	}
@@ -251,33 +214,62 @@ dataGetLeftMostPage(GinBtree btree, Page page)
 	Assert(GinPageIsData(page));
 	Assert(GinPageGetOpaque(page)->maxoff >= FirstOffsetNumber);
 
-	pitem = (PostingItem *) GinDataPageGetItem(page, FirstOffsetNumber);
+	pitem = GinDataPageGetPostingItem(page, FirstOffsetNumber);
 	return PostingItemGetBlockNumber(pitem);
 }
 
 /*
- * add ItemPointer or PostingItem to page. data should point to
- * correct value! depending on leaf or non-leaf page
+ * add ItemPointer to a leaf page.
  */
 void
-GinDataPageAddItem(Page page, void *data, OffsetNumber offset)
+GinDataPageAddItemPointer(Page page, ItemPointer data, OffsetNumber offset)
 {
 	OffsetNumber maxoff = GinPageGetOpaque(page)->maxoff;
 	char	   *ptr;
 
+	Assert(GinPageIsLeaf(page));
+
 	if (offset == InvalidOffsetNumber)
 	{
-		ptr = GinDataPageGetItem(page, maxoff + 1);
+		ptr = (char *) GinDataPageGetItemPointer(page, maxoff + 1);
 	}
 	else
 	{
-		ptr = GinDataPageGetItem(page, offset);
+		ptr = (char *) GinDataPageGetItemPointer(page, offset);
 		if (maxoff + 1 - offset != 0)
-			memmove(ptr + GinSizeOfDataPageItem(page),
+			memmove(ptr + sizeof(ItemPointerData),
 					ptr,
-					(maxoff - offset + 1) * GinSizeOfDataPageItem(page));
+					(maxoff - offset + 1) * sizeof(ItemPointerData));
 	}
-	memcpy(ptr, data, GinSizeOfDataPageItem(page));
+	memcpy(ptr, data, sizeof(ItemPointerData));
+
+	GinPageGetOpaque(page)->maxoff++;
+}
+
+/*
+ * add PostingItem to a non-leaf page.
+ */
+void
+GinDataPageAddPostingItem(Page page, PostingItem *data, OffsetNumber offset)
+{
+	OffsetNumber maxoff = GinPageGetOpaque(page)->maxoff;
+	char	   *ptr;
+
+	Assert(!GinPageIsLeaf(page));
+
+	if (offset == InvalidOffsetNumber)
+	{
+		ptr = (char *) GinDataPageGetPostingItem(page, maxoff + 1);
+	}
+	else
+	{
+		ptr = (char *) GinDataPageGetPostingItem(page, offset);
+		if (maxoff + 1 - offset != 0)
+			memmove(ptr + sizeof(PostingItem),
+					ptr,
+					(maxoff - offset + 1) * sizeof(PostingItem));
+	}
+	memcpy(ptr, data, sizeof(PostingItem));
 
 	GinPageGetOpaque(page)->maxoff++;
 }
@@ -294,7 +286,8 @@ GinPageDeletePostingItem(Page page, OffsetNumber offset)
 	Assert(offset >= FirstOffsetNumber && offset <= maxoff);
 
 	if (offset != maxoff)
-		memmove(GinDataPageGetItem(page, offset), GinDataPageGetItem(page, offset + 1),
+		memmove(GinDataPageGetPostingItem(page, offset),
+				GinDataPageGetPostingItem(page, offset + 1),
 				sizeof(PostingItem) * (maxoff - offset));
 
 	GinPageGetOpaque(page)->maxoff--;
@@ -342,7 +335,7 @@ dataPrepareData(GinBtree btree, Page page, OffsetNumber off)
 
 	if (!GinPageIsLeaf(page) && btree->rightblkno != InvalidBlockNumber)
 	{
-		PostingItem *pitem = (PostingItem *) GinDataPageGetItem(page, off);
+		PostingItem *pitem = GinDataPageGetPostingItem(page, off);
 
 		PostingItemSetBlockNumber(pitem, btree->rightblkno);
 		ret = btree->rightblkno;
@@ -356,9 +349,12 @@ dataPrepareData(GinBtree btree, Page page, OffsetNumber off)
 /*
  * Places keys to page and fills WAL record. In case leaf page and
  * build mode puts all ItemPointers to page.
+ *
+ * If none of the keys fit, returns false without modifying the page.
  */
-static void
-dataPlaceToPage(GinBtree btree, Buffer buf, OffsetNumber off, XLogRecData **prdata)
+static bool
+dataPlaceToPage(GinBtree btree, Buffer buf, OffsetNumber off,
+				XLogRecData **prdata)
 {
 	Page		page = BufferGetPage(buf);
 	int			sizeofitem = GinSizeOfDataPageItem(page);
@@ -367,6 +363,10 @@ dataPlaceToPage(GinBtree btree, Buffer buf, OffsetNumber off, XLogRecData **prda
 	/* these must be static so they can be returned to caller */
 	static XLogRecData rdata[3];
 	static ginxlogInsert data;
+
+	/* quick exit if it doesn't fit */
+	if (!dataIsEnoughSpace(btree, buf, off))
+		return false;
 
 	*prdata = rdata;
 	Assert(GinPageIsData(page));
@@ -418,7 +418,7 @@ dataPlaceToPage(GinBtree btree, Buffer buf, OffsetNumber off, XLogRecData **prda
 
 			while (btree->curitem < btree->nitem)
 			{
-				GinDataPageAddItem(page, btree->items + btree->curitem, off);
+				GinDataPageAddItemPointer(page, btree->items + btree->curitem, off);
 				off++;
 				btree->curitem++;
 			}
@@ -427,12 +427,14 @@ dataPlaceToPage(GinBtree btree, Buffer buf, OffsetNumber off, XLogRecData **prda
 		}
 		else
 		{
-			GinDataPageAddItem(page, btree->items + btree->curitem, off);
+			GinDataPageAddItemPointer(page, btree->items + btree->curitem, off);
 			btree->curitem++;
 		}
 	}
 	else
-		GinDataPageAddItem(page, &(btree->pitem), off);
+		GinDataPageAddPostingItem(page, &(btree->pitem), off);
+
+	return true;
 }
 
 /*
@@ -448,6 +450,7 @@ dataSplitPage(GinBtree btree, Buffer lbuf, Buffer rbuf, OffsetNumber off, XLogRe
 	OffsetNumber separator;
 	ItemPointer bound;
 	Page		lpage = PageGetTempPageCopy(BufferGetPage(lbuf));
+	bool		isleaf = GinPageIsLeaf(lpage);
 	ItemPointerData oldbound = *GinDataPageGetRightBound(lpage);
 	int			sizeofitem = GinSizeOfDataPageItem(lpage);
 	OffsetNumber maxoff = GinPageGetOpaque(lpage)->maxoff;
@@ -469,10 +472,20 @@ dataSplitPage(GinBtree btree, Buffer lbuf, Buffer rbuf, OffsetNumber off, XLogRe
 		InvalidOffsetNumber : PostingItemGetBlockNumber(&(btree->pitem));
 	data.updateBlkno = dataPrepareData(btree, lpage, off);
 
-	memcpy(vector, GinDataPageGetItem(lpage, FirstOffsetNumber),
-		   maxoff * sizeofitem);
+	if (isleaf)
+	{
+		memcpy(vector,
+			   GinDataPageGetItemPointer(lpage, FirstOffsetNumber),
+			   maxoff * sizeof(ItemPointerData));
+	}
+	else
+	{
+		memcpy(vector,
+			   GinDataPageGetPostingItem(lpage, FirstOffsetNumber),
+			   maxoff * sizeof(PostingItem));
+	}
 
-	if (GinPageIsLeaf(lpage) && GinPageRightMost(lpage) && off > GinPageGetOpaque(lpage)->maxoff)
+	if (isleaf && GinPageRightMost(lpage) && off > GinPageGetOpaque(lpage)->maxoff)
 	{
 		nCopied = 0;
 		while (btree->curitem < btree->nitem &&
@@ -491,7 +504,7 @@ dataSplitPage(GinBtree btree, Buffer lbuf, Buffer rbuf, OffsetNumber off, XLogRe
 		ptr = vector + (off - 1) * sizeofitem;
 		if (maxoff + 1 - off != 0)
 			memmove(ptr + sizeofitem, ptr, (maxoff - off + 1) * sizeofitem);
-		if (GinPageIsLeaf(lpage))
+		if (isleaf)
 		{
 			memcpy(ptr, btree->items + btree->curitem, sizeofitem);
 			btree->curitem++;
@@ -503,8 +516,8 @@ dataSplitPage(GinBtree btree, Buffer lbuf, Buffer rbuf, OffsetNumber off, XLogRe
 	}
 
 	/*
-	 * we suppose that during index creation table scaned from begin to end,
-	 * so ItemPointers are monotonically increased..
+	 * we assume that during index creation the table scanned from beginning
+	 * to end, so ItemPointers are in monotonically increasing order.
 	 */
 	if (btree->isBuild && GinPageRightMost(lpage))
 		separator = freeSpace / sizeofitem;
@@ -514,24 +527,33 @@ dataSplitPage(GinBtree btree, Buffer lbuf, Buffer rbuf, OffsetNumber off, XLogRe
 	GinInitPage(rpage, GinPageGetOpaque(lpage)->flags, pageSize);
 	GinInitPage(lpage, GinPageGetOpaque(rpage)->flags, pageSize);
 
-	memcpy(GinDataPageGetItem(lpage, FirstOffsetNumber), vector, separator * sizeofitem);
-	GinPageGetOpaque(lpage)->maxoff = separator;
-	memcpy(GinDataPageGetItem(rpage, FirstOffsetNumber),
-		 vector + separator * sizeofitem, (maxoff - separator) * sizeofitem);
-	GinPageGetOpaque(rpage)->maxoff = maxoff - separator;
-
-	PostingItemSetBlockNumber(&(btree->pitem), BufferGetBlockNumber(lbuf));
-	if (GinPageIsLeaf(lpage))
-		btree->pitem.key = *(ItemPointerData *) GinDataPageGetItem(lpage,
-											GinPageGetOpaque(lpage)->maxoff);
+	if (isleaf)
+		memcpy(GinDataPageGetItemPointer(lpage, FirstOffsetNumber),
+			   vector, separator * sizeof(ItemPointerData));
 	else
-		btree->pitem.key = ((PostingItem *) GinDataPageGetItem(lpage,
-									  GinPageGetOpaque(lpage)->maxoff))->key;
-	btree->rightblkno = BufferGetBlockNumber(rbuf);
+		memcpy(GinDataPageGetPostingItem(lpage, FirstOffsetNumber),
+			   vector, separator * sizeof(PostingItem));
+
+	GinPageGetOpaque(lpage)->maxoff = separator;
+	if (isleaf)
+		memcpy(GinDataPageGetItemPointer(rpage, FirstOffsetNumber),
+			   vector + separator * sizeof(ItemPointerData),
+			   (maxoff - separator) * sizeof(ItemPointerData));
+	else
+		memcpy(GinDataPageGetPostingItem(rpage, FirstOffsetNumber),
+			   vector + separator * sizeof(PostingItem),
+			   (maxoff - separator) * sizeof(PostingItem));
+
+	GinPageGetOpaque(rpage)->maxoff = maxoff - separator;
 
 	/* set up right bound for left page */
 	bound = GinDataPageGetRightBound(lpage);
-	*bound = btree->pitem.key;
+	if (GinPageIsLeaf(lpage))
+		*bound = *GinDataPageGetItemPointer(lpage,
+											GinPageGetOpaque(lpage)->maxoff);
+	else
+		*bound = GinDataPageGetPostingItem(lpage,
+									  GinPageGetOpaque(lpage)->maxoff)->key;
 
 	/* set up right bound for right page */
 	bound = GinDataPageGetRightBound(rpage);
@@ -558,6 +580,11 @@ dataSplitPage(GinBtree btree, Buffer lbuf, Buffer rbuf, OffsetNumber off, XLogRe
 	rdata[1].len = MAXALIGN(maxoff * sizeofitem);
 	rdata[1].next = NULL;
 
+	/* Prepare a downlink tuple for insertion to the parent */
+	PostingItemSetBlockNumber(&(btree->pitem), BufferGetBlockNumber(lbuf));
+	btree->pitem.key = *GinDataPageGetRightBound(lpage);
+	btree->rightblkno = BufferGetBlockNumber(rbuf);
+
 	return lpage;
 }
 
@@ -576,11 +603,97 @@ ginDataFillRoot(GinBtree btree, Buffer root, Buffer lbuf, Buffer rbuf)
 
 	li.key = *GinDataPageGetRightBound(lpage);
 	PostingItemSetBlockNumber(&li, BufferGetBlockNumber(lbuf));
-	GinDataPageAddItem(page, &li, InvalidOffsetNumber);
+	GinDataPageAddPostingItem(page, &li, InvalidOffsetNumber);
 
 	ri.key = *GinDataPageGetRightBound(rpage);
 	PostingItemSetBlockNumber(&ri, BufferGetBlockNumber(rbuf));
-	GinDataPageAddItem(page, &ri, InvalidOffsetNumber);
+	GinDataPageAddPostingItem(page, &ri, InvalidOffsetNumber);
+}
+
+/*
+ * Creates new posting tree containing the given TIDs. Returns the page
+ * number of the root of the new posting tree.
+ *
+ * items[] must be in sorted order with no duplicates.
+ */
+BlockNumber
+createPostingTree(Relation index, ItemPointerData *items, uint32 nitems,
+				  GinStatsData *buildStats)
+{
+	BlockNumber blkno;
+	Buffer		buffer;
+	Page		page;
+	int			itemsCount;
+
+	/* Calculate how many TIDs will fit on first page. */
+	itemsCount = Min(nitems, GinMaxLeafDataItems);
+
+	/*
+	 * Create the root page.
+	 */
+	buffer = GinNewBuffer(index);
+	page = BufferGetPage(buffer);
+	blkno = BufferGetBlockNumber(buffer);
+
+	START_CRIT_SECTION();
+
+	GinInitBuffer(buffer, GIN_DATA | GIN_LEAF);
+	memcpy(GinDataPageGetData(page), items, sizeof(ItemPointerData) * nitems);
+	GinPageGetOpaque(page)->maxoff = nitems;
+
+	MarkBufferDirty(buffer);
+
+	if (RelationNeedsWAL(index))
+	{
+		XLogRecPtr	recptr;
+		XLogRecData rdata[2];
+		ginxlogCreatePostingTree data;
+
+		data.node = index->rd_node;
+		data.blkno = blkno;
+		data.nitem = nitems;
+
+		rdata[0].buffer = InvalidBuffer;
+		rdata[0].data = (char *) &data;
+		rdata[0].len = sizeof(ginxlogCreatePostingTree);
+		rdata[0].next = &rdata[1];
+
+		rdata[1].buffer = InvalidBuffer;
+		rdata[1].data = (char *) items;
+		rdata[1].len = sizeof(ItemPointerData) * itemsCount;
+		rdata[1].next = NULL;
+
+		recptr = XLogInsert(RM_GIN_ID, XLOG_GIN_CREATE_PTREE, rdata);
+		PageSetLSN(page, recptr);
+	}
+
+	UnlockReleaseBuffer(buffer);
+
+	END_CRIT_SECTION();
+
+	/* During index build, count the newly-added data page */
+	if (buildStats)
+		buildStats->nDataPages++;
+
+	/*
+	 * Add any remaining TIDs to the newly-created posting tree.
+	 */
+	if (itemsCount < nitems)
+	{
+		GinPostingTreeScan *gdi;
+
+		gdi = ginPrepareScanPostingTree(index, blkno, FALSE);
+		gdi->btree.isBuild = (buildStats != NULL);
+
+		ginInsertItemPointers(gdi,
+							  items + itemsCount,
+							  nitems - itemsCount,
+							  buildStats);
+
+		pfree(gdi);
+	}
+
+	return blkno;
 }
 
 void
@@ -595,7 +708,6 @@ ginPrepareDataScan(GinBtree btree, Relation index)
 	btree->findItem = dataLocateLeafItem;
 	btree->findChildPtr = dataFindChildPtr;
 	btree->getLeftMostPage = dataGetLeftMostPage;
-	btree->isEnoughSpace = dataIsEnoughSpace;
 	btree->placeToPage = dataPlaceToPage;
 	btree->splitPage = dataSplitPage;
 	btree->fillRoot = ginDataFillRoot;

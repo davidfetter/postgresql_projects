@@ -232,10 +232,14 @@ typedef signed char GinNullCategory;
 #define GinDataPageGetRightBound(page)	((ItemPointer) PageGetContents(page))
 #define GinDataPageGetData(page)	\
 	(PageGetContents(page) + MAXALIGN(sizeof(ItemPointerData)))
+/* non-leaf pages contain PostingItems */
+#define GinDataPageGetPostingItem(page, i)	\
+	((PostingItem *) (GinDataPageGetData(page) + ((i)-1) * sizeof(PostingItem)))
+/* leaf pages contain ItemPointers */
+#define GinDataPageGetItemPointer(page, i)	\
+	((ItemPointer) (GinDataPageGetData(page) + ((i)-1) * sizeof(ItemPointerData)))
 #define GinSizeOfDataPageItem(page) \
 	(GinPageIsLeaf(page) ? sizeof(ItemPointerData) : sizeof(PostingItem))
-#define GinDataPageGetItem(page,i)	\
-	(GinDataPageGetData(page) + ((i)-1) * GinSizeOfDataPageItem(page))
 
 #define GinDataPageGetFreeSpace(page)	\
 	(BLCKSZ - MAXALIGN(SizeOfPageHeaderData) \
@@ -481,8 +485,7 @@ typedef struct GinBtreeData
 	/* insert methods */
 	OffsetNumber (*findChildPtr) (GinBtree, Page, BlockNumber, OffsetNumber);
 	BlockNumber (*getLeftMostPage) (GinBtree, Page);
-	bool		(*isEnoughSpace) (GinBtree, Buffer, OffsetNumber);
-	void		(*placeToPage) (GinBtree, Buffer, OffsetNumber, XLogRecData **);
+	bool		(*placeToPage) (GinBtree, Buffer, OffsetNumber, XLogRecData **);
 	Page		(*splitPage) (GinBtree, Buffer, Buffer, OffsetNumber, XLogRecData **);
 	void		(*fillRoot) (GinBtree, Buffer, Buffer, Buffer);
 
@@ -513,6 +516,7 @@ typedef struct GinBtreeData
 
 extern GinBtreeStack *ginPrepareFindLeafPage(GinBtree btree, BlockNumber blkno);
 extern GinBtreeStack *ginFindLeafPage(GinBtree btree, GinBtreeStack *stack);
+extern Buffer ginStepRight(Buffer buffer, Relation index, int lockmode);
 extern void freeGinBtreeStack(GinBtreeStack *stack);
 extern void ginInsertValue(GinBtree btree, GinBtreeStack *stack,
 			   GinStatsData *buildStats);
@@ -530,11 +534,11 @@ extern void ginEntryFillRoot(GinBtree btree, Buffer root, Buffer lbuf, Buffer rb
 extern IndexTuple ginPageGetLinkItup(Buffer buf);
 
 /* gindatapage.c */
-extern uint32 ginMergeItemPointers(ItemPointerData *dst,
-					 ItemPointerData *a, uint32 na,
-					 ItemPointerData *b, uint32 nb);
-
-extern void GinDataPageAddItem(Page page, void *data, OffsetNumber offset);
+extern BlockNumber createPostingTree(Relation index,
+				  ItemPointerData *items, uint32 nitems,
+				  GinStatsData *buildStats);
+extern void GinDataPageAddItemPointer(Page page, ItemPointer data, OffsetNumber offset);
+extern void GinDataPageAddPostingItem(Page page, PostingItem *data, OffsetNumber offset);
 extern void GinPageDeletePostingItem(Page page, OffsetNumber offset);
 
 typedef struct
@@ -722,6 +726,12 @@ extern void ginHeapTupleFastCollect(GinState *ginstate,
 						ItemPointer ht_ctid);
 extern void ginInsertCleanup(GinState *ginstate,
 				 bool vac_delay, IndexBulkDeleteResult *stats);
+
+/* ginpostinglist.c */
+extern uint32 ginMergeItemPointers(ItemPointerData *dst,
+					 ItemPointerData *a, uint32 na,
+					 ItemPointerData *b, uint32 nb);
+
 
 /*
  * Merging the results of several gin scans compares item pointers a lot,

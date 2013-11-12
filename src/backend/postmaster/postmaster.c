@@ -118,6 +118,7 @@
 #include "utils/builtins.h"
 #include "utils/datetime.h"
 #include "utils/dynamic_loader.h"
+#include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
 #include "utils/timeout.h"
@@ -170,6 +171,7 @@ typedef struct bkend
 	 */
 	int			bkend_type;
 	bool		dead_end;		/* is it going to send an error and quit? */
+	bool		bgworker_notify; /* gets bgworker start/stop notifications */
 	dlist_node	elem;			/* list link in BackendList */
 } Backend;
 
@@ -907,7 +909,8 @@ PostmasterMain(int argc, char *argv[])
 			/* syntax error in list */
 			ereport(FATAL,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("invalid list syntax for \"listen_addresses\"")));
+					 errmsg("invalid list syntax in parameter \"%s\"",
+							"listen_addresses")));
 		}
 
 		foreach(l, elemlist)
@@ -1004,7 +1007,8 @@ PostmasterMain(int argc, char *argv[])
 			/* syntax error in list */
 			ereport(FATAL,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-			 errmsg("invalid list syntax for \"unix_socket_directories\"")));
+					 errmsg("invalid list syntax in parameter \"%s\"",
+							"unix_socket_directories")));
 		}
 
 		foreach(l, elemlist)
@@ -1419,9 +1423,9 @@ DetermineSleepTime(struct timeval * timeout)
 	{
 		if (AbortStartTime > 0)
 		{
-			/* remaining time, but at least 1 second */
-			timeout->tv_sec = Min(SIGKILL_CHILDREN_AFTER_SECS -
-								  (time(NULL) - AbortStartTime), 1);
+			/* time left to abort; clamp to 0 in case it already expired */
+			timeout->tv_sec = Max(SIGKILL_CHILDREN_AFTER_SECS -
+								  (time(NULL) - AbortStartTime), 0);
 			timeout->tv_usec = 0;
 		}
 		else
@@ -1459,7 +1463,8 @@ DetermineSleepTime(struct timeval * timeout)
 			if (rw->rw_crashed_at == 0)
 				continue;
 
-			if (rw->rw_worker.bgw_restart_time == BGW_NEVER_RESTART)
+			if (rw->rw_worker.bgw_restart_time == BGW_NEVER_RESTART
+				|| rw->rw_terminate)
 			{
 				ForgetBackgroundWorker(&siter);
 				continue;
@@ -1673,10 +1678,13 @@ ServerLoop(void)
 		 * Note we also do this during recovery from a process crash.
 		 */
 		if ((Shutdown >= ImmediateShutdown || (FatalError && !SendStop)) &&
+			AbortStartTime > 0 &&
 			now - AbortStartTime >= SIGKILL_CHILDREN_AFTER_SECS)
 		{
 			/* We were gentle with them before. Not anymore */
 			TerminateChildren(SIGKILL);
+			/* reset flag so we don't SIGKILL again */
+			AbortStartTime = 0;
 
 			/*
 			 * Additionally, unless we're recovering from a process crash, it's
@@ -1962,12 +1970,7 @@ retry1:
 		else
 		{
 			/* Append '@' and dbname */
-			char	   *db_user;
-
-			db_user = palloc(strlen(port->user_name) +
-							 strlen(port->database_name) + 2);
-			sprintf(db_user, "%s@%s", port->user_name, port->database_name);
-			port->user_name = db_user;
+			port->user_name = psprintf("%s@%s", port->user_name, port->database_name);
 		}
 	}
 
@@ -2581,7 +2584,7 @@ reaper(SIGNAL_ARGS)
 			 * Startup succeeded, commence normal operations
 			 */
 			FatalError = false;
-			AbortStartTime = 0;
+			Assert(AbortStartTime == 0);
 			ReachedNormalRunning = true;
 			pmState = PM_RUN;
 
@@ -2877,11 +2880,20 @@ CleanupBackgroundWorker(int pid,
 #ifdef EXEC_BACKEND
 			ShmemBackendArrayRemove(rw->rw_backend);
 #endif
+			/*
+			 * It's possible that this background worker started some OTHER
+			 * background worker and asked to be notified when that worker
+			 * started or stopped.  If so, cancel any notifications destined
+			 * for the now-dead backend.
+			 */
+			if (rw->rw_backend->bgworker_notify)
+				BackgroundWorkerStopNotifications(rw->rw_pid);
 			free(rw->rw_backend);
 			rw->rw_backend = NULL;
 		}
 		rw->rw_pid = 0;
 		rw->rw_child_slot = 0;
+		ReportBackgroundWorkerPID(rw);		/* report child death */
 
 		LogChildExit(LOG, namebuf, pid, exitstatus);
 
@@ -2955,6 +2967,18 @@ CleanupBackend(int pid,
 				ShmemBackendArrayRemove(bp);
 #endif
 			}
+			if (bp->bgworker_notify)
+			{
+				/*
+				 * This backend may have been slated to receive SIGUSR1
+				 * when some background worker started or stopped.  Cancel
+				 * those notifications, as we don't want to signal PIDs that
+				 * are not PostgreSQL backends.  This gets skipped in the
+				 * (probably very common) case where the backend has never
+				 * requested any such notifications.
+				 */
+				BackgroundWorkerStopNotifications(bp->pid);
+			}
 			dlist_delete(iter.cur);
 			free(bp);
 			break;
@@ -3018,6 +3042,7 @@ HandleChildCrash(int pid, int exitstatus, const char *procname)
 			rw->rw_pid = 0;
 			rw->rw_child_slot = 0;
 			/* don't reset crashed_at */
+			/* don't report child stop, either */
 			/* Keep looping so we can signal remaining workers */
 		}
 		else
@@ -3519,6 +3544,8 @@ PostmasterStateMachine(void)
 		StartupPID = StartupDataBase();
 		Assert(StartupPID != 0);
 		pmState = PM_STARTUP;
+		/* crash recovery started, reset SIGKILL flag */
+		AbortStartTime = 0;
 	}
 }
 
@@ -3711,6 +3738,9 @@ BackendStartup(Port *port)
 		bn->child_slot = MyPMChildSlot = AssignPostmasterChildSlot();
 	else
 		bn->child_slot = 0;
+
+	/* Hasn't asked to be notified about any bgworkers yet */
+	bn->bgworker_notify = false;
 
 #ifdef EXEC_BACKEND
 	pid = backend_forkexec(port);
@@ -4003,9 +4033,9 @@ BackendRun(Port *port)
 	 */
 	random_seed = 0;
 	random_start_time.tv_usec = 0;
-	/* slightly hacky way to get integer microseconds part of timestamptz */
+	/* slightly hacky way to convert timestamptz into integers */
 	TimestampDifference(0, port->SessionStartTime, &secs, &usecs);
-	srandom((unsigned int) (MyProcPid ^ usecs));
+	srandom((unsigned int) (MyProcPid ^ (usecs << 12) ^ secs));
 
 	/*
 	 * Now, build the argv vector that will be given to PostgresMain.
@@ -4709,7 +4739,7 @@ sigusr1_handler(SIGNAL_ARGS)
 	{
 		/* WAL redo has started. We're out of reinitialization. */
 		FatalError = false;
-		AbortStartTime = 0;
+		Assert(AbortStartTime == 0);
 
 		/*
 		 * Crank up the background tasks.  It doesn't matter if this fails,
@@ -5122,6 +5152,7 @@ StartAutovacuumWorker(void)
 			/* Autovac workers are not dead_end and need a child slot */
 			bn->dead_end = false;
 			bn->child_slot = MyPMChildSlot = AssignPostmasterChildSlot();
+			bn->bgworker_notify = false;
 
 			bn->pid = StartAutoVacWorker();
 			if (bn->pid > 0)
@@ -5318,6 +5349,7 @@ do_start_bgworker(RegisteredBgWorker *rw)
 			rw->rw_pid = worker_pid;
 			if (rw->rw_backend)
 				rw->rw_backend->pid = rw->rw_pid;
+			ReportBackgroundWorkerPID(rw);
 	}
 }
 
@@ -5400,6 +5432,7 @@ assign_backendlist_entry(RegisteredBgWorker *rw)
 	bn->child_slot = MyPMChildSlot = AssignPostmasterChildSlot();
 	bn->bkend_type = BACKEND_TYPE_BGWORKER;
 	bn->dead_end = false;
+	bn->bgworker_notify = false;
 
 	rw->rw_backend = bn;
 	rw->rw_child_slot = bn->child_slot;
@@ -5438,6 +5471,13 @@ maybe_start_bgworker(void)
 		/* already running? */
 		if (rw->rw_pid != 0)
 			continue;
+
+		/* marked for death? */
+		if (rw->rw_terminate)
+		{
+			ForgetBackgroundWorker(&iter);
+			continue;
+		}
 
 		/*
 		 * If this worker has crashed previously, maybe it needs to be
@@ -5508,6 +5548,29 @@ maybe_start_bgworker(void)
 
 	/* no runnable worker found */
 	StartWorkerNeeded = false;
+}
+
+/*
+ * When a backend asks to be notified about worker state changes, we
+ * set a flag in its backend entry.  The background worker machinery needs
+ * to know when such backends exit.
+ */
+bool
+PostmasterMarkPIDForWorkerNotify(int pid)
+{
+	dlist_iter	iter;
+	Backend    *bp;
+
+	dlist_foreach(iter, &BackendList)
+	{
+		bp = dlist_container(Backend, elem, iter.cur);
+		if (bp->pid == pid)
+		{
+			bp->bgworker_notify = true;
+			return true;
+		}
+	}
+	return false;
 }
 
 #ifdef EXEC_BACKEND

@@ -18,11 +18,11 @@
 #
 # Meta configuration
 
-standard_targets = all install installdirs uninstall distprep clean distclean maintainer-clean coverage check installcheck maintainer-check init-po update-po
+standard_targets = all install installdirs uninstall distprep clean distclean maintainer-clean coverage check installcheck init-po update-po
 # these targets should recurse even into subdirectories not being built:
 standard_always_targets = distprep clean distclean maintainer-clean
 
-.PHONY: $(standard_targets) install-strip html man installcheck-parallel
+.PHONY: $(standard_targets) install-strip html man installcheck-parallel maintainer-check
 
 # make `all' the default target
 all:
@@ -283,6 +283,7 @@ perl_embed_ldflags	= @perl_embed_ldflags@
 AWK	= @AWK@
 LN_S	= @LN_S@
 MSGFMT  = @MSGFMT@
+MSGFMT_FLAGS = @MSGFMT_FLAGS@
 MSGMERGE = @MSGMERGE@
 PYTHON	= @PYTHON@
 TAR	= @TAR@
@@ -409,10 +410,9 @@ libpq = -L$(libpq_builddir) -lpq
 # pgport before libpq.  This does cause duplicate -lpgport's to appear
 # on client link lines.
 ifdef PGXS
-libpq_pgport = -L$(libdir) -lpgport -lpgcommon $(libpq)
+libpq_pgport = -L$(libdir) -lpgcommon -lpgport $(libpq)
 else
-libpq_pgport = -L$(top_builddir)/src/port -lpgport \
-			   -L$(top_builddir)/src/common -lpgcommon $(libpq)
+libpq_pgport = -L$(top_builddir)/src/common -lpgcommon -L$(top_builddir)/src/port -lpgport $(libpq)
 endif
 
 # If PGXS is not defined, build libpq and libpgport dependancies as required.
@@ -510,7 +510,7 @@ endif
 
 LIBOBJS = @LIBOBJS@
 
-LIBS := -lpgport -lpgcommon $(LIBS)
+LIBS := -lpgcommon -lpgport $(LIBS)
 
 # to make ws2_32.lib the last library, and always link with shfolder,
 # so SHGetFolderName isn't picked up from shell32.dll

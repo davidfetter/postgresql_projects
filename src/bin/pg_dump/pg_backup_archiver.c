@@ -1183,29 +1183,33 @@ archputs(const char *s, Archive *AH)
 int
 archprintf(Archive *AH, const char *fmt,...)
 {
-	char	   *p = NULL;
-	va_list		ap;
-	int			bSize = strlen(fmt) + 256;
-	int			cnt = -1;
+	char	   *p;
+	size_t		len = 128;		/* initial assumption about buffer size */
+	size_t		cnt;
 
-	/*
-	 * This is paranoid: deal with the possibility that vsnprintf is willing
-	 * to ignore trailing null or returns > 0 even if string does not fit. It
-	 * may be the case that it returns cnt = bufsize
-	 */
-	while (cnt < 0 || cnt >= (bSize - 1))
+	for (;;)
 	{
-		if (p != NULL)
-			free(p);
-		bSize *= 2;
-		p = (char *) pg_malloc(bSize);
-		va_start(ap, fmt);
-		cnt = vsnprintf(p, bSize, fmt, ap);
-		va_end(ap);
+		va_list		args;
+
+		/* Allocate work buffer. */
+		p = (char *) pg_malloc(len);
+
+		/* Try to format the data. */
+		va_start(args, fmt);
+		cnt = pvsnprintf(p, len, fmt, args);
+		va_end(args);
+
+		if (cnt < len)
+			break;				/* success */
+
+		/* Release buffer and loop around to try again with larger len. */
+		free(p);
+		len = cnt;
 	}
+
 	WriteData(AH, p, cnt);
 	free(p);
-	return cnt;
+	return (int) cnt;
 }
 
 
@@ -1312,29 +1316,33 @@ RestoreOutput(ArchiveHandle *AH, OutputContext savedContext)
 int
 ahprintf(ArchiveHandle *AH, const char *fmt,...)
 {
-	char	   *p = NULL;
-	va_list		ap;
-	int			bSize = strlen(fmt) + 256;		/* Usually enough */
-	int			cnt = -1;
+	char	   *p;
+	size_t		len = 128;		/* initial assumption about buffer size */
+	size_t		cnt;
 
-	/*
-	 * This is paranoid: deal with the possibility that vsnprintf is willing
-	 * to ignore trailing null or returns > 0 even if string does not fit. It
-	 * may be the case that it returns cnt = bufsize.
-	 */
-	while (cnt < 0 || cnt >= (bSize - 1))
+	for (;;)
 	{
-		if (p != NULL)
-			free(p);
-		bSize *= 2;
-		p = (char *) pg_malloc(bSize);
-		va_start(ap, fmt);
-		cnt = vsnprintf(p, bSize, fmt, ap);
-		va_end(ap);
+		va_list		args;
+
+		/* Allocate work buffer. */
+		p = (char *) pg_malloc(len);
+
+		/* Try to format the data. */
+		va_start(args, fmt);
+		cnt = pvsnprintf(p, len, fmt, args);
+		va_end(args);
+
+		if (cnt < len)
+			break;				/* success */
+
+		/* Release buffer and loop around to try again with larger len. */
+		free(p);
+		len = cnt;
 	}
+
 	ahwrite(p, 1, cnt, AH);
 	free(p);
-	return cnt;
+	return (int) cnt;
 }
 
 void
@@ -2456,12 +2464,12 @@ _tocEntryRequired(TocEntry *te, teSection curSection, RestoreOptions *ropt)
 	}
 
 	/* Check options for selective dump/restore */
-	if (ropt->schemaNames)
+	if (ropt->schemaNames.head != NULL)
 	{
 		/* If no namespace is specified, it means all. */
 		if (!te->namespace)
 			return 0;
-		if (strcmp(ropt->schemaNames, te->namespace) != 0)
+		if (!(simple_string_list_member(&ropt->schemaNames, te->namespace)))
 			return 0;
 	}
 
@@ -2479,21 +2487,21 @@ _tocEntryRequired(TocEntry *te, teSection curSection, RestoreOptions *ropt)
 		{
 			if (!ropt->selIndex)
 				return 0;
-			if (ropt->indexNames && strcmp(ropt->indexNames, te->tag) != 0)
+			if (ropt->indexNames.head != NULL && (!(simple_string_list_member(&ropt->indexNames, te->tag))))
 				return 0;
 		}
 		else if (strcmp(te->desc, "FUNCTION") == 0)
 		{
 			if (!ropt->selFunction)
 				return 0;
-			if (ropt->functionNames && strcmp(ropt->functionNames, te->tag) != 0)
+			if (ropt->functionNames.head != NULL && (!(simple_string_list_member(&ropt->functionNames, te->tag))))
 				return 0;
 		}
 		else if (strcmp(te->desc, "TRIGGER") == 0)
 		{
 			if (!ropt->selTrigger)
 				return 0;
-			if (ropt->triggerNames && strcmp(ropt->triggerNames, te->tag) != 0)
+			if (ropt->triggerNames.head != NULL && (!(simple_string_list_member(&ropt->triggerNames, te->tag))))
 				return 0;
 		}
 		else

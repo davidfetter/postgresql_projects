@@ -23,6 +23,7 @@ test: strings
 test: numerology
 test: point
 test: lseg
+test: line
 test: box
 test: path
 test: polygon
@@ -97,6 +98,7 @@ test: security_label
 test: collate
 test: matview
 test: lock
+test: replica_identity
 test: alter_generic
 test: misc
 test: psql

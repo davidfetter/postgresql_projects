@@ -1488,8 +1488,7 @@ pg_SSPI_recvauth(Port *port)
 		char	   *namebuf;
 		int			retval;
 
-		namebuf = palloc(strlen(accountname) + strlen(domainname) + 2);
-		sprintf(namebuf, "%s@%s", accountname, domainname);
+		namebuf = psprintf("%s@%s", accountname, domainname);
 		retval = check_usermap(port->hba->usermap, port->user_name, namebuf, true);
 		pfree(namebuf);
 		return retval;
@@ -2209,8 +2208,7 @@ CheckLDAPAuth(Port *port)
 		attributes[0] = port->hba->ldapsearchattribute ? port->hba->ldapsearchattribute : "uid";
 		attributes[1] = NULL;
 
-		filter = palloc(strlen(attributes[0]) + strlen(port->user_name) + 4);
-		sprintf(filter, "(%s=%s)",
+		filter = psprintf("(%s=%s)",
 				attributes[0],
 				port->user_name);
 
@@ -2299,17 +2297,10 @@ CheckLDAPAuth(Port *port)
 		}
 	}
 	else
-	{
-		fulluser = palloc((port->hba->ldapprefix ? strlen(port->hba->ldapprefix) : 0) +
-						  strlen(port->user_name) +
-				(port->hba->ldapsuffix ? strlen(port->hba->ldapsuffix) : 0) +
-						  1);
-
-		sprintf(fulluser, "%s%s%s",
+		fulluser = psprintf("%s%s%s",
 				port->hba->ldapprefix ? port->hba->ldapprefix : "",
 				port->user_name,
 				port->hba->ldapsuffix ? port->hba->ldapsuffix : "");
-	}
 
 	r = ldap_simple_bind_s(ldap, fulluser, passwd);
 	ldap_unbind(ldap);

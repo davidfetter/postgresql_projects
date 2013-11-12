@@ -198,6 +198,7 @@ _equalAggref(const Aggref *a, const Aggref *b)
 	COMPARE_NODE_FIELD(aggdistinct);
 	COMPARE_NODE_FIELD(aggfilter);
 	COMPARE_SCALAR_FIELD(aggstar);
+	COMPARE_SCALAR_FIELD(aggvariadic);
 	COMPARE_SCALAR_FIELD(agglevelsup);
 	COMPARE_LOCATION_FIELD(location);
 
@@ -1537,6 +1538,15 @@ _equalRefreshMatViewStmt(const RefreshMatViewStmt *a, const RefreshMatViewStmt *
 }
 
 static bool
+_equalReplicaIdentityStmt(const ReplicaIdentityStmt *a, const ReplicaIdentityStmt *b)
+{
+	COMPARE_SCALAR_FIELD(identity_type);
+	COMPARE_STRING_FIELD(name);
+
+	return true;
+}
+
+static bool
 _equalCreateSeqStmt(const CreateSeqStmt *a, const CreateSeqStmt *b)
 {
 	COMPARE_NODE_FIELD(sequence);
@@ -2811,6 +2821,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_RefreshMatViewStmt:
 			retval = _equalRefreshMatViewStmt(a, b);
+			break;
+		case T_ReplicaIdentityStmt:
+			retval = _equalReplicaIdentityStmt(a, b);
 			break;
 		case T_CreateSeqStmt:
 			retval = _equalCreateSeqStmt(a, b);

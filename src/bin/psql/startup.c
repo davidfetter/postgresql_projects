@@ -111,8 +111,6 @@ main(int argc, char *argv[])
 	setvbuf(stderr, NULL, _IONBF, 0);
 #endif
 
-	setup_cancel_handler();
-
 	pset.progname = get_progname(argv[0]);
 
 	pset.db = NULL;
@@ -184,12 +182,8 @@ main(int argc, char *argv[])
 	if (options.username == NULL)
 		password_prompt = pg_strdup(_("Password: "));
 	else
-	{
-		password_prompt = pg_malloc(strlen(_("Password for user %s: ")) - 2 +
-									strlen(options.username) + 1);
-		sprintf(password_prompt, _("Password for user %s: "),
-				options.username);
-	}
+		password_prompt = psprintf(_("Password for user %s: "),
+								   options.username);
 
 	if (pset.getPassword == TRI_YES)
 		password = simple_prompt(password_prompt, 100, false);
@@ -245,6 +239,8 @@ main(int argc, char *argv[])
 		PQfinish(pset.db);
 		exit(EXIT_BADCONN);
 	}
+
+	setup_cancel_handler();
 
 	PQsetNoticeProcessor(pset.db, NoticeProcessor, NULL);
 
@@ -642,10 +638,8 @@ process_psqlrc_file(char *filename)
 #define R_OK 4
 #endif
 
-	psqlrc_minor = pg_malloc(strlen(filename) + 1 + strlen(PG_VERSION) + 1);
-	sprintf(psqlrc_minor, "%s-%s", filename, PG_VERSION);
-	psqlrc_major = pg_malloc(strlen(filename) + 1 + strlen(PG_MAJORVERSION) + 1);
-	sprintf(psqlrc_major, "%s-%s", filename, PG_MAJORVERSION);
+	psqlrc_minor = psprintf("%s-%s", filename, PG_VERSION);
+	psqlrc_major = psprintf("%s-%s", filename, PG_MAJORVERSION);
 
 	/* check for minor version first, then major, then no version */
 	if (access(psqlrc_minor, R_OK) == 0)

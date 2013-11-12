@@ -72,11 +72,15 @@ typedef enum
  * dividing line between "interactive" and "non-interactive" sources for
  * error reporting purposes.
  *
- * PGC_S_TEST is used when testing values to be stored as per-database or
- * per-user defaults ("doit" will always be false, so this never gets stored
- * as the actual source of any value).	This is an interactive case, but
- * it needs its own source value because some assign hooks need to make
- * different validity checks in this case.
+ * PGC_S_TEST is used when testing values to be used later ("doit" will always
+ * be false, so this never gets stored as the actual source of any value).
+ * For example, ALTER DATABASE/ROLE tests proposed per-database or per-user
+ * defaults this way, and CREATE FUNCTION tests proposed function SET clauses
+ * this way.  This is an interactive case, but it needs its own source value
+ * because some assign hooks need to make different validity checks in this
+ * case.  In particular, references to nonexistent database objects generally
+ * shouldn't throw hard errors in this case, at most NOTICEs, since the
+ * objects might exist by the time the setting is used for real.
  *
  * NB: see GucSource_Names in guc.c if you change this.
  */
@@ -330,7 +334,7 @@ extern void SetPGVariable(const char *name, List *args, bool is_local);
 extern void GetPGVariable(const char *name, DestReceiver *dest);
 extern TupleDesc GetPGVariableResultDesc(const char *name);
 
-extern void ExecSetVariableStmt(VariableSetStmt *stmt);
+extern void ExecSetVariableStmt(VariableSetStmt *stmt, bool isTopLevel);
 extern char *ExtractSetVariableArgs(VariableSetStmt *stmt);
 
 extern void ProcessGUCArray(ArrayType *array,
@@ -382,6 +386,8 @@ extern void assign_search_path(const char *newval, void *extra);
 
 /* in access/transam/xlog.c */
 extern bool check_wal_buffers(int *newval, void **extra, GucSource source);
+extern bool check_effective_cache_size(int *newval, void **extra, GucSource source);
+extern void set_default_effective_cache_size(void);
 extern void assign_xlog_sync_method(int new_sync_method, void *extra);
 
 #endif   /* GUC_H */

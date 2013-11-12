@@ -2215,7 +2215,7 @@ create function excpt_test2() returns void as $$
 begin
     begin
         begin
-    	    raise notice '% %', sqlstate, sqlerrm;
+            raise notice '% %', sqlstate, sqlerrm;
         end;
     end;
 end; $$ language plpgsql;
@@ -2225,7 +2225,7 @@ select excpt_test2();
 create function excpt_test3() returns void as $$
 begin
     begin
-    	raise exception 'user exception';
+        raise exception 'user exception';
     exception when others then
 	    raise notice 'caught exception % %', sqlstate, sqlerrm;
 	    begin
@@ -2586,6 +2586,108 @@ end$$ language plpgsql;
 select footest();
 
 drop function footest();
+
+-- test printing parameters after failure due to STRICT
+
+set plpgsql.print_strict_params to true;
+
+create or replace function footest() returns void as $$
+declare
+x record;
+p1 int := 2;
+p3 text := 'foo';
+begin
+  -- no rows
+  select * from foo where f1 = p1 and f1::text = p3 into strict x;
+  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;
+end$$ language plpgsql;
+
+select footest();
+
+create or replace function footest() returns void as $$
+declare
+x record;
+p1 int := 2;
+p3 text := 'foo';
+begin
+  -- too many rows
+  select * from foo where f1 > p1 or f1::text = p3  into strict x;
+  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;
+end$$ language plpgsql;
+
+select footest();
+
+create or replace function footest() returns void as $$
+declare x record;
+begin
+  -- too many rows, no params
+  select * from foo where f1 > 3 into strict x;
+  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;
+end$$ language plpgsql;
+
+select footest();
+
+create or replace function footest() returns void as $$
+declare x record;
+begin
+  -- no rows
+  execute 'select * from foo where f1 = $1 or f1::text = $2' using 0, 'foo' into strict x;
+  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;
+end$$ language plpgsql;
+
+select footest();
+
+create or replace function footest() returns void as $$
+declare x record;
+begin
+  -- too many rows
+  execute 'select * from foo where f1 > $1' using 1 into strict x;
+  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;
+end$$ language plpgsql;
+
+select footest();
+
+create or replace function footest() returns void as $$
+declare x record;
+begin
+  -- too many rows, no parameters
+  execute 'select * from foo where f1 > 3' into strict x;
+  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;
+end$$ language plpgsql;
+
+select footest();
+
+create or replace function footest() returns void as $$
+-- override the global
+#print_strict_params off
+declare
+x record;
+p1 int := 2;
+p3 text := 'foo';
+begin
+  -- too many rows
+  select * from foo where f1 > p1 or f1::text = p3  into strict x;
+  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;
+end$$ language plpgsql;
+
+select footest();
+
+reset plpgsql.print_strict_params;
+
+create or replace function footest() returns void as $$
+-- override the global
+#print_strict_params on
+declare
+x record;
+p1 int := 2;
+p3 text := 'foo';
+begin
+  -- too many rows
+  select * from foo where f1 > p1 or f1::text = p3  into strict x;
+  raise notice 'x.f1 = %, x.f2 = %', x.f1, x.f2;
+end$$ language plpgsql;
+
+select footest();
 
 -- test scrollable cursor support
 
@@ -3982,4 +4084,3 @@ select outer_outer_func(20);
 drop function outer_outer_func(int);
 drop function outer_func(int);
 drop function inner_func(int);
-

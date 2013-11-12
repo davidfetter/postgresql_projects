@@ -130,6 +130,18 @@ refnameRangeTblEntry(ParseState *pstate,
  * Search the query's table namespace for an RTE matching the
  * given unqualified refname.  Return the RTE if a unique match, or NULL
  * if no match.  Raise error if multiple matches.
+ *
+ * Note: it might seem that we shouldn't have to worry about the possibility
+ * of multiple matches; after all, the SQL standard disallows duplicate table
+ * aliases within a given SELECT level.  Historically, however, Postgres has
+ * been laxer than that.  For example, we allow
+ *		SELECT ... FROM tab1 x CROSS JOIN (tab2 x CROSS JOIN tab3 y) z
+ * on the grounds that the aliased join (z) hides the aliases within it,
+ * therefore there is no conflict between the two RTEs named "x".  However,
+ * if tab3 is a LATERAL subquery, then from within the subquery both "x"es
+ * are visible.  Rather than rejecting queries that used to work, we allow
+ * this situation, and complain only if there's actually an ambiguous
+ * reference to "x".
  */
 static RangeTblEntry *
 scanNameSpaceForRefname(ParseState *pstate, const char *refname, int location)
@@ -174,8 +186,7 @@ scanNameSpaceForRefname(ParseState *pstate, const char *refname, int location)
 /*
  * Search the query's table namespace for a relation RTE matching the
  * given relation OID.	Return the RTE if a unique match, or NULL
- * if no match.  Raise error if multiple matches (which shouldn't
- * happen if the namespace was checked correctly when it was created).
+ * if no match.  Raise error if multiple matches.
  *
  * See the comments for refnameRangeTblEntry to understand why this
  * acts the way it does.
@@ -551,6 +562,16 @@ scanRTEForColumn(ParseState *pstate, RangeTblEntry *rte, char *colname,
 	{
 		/* quick check to see if name could be a system column */
 		attnum = specialAttNum(colname);
+
+		/* In constraint check, no system column is allowed except tableOid */
+		if (pstate->p_expr_kind == EXPR_KIND_CHECK_CONSTRAINT &&
+			attnum < InvalidAttrNumber && attnum !=  TableOidAttributeNumber)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
+					 errmsg("system column \"%s\" reference in check constraint is invalid",
+						colname),
+					 parser_errposition(pstate, location)));
+
 		if (attnum != InvalidAttrNumber)
 		{
 			/* now check to see if column actually is defined */

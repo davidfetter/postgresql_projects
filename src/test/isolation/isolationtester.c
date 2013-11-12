@@ -85,13 +85,16 @@ main(int argc, char **argv)
 	PQExpBufferData wait_query;
 	int			opt;
 
-	while ((opt = getopt(argc, argv, "n")) != -1)
+	while ((opt = getopt(argc, argv, "nV")) != -1)
 	{
 		switch (opt)
 		{
 			case 'n':
 				dry_run = true;
 				break;
+			case 'V':
+				puts("isolationtester (PostgreSQL) " PG_VERSION);
+				exit(0);
 			default:
 				fprintf(stderr, "Usage: isolationtester [-n] [CONNINFO]\n");
 				return EXIT_FAILURE;
@@ -466,8 +469,7 @@ report_two_error_messages(Step * step1, Step * step2)
 {
 	char	   *prefix;
 
-	prefix = malloc(strlen(step1->name) + strlen(step2->name) + 2);
-	sprintf(prefix, "%s %s", step1->name, step2->name);
+	prefix = psprintf("%s %s", step1->name, step2->name);
 
 	if (step1->errormsg)
 	{
@@ -519,7 +521,11 @@ run_permutation(TestSpec * testspec, int nsteps, Step ** steps)
 	for (i = 0; i < testspec->nsetupsqls; i++)
 	{
 		res = PQexec(conns[0], testspec->setupsqls[i]);
-		if (PQresultStatus(res) != PGRES_COMMAND_OK)
+		if (PQresultStatus(res) == PGRES_TUPLES_OK)
+		{
+			printResultSet(res);
+		}
+		else if (PQresultStatus(res) != PGRES_COMMAND_OK)
 		{
 			fprintf(stderr, "setup failed: %s", PQerrorMessage(conns[0]));
 			exit_nicely();
@@ -648,7 +654,11 @@ teardown:
 		if (testspec->sessions[i]->teardownsql)
 		{
 			res = PQexec(conns[i + 1], testspec->sessions[i]->teardownsql);
-			if (PQresultStatus(res) != PGRES_COMMAND_OK)
+			if (PQresultStatus(res) == PGRES_TUPLES_OK)
+			{
+				printResultSet(res);
+			}
+			else if (PQresultStatus(res) != PGRES_COMMAND_OK)
 			{
 				fprintf(stderr, "teardown of session %s failed: %s",
 						testspec->sessions[i]->name,
@@ -787,12 +797,9 @@ try_complete_step(Step * step, int flags)
 													PG_DIAG_MESSAGE_PRIMARY);
 
 					if (sev && msg)
-					{
-						step->errormsg = malloc(5 + strlen(sev) + strlen(msg));
-						sprintf(step->errormsg, "%s:  %s", sev, msg);
-					}
+						step->errormsg = psprintf("%s:  %s", sev, msg);
 					else
-						step->errormsg = strdup(PQresultErrorMessage(res));
+						step->errormsg = pg_strdup(PQresultErrorMessage(res));
 				}
 				break;
 			default:

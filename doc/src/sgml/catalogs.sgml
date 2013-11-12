@@ -1863,6 +1863,19 @@
      </row>
 
      <row>
+      <entry><structfield>relreplident</structfield></entry>
+      <entry><type>char</type></entry>
+      <entry></entry>
+      <entry>
+       Columns used to form <quote>replica identity</> for rows:
+       <literal>d</> = default (primary key, if any),
+       <literal>n</> = nothing,
+       <literal>f</> = all columns
+       <literal>i</> = index with indisreplident set, or default
+      </entry>
+     </row>
+
+     <row>
       <entry><structfield>relfrozenxid</structfield></entry>
       <entry><type>xid</type></entry>
       <entry></entry>
@@ -3658,6 +3671,17 @@
      </row>
 
      <row>
+      <entry><structfield>indisreplident</structfield></entry>
+      <entry><type>bool</type></entry>
+      <entry></entry>
+      <entry>
+       If true this index has been chosen as <quote>replica identity</>
+       using <command>ALTER TABLE ... REPLICA IDENTITY USING INDEX
+       ...</>
+      </entry>
+     </row>
+
+     <row>
       <entry><structfield>indkey</structfield></entry>
       <entry><type>int2vector</type></entry>
       <entry><literal><link linkend="catalog-pg-attribute"><structname>pg_attribute</structname></link>.attnum</literal></entry>
@@ -5036,14 +5060,6 @@
       <entry><type>oid</type></entry>
       <entry><literal><link linkend="catalog-pg-class"><structname>pg_class</structname></link>.oid</literal></entry>
       <entry>The table this rule is for</entry>
-     </row>
-
-     <row>
-      <entry><structfield>ev_attr</structfield></entry>
-      <entry><type>int2</type></entry>
-      <entry></entry>
-      <entry>The column this rule is for (currently, always -1 to
-      indicate the whole table)</entry>
      </row>
 
      <row>

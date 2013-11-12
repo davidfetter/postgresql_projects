@@ -28,6 +28,8 @@
 
 #define PG_BACKEND_VERSIONSTR "postgres (PostgreSQL) " PG_VERSION "\n"
 
+#define InvalidPid				(-1)
+
 
 /*****************************************************************************
  *	  System interrupt and critical section handling
@@ -216,15 +218,6 @@ extern int	DateOrder;
 #define INTSTYLE_ISO_8601			3
 
 extern int	IntervalStyle;
-
-/*
- * HasCTZSet is true if user has set timezone as a numeric offset from UTC.
- * If so, CTimeZone is the timezone offset in seconds (using the Unix-ish
- * sign convention, ie, positive offset is west of UTC, rather than the
- * SQL-ish convention that positive is east of UTC).
- */
-extern bool HasCTZSet;
-extern int	CTimeZone;
 
 #define MAXTZLEN		10		/* max TZ name len, not counting tr. null */
 

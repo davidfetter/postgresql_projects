@@ -44,7 +44,7 @@
 
 
 static void checkRuleResultList(List *targetList, TupleDesc resultDesc,
-					bool isSelect);
+					bool isSelect, bool requireColumnNameMatch);
 static bool setRuleCheckAsUser_walker(Node *node, Oid *context);
 static void setRuleCheckAsUser_Query(Query *qry, Oid userid);
 
@@ -58,7 +58,6 @@ static Oid
 InsertRule(char *rulname,
 		   int evtype,
 		   Oid eventrel_oid,
-		   AttrNumber evslot_index,
 		   bool evinstead,
 		   Node *event_qual,
 		   List *action,
@@ -86,7 +85,6 @@ InsertRule(char *rulname,
 	namestrcpy(&rname, rulname);
 	values[Anum_pg_rewrite_rulename - 1] = NameGetDatum(&rname);
 	values[Anum_pg_rewrite_ev_class - 1] = ObjectIdGetDatum(eventrel_oid);
-	values[Anum_pg_rewrite_ev_attr - 1] = Int16GetDatum(evslot_index);
 	values[Anum_pg_rewrite_ev_type - 1] = CharGetDatum(evtype + '0');
 	values[Anum_pg_rewrite_ev_enabled - 1] = CharGetDatum(RULE_FIRES_ON_ORIGIN);
 	values[Anum_pg_rewrite_is_instead - 1] = BoolGetDatum(evinstead);
@@ -117,7 +115,6 @@ InsertRule(char *rulname,
 		 * When replacing, we don't need to replace every attribute
 		 */
 		MemSet(replaces, false, sizeof(replaces));
-		replaces[Anum_pg_rewrite_ev_attr - 1] = true;
 		replaces[Anum_pg_rewrite_ev_type - 1] = true;
 		replaces[Anum_pg_rewrite_is_instead - 1] = true;
 		replaces[Anum_pg_rewrite_ev_qual - 1] = true;
@@ -238,7 +235,6 @@ DefineQueryRewrite(char *rulename,
 				   List *action)
 {
 	Relation	event_relation;
-	int			event_attno;
 	ListCell   *l;
 	Query	   *query;
 	bool		RelisBecomingView = false;
@@ -359,7 +355,9 @@ DefineQueryRewrite(char *rulename,
 		 */
 		checkRuleResultList(query->targetList,
 							RelationGetDescr(event_relation),
-							true);
+							true,
+							event_relation->rd_rel->relkind !=
+								RELKIND_MATVIEW);
 
 		/*
 		 * ... there must not be another ON SELECT rule already ...
@@ -488,14 +486,13 @@ DefineQueryRewrite(char *rulename,
 						 errmsg("RETURNING lists are not supported in non-INSTEAD rules")));
 			checkRuleResultList(query->returningList,
 								RelationGetDescr(event_relation),
-								false);
+								false, false);
 		}
 	}
 
 	/*
 	 * This rule is allowed - prepare to install it.
 	 */
-	event_attno = -1;
 
 	/* discard rule if it's null action and not INSTEAD; it's a no-op */
 	if (action != NIL || is_instead)
@@ -503,7 +500,6 @@ DefineQueryRewrite(char *rulename,
 		ruleId = InsertRule(rulename,
 							event_type,
 							event_relid,
-							event_attno,
 							is_instead,
 							event_qual,
 							action,
@@ -619,14 +615,19 @@ DefineQueryRewrite(char *rulename,
  *		Verify that targetList produces output compatible with a tupledesc
  *
  * The targetList might be either a SELECT targetlist, or a RETURNING list;
- * isSelect tells which.  (This is mostly used for choosing error messages,
- * but also we don't enforce column name matching for RETURNING.)
+ * isSelect tells which.  This is used for choosing error messages.
+ *
+ * A SELECT targetlist may optionally require that column names match.
  */
 static void
-checkRuleResultList(List *targetList, TupleDesc resultDesc, bool isSelect)
+checkRuleResultList(List *targetList, TupleDesc resultDesc, bool isSelect,
+					bool requireColumnNameMatch)
 {
 	ListCell   *tllist;
 	int			i;
+
+	/* Only a SELECT may require a column name match. */
+	Assert(isSelect || !requireColumnNameMatch);
 
 	i = 0;
 	foreach(tllist, targetList)
@@ -663,7 +664,7 @@ checkRuleResultList(List *targetList, TupleDesc resultDesc, bool isSelect)
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("cannot convert relation containing dropped columns to view")));
 
-		if (isSelect && strcmp(tle->resname, attname) != 0)
+		if (requireColumnNameMatch && strcmp(tle->resname, attname) != 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 					 errmsg("SELECT rule's target entry %d has different column name from \"%s\"", i, attname)));

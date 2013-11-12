@@ -1688,6 +1688,8 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 	at_chain_start = first_call;
 	skip = !first_call;
 
+	heapTuple->t_self = *tid;
+
 	/* Scan through possible multiple members of HOT-chain */
 	for (;;)
 	{
@@ -1717,7 +1719,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		heapTuple->t_data = (HeapTupleHeader) PageGetItem(dp, lp);
 		heapTuple->t_len = ItemIdGetLength(lp);
 		heapTuple->t_tableOid = RelationGetRelid(relation);
-		heapTuple->t_self = *tid;
+		ItemPointerSetOffsetNumber(&heapTuple->t_self, offnum);
 
 		/*
 		 * Shouldn't see a HEAP_ONLY tuple at chain start.
@@ -5135,8 +5137,8 @@ heap_freeze_tuple(HeapTupleHeader tuple, TransactionId cutoff_xid,
 
 	/*
 	 * Note that this code handles IS_MULTI Xmax values, too, but only to mark
-	 * the tuple frozen if the updating Xid in the mxact is below the freeze
-	 * cutoff; it doesn't remove dead members of a very old multixact.
+	 * the tuple as not updated if the multixact is below the cutoff Multixact
+	 * given; it doesn't remove dead members of a very old multixact.
 	 */
 	xid = HeapTupleHeaderGetRawXmax(tuple);
 	if ((tuple->t_infomask & HEAP_XMAX_IS_MULTI) ?

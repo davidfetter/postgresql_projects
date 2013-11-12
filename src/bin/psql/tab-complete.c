@@ -369,47 +369,12 @@ static const SchemaQuery Query_for_list_of_constraints_with_schema = {
 	NULL
 };
 
-/* The bit masks for the following three functions come from
- * src/include/catalog/pg_trigger.h.
- */
-static const SchemaQuery Query_for_list_of_insertables = {
-	/* catname */
-	"pg_catalog.pg_class c",
-	/* selcondition */
-	"(c.relkind = 'r' OR (c.relkind = 'v' AND c.relhastriggers AND EXISTS "
-	"(SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid = c.oid AND t.tgtype & (1 << 2) <> 0)))",
-	/* viscondition */
-	"pg_catalog.pg_table_is_visible(c.oid)",
-	/* namespace */
-	"c.relnamespace",
-	/* result */
-	"pg_catalog.quote_ident(c.relname)",
-	/* qualresult */
-	NULL
-};
-
-static const SchemaQuery Query_for_list_of_deletables = {
-	/* catname */
-	"pg_catalog.pg_class c",
-	/* selcondition */
-	"(c.relkind = 'r' OR (c.relkind = 'v' AND c.relhastriggers AND EXISTS "
-	"(SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid = c.oid AND t.tgtype & (1 << 3) <> 0)))",
-	/* viscondition */
-	"pg_catalog.pg_table_is_visible(c.oid)",
-	/* namespace */
-	"c.relnamespace",
-	/* result */
-	"pg_catalog.quote_ident(c.relname)",
-	/* qualresult */
-	NULL
-};
-
+/* Relations supporting INSERT, UPDATE or DELETE */
 static const SchemaQuery Query_for_list_of_updatables = {
 	/* catname */
 	"pg_catalog.pg_class c",
 	/* selcondition */
-	"(c.relkind = 'r' OR (c.relkind = 'v' AND c.relhastriggers AND EXISTS "
-	"(SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid = c.oid AND t.tgtype & (1 << 4) <> 0)))",
+	"c.relkind IN ('r', 'f', 'v')",
 	/* viscondition */
 	"pg_catalog.pg_table_is_visible(c.oid)",
 	/* namespace */
@@ -1371,7 +1336,7 @@ psql_completion(char *text, int start, int end)
 		static const char *const list_ALTER2[] =
 		{"ADD", "ALTER", "CLUSTER ON", "DISABLE", "DROP", "ENABLE", "INHERIT",
 			"NO INHERIT", "RENAME", "RESET", "OWNER TO", "SET",
-		"VALIDATE CONSTRAINT", NULL};
+		 "VALIDATE CONSTRAINT", "REPLICA IDENTITY", NULL};
 
 		COMPLETE_WITH_LIST(list_ALTER2);
 	}
@@ -1615,6 +1580,35 @@ psql_completion(char *text, int start, int end)
 		};
 
 		COMPLETE_WITH_LIST(list_TABLEOPTIONS);
+	}
+	else if (pg_strcasecmp(prev4_wd, "REPLICA") == 0 &&
+			 pg_strcasecmp(prev3_wd, "IDENTITY") == 0 &&
+			 pg_strcasecmp(prev2_wd, "USING") == 0 &&
+			 pg_strcasecmp(prev_wd, "INDEX") == 0)
+	{
+		completion_info_charp = prev5_wd;
+		COMPLETE_WITH_QUERY(Query_for_index_of_table);
+	}
+	else if (pg_strcasecmp(prev5_wd, "TABLE") == 0 &&
+			 pg_strcasecmp(prev3_wd, "REPLICA") == 0 &&
+			 pg_strcasecmp(prev2_wd, "IDENTITY") == 0 &&
+			 pg_strcasecmp(prev_wd, "USING") == 0)
+	{
+		COMPLETE_WITH_CONST("INDEX");
+	}
+	else if (pg_strcasecmp(prev4_wd, "TABLE") == 0 &&
+			 pg_strcasecmp(prev2_wd, "REPLICA") == 0 &&
+			 pg_strcasecmp(prev_wd, "IDENTITY") == 0)
+	{
+		static const char *const list_REPLICAID[] =
+		{"FULL", "NOTHING", "DEFAULT", "USING", NULL};
+
+		COMPLETE_WITH_LIST(list_REPLICAID);
+	}
+	else if (pg_strcasecmp(prev3_wd, "TABLE") == 0 &&
+			 pg_strcasecmp(prev_wd, "REPLICA") == 0)
+	{
+		COMPLETE_WITH_CONST("IDENTITY");
 	}
 
 	/* ALTER TABLESPACE <foo> with RENAME TO, OWNER TO, SET, RESET */
@@ -2362,7 +2356,7 @@ psql_completion(char *text, int start, int end)
 	/* Complete DELETE FROM with a list of tables */
 	else if (pg_strcasecmp(prev2_wd, "DELETE") == 0 &&
 			 pg_strcasecmp(prev_wd, "FROM") == 0)
-		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_deletables, NULL);
+		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_updatables, NULL);
 	/* Complete DELETE FROM <table> */
 	else if (pg_strcasecmp(prev3_wd, "DELETE") == 0 &&
 			 pg_strcasecmp(prev2_wd, "FROM") == 0)
@@ -2378,7 +2372,7 @@ psql_completion(char *text, int start, int end)
 	else if (pg_strcasecmp(prev_wd, "DISCARD") == 0)
 	{
 		static const char *const list_DISCARD[] =
-		{"ALL", "PLANS", "TEMP", NULL};
+		{"ALL", "PLANS", "SEQUENCES", "TEMP", NULL};
 
 		COMPLETE_WITH_LIST(list_DISCARD);
 	}
@@ -2732,7 +2726,7 @@ psql_completion(char *text, int start, int end)
 	/* Complete INSERT INTO with table names */
 	else if (pg_strcasecmp(prev2_wd, "INSERT") == 0 &&
 			 pg_strcasecmp(prev_wd, "INTO") == 0)
-		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_insertables, NULL);
+		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_updatables, NULL);
 	/* Complete "INSERT INTO <table> (" with attribute names */
 	else if (pg_strcasecmp(prev4_wd, "INSERT") == 0 &&
 			 pg_strcasecmp(prev3_wd, "INTO") == 0 &&
@@ -3822,7 +3816,6 @@ static char **
 complete_from_variables(char *text, const char *prefix, const char *suffix)
 {
 	char	  **matches;
-	int			overhead = strlen(prefix) + strlen(suffix) + 1;
 	char	  **varnames;
 	int			nvars = 0;
 	int			maxvars = 100;
@@ -3833,8 +3826,6 @@ complete_from_variables(char *text, const char *prefix, const char *suffix)
 
 	for (ptr = pset.vars->next; ptr; ptr = ptr->next)
 	{
-		char	   *buffer;
-
 		if (nvars >= maxvars)
 		{
 			maxvars *= 2;
@@ -3847,9 +3838,7 @@ complete_from_variables(char *text, const char *prefix, const char *suffix)
 			}
 		}
 
-		buffer = (char *) pg_malloc(strlen(ptr->name) + overhead);
-		sprintf(buffer, "%s%s%s", prefix, ptr->name, suffix);
-		varnames[nvars++] = buffer;
+		varnames[nvars++] = psprintf("%s%s%s", prefix, ptr->name, suffix);
 	}
 
 	varnames[nvars] = NULL;

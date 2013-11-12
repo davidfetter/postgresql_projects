@@ -30,6 +30,7 @@
 #include "miscadmin.h"
 #include "parser/parse_relation.h"
 #include "rewrite/rewriteHandler.h"
+#include "storage/lmgr.h"
 #include "storage/smgr.h"
 #include "tcop/tcopprot.h"
 #include "utils/builtins.h"
@@ -238,16 +239,21 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 
 	owner = matviewRel->rd_rel->relowner;
 
-	heap_close(matviewRel, NoLock);
-
-	/* Create the transient table that will receive the regenerated data. */
+	/*
+	 * Create the transient table that will receive the regenerated data.
+	 * Lock it against access by any other process until commit (by which time
+	 * it will be gone).
+	 */
 	OIDNewHeap = make_new_heap(matviewOid, tableSpace, concurrent,
 							   ExclusiveLock);
+	LockRelationOid(OIDNewHeap, AccessExclusiveLock);
 	dest = CreateTransientRelDestReceiver(OIDNewHeap);
 
 	/* Generate the data, if wanted. */
 	if (!stmt->skipData)
 		refresh_matview_datafill(dest, dataQuery, queryString, owner);
+
+	heap_close(matviewRel, NoLock);
 
 	/* Make the matview match the newly generated data. */
 	if (concurrent)
@@ -283,6 +289,7 @@ refresh_matview_datafill(DestReceiver *dest, Query *query,
 	Oid			save_userid;
 	int			save_sec_context;
 	int			save_nestlevel;
+	Query	   *copied_query;
 
 	/*
 	 * Switch to the owner's userid, so that any functions are run as that
@@ -294,8 +301,10 @@ refresh_matview_datafill(DestReceiver *dest, Query *query,
 						   save_sec_context | SECURITY_RESTRICTED_OPERATION);
 	save_nestlevel = NewGUCNestLevel();
 
-	/* Rewrite, copying the given Query to make sure it's not changed */
-	rewritten = QueryRewrite((Query *) copyObject(query));
+	/* Lock and rewrite, using a copy to preserve the original query. */
+	copied_query = copyObject(query);
+	AcquireRewriteLocks(copied_query, false);
+	rewritten = QueryRewrite(copied_query);
 
 	/* SELECT should never rewrite to more or less than one SELECT query */
 	if (list_length(rewritten) != 1)
@@ -562,7 +571,7 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid)
 					 "SELECT newdata FROM %s newdata "
 					 "WHERE newdata IS NOT NULL AND EXISTS "
 					 "(SELECT * FROM %s newdata2 WHERE newdata2 IS NOT NULL "
-					 "AND newdata2 OPERATOR(pg_catalog.=) newdata "
+					 "AND newdata2 OPERATOR(pg_catalog.*=) newdata "
 					 "AND newdata2.ctid OPERATOR(pg_catalog.<>) "
 					 "newdata.ctid) LIMIT 1",
 					 tempname, tempname);
@@ -645,9 +654,6 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid)
 				/*
 				 * Only include the column once regardless of how many times
 				 * it shows up in how many indexes.
-				 *
-				 * This is also useful later to omit columns which can not
-				 * have changed from the SET clause of the UPDATE statement.
 				 */
 				if (usedForQual[attnum - 1])
 					continue;
@@ -682,8 +688,9 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid)
 				 errhint("Create a UNIQUE index with no WHERE clause on one or more columns of the materialized view.")));
 
 	appendStringInfoString(&querybuf,
-						   " AND newdata = mv) WHERE newdata IS NULL OR mv IS NULL"
-						   " ORDER BY tid");
+						   " AND newdata OPERATOR(pg_catalog.*=) mv) "
+						   "WHERE newdata IS NULL OR mv IS NULL "
+						   "ORDER BY tid");
 
 	/* Create the temporary "diff" table. */
 	if (SPI_exec(querybuf.data, 0) != SPI_OK_UTILITY)

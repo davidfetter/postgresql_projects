@@ -31,6 +31,7 @@ typedef struct RegisteredBgWorker
 	int			rw_child_slot;
 	TimestampTz rw_crashed_at;	/* if not 0, time it last crashed */
 	int			rw_shmem_slot;
+	bool		rw_terminate;
 	slist_node	rw_lnode;		/* list link */
 } RegisteredBgWorker;
 
@@ -40,6 +41,8 @@ extern Size BackgroundWorkerShmemSize(void);
 extern void BackgroundWorkerShmemInit(void);
 extern void BackgroundWorkerStateChange(void);
 extern void ForgetBackgroundWorker(slist_mutable_iter *cur);
+extern void ReportBackgroundWorkerPID(RegisteredBgWorker *);
+extern void BackgroundWorkerStopNotifications(pid_t pid);
 
 /* Function to start a background worker, called from postmaster.c */
 extern void StartBackgroundWorker(void);

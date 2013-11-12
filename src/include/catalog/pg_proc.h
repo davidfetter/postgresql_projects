@@ -1055,6 +1055,15 @@ DESCR("truncate large object");
 DATA(insert OID = 3172 (  lo_truncate64    PGNSP PGUID 12 1 0 0 0 f f f f t f v 2 0 23 "23 20" _null_ _null_ _null_ _null_ lo_truncate64 _null_ _null_ _null_ ));
 DESCR("truncate large object (64 bit)");
 
+DATA(insert OID = 3457 (  lo_create		   PGNSP PGUID 12 1 0 0 0 f f f f t f v 2 0 26 "26 17" _null_ _null_ _null_ _null_ lo_create_bytea _null_ _null_ _null_ ));
+DESCR("create new large object with content");
+DATA(insert OID = 3458 (  lo_get		   PGNSP PGUID 12 1 0 0 0 f f f f t f v 1 0 17 "26" _null_ _null_ _null_ _null_ lo_get _null_ _null_ _null_ ));
+DESCR("read entire large object");
+DATA(insert OID = 3459 (  lo_get		   PGNSP PGUID 12 1 0 0 0 f f f f t f v 3 0 17 "26 20 23" _null_ _null_ _null_ _null_ lo_get_fragment _null_ _null_ _null_ ));
+DESCR("read large object from offset for length");
+DATA(insert OID = 3460 (  lo_put		   PGNSP PGUID 12 1 0 0 0 f f f f t f v 3 0 2278 "26 20 17" _null_ _null_ _null_ _null_ lo_put _null_ _null_ _null_ ));
+DESCR("write data at offset");
+
 DATA(insert OID = 959 (  on_pl			   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "600 628" _null_ _null_ _null_ _null_	on_pl _null_ _null_ _null_ ));
 DATA(insert OID = 960 (  on_sl			   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "601 628" _null_ _null_ _null_ _null_	on_sl _null_ _null_ _null_ ));
 DATA(insert OID = 961 (  close_pl		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 600 "600 628" _null_ _null_ _null_ _null_	close_pl _null_ _null_ _null_ ));
@@ -4150,6 +4159,8 @@ DATA(insert OID = 3960 (  json_populate_record	   PGNSP PGUID 12 1 0 0 0 f f f f
 DESCR("get record fields from a json object");
 DATA(insert OID = 3961 (  json_populate_recordset  PGNSP PGUID 12 1 100 0 0 f f f f f t s 3 0 2283 "2283 114 16" _null_ _null_ _null_ _null_ json_populate_recordset _null_ _null_ _null_ ));
 DESCR("get set of records with fields from a json array of objects");
+DATA(insert OID = 3968 (  json_typeof              PGNSP PGUID 12 1 0 0 0 f f f f t f i 1 0 25 "114" _null_ _null_ _null_ _null_ json_typeof _null_ _null_ _null_ ));
+DESCR("get the type of a json value");
 
 /* uuid */
 DATA(insert OID = 2952 (  uuid_in		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 1 0 2950 "2275" _null_ _null_ _null_ _null_ uuid_in _null_ _null_ _null_ ));
@@ -4470,7 +4481,7 @@ DESCR("get set of in-progress txids in snapshot");
 DATA(insert OID = 2948 (  txid_visible_in_snapshot	PGNSP PGUID 12 1  0 0 0 f f f f t f i 2 0 16 "20 2970" _null_ _null_ _null_ _null_ txid_visible_in_snapshot _null_ _null_ _null_ ));
 DESCR("is txid visible in snapshot?");
 
-/* record comparison */
+/* record comparison using normal comparison rules */
 DATA(insert OID = 2981 (  record_eq		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "2249 2249" _null_ _null_ _null_ _null_ record_eq _null_ _null_ _null_ ));
 DATA(insert OID = 2982 (  record_ne		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "2249 2249" _null_ _null_ _null_ _null_ record_ne _null_ _null_ _null_ ));
 DATA(insert OID = 2983 (  record_lt		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "2249 2249" _null_ _null_ _null_ _null_ record_lt _null_ _null_ _null_ ));
@@ -4479,6 +4490,16 @@ DATA(insert OID = 2985 (  record_le		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0
 DATA(insert OID = 2986 (  record_ge		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "2249 2249" _null_ _null_ _null_ _null_ record_ge _null_ _null_ _null_ ));
 DATA(insert OID = 2987 (  btrecordcmp	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 23 "2249 2249" _null_ _null_ _null_ _null_ btrecordcmp _null_ _null_ _null_ ));
 DESCR("less-equal-greater");
+
+/* record comparison using raw byte images */
+DATA(insert OID = 3181 (  record_image_eq	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "2249 2249" _null_ _null_ _null_ _null_ record_image_eq _null_ _null_ _null_ ));
+DATA(insert OID = 3182 (  record_image_ne	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "2249 2249" _null_ _null_ _null_ _null_ record_image_ne _null_ _null_ _null_ ));
+DATA(insert OID = 3183 (  record_image_lt	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "2249 2249" _null_ _null_ _null_ _null_ record_image_lt _null_ _null_ _null_ ));
+DATA(insert OID = 3184 (  record_image_gt	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "2249 2249" _null_ _null_ _null_ _null_ record_image_gt _null_ _null_ _null_ ));
+DATA(insert OID = 3185 (  record_image_le	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "2249 2249" _null_ _null_ _null_ _null_ record_image_le _null_ _null_ _null_ ));
+DATA(insert OID = 3186 (  record_image_ge	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "2249 2249" _null_ _null_ _null_ _null_ record_image_ge _null_ _null_ _null_ ));
+DATA(insert OID = 3187 (  btrecordimagecmp	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 23 "2249 2249" _null_ _null_ _null_ _null_ btrecordimagecmp _null_ _null_ _null_ ));
+DESCR("less-equal-greater based on byte images");
 
 /* Extensions */
 DATA(insert OID = 3082 (  pg_available_extensions		PGNSP PGUID 12 10 100 0 0 f f f f t t s 0 0 2249 "" "{19,25,25}" "{o,o,o}" "{name,default_version,comment}" _null_ pg_available_extensions _null_ _null_ _null_ ));
