@@ -12311,10 +12311,6 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
 
      <row>
       <entry>
-       <indexterm>
-        <primary>percentile</primary>
-        <secondary>discrete</secondary>
-       </indexterm>
        <function>percentile_disc(<replaceable class="parameter">fractions</replaceable>) WITHIN GROUP (ORDER BY <replaceable class="parameter">sort_expression</replaceable>)</function>
       </entry>
       <entry>
@@ -12360,10 +12356,6 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
 
      <row>
       <entry>
-       <indexterm>
-        <primary>percentile</primary>
-        <secondary>continuous</secondary>
-       </indexterm>
        <function>percentile_cont(<replaceable class="parameter">fractions</replaceable>) WITHIN GROUP (ORDER BY <replaceable class="parameter">sort_expression</replaceable>)</function>
       </entry>
       <entry>
@@ -12400,7 +12392,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       </entry>
       <entry>
        returns the most frequent input value (choosing one arbitrarily if
-       there are multiple equally good result)
+       there are multiple equally good results)
       </entry>
      </row>
 
@@ -12418,7 +12410,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
   <table id="functions-hypothetical-table">
    <title>Hypothetical Set Functions</title>
 
-   <tgroup cols="3">
+   <tgroup cols="2">
     <thead>
      <row>
       <entry>Function</entry>

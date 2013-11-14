@@ -1420,6 +1420,13 @@ select rank('3') within group (order by x) from generate_series(1,5) x;
     3
 (1 row)
 
+-- divide by zero check
+select percent_rank(0) within group (order by x) from generate_series(1,0) x;
+ percent_rank 
+--------------
+            0
+(1 row)
+
 -- deparse and multiple features:
 create view aggordview1 as
 select ten,

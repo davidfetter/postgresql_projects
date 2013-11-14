@@ -531,6 +531,9 @@ select rank('adam'::text collate "C") within group (order by x collate "POSIX")
 select rank('adam'::varchar) within group (order by x) from (values ('fred'),('jim')) v(x);
 select rank('3') within group (order by x) from generate_series(1,5) x;
 
+-- divide by zero check
+select percent_rank(0) within group (order by x) from generate_series(1,0) x;
+
 -- deparse and multiple features:
 create view aggordview1 as
 select ten,
