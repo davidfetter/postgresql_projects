@@ -960,10 +960,10 @@ select * from agg_view1;
 (1 row)
 
 select pg_get_viewdef('agg_view1'::regclass);
-                                                    pg_get_viewdef                                                    
-----------------------------------------------------------------------------------------------------------------------
-  SELECT aggfns(DISTINCT v.a, v.b, v.c) AS aggfns                                                                    +
-    FROM ( VALUES (1,3,'foo'::text), (0,NULL::integer,NULL::text), (2,2,'bar'::text), (3,1,'baz'::text)) v(a, b, c), +
+                                                   pg_get_viewdef                                                    
+---------------------------------------------------------------------------------------------------------------------
+  SELECT aggfns(DISTINCT v.a, v.b, v.c) AS aggfns                                                                   +
+    FROM ( VALUES (1,3,'foo'::text), (0,NULL::integer,NULL::text), (2,2,'bar'::text), (3,1,'baz'::text)) v(a, b, c),+
      generate_series(1, 3) i(i);
 (1 row)
 
@@ -978,10 +978,10 @@ select * from agg_view1;
 (1 row)
 
 select pg_get_viewdef('agg_view1'::regclass);
-                                                    pg_get_viewdef                                                    
-----------------------------------------------------------------------------------------------------------------------
-  SELECT aggfns(DISTINCT v.a, v.b, v.c ORDER BY v.b) AS aggfns                                                       +
-    FROM ( VALUES (1,3,'foo'::text), (0,NULL::integer,NULL::text), (2,2,'bar'::text), (3,1,'baz'::text)) v(a, b, c), +
+                                                   pg_get_viewdef                                                    
+---------------------------------------------------------------------------------------------------------------------
+  SELECT aggfns(DISTINCT v.a, v.b, v.c ORDER BY v.b) AS aggfns                                                      +
+    FROM ( VALUES (1,3,'foo'::text), (0,NULL::integer,NULL::text), (2,2,'bar'::text), (3,1,'baz'::text)) v(a, b, c),+
      generate_series(1, 3) i(i);
 (1 row)
 
@@ -1044,10 +1044,10 @@ select * from agg_view1;
 (1 row)
 
 select pg_get_viewdef('agg_view1'::regclass);
-                                                    pg_get_viewdef                                                    
-----------------------------------------------------------------------------------------------------------------------
-  SELECT aggfns(DISTINCT v.a, v.b, v.c ORDER BY v.a, v.c USING ~<~ NULLS LAST, v.b) AS aggfns                        +
-    FROM ( VALUES (1,3,'foo'::text), (0,NULL::integer,NULL::text), (2,2,'bar'::text), (3,1,'baz'::text)) v(a, b, c), +
+                                                   pg_get_viewdef                                                    
+---------------------------------------------------------------------------------------------------------------------
+  SELECT aggfns(DISTINCT v.a, v.b, v.c ORDER BY v.a, v.c USING ~<~ NULLS LAST, v.b) AS aggfns                       +
+    FROM ( VALUES (1,3,'foo'::text), (0,NULL::integer,NULL::text), (2,2,'bar'::text), (3,1,'baz'::text)) v(a, b, c),+
      generate_series(1, 2) i(i);
 (1 row)
 
@@ -1436,14 +1436,14 @@ select ten,
   from tenk1
  group by ten order by ten;
 select pg_get_viewdef('aggordview1');
-                                                         pg_get_viewdef                                                         
---------------------------------------------------------------------------------------------------------------------------------
-  SELECT tenk1.ten,                                                                                                            +
-     percentile_disc((0.5)::double precision) WITHIN GROUP (ORDER BY tenk1.thousand) AS p50,                                   +
-     percentile_disc((0.5)::double precision) WITHIN GROUP (ORDER BY tenk1.thousand) FILTER (WHERE (tenk1.hundred = 1)) AS px, +
-     rank(5, 'AZZZZ'::name, 50) WITHIN GROUP (ORDER BY tenk1.hundred, tenk1.string4 DESC, tenk1.hundred) AS rank               +
-    FROM tenk1                                                                                                                 +
-   GROUP BY tenk1.ten                                                                                                          +
+                                                        pg_get_viewdef                                                         
+-------------------------------------------------------------------------------------------------------------------------------
+  SELECT tenk1.ten,                                                                                                           +
+     percentile_disc((0.5)::double precision) WITHIN GROUP (ORDER BY tenk1.thousand) AS p50,                                  +
+     percentile_disc((0.5)::double precision) WITHIN GROUP (ORDER BY tenk1.thousand) FILTER (WHERE (tenk1.hundred = 1)) AS px,+
+     rank(5, 'AZZZZ'::name, 50) WITHIN GROUP (ORDER BY tenk1.hundred, tenk1.string4 DESC, tenk1.hundred) AS rank              +
+    FROM tenk1                                                                                                                +
+   GROUP BY tenk1.ten                                                                                                         +
    ORDER BY tenk1.ten;
 (1 row)
 
