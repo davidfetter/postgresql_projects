@@ -1397,8 +1397,8 @@ typedef struct SubqueryScanState
  *
  *		eflags				node's capability flags
  *		ordinal				column value for WITH ORDINALITY
- *		scan_tupdesc		scan tuple descriptor 
- *		func_tupdesc		function tuple descriptor 
+ *		scan_tupdesc		scan tuple descriptor
+ *		func_tupdesc		function tuple descriptor
  *		func_slot			function result slot, or null
  *		tuplestorestate		private state of tuplestore.c
  *		funcexpr			state for function expression being evaluated
