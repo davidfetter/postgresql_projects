@@ -355,10 +355,11 @@ typedef struct FuncExpr
 	Oid			inputcollid;	/* OID of collation that function should use */
 	List	   *args;			/* arguments to the function */
 	/* These func* fields are used only for table functions returning RECORD */
-	List       *funccolnames;   /* result colnames for RECORD rangefuncs */
-	List       *funccoltypes;   /* result coltypes for RECORD rangefuncs */
-	List       *funccoltypmods; /* result coltypmods for RECORD rangefuncs */
-	List       *funccolcollations;  /* result colcollations for RECORD rangefuncs */
+	List	   *funccolnames;	/* result colnames for RECORD rangefuncs */
+	List	   *funccoltypes;	/* result coltypes for RECORD rangefuncs */
+	List	   *funccoltypmods; /* result coltypmods for RECORD rangefuncs */
+	List	   *funccolcollations;		/* result colcollations for RECORD
+										 * rangefuncs */
 	int			location;		/* token location, or -1 if unknown */
 } FuncExpr;
 

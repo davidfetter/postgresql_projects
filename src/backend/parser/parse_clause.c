@@ -549,10 +549,10 @@ transformRangeFunction(ParseState *pstate, RangeFunction *r)
 
 	foreach(lc, r->funccallnodes)
 	{
-		Node   *node = lfirst(lc);
+		Node	   *node = lfirst(lc);
 
 		funcexprs = lappend(funcexprs,
-							transformExpr(pstate, node, EXPR_KIND_FROM_FUNCTION));
+					   transformExpr(pstate, node, EXPR_KIND_FROM_FUNCTION));
 
 		funcnames = lappend(funcnames, makeString(FigureColname(node)));
 	}

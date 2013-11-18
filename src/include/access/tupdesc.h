@@ -87,7 +87,6 @@ extern TupleDesc CreateTupleDesc(int natts, bool hasoid,
 				Form_pg_attribute *attrs);
 
 extern TupleDesc CreateTupleDescCopy(TupleDesc tupdesc);
-extern TupleDesc CreateTupleDescCopyExtend(TupleDesc tupdesc, int moreatts);
 
 extern TupleDesc CreateTupleDescCopyConstr(TupleDesc tupdesc);
 
@@ -116,9 +115,11 @@ extern void TupleDescInitEntry(TupleDesc desc,
 				   Oid oidtypeid,
 				   int32 typmod,
 				   int attdim);
+
 extern void TupleDescInitEntryCollation(TupleDesc desc,
 							AttrNumber attributeNumber,
 							Oid collationid);
+
 extern void TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 				   const TupleDesc src, AttrNumber srcAttno);
 

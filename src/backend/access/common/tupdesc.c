@@ -134,7 +134,7 @@ CreateTupleDesc(int natts, bool hasoid, Form_pg_attribute *attrs)
  *		This function creates a new TupleDesc by copying from an existing
  *		TupleDesc.
  *
- * !!! Constraint and default are not copied !!!
+ * !!! Constraints and defaults are not copied !!!
  */
 TupleDesc
 CreateTupleDescCopy(TupleDesc tupdesc)

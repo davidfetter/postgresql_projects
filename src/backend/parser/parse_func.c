@@ -66,14 +66,14 @@ Node *
 ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 				  int location, FuncCall *fn)
 {
-	List       *agg_order = (fn ? fn->agg_order : NIL);
-	Expr       *agg_filter = NULL;
-	bool        agg_star = (fn ? fn->agg_star : false);
-	bool        agg_distinct = (fn ? fn->agg_distinct : false);
-	bool        func_variadic = (fn ? fn->func_variadic : false);
+	List	   *agg_order = (fn ? fn->agg_order : NIL);
+	Expr	   *agg_filter = NULL;
+	bool		agg_star = (fn ? fn->agg_star : false);
+	bool		agg_distinct = (fn ? fn->agg_distinct : false);
+	bool		func_variadic = (fn ? fn->func_variadic : false);
 	WindowDef  *over = (fn ? fn->over : NULL);
-	List       *coldeflist = (fn ? fn->coldeflist : NIL);
-	bool        is_column = (fn == NULL);
+	List	   *coldeflist = (fn ? fn->coldeflist : NIL);
+	bool		is_column = (fn == NULL);
 	Oid			rettype;
 	Oid			funcid;
 	ListCell   *l;
@@ -435,8 +435,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		/*
 		 * If we're called in the FROM-clause, we might have a column
 		 * definition list if we return RECORD. The grammar should prevent
-		 * supplying a list in other contexts. Missing coldeflists are
-		 * checked for in parse_relation.c
+		 * supplying a list in other contexts. Missing coldeflists are checked
+		 * for in parse_relation.c
 		 */
 		if (coldeflist != NIL)
 		{
@@ -473,7 +473,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 							 errmsg("column \"%s\" cannot be declared SETOF",
 									attrname),
-							 parser_errposition(pstate, n->typeName->location)));
+						 parser_errposition(pstate, n->typeName->location)));
 				typenameTypeIdAndMod(pstate, n->typeName, &attrtype, &attrtypmod);
 				attrcollation = GetColumnDefCollation(pstate, n, attrtype);
 				funcexpr->funccolnames = lappend(funcexpr->funccolnames, makeString(attrname));

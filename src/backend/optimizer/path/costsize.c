@@ -3860,7 +3860,8 @@ set_function_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 	 */
 	foreach(lc, rte->funcexprs)
 	{
-		double ntup = expression_returns_set_rows(lfirst(lc));
+		double		ntup = expression_returns_set_rows(lfirst(lc));
+
 		if (ntup > rel->tuples)
 			rel->tuples = ntup;
 	}

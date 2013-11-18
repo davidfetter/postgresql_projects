@@ -157,18 +157,19 @@ makeWholeRowVar(RangeTblEntry *rte,
 			break;
 
 		case RTE_FUNCTION:
+
 			/*
-			 * RTE is a function with or without ordinality. We map the
-			 * cases as follows:
+			 * RTE is a function with or without ordinality. We map the cases
+			 * as follows:
 			 *
-			 * If ordinality is set, we return a composite var even if
-			 * the function is a scalar. This var is always of RECORD type.
+			 * If ordinality is set, we return a composite var even if the
+			 * function is a scalar. This var is always of RECORD type.
 			 *
 			 * If the RTE has more than one function, we return a composite
 			 * var of record type.
 			 *
-			 * If ordinality is not set but the function returns a row,
-			 * we keep the function's return type.
+			 * If ordinality is not set but the function returns a row, we
+			 * keep the function's return type.
 			 *
 			 * If the function is a scalar, we do what allowScalar requests.
 			 */
@@ -556,7 +557,8 @@ makeDefElemExtended(char *nameSpace, char *name, Node *arg,
 FuncCall *
 makeFuncCall(List *name, List *args, int location)
 {
-	FuncCall *n = makeNode(FuncCall);
+	FuncCall   *n = makeNode(FuncCall);
+
 	n->funcname = name;
 	n->args = args;
 	n->location = location;

@@ -1607,8 +1607,8 @@ find_expr_references_walker(Node *node,
 						   context->addrs);
 
 		/*
-		 * FuncExpr in a function RTE may have a column definition list,
-		 * in which case deal with its types and collations
+		 * FuncExpr in a function RTE may have a column definition list, in
+		 * which case deal with its types and collations
 		 */
 		foreach(ct, funcexpr->funccoltypes)
 		{
@@ -1778,8 +1778,8 @@ find_expr_references_walker(Node *node,
 
 		/*
 		 * Add whole-relation refs for each plain relation mentioned in the
-		 * subquery's rtable. (Refs for any datatypes and collations used
-		 * in RECORD function column definitions lists are handled under
+		 * subquery's rtable. (Refs for any datatypes and collations used in
+		 * RECORD function column definitions lists are handled under
 		 * FuncExpr.)
 		 *
 		 * Note: query_tree_walker takes care of recursing into RTE_FUNCTION

@@ -304,7 +304,7 @@ typedef struct FuncCall
 	bool		agg_distinct;	/* arguments were labeled DISTINCT */
 	bool		func_variadic;	/* last argument was labeled VARIADIC */
 	struct WindowDef *over;		/* OVER clause, if any */
-	List       *coldeflist;     /* column definition list for record funcs */
+	List	   *coldeflist;		/* column definition list for record funcs */
 	int			location;		/* token location, or -1 if unknown */
 } FuncCall;
 
@@ -476,7 +476,7 @@ typedef struct RangeFunction
 	NodeTag		type;
 	bool		lateral;		/* does it have LATERAL prefix? */
 	bool		ordinality;		/* does it have WITH ORDINALITY suffix? */
-	bool        is_table;       /* result of TABLE() syntax */
+	bool		is_table;		/* result of TABLE() syntax */
 	List	   *funccallnodes;	/* untransformed function call trees */
 	Alias	   *alias;			/* table alias & optional column aliases */
 } RangeFunction;
@@ -766,11 +766,10 @@ typedef struct RangeTblEntry
 	 * RECORD functions with ordinality.
 	 *
 	 * So, in all cases the result column types can be determined from the
-	 * funcexprs, with the ordinality column, if present, appended to the
-	 * end.
+	 * funcexprs, with the ordinality column, if present, appended to the end.
 	 */
 	List	   *funcexprs;		/* expression trees for func calls */
-	bool		funcordinality;	/* is this called WITH ORDINALITY? */
+	bool		funcordinality; /* is this called WITH ORDINALITY? */
 
 	/*
 	 * Fields valid for a values RTE (else NIL):

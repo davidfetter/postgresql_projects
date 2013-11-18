@@ -8048,7 +8048,7 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 				if (list_length(rte->funcexprs) == 1
 					&& (!rte->funcordinality
 						|| !IsA(linitial(rte->funcexprs), FuncExpr)
-						|| ((FuncExpr *) linitial(rte->funcexprs))->funccoltypes == NIL))
+						||((FuncExpr *) linitial(rte->funcexprs))->funccoltypes == NIL))
 				{
 					get_rule_expr(linitial(rte->funcexprs), context, true);
 					func_coldef = linitial(rte->funcexprs);
@@ -8056,13 +8056,13 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 				else
 				{
 					ListCell   *lc = list_head(rte->funcexprs);
-					Oid         unnest_oid = InvalidOid;
+					Oid			unnest_oid = InvalidOid;
 
 					/*
 					 * If all the function calls in the list are to
-					 * pg_catalog.unnest, then collapse the list back down
-					 * to UNNEST(args). Since there's currently only one
-					 * unnest, we check by oid after the first one.
+					 * pg_catalog.unnest, then collapse the list back down to
+					 * UNNEST(args). Since there's currently only one unnest,
+					 * we check by oid after the first one.
 					 */
 
 					if (IsA(lfirst(lc), FuncExpr))
@@ -8070,13 +8070,13 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 						unnest_oid = ((FuncExpr *) lfirst(lc))->funcid;
 
 						if (get_func_namespace(unnest_oid) != PG_CATALOG_NAMESPACE
-							|| strcmp(get_func_name(unnest_oid),"unnest") != 0)
+						 || strcmp(get_func_name(unnest_oid), "unnest") != 0)
 							unnest_oid = InvalidOid;
 					}
 
 					while (OidIsValid(unnest_oid))
 					{
-						FuncExpr *fn;
+						FuncExpr   *fn;
 
 						lc = lnext(lc);
 						if (!lc)
@@ -8084,18 +8084,19 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 
 						fn = lfirst(lc);
 						if (!IsA(fn, FuncExpr)
-							|| fn->funcid != unnest_oid
+							||fn->funcid != unnest_oid
 							|| fn->funccoltypes != NIL)
 							unnest_oid = InvalidOid;
 					}
 
 					if (OidIsValid(unnest_oid))
 					{
-						List *allargs = NIL;
+						List	   *allargs = NIL;
 
 						foreach(lc, rte->funcexprs)
 						{
-							List *args = ((FuncExpr *) lfirst(lc))->args;
+							List	   *args = ((FuncExpr *) lfirst(lc))->args;
+
 							allargs = list_concat(allargs, list_copy(args));
 						}
 
@@ -8108,19 +8109,22 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 
 						foreach(lc, rte->funcexprs)
 						{
-							FuncExpr *fn = lfirst(lc);
+							FuncExpr   *fn = lfirst(lc);
 
 							get_rule_expr((Node *) fn, context, true);
 
-							if (IsA(fn, FuncExpr) && fn->funccoltypes != NIL)
+							if (IsA(fn, FuncExpr) &&fn->funccoltypes != NIL)
 							{
-								/* Function returning RECORD, reconstruct the columndefs */
+								/*
+								 * Function returning RECORD, reconstruct the
+								 * columndefs
+								 */
 								appendStringInfoString(buf, " AS ");
 								get_from_clause_coldeflist(NULL,
 														   fn->funccolnames,
 														   fn->funccoltypes,
 														   fn->funccoltypmods,
-														   fn->funccolcollations,
+													   fn->funccolcollations,
 														   context);
 							}
 

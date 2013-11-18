@@ -1984,7 +1984,7 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
 			break;
 		case T_FunctionScan:
 			{
-				FunctionScan   *fscan = (FunctionScan *) plan;
+				FunctionScan *fscan = (FunctionScan *) plan;
 
 				/* Assert it's on a RangeFunction */
 				Assert(rte->rtekind == RTE_FUNCTION);
@@ -1999,7 +1999,7 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
 					IsA(linitial(fscan->funcexprs), FuncExpr))
 				{
 					FuncExpr   *funcexpr = linitial(fscan->funcexprs);
-					Oid		funcid = funcexpr->funcid;
+					Oid			funcid = funcexpr->funcid;
 
 					objectname = get_func_name(funcid);
 					if (es->verbose)

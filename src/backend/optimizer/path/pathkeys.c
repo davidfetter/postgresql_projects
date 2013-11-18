@@ -504,8 +504,8 @@ build_index_pathkeys(PlannerInfo *root,
 
 /*
  * build_expression_pathkey
- *   Build a pathkeys list (empty or 1 element) that describes an ordering
- *   of a single expression using a given operator
+ *	 Build a pathkeys list (empty or 1 element) that describes an ordering
+ *	 of a single expression using a given operator
  *
  * The result is empty if the expression isn't already in some equivalence
  * class.
@@ -522,9 +522,9 @@ build_expression_pathkey(PlannerInfo *root,
 						 Oid opno,
 						 bool nulls_first)
 {
-	List       *pathkeys = NIL;
+	List	   *pathkeys = NIL;
 	Oid			opfamily,
-		        opcintype;
+				opcintype;
 	int16		strategy;
 	PathKey    *cpathkey;
 
@@ -536,10 +536,11 @@ build_expression_pathkey(PlannerInfo *root,
 
 	cpathkey = make_pathkey_from_sortinfo(root,
 										  expr,
+										  NULL, /* XXX likely wrong */
 										  opfamily,
 										  opcintype,
-										  exprCollation((Node*) expr),
-										  (strategy == BTGreaterStrategyNumber),
+										  exprCollation((Node *) expr),
+									   (strategy == BTGreaterStrategyNumber),
 										  nulls_first,
 										  0,
 										  rel->relids,

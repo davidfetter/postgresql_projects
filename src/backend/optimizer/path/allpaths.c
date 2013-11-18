@@ -1259,7 +1259,7 @@ static void
 set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 {
 	Relids		required_outer;
-	List       *pathkeys = NIL;
+	List	   *pathkeys = NIL;
 
 	/*
 	 * We don't support pushing join clauses into the quals of a function
@@ -1275,8 +1275,8 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	if (rte->funcordinality)
 	{
 		ListCell   *lc;
-		Var        *var = NULL;
-		AttrNumber  ordattno = list_length(rte->eref->colnames);
+		Var		   *var = NULL;
+		AttrNumber	ordattno = list_length(rte->eref->colnames);
 
 		/*
 		 * Find corresponding Var in our tlist by searching for matching
@@ -1285,10 +1285,10 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 		foreach(lc, rel->reltargetlist)
 		{
-			Var    *node = lfirst(lc);
+			Var		   *node = lfirst(lc);
 
-			if (IsA(node,Var)
-				&& node->varno == rel->relid
+			if (IsA(node, Var)
+				&&node->varno == rel->relid
 				&& node->varattno == ordattno
 				&& node->varlevelsup == 0)
 			{
@@ -1299,9 +1299,9 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 		/*
 		 * The Var might not be found in the tlist, but that should only
-		 * happen if the ordinality column is never referenced anywhere
-		 * in the query - in which case nobody can possibly care about the
-		 * ordering of it. So just leave the pathkeys NIL in that case.
+		 * happen if the ordinality column is never referenced anywhere in the
+		 * query - in which case nobody can possibly care about the ordering
+		 * of it. So just leave the pathkeys NIL in that case.
 		 *
 		 * Also, build_expression_pathkey will only build the pathkey if
 		 * there's already an equivalence class; if there isn't, it indicates
@@ -1310,11 +1310,11 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 		if (var)
 		{
-			Oid opno = get_opfamily_member(INTEGER_BTREE_FAM_OID,
-										   var->vartype, var->vartype,
-										   BTLessStrategyNumber);
+			Oid			opno = get_opfamily_member(INTEGER_BTREE_FAM_OID,
+												   var->vartype, var->vartype,
+												   BTLessStrategyNumber);
 
-			pathkeys = build_expression_pathkey(root, rel, (Expr*) var, opno, false);
+			pathkeys = build_expression_pathkey(root, rel, (Expr *) var, opno, false);
 		}
 	}
 

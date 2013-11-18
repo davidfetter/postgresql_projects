@@ -881,7 +881,7 @@ buildRelationAliases(TupleDesc tupdesc, Alias *alias, Alias *eref, bool ordinali
 	/* tack on the ordinality column at the end */
 	if (ordinality)
 	{
-		Value *attrname;
+		Value	   *attrname;
 
 		if (aliaslc)
 		{
@@ -973,7 +973,10 @@ buildScalarFunctionAlias(Node *funcexpr, char *funcname, bool prefer_funcname,
 		eref->colnames = list_make1(makeString(pname));
 	}
 
-	/* If we don't have a name for the ordinality column yet, supply a default. */
+	/*
+	 * If we don't have a name for the ordinality column yet, supply a
+	 * default.
+	 */
 	if (ordinality && list_length(eref->colnames) < 2)
 		eref->colnames = lappend(eref->colnames, makeString(pstrdup("ordinality")));
 
@@ -1258,13 +1261,14 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	TupleDesc	tupdesc;
 	Alias	   *alias = rangefunc->alias;
 	Alias	   *eref;
-	char       *aliasname;
-	Oid        *funcrettypes = NULL;
+	char	   *aliasname;
+	Oid		   *funcrettypes = NULL;
 	TupleDesc  *functupdescs = NULL;
-	int         nfuncs = list_length(funcexprs);
-	ListCell   *lc, *lc2;
-	int         i;
-	int         j;
+	int			nfuncs = list_length(funcexprs);
+	ListCell   *lc,
+			   *lc2;
+	int			i;
+	int			j;
 	int			natts;
 
 	rte->rtekind = RTE_FUNCTION;
@@ -1273,21 +1277,21 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	rte->funcexprs = funcexprs;
 	rte->alias = alias;
 
-    /*
+	/*----------
 	 * Choose the RTE alias name.
 	 *
 	 * We punt to "table" if the list results from explicit TABLE() syntax
-	 * regardless of number of functions. Otherwise, use the first function,
+	 * regardless of number of functions.  Otherwise, use the first function,
 	 * since either there is only one, or it was an unnest() which got
-	 * expanded. We don't currently need to record this fact in the
+	 * expanded.  We don't currently need to record this fact in the
 	 * transformed node, since deparse always emits an alias for table
 	 * functions, and
-     *    ... FROM unnest(a,b)
-     * and
-     *    ... FROM TABLE(unnest(a),unnest(b)) AS "unnest"
+	 *    ... FROM unnest(a,b)
+	 * and
+	 *    ... FROM TABLE(unnest(a),unnest(b)) AS "unnest"
 	 * are equivalent enough for our purposes.
+	 *----------
 	 */
-
 	if (alias)
 		aliasname = alias->aliasname;
 	else if (rangefunc->is_table)
@@ -1301,8 +1305,8 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	/*
 	 * Now determine if the function returns a simple or composite type.
 	 *
-	 * If there's more than one function, the result must be composite,
-	 * and we have to produce a merged tupdesc.
+	 * If there's more than one function, the result must be composite, and we
+	 * have to produce a merged tupdesc.
 	 */
 	if (nfuncs == 1)
 	{
@@ -1318,7 +1322,7 @@ addRangeTableEntryForFunction(ParseState *pstate,
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
 					 errmsg("a column definition list is required for functions returning \"record\""),
-					 parser_errposition(pstate, exprLocation(linitial(funcexprs)))));
+			 parser_errposition(pstate, exprLocation(linitial(funcexprs)))));
 	}
 	else
 	{
@@ -1345,19 +1349,21 @@ addRangeTableEntryForFunction(ParseState *pstate,
 			switch (functypclass)
 			{
 				case TYPEFUNC_RECORD:
+
 					/*
-					 * Only gets here if no column definition list was supplied
-					 * for a function returning an unspecified RECORD.
+					 * Only gets here if no column definition list was
+					 * supplied for a function returning an unspecified
+					 * RECORD.
 					 */
 					ereport(ERROR,
 							(errcode(ERRCODE_SYNTAX_ERROR),
 							 errmsg("a column definition list is required for functions returning \"record\""),
-							 parser_errposition(pstate, exprLocation(lfirst(lc)))));
+					  parser_errposition(pstate, exprLocation(lfirst(lc)))));
 
 				case TYPEFUNC_SCALAR:
 					{
-						FuncExpr *funcexpr = lfirst(lc);
-						char *pname = NULL;
+						FuncExpr   *funcexpr = lfirst(lc);
+						char	   *pname = NULL;
 
 						/*
 						 * Function might have its own idea what the result
@@ -1390,8 +1396,8 @@ addRangeTableEntryForFunction(ParseState *pstate,
 					ereport(ERROR,
 							(errcode(ERRCODE_DATATYPE_MISMATCH),
 							 errmsg("function \"%s\" in FROM has unsupported return type %s",
-									strVal(lfirst(lc2)), format_type_be(funcrettype)),
-							 parser_errposition(pstate, exprLocation(lfirst(lc)))));
+						   strVal(lfirst(lc2)), format_type_be(funcrettype)),
+					  parser_errposition(pstate, exprLocation(lfirst(lc)))));
 			}
 			natts += functupdescs[i]->natts;
 
@@ -1422,7 +1428,7 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	{
 		/* Base data type, i.e. scalar */
 		buildScalarFunctionAlias(linitial(funcexprs),
-								 strVal(linitial(funcnames)), rangefunc->is_table,
+							strVal(linitial(funcnames)), rangefunc->is_table,
 								 alias, eref, rangefunc->ordinality);
 	}
 	else
@@ -1430,7 +1436,7 @@ addRangeTableEntryForFunction(ParseState *pstate,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
 			 errmsg("function \"%s\" in FROM has unsupported return type %s",
 					strVal(linitial(funcnames)), format_type_be(funcrettype)),
-				 parser_errposition(pstate, exprLocation(linitial(funcexprs)))));
+			 parser_errposition(pstate, exprLocation(linitial(funcexprs)))));
 
 	/*
 	 * Set flags and access permissions.
@@ -1868,7 +1874,7 @@ expandRTE(RangeTblEntry *rte, int rtindex, int sublevels_up,
 				TypeFuncClass functypclass;
 				Oid			funcrettype;
 				TupleDesc	tupdesc;
-				int         atts_done = 0;
+				int			atts_done = 0;
 				ListCell   *lc;
 
 				/*
@@ -1889,8 +1895,9 @@ expandRTE(RangeTblEntry *rte, int rtindex, int sublevels_up,
 						Assert(tupdesc);
 
 						/*
-						 * we rely here on the fact that expandTupleDesc doesn't
-						 * care about being passed more aliases than it needs.
+						 * we rely here on the fact that expandTupleDesc
+						 * doesn't care about being passed more aliases than
+						 * it needs.
 						 */
 						expandTupleDesc(tupdesc, rte->eref, atts_done,
 										rtindex, sublevels_up, location,
@@ -1903,7 +1910,7 @@ expandRTE(RangeTblEntry *rte, int rtindex, int sublevels_up,
 						/* Base data type, i.e. scalar */
 						if (colnames)
 							*colnames = lappend(*colnames,
-												list_nth(rte->eref->colnames, atts_done));
+								   list_nth(rte->eref->colnames, atts_done));
 
 						if (colvars)
 						{
@@ -1937,12 +1944,13 @@ expandRTE(RangeTblEntry *rte, int rtindex, int sublevels_up,
 
 					if (colvars)
 					{
-						Var *varnode = makeVar(rtindex,
-											   atts_done + 1,
-											   INT8OID,
-											   -1,
-											   InvalidOid,
-											   sublevels_up);
+						Var		   *varnode = makeVar(rtindex,
+													  atts_done + 1,
+													  INT8OID,
+													  -1,
+													  InvalidOid,
+													  sublevels_up);
+
 						*colvars = lappend(*colvars, varnode);
 					}
 				}
@@ -2347,7 +2355,7 @@ get_rte_attribute_type(RangeTblEntry *rte, AttrNumber attnum,
 				Oid			funcrettype;
 				TupleDesc	tupdesc;
 				ListCell   *lc;
-				int         atts_done = 0;
+				int			atts_done = 0;
 
 				/*
 				 * if ordinality, then a reference to the last column in the
@@ -2363,8 +2371,8 @@ get_rte_attribute_type(RangeTblEntry *rte, AttrNumber attnum,
 				}
 
 				/*
-				 * Loop over funcs until we find the one that covers
-				 * the requested column.
+				 * Loop over funcs until we find the one that covers the
+				 * requested column.
 				 */
 				foreach(lc, rte->funcexprs)
 				{
@@ -2385,8 +2393,8 @@ get_rte_attribute_type(RangeTblEntry *rte, AttrNumber attnum,
 							att_tup = tupdesc->attrs[attnum - atts_done - 1];
 
 							/*
-							 * If dropped column, pretend it ain't there.  See notes
-							 * in scanRTEForColumn.
+							 * If dropped column, pretend it ain't there.  See
+							 * notes in scanRTEForColumn.
 							 */
 							if (att_tup->attisdropped)
 								ereport(ERROR,
@@ -2537,22 +2545,22 @@ get_rte_attribute_is_dropped(RangeTblEntry *rte, AttrNumber attnum)
 				Oid			funcrettype;
 				TupleDesc	tupdesc;
 				ListCell   *lc;
-				int         atts_done = 0;
+				int			atts_done = 0;
 
 				result = false;
 
 				/*
-				 * if ordinality, then a reference to the last column
-				 * in the name list must be referring to the
-				 * ordinality column, which is not dropped
+				 * if ordinality, then a reference to the last column in the
+				 * name list must be referring to the ordinality column, which
+				 * is not dropped
 				 */
 				if (rte->funcordinality
 					&& attnum == list_length(rte->eref->colnames))
 					break;
 
 				/*
-				 * Loop over funcs until we find the one that covers
-				 * the requested column.
+				 * Loop over funcs until we find the one that covers the
+				 * requested column.
 				 */
 				foreach(lc, rte->funcexprs)
 				{

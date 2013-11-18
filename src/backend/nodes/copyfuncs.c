@@ -510,8 +510,8 @@ _copyFunctionScan(const FunctionScan *from)
 	COPY_SCALAR_FIELD(funcordinality);
 
 	/*
-	 * copy the param bitmap list by shallow-copying the list
-	 * structure, then replacing the values with copies
+	 * copy the param bitmap list by shallow-copying the list structure, then
+	 * replacing the values with copies
 	 */
 	newnode->funcparams = list_copy(from->funcparams);
 	foreach(lc, newnode->funcparams)

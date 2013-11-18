@@ -3035,9 +3035,10 @@ raw_expression_tree_walker(Node *node,
 				if (walker(fcall->over, context))
 					return true;
 				/* function name is deemed uninteresting */
+
 				/*
-				 * RangeFunction doesn't recurse into coldeflist
-				 * so we don't either
+				 * RangeFunction doesn't recurse into coldeflist so we don't
+				 * either
 				 */
 			}
 			break;

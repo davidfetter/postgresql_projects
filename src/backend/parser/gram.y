@@ -9644,10 +9644,9 @@ from_list:
 			| from_list ',' table_ref				{ $$ = lappend($1, $3); }
 		;
 
-
-opt_ordinality: WITH_ORDINALITY                     { $$ = true; }
-                | /*EMPTY*/                         { $$ = false; }
-        ;
+opt_ordinality: WITH_ORDINALITY						{ $$ = true; }
+			| /*EMPTY*/								{ $$ = false; }
+		;
 
 /*
  * table_ref is where an alias clause can be attached.
@@ -9776,7 +9775,7 @@ func_table_ref: func_table_single opt_ordinality func_alias_clause
 
 					$$ = (Node *) n;
 				}
-            | TABLE '(' func_table_list ')' opt_ordinality func_alias_clause
+			| TABLE '(' func_table_list ')' opt_ordinality func_alias_clause
 				{
 					RangeFunction *n = makeNode(RangeFunction);
 					n->ordinality = $5;
@@ -9788,7 +9787,7 @@ func_table_ref: func_table_single opt_ordinality func_alias_clause
 
 					$$ = (Node *) n;
 				}
-        ;
+		;
 
 /*
  * It may seem silly to separate joined_table from table_ref, but there is
@@ -10028,8 +10027,9 @@ relation_expr_opt_alias: relation_expr					%prec UMINUS
 				}
 		;
 
-func_table_list: func_table_def                      { $$ = $1; }
-               | func_table_list ',' func_table_def  { $$ = list_concat($1, $3); }
+func_table_list: func_table_def						{ $$ = $1; }
+			| func_table_list ',' func_table_def	{ $$ = list_concat($1, $3); }
+		;
 
 func_table_def: func_table_single opt_col_def_list
 			{
@@ -10063,12 +10063,12 @@ func_table_def: func_table_single opt_col_def_list
 				}
 				$$ = $1;
 			}
+		;
 
 /*
  * All table function calls in FROM come through here so that we can do the
  * expansion of unnest().
  */
-
 func_table_single: func_expr_windowless
 			{
 				/*----------
@@ -10095,13 +10095,13 @@ func_table_single: func_expr_windowless
 					FuncCall *fc = (FuncCall *) $1;
 					List	 *funccalls = NIL;
 					ListCell *lc;
-					
+
 					if (fc->agg_order != NIL || fc->func_variadic || fc->agg_star || fc->agg_distinct)
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("invalid syntax for unnest()"),
 								 parser_errposition(@1)));
-					
+
 					foreach(lc, fc->args)
 					{
 						funccalls = lappend(funccalls,

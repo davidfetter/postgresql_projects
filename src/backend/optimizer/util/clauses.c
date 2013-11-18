@@ -4764,7 +4764,7 @@ inline_set_returning_function(PlannerInfo *root, RangeTblEntry *rte)
 	 */
 	if (fexpr->funcresulttype == RECORDOID &&
 		get_func_result_type(func_oid, NULL, NULL) == TYPEFUNC_RECORD &&
-		!tlist_matches_coltypelist(querytree->targetList, fexpr->funccoltypes))
+	  !tlist_matches_coltypelist(querytree->targetList, fexpr->funccoltypes))
 		goto fail;
 
 	/*

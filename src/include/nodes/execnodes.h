@@ -1409,12 +1409,13 @@ typedef struct FunctionScanState
 {
 	ScanState	ss;				/* its first field is NodeTag */
 	int			eflags;
-	bool        ordinality;
+	bool		ordinality;
 	bool		simple;
-	int64       ordinal;
+	int64		ordinal;
 	TupleDesc	scan_tupdesc;
 	int			nfuncs;
-	struct FunctionScanPerFuncState *funcstates; /* array of length nfuncs */
+	struct FunctionScanPerFuncState *funcstates;		/* array of length
+														 * nfuncs */
 } FunctionScanState;
 
 /* ----------------
