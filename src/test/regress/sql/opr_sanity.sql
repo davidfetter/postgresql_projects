@@ -575,7 +575,8 @@ WHERE aggfnoid = 0
    OR CASE WHEN aggisordsetfunc
            THEN aggtransfn <> 0 OR aggfinalfn = 0
            ELSE aggtransfn = 0 OR aggtranstype = 0
-      END;
+      END
+   OR aggtransspace < 0;
 
 -- Make sure the matching pg_proc entry is sensible, too.
 

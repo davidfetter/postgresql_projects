@@ -1551,6 +1551,7 @@ dumpTableData_insert(Archive *fout, void *dcontext)
 	TableInfo  *tbinfo = tdinfo->tdtable;
 	const char *classname = tbinfo->dobj.name;
 	PQExpBuffer q = createPQExpBuffer();
+	PQExpBuffer insertStmt = NULL;
 	PGresult   *res;
 	int			tuple;
 	int			nfields;
@@ -1592,34 +1593,57 @@ dumpTableData_insert(Archive *fout, void *dcontext)
 		nfields = PQnfields(res);
 		for (tuple = 0; tuple < PQntuples(res); tuple++)
 		{
-			archprintf(fout, "INSERT INTO %s ", fmtId(classname));
-			if (nfields == 0)
+			/*
+			 * First time through, we build as much of the INSERT statement as
+			 * possible in "insertStmt", which we can then just print for each
+			 * line. If the table happens to have zero columns then this will
+			 * be a complete statement, otherwise it will end in "VALUES(" and
+			 * be ready to have the row's column values appended.
+			 */
+			if (insertStmt == NULL)
 			{
+				insertStmt = createPQExpBuffer();
+				appendPQExpBuffer(insertStmt, "INSERT INTO %s ",
+								  fmtId(classname));
+
 				/* corner case for zero-column table */
-				archprintf(fout, "DEFAULT VALUES;\n");
-				continue;
-			}
-			if (column_inserts)
-			{
-				resetPQExpBuffer(q);
-				appendPQExpBuffer(q, "(");
-				for (field = 0; field < nfields; field++)
+				if (nfields == 0)
 				{
-					if (field > 0)
-						appendPQExpBuffer(q, ", ");
-					appendPQExpBufferStr(q, fmtId(PQfname(res, field)));
+					appendPQExpBufferStr(insertStmt, "DEFAULT VALUES;\n");
 				}
-				appendPQExpBuffer(q, ") ");
-				archputs(q->data, fout);
+				else
+				{
+					/* append the list of column names if required */
+					if (column_inserts)
+					{
+						appendPQExpBufferStr(insertStmt, "(");
+						for (field = 0; field < nfields; field++)
+						{
+							if (field > 0)
+								appendPQExpBufferStr(insertStmt, ", ");
+							appendPQExpBufferStr(insertStmt,
+												 fmtId(PQfname(res, field)));
+						}
+						appendPQExpBufferStr(insertStmt, ") ");
+					}
+
+					appendPQExpBufferStr(insertStmt, "VALUES (");
+				}
 			}
-			archprintf(fout, "VALUES (");
+
+			archputs(insertStmt->data, fout);
+
+			/* if it is zero-column table then we're done */
+			if (nfields == 0)
+				continue;
+
 			for (field = 0; field < nfields; field++)
 			{
 				if (field > 0)
-					archprintf(fout, ", ");
+					archputs(", ", fout);
 				if (PQgetisnull(res, tuple, field))
 				{
-					archprintf(fout, "NULL");
+					archputs("NULL", fout);
 					continue;
 				}
 
@@ -1648,7 +1672,7 @@ dumpTableData_insert(Archive *fout, void *dcontext)
 							const char *s = PQgetvalue(res, tuple, field);
 
 							if (strspn(s, "0123456789 +-eE.") == strlen(s))
-								archprintf(fout, "%s", s);
+								archputs(s, fout);
 							else
 								archprintf(fout, "'%s'", s);
 						}
@@ -1662,9 +1686,9 @@ dumpTableData_insert(Archive *fout, void *dcontext)
 
 					case BOOLOID:
 						if (strcmp(PQgetvalue(res, tuple, field), "t") == 0)
-							archprintf(fout, "true");
+							archputs("true", fout);
 						else
-							archprintf(fout, "false");
+							archputs("false", fout);
 						break;
 
 					default:
@@ -1677,7 +1701,7 @@ dumpTableData_insert(Archive *fout, void *dcontext)
 						break;
 				}
 			}
-			archprintf(fout, ");\n");
+			archputs(");\n", fout);
 		}
 
 		if (PQntuples(res) <= 0)
@@ -1688,11 +1712,14 @@ dumpTableData_insert(Archive *fout, void *dcontext)
 		PQclear(res);
 	}
 
-	archprintf(fout, "\n\n");
+	archputs("\n\n", fout);
 
 	ExecuteSqlStatement(fout, "CLOSE _pg_dump_cursor");
 
 	destroyPQExpBuffer(q);
+	if (insertStmt != NULL)
+		destroyPQExpBuffer(insertStmt);
+
 	return 1;
 }
 
@@ -11514,6 +11541,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	int			i_hypothetical;
 	int			i_isstrict;
 	int			i_aggtranstype;
+	int			i_aggtransspace;
 	int			i_agginitval;
 	int			i_convertok;
 	const char *aggtransfn;
@@ -11521,6 +11549,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	const char *aggsortop;
 	const char *aggtranssortop;
 	const char *aggtranstype;
+	const char *aggtransspace;
 	const char *agginitval;
 	bool        hypothetical;
 	bool        isstrict;
@@ -11549,7 +11578,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "aggtranssortop::pg_catalog.regoperator, "
 						  "(aggordnargs = -2) as hypothetical, "
 						  "p.proisstrict as isstrict, "
-						  "agginitval, "
+						  "aggtransspace, agginitval, "
 						  "'t'::boolean AS convertok, "
 						  "pg_catalog.pg_get_aggregate_arguments(p.oid) AS funcargs, "
 						  "pg_catalog.pg_get_aggregate_identity_arguments(p.oid) AS funciargs "
@@ -11566,7 +11595,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "0 as aggtranssortop, "
 						  "false as hypothetical, "
 						  "false as isstrict, "
-						  "agginitval, "
+						  "0 AS aggtransspace, agginitval, "
 						  "'t'::boolean AS convertok, "
 						  "pg_catalog.pg_get_function_arguments(p.oid) AS funcargs, "
 						  "pg_catalog.pg_get_function_identity_arguments(p.oid) AS funciargs "
@@ -11583,7 +11612,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "0 as aggtranssortop, "
 						  "false as hypothetical, "
 						  "false as isstrict, "
-						  "agginitval, "
+						  "0 AS aggtransspace, agginitval, "
 						  "'t'::boolean AS convertok "
 						  "FROM pg_catalog.pg_aggregate a, pg_catalog.pg_proc p "
 						  "WHERE a.aggfnoid = p.oid "
@@ -11598,7 +11627,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "0 as aggtranssortop, "
 						  "'f'::boolean as hypothetical, "
 						  "'f'::boolean as isstrict, "
-						  "agginitval, "
+						  "0 AS aggtransspace, agginitval, "
 						  "'t'::boolean AS convertok "
 					  "FROM pg_catalog.pg_aggregate a, pg_catalog.pg_proc p "
 						  "WHERE a.aggfnoid = p.oid "
@@ -11613,7 +11642,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "0 as aggtranssortop, "
 						  "'f'::boolean as hypothetical, "
 						  "'f'::boolean as isstrict, "
-						  "agginitval, "
+						  "0 AS aggtransspace, agginitval, "
 						  "'t'::boolean AS convertok "
 						  "FROM pg_aggregate "
 						  "WHERE oid = '%u'::oid",
@@ -11628,7 +11657,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "0 as aggtranssortop, "
 						  "'f'::boolean as hypothetical, "
 						  "'f'::boolean as isstrict, "
-						  "agginitval1 AS agginitval, "
+						  "0 AS aggtransspace, agginitval1 AS agginitval, "
 						  "(aggtransfn2 = 0 and aggtranstype2 = 0 and agginitval2 is null) AS convertok "
 						  "FROM pg_aggregate "
 						  "WHERE oid = '%u'::oid",
@@ -11644,6 +11673,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	i_hypothetical = PQfnumber(res, "hypothetical");
 	i_isstrict = PQfnumber(res, "isstrict");
 	i_aggtranstype = PQfnumber(res, "aggtranstype");
+	i_aggtransspace = PQfnumber(res, "aggtransspace");
 	i_agginitval = PQfnumber(res, "agginitval");
 	i_convertok = PQfnumber(res, "convertok");
 
@@ -11654,6 +11684,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	hypothetical = (PQgetvalue(res, 0, i_hypothetical)[0] == 't');
 	isstrict = (PQgetvalue(res, 0, i_isstrict)[0] == 't');
 	aggtranstype = PQgetvalue(res, 0, i_aggtranstype);
+	aggtransspace = PQgetvalue(res, 0, i_aggtransspace);
 	agginitval = PQgetvalue(res, 0, i_agginitval);
 	convertok = (PQgetvalue(res, 0, i_convertok)[0] == 't');
 
@@ -11738,6 +11769,12 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 		appendPQExpBuffer(details, "%s\n    FINALFUNC = %s",
 						  (has_comma ? "" : ","),
 						  aggfinalfn);
+	}
+
+	if (strcmp(aggtransspace, "0") != 0)
+	{
+		appendPQExpBuffer(details, ",\n    SSPACE = %s",
+						  aggtransspace);
 	}
 
 	if (hypothetical)

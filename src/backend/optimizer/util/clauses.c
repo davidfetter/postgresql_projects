@@ -462,6 +462,7 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		Oid			aggtransfn;
 		Oid			aggfinalfn;
 		Oid			aggtranstype;
+		int32		aggtransspace;
 		QualCost	argcosts;
 		Oid		   *inputTypes;
 		int			numArguments;
@@ -478,6 +479,7 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		aggtransfn = aggform->aggtransfn;
 		aggfinalfn = aggform->aggfinalfn;
 		aggtranstype = aggform->aggtranstype;
+		aggtransspace = aggform->aggtransspace;
 		ReleaseSysCache(aggTuple);
 
 		/* count it */
@@ -554,20 +556,29 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 			 */
 			if (OidIsValid(aggtranstype) && !get_typbyval(aggtranstype))
 			{
-				int32		aggtranstypmod;
 				int32		avgwidth;
 
-				/*
-				 * If transition state is of same type as first input, assume it's
-				 * the same typmod (same width) as well.  This works for cases
-				 * like MAX/MIN and is probably somewhat reasonable otherwise.
-				 */
-				if (numArguments > 0 && aggtranstype == inputTypes[0])
-					aggtranstypmod = exprTypmod((Node *) linitial(aggref->args));
+				/* Use average width if aggregate definition gave one */
+				if (aggtransspace > 0)
+					avgwidth = aggtransspace;
 				else
-					aggtranstypmod = -1;
+				{
+					/*
+					 * If transition state is of same type as first input, assume
+					 * it's the same typmod (same width) as well.  This works for
+					 * cases like MAX/MIN and is probably somewhat reasonable
+					 * otherwise.
+					 */
+					int32		aggtranstypmod;
 
-				avgwidth = get_typavgwidth(aggtranstype, aggtranstypmod);
+					if (numArguments > 0 && aggtranstype == inputTypes[0])
+						aggtranstypmod = exprTypmod((Node *) linitial(aggref->args));
+					else
+						aggtranstypmod = -1;
+
+					avgwidth = get_typavgwidth(aggtranstype, aggtranstypmod);
+				}
+
 				avgwidth = MAXALIGN(avgwidth);
 
 				costs->transitionSpace += avgwidth + 2 * sizeof(void *);
@@ -575,14 +586,18 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 			else if (aggtranstype == INTERNALOID)
 			{
 				/*
-				 * INTERNAL transition type is a special case: although INTERNAL
-				 * is pass-by-value, it's almost certainly being used as a pointer
-				 * to some large data structure.  We assume usage of
-				 * ALLOCSET_DEFAULT_INITSIZE, which is a good guess if the data is
-				 * being kept in a private memory context, as is done by
-				 * array_agg() for instance.
+				 * INTERNAL transition type is a special case: although
+				 * INTERNAL is pass-by-value, it's almost certainly being used
+				 * as a pointer to some large data structure.  The aggregate
+				 * definition can provide an estimate of the size.  If it
+				 * doesn't, then we assume ALLOCSET_DEFAULT_INITSIZE, which is
+				 * a good guess if the data is being kept in a private memory
+				 * context, as is done by array_agg() for instance.
 				 */
-				costs->transitionSpace += ALLOCSET_DEFAULT_INITSIZE;
+				if (aggtransspace > 0)
+					costs->transitionSpace += aggtransspace;
+				else
+					costs->transitionSpace += ALLOCSET_DEFAULT_INITSIZE;
 			}
 
 			pfree(inputTypes);
