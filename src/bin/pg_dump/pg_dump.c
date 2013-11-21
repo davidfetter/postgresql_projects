@@ -11770,10 +11770,10 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	}
 
 	if (hypothetical)
-		appendPQExpBuffer(details, ",\n    HYPOTHETICAL");
+		appendPQExpBufferStr(details, ",\n    HYPOTHETICAL");
 
 	if (isstrict)
-		appendPQExpBuffer(details, ",\n    STRICT");
+		appendPQExpBufferStr(details, ",\n    STRICT");
 
 	if (!PQgetisnull(res, 0, i_agginitval))
 	{
