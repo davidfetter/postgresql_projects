@@ -4530,6 +4530,7 @@ evaluate_expr(Expr *expr, Oid result_type, int32 result_typmod,
 Query *
 inline_set_returning_function(PlannerInfo *root, RangeTblEntry *rte)
 {
+	RangeTblFunction *rtfunc;
 	FuncExpr   *fexpr;
 	Oid			func_oid;
 	HeapTuple	func_tuple;
@@ -4558,14 +4559,18 @@ inline_set_returning_function(PlannerInfo *root, RangeTblEntry *rte)
 	 */
 	check_stack_depth();
 
-	/* Fail if the caller wanted ORDINALITY - we don't implement that here. */
+	/* Fail if the RTE has ORDINALITY - we don't implement that here. */
 	if (rte->funcordinality)
 		return NULL;
 
-	/* Fail if FROM item isn't a simple FuncExpr */
-	fexpr = (FuncExpr *) rte->funcexpr;
-	if (fexpr == NULL || !IsA(fexpr, FuncExpr))
+	/* Fail if RTE isn't a single, simple FuncExpr */
+	if (list_length(rte->functions) != 1)
 		return NULL;
+	rtfunc = (RangeTblFunction *) linitial(rte->functions);
+
+	if (!IsA(rtfunc->funcexpr, FuncExpr))
+		return NULL;
+	fexpr = (FuncExpr *) rtfunc->funcexpr;
 
 	func_oid = fexpr->funcid;
 
@@ -4755,7 +4760,8 @@ inline_set_returning_function(PlannerInfo *root, RangeTblEntry *rte)
 	 */
 	if (fexpr->funcresulttype == RECORDOID &&
 		get_func_result_type(func_oid, NULL, NULL) == TYPEFUNC_RECORD &&
-		!tlist_matches_coltypelist(querytree->targetList, rte->funccoltypes))
+		!tlist_matches_coltypelist(querytree->targetList,
+								   rtfunc->funccoltypes))
 		goto fail;
 
 	/*

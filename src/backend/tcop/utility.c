@@ -110,7 +110,7 @@ CheckRelationOwnership(RangeVar *rel, bool noCatalogs)
 	if (noCatalogs)
 	{
 		if (!allowSystemTableMods &&
-			IsSystemClass((Form_pg_class) GETSTRUCT(tuple)))
+			IsSystemClass(relOid, (Form_pg_class) GETSTRUCT(tuple)))
 			ereport(ERROR,
 					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 					 errmsg("permission denied: \"%s\" is a system catalog",
@@ -754,7 +754,7 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_ConstraintsSetStmt:
-			RequireTransactionChain(isTopLevel, "SET CONSTRAINTS");
+			WarnNoTransactionChain(isTopLevel, "SET CONSTRAINTS");
 			AfterTriggerSetState((ConstraintsSetStmt *) parsetree);
 			break;
 

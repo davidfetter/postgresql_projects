@@ -178,8 +178,10 @@ lazy_vacuum_rel(Relation onerel, VacuumStmt *vacstmt,
 	int			usecs;
 	double		read_rate,
 				write_rate;
-	bool		scan_all;
-	TransactionId freezeTableLimit;
+	bool		scan_all;		/* should we scan all pages? */
+	bool		scanned_all;	/* did we actually scan all pages? */
+	TransactionId xidFullScanLimit;
+	MultiXactId mxactFullScanLimit;
 	BlockNumber new_rel_pages;
 	double		new_rel_tuples;
 	BlockNumber new_rel_allvisible;
@@ -202,10 +204,19 @@ lazy_vacuum_rel(Relation onerel, VacuumStmt *vacstmt,
 
 	vacuum_set_xid_limits(vacstmt->freeze_min_age, vacstmt->freeze_table_age,
 						  onerel->rd_rel->relisshared,
-						  &OldestXmin, &FreezeLimit, &freezeTableLimit,
-						  &MultiXactCutoff);
+						  &OldestXmin, &FreezeLimit, &xidFullScanLimit,
+						  &MultiXactCutoff, &mxactFullScanLimit);
+
+	/*
+	 * We request a full scan if either the table's frozen Xid is now older
+	 * than or equal to the requested Xid full-table scan limit; or if the
+	 * table's minimum MultiXactId is older than or equal to the requested mxid
+	 * full-table scan limit.
+	 */
 	scan_all = TransactionIdPrecedesOrEquals(onerel->rd_rel->relfrozenxid,
-											 freezeTableLimit);
+											 xidFullScanLimit);
+	scan_all |= MultiXactIdPrecedesOrEquals(onerel->rd_rel->relminmxid,
+											mxactFullScanLimit);
 
 	vacrelstats = (LVRelStats *) palloc0(sizeof(LVRelStats));
 
@@ -224,6 +235,21 @@ lazy_vacuum_rel(Relation onerel, VacuumStmt *vacstmt,
 
 	/* Done with indexes */
 	vac_close_indexes(nindexes, Irel, NoLock);
+
+	/*
+	 * Compute whether we actually scanned the whole relation. If we did, we
+	 * can adjust relfrozenxid and relminmxid.
+	 *
+	 * NB: We need to check this before truncating the relation, because that
+	 * will change ->rel_pages.
+	 */
+	if (vacrelstats->scanned_pages < vacrelstats->rel_pages)
+	{
+		Assert(!scan_all);
+		scanned_all = false;
+	}
+	else
+		scanned_all = true;
 
 	/*
 	 * Optionally truncate the relation.
@@ -254,8 +280,8 @@ lazy_vacuum_rel(Relation onerel, VacuumStmt *vacstmt,
 	 * is all-visible we'd definitely like to know that.  But clamp the value
 	 * to be not more than what we're setting relpages to.
 	 *
-	 * Also, don't change relfrozenxid if we skipped any pages, since then we
-	 * don't know for certain that all tuples have a newer xmin.
+	 * Also, don't change relfrozenxid/relminmxid if we skipped any pages,
+	 * since then we don't know for certain that all tuples have a newer xmin.
 	 */
 	new_rel_pages = vacrelstats->rel_pages;
 	new_rel_tuples = vacrelstats->new_rel_tuples;
@@ -269,13 +295,8 @@ lazy_vacuum_rel(Relation onerel, VacuumStmt *vacstmt,
 	if (new_rel_allvisible > new_rel_pages)
 		new_rel_allvisible = new_rel_pages;
 
-	new_frozen_xid = FreezeLimit;
-	if (vacrelstats->scanned_pages < vacrelstats->rel_pages)
-		new_frozen_xid = InvalidTransactionId;
-
-	new_min_multi = MultiXactCutoff;
-	if (vacrelstats->scanned_pages < vacrelstats->rel_pages)
-		new_min_multi = InvalidMultiXactId;
+	new_frozen_xid = scanned_all ? FreezeLimit : InvalidTransactionId;
+	new_min_multi = scanned_all ? MultiXactCutoff : InvalidMultiXactId;
 
 	vac_update_relstats(onerel,
 						new_rel_pages,

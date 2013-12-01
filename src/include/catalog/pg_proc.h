@@ -1973,6 +1973,8 @@ DATA(insert OID = 2232 (  pg_get_function_identity_arguments	   PGNSP PGUID 12 1
 DESCR("identity argument list of a function");
 DATA(insert OID = 2165 (  pg_get_function_result	   PGNSP PGUID 12 1 0 0 0 f f f f t f s 1 0 25 "26" _null_ _null_ _null_ _null_ pg_get_function_result _null_ _null_ _null_ ));
 DESCR("result type of a function");
+DATA(insert OID = 3808 (  pg_get_function_arg_default   PGNSP PGUID 12 1 0 0 0 f f f f t f s 2 0 25 "26 23" _null_ _null_ _null_ _null_ pg_get_function_arg_default _null_ _null_ _null_ ));
+DESCR("function argument default");
 DATA(insert OID = 3179 (  pg_get_aggregate_arguments    PGNSP PGUID 12 1 0 0 0 f f f f t f s 1 0 25 "26" _null_ _null_ _null_ _null_ pg_get_aggregate_arguments _null_ _null_ _null_ ));
 DESCR("argument list of an aggregate function");
 DATA(insert OID = 3180 (  pg_get_aggregate_identity_arguments	   PGNSP PGUID 12 1 0 0 0 f f f f t f s 1 0 25 "26" _null_ _null_ _null_ _null_ pg_get_aggregate_identity_arguments _null_ _null_ _null_ ));

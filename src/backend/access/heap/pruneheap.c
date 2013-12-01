@@ -479,10 +479,9 @@ heap_prune_chain(Relation relation, Buffer buffer, OffsetNumber rootoffnum,
 				break;
 
 			case HEAPTUPLE_DELETE_IN_PROGRESS:
-
 				/*
-				 * This tuple may soon become DEAD.  Update the hint field so
-				 * that the page is reconsidered for pruning in future.
+				 * This tuple may soon become DEAD.  Update the hint field
+				 * so that the page is reconsidered for pruning in future.
 				 */
 				heap_prune_record_prunable(prstate,
 										   HeapTupleHeaderGetUpdateXid(htup));

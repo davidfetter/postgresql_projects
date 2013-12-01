@@ -1447,6 +1447,9 @@ exprLocation(const Node *expr)
 		case T_TypeName:
 			loc = ((const TypeName *) expr)->location;
 			break;
+		case T_ColumnDef:
+			loc = ((const ColumnDef *) expr)->location;
+			break;
 		case T_Constraint:
 			loc = ((const Constraint *) expr)->location;
 			break;
@@ -1906,6 +1909,8 @@ expression_tree_walker(Node *node,
 			break;
 		case T_PlaceHolderInfo:
 			return walker(((PlaceHolderInfo *) node)->ph_var, context);
+		case T_RangeTblFunction:
+			return walker(((RangeTblFunction *) node)->funcexpr, context);
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(node));
@@ -2005,7 +2010,7 @@ range_table_walker(List *rtable,
 						return true;
 				break;
 			case RTE_FUNCTION:
-				if (walker(rte->funcexpr, context))
+				if (walker(rte->functions, context))
 					return true;
 				break;
 			case RTE_VALUES:
@@ -2622,6 +2627,17 @@ expression_tree_mutator(Node *node,
 				return (Node *) newnode;
 			}
 			break;
+		case T_RangeTblFunction:
+			{
+				RangeTblFunction *rtfunc = (RangeTblFunction *) node;
+				RangeTblFunction *newnode;
+
+				FLATCOPY(newnode, rtfunc, RangeTblFunction);
+				MUTATE(newnode->funcexpr, rtfunc->funcexpr, Node *);
+				/* Assume we need not copy the coldef info lists */
+				return (Node *) newnode;
+			}
+			break;
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(node));
@@ -2732,7 +2748,7 @@ range_table_mutator(List *rtable,
 				}
 				break;
 			case RTE_FUNCTION:
-				MUTATE(newrte->funcexpr, rte->funcexpr, Node *);
+				MUTATE(newrte->functions, rte->functions, List *);
 				break;
 			case RTE_VALUES:
 				MUTATE(newrte->values_lists, rte->values_lists, List *);
@@ -3120,9 +3136,11 @@ raw_expression_tree_walker(Node *node,
 			{
 				RangeFunction *rf = (RangeFunction *) node;
 
-				if (walker(rf->funccallnode, context))
+				if (walker(rf->functions, context))
 					return true;
 				if (walker(rf->alias, context))
+					return true;
+				if (walker(rf->coldeflist, context))
 					return true;
 			}
 			break;

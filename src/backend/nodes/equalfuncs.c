@@ -2144,9 +2144,10 @@ _equalRangeSubselect(const RangeSubselect *a, const RangeSubselect *b)
 static bool
 _equalRangeFunction(const RangeFunction *a, const RangeFunction *b)
 {
-	COMPARE_SCALAR_FIELD(ordinality);
 	COMPARE_SCALAR_FIELD(lateral);
-	COMPARE_NODE_FIELD(funccallnode);
+	COMPARE_SCALAR_FIELD(ordinality);
+	COMPARE_SCALAR_FIELD(is_table);
+	COMPARE_NODE_FIELD(functions);
 	COMPARE_NODE_FIELD(alias);
 	COMPARE_NODE_FIELD(coldeflist);
 
@@ -2183,6 +2184,7 @@ _equalColumnDef(const ColumnDef *a, const ColumnDef *b)
 	COMPARE_SCALAR_FIELD(collOid);
 	COMPARE_NODE_FIELD(constraints);
 	COMPARE_NODE_FIELD(fdwoptions);
+	COMPARE_LOCATION_FIELD(location);
 
 	return true;
 }
@@ -2249,10 +2251,7 @@ _equalRangeTblEntry(const RangeTblEntry *a, const RangeTblEntry *b)
 	COMPARE_SCALAR_FIELD(security_barrier);
 	COMPARE_SCALAR_FIELD(jointype);
 	COMPARE_NODE_FIELD(joinaliasvars);
-	COMPARE_NODE_FIELD(funcexpr);
-	COMPARE_NODE_FIELD(funccoltypes);
-	COMPARE_NODE_FIELD(funccoltypmods);
-	COMPARE_NODE_FIELD(funccolcollations);
+	COMPARE_NODE_FIELD(functions);
 	COMPARE_SCALAR_FIELD(funcordinality);
 	COMPARE_NODE_FIELD(values_lists);
 	COMPARE_NODE_FIELD(values_collations);
@@ -2271,6 +2270,20 @@ _equalRangeTblEntry(const RangeTblEntry *a, const RangeTblEntry *b)
 	COMPARE_SCALAR_FIELD(checkAsUser);
 	COMPARE_BITMAPSET_FIELD(selectedCols);
 	COMPARE_BITMAPSET_FIELD(modifiedCols);
+
+	return true;
+}
+
+static bool
+_equalRangeTblFunction(const RangeTblFunction *a, const RangeTblFunction *b)
+{
+	COMPARE_NODE_FIELD(funcexpr);
+	COMPARE_SCALAR_FIELD(funccolcount);
+	COMPARE_NODE_FIELD(funccolnames);
+	COMPARE_NODE_FIELD(funccoltypes);
+	COMPARE_NODE_FIELD(funccoltypmods);
+	COMPARE_NODE_FIELD(funccolcollations);
+	COMPARE_BITMAPSET_FIELD(funcparams);
 
 	return true;
 }
@@ -3021,6 +3034,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_RangeTblEntry:
 			retval = _equalRangeTblEntry(a, b);
+			break;
+		case T_RangeTblFunction:
+			retval = _equalRangeTblFunction(a, b);
 			break;
 		case T_WithCheckOption:
 			retval = _equalWithCheckOption(a, b);

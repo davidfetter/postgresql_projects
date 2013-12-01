@@ -6333,6 +6333,14 @@ StartupXLOG(void)
 	XLogCtl->ckptXid = checkPoint.nextXid;
 
 	/*
+	 * Startup MultiXact.  We need to do this early for two reasons: one
+	 * is that we might try to access multixacts when we do tuple freezing,
+	 * and the other is we need its state initialized because we attempt
+	 * truncation during restartpoints.
+	 */
+	StartupMultiXact();
+
+	/*
 	 * Initialize unlogged LSN. On a clean shutdown, it's restored from the
 	 * control file. On recovery, all unlogged relations are blown away, so
 	 * the unlogged LSN counter can be reset too.
@@ -6532,8 +6540,9 @@ StartupXLOG(void)
 			ProcArrayInitRecovery(ShmemVariableCache->nextXid);
 
 			/*
-			 * Startup commit log and subtrans only. Other SLRUs are not
-			 * maintained during recovery and need not be started yet.
+			 * Startup commit log and subtrans only. MultiXact has already
+			 * been started up and other SLRUs are not maintained during
+			 * recovery and need not be started yet.
 			 */
 			StartupCLOG();
 			StartupSUBTRANS(oldestActiveXID);
@@ -7197,8 +7206,8 @@ StartupXLOG(void)
 	/*
 	 * Perform end of recovery actions for any SLRUs that need it.
 	 */
-	StartupMultiXact();
 	TrimCLOG();
+	TrimMultiXact();
 
 	/* Reload shared-memory state for prepared transactions */
 	RecoverPreparedTransactions();
@@ -7367,13 +7376,13 @@ RecoveryInProgress(void)
 		return false;
 	else
 	{
-		/* use volatile pointer to prevent code rearrangement */
+		/*
+		 * use volatile pointer to make sure we make a fresh read of the
+		 * shared variable.
+		 */
 		volatile XLogCtlData *xlogctl = XLogCtl;
 
-		/* spinlock is essential on machines with weak memory ordering! */
-		SpinLockAcquire(&xlogctl->info_lck);
 		LocalRecoveryInProgress = xlogctl->SharedRecoveryInProgress;
-		SpinLockRelease(&xlogctl->info_lck);
 
 		/*
 		 * Initialize TimeLineID and RedoRecPtr when we discover that recovery
@@ -7382,7 +7391,20 @@ RecoveryInProgress(void)
 		 * this, see also LocalSetXLogInsertAllowed.)
 		 */
 		if (!LocalRecoveryInProgress)
+		{
+			/*
+			 * If we just exited recovery, make sure we read TimeLineID and
+			 * RedoRecPtr after SharedRecoveryInProgress (for machines with
+			 * weak memory ordering).
+			 */
+			pg_memory_barrier();
 			InitXLOGAccess();
+		}
+		/*
+		 * Note: We don't need a memory barrier when we're still in recovery.
+		 * We might exit recovery immediately after return, so the caller
+		 * can't rely on 'true' meaning that we're still in recovery anyway.
+		 */
 
 		return LocalRecoveryInProgress;
 	}
@@ -8605,6 +8627,21 @@ CreateRestartPoint(int flags)
 		UpdateControlFile();
 	}
 	LWLockRelease(ControlFileLock);
+
+	/*
+	 * Due to an historical accident multixact truncations are not WAL-logged,
+	 * but just performed everytime the mxact horizon is increased. So, unless
+	 * we explicitly execute truncations on a standby it will never clean out
+	 * /pg_multixact which obviously is bad, both because it uses space and
+	 * because we can wrap around into pre-existing data...
+	 *
+	 * We can only do the truncation here, after the UpdateControlFile()
+	 * above, because we've now safely established a restart point, that
+	 * guarantees we will not need need to access those multis.
+	 *
+	 * It's probably worth improving this.
+	 */
+	TruncateMultiXact(lastCheckPoint.oldestMulti);
 
 	/*
 	 * Delete old log files (those no longer needed even for previous
