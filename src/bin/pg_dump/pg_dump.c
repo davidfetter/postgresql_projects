@@ -1448,7 +1448,7 @@ dumpTableData_copy(Archive *fout, void *dcontext)
 	}
 	else
 	{
-		appendPQExpBuffer(q, copy_binary ? "COPY %s %s TO stdout;" : "COPY %s %s TO stdout;" ,
+		appendPQExpBuffer(q, copy_binary ? "COPY %s %s TO stdout;" : "COPY BINARY %s %s TO stdout;" ,
 						  fmtQualifiedId(fout->remoteVersion,
 										 tbinfo->dobj.namespace->dobj.name,
 										 classname),
