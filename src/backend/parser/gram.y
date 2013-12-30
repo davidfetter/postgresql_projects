@@ -9632,6 +9632,7 @@ first_or_next: FIRST_P								{ $$ = 0; }
 
 group_clause:
 			GROUP_P BY expr_list					{ $$ = $3; }
+			| GROUP_P BY ROLLUP '(' expr_list ')'				{ $$ = $5; }
 			| /*EMPTY*/								{ $$ = NIL; }
 		;
 
