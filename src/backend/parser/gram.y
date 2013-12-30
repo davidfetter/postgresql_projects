@@ -340,7 +340,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				target_list opt_target_list insert_column_list set_target_list
 				set_clause_list set_clause multiple_set_clause
 				ctext_expr_list ctext_row def_list indirection opt_indirection
-				reloption_list group_clause TriggerFuncArgs select_limit
+				reloption_list group_clause rollup_clause TriggerFuncArgs select_limit
 				opt_select_limit opclass_item_list opclass_drop_list
 				opclass_purpose opt_opfamily transaction_mode_list_or_empty
 				OptTableFuncElementList TableFuncElementList opt_type_modifiers
@@ -584,7 +584,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 	RANGE READ REAL REASSIGN RECHECK RECURSIVE REF REFERENCES REFRESH REINDEX
 	RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA
-	RESET RESTART RESTRICT RETURNING RETURNS REVOKE RIGHT ROLE ROLLBACK
+	RESET RESTART RESTRICT RETURNING RETURNS REVOKE RIGHT ROLE ROLLBACK ROLLUP
 	ROW ROWS RULE
 
 	SAVEPOINT SCHEMA SCROLL SEARCH SECOND_P SECURITY SELECT SEQUENCE SEQUENCES
@@ -9329,7 +9329,7 @@ select_clause:
 simple_select:
 			SELECT opt_distinct opt_target_list
 			into_clause from_clause where_clause
-			group_clause having_clause window_clause
+			group_clause rollup_clause having_clause window_clause
 				{
 					SelectStmt *n = makeNode(SelectStmt);
 					n->distinctClause = $2;
@@ -9338,8 +9338,8 @@ simple_select:
 					n->fromClause = $5;
 					n->whereClause = $6;
 					n->groupClause = $7;
-					n->havingClause = $8;
-					n->windowClause = $9;
+					n->havingClause = $9;
+					n->windowClause = $10;
 					$$ = (Node *)n;
 				}
 			| values_clause							{ $$ = $1; }
@@ -9632,6 +9632,11 @@ first_or_next: FIRST_P								{ $$ = 0; }
 
 group_clause:
 			GROUP_P BY expr_list					{ $$ = $3; }
+			| /*EMPTY*/								{ $$ = NIL; }
+		;
+
+rollup_clause:
+			ROLLUP expr_list				{ $$ = $2; }
 			| /*EMPTY*/								{ $$ = NIL; }
 		;
 
@@ -13061,6 +13066,7 @@ reserved_keyword:
 			| PRIMARY
 			| REFERENCES
 			| RETURNING
+			| ROLLUP
 			| SELECT
 			| SESSION_USER
 			| SOME
