@@ -43,9 +43,6 @@ extern void debug_print_rel(PlannerInfo *root, RelOptInfo *rel);
  *	  routines to generate index paths
  */
 extern void create_index_paths(PlannerInfo *root, RelOptInfo *rel);
-extern List *generate_bitmap_or_paths(PlannerInfo *root, RelOptInfo *rel,
-						 List *clauses, List *other_clauses,
-						 bool restriction_only);
 extern bool relation_has_unique_index_for(PlannerInfo *root, RelOptInfo *rel,
 							  List *restrictlist,
 							  List *exprlist, List *oprlist);
@@ -60,12 +57,6 @@ extern Expr *adjust_rowcompare_for_index(RowCompareExpr *clause,
 							int indexcol,
 							List **indexcolnos,
 							bool *var_on_left_p);
-
-/*
- * orindxpath.c
- *	  additional routines for indexable OR clauses
- */
-extern bool create_or_index_quals(PlannerInfo *root, RelOptInfo *rel);
 
 /*
  * tidpath.h
