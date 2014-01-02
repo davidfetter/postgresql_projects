@@ -11520,6 +11520,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	int			i_aggtransfn;
 	int			i_aggfinalfn;
 	int			i_aggsortop;
+	int			i_hypothetical;
 	int			i_aggtranstype;
 	int			i_aggtransspace;
 	int			i_agginitval;
@@ -11527,6 +11528,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	const char *aggtransfn;
 	const char *aggfinalfn;
 	const char *aggsortop;
+	bool		hypothetical;
 	const char *aggtranstype;
 	const char *aggtransspace;
 	const char *agginitval;
@@ -11551,6 +11553,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 		appendPQExpBuffer(query, "SELECT aggtransfn, "
 						  "aggfinalfn, aggtranstype::pg_catalog.regtype, "
 						  "aggsortop::pg_catalog.regoperator, "
+						  "(aggkind = 'h') as hypothetical, "
 						  "aggtransspace, agginitval, "
 						  "'t'::boolean AS convertok, "
 						  "pg_catalog.pg_get_function_arguments(p.oid) AS funcargs, "
@@ -11565,6 +11568,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 		appendPQExpBuffer(query, "SELECT aggtransfn, "
 						  "aggfinalfn, aggtranstype::pg_catalog.regtype, "
 						  "aggsortop::pg_catalog.regoperator, "
+						  "false as hypothetical, "
 						  "0 AS aggtransspace, agginitval, "
 						  "'t'::boolean AS convertok, "
 						  "pg_catalog.pg_get_function_arguments(p.oid) AS funcargs, "
@@ -11579,6 +11583,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 		appendPQExpBuffer(query, "SELECT aggtransfn, "
 						  "aggfinalfn, aggtranstype::pg_catalog.regtype, "
 						  "aggsortop::pg_catalog.regoperator, "
+						  "false as hypothetical, "
 						  "0 AS aggtransspace, agginitval, "
 						  "'t'::boolean AS convertok "
 						  "FROM pg_catalog.pg_aggregate a, pg_catalog.pg_proc p "
@@ -11591,6 +11596,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 		appendPQExpBuffer(query, "SELECT aggtransfn, "
 						  "aggfinalfn, aggtranstype::pg_catalog.regtype, "
 						  "0 AS aggsortop, "
+						  "'f'::boolean as hypothetical, "
 						  "0 AS aggtransspace, agginitval, "
 						  "'t'::boolean AS convertok "
 					  "FROM pg_catalog.pg_aggregate a, pg_catalog.pg_proc p "
@@ -11603,6 +11609,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 		appendPQExpBuffer(query, "SELECT aggtransfn, aggfinalfn, "
 						  "format_type(aggtranstype, NULL) AS aggtranstype, "
 						  "0 AS aggsortop, "
+						  "'f'::boolean as hypothetical, "
 						  "0 AS aggtransspace, agginitval, "
 						  "'t'::boolean AS convertok "
 						  "FROM pg_aggregate "
@@ -11615,6 +11622,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  "aggfinalfn, "
 						  "(SELECT typname FROM pg_type WHERE oid = aggtranstype1) AS aggtranstype, "
 						  "0 AS aggsortop, "
+						  "'f'::boolean as hypothetical, "
 						  "0 AS aggtransspace, agginitval1 AS agginitval, "
 						  "(aggtransfn2 = 0 and aggtranstype2 = 0 and agginitval2 is null) AS convertok "
 						  "FROM pg_aggregate "
@@ -11627,6 +11635,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	i_aggtransfn = PQfnumber(res, "aggtransfn");
 	i_aggfinalfn = PQfnumber(res, "aggfinalfn");
 	i_aggsortop = PQfnumber(res, "aggsortop");
+	i_hypothetical = PQfnumber(res, "hypothetical");
 	i_aggtranstype = PQfnumber(res, "aggtranstype");
 	i_aggtransspace = PQfnumber(res, "aggtransspace");
 	i_agginitval = PQfnumber(res, "agginitval");
@@ -11635,6 +11644,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	aggtransfn = PQgetvalue(res, 0, i_aggtransfn);
 	aggfinalfn = PQgetvalue(res, 0, i_aggfinalfn);
 	aggsortop = PQgetvalue(res, 0, i_aggsortop);
+	hypothetical = (PQgetvalue(res, 0, i_hypothetical)[0] == 't');
 	aggtranstype = PQgetvalue(res, 0, i_aggtranstype);
 	aggtransspace = PQgetvalue(res, 0, i_aggtransspace);
 	agginitval = PQgetvalue(res, 0, i_agginitval);
@@ -11715,6 +11725,9 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 						  aggsortop);
 	}
 
+	if (hypothetical)
+		appendPQExpBufferStr(details, ",\n    HYPOTHETICAL");
+
 	/*
 	 * DROP must be fully qualified in case same name appears in pg_catalog
 	 */
@@ -11751,7 +11764,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	/*
 	 * Since there is no GRANT ON AGGREGATE syntax, we have to make the ACL
 	 * command look like a function's GRANT; in particular this affects the
-	 * syntax for zero-argument aggregates.
+	 * syntax for zero-argument aggregates and ordered-set aggregates.
 	 */
 	free(aggsig);
 	free(aggsig_tag);
@@ -14327,6 +14340,10 @@ dumpSequenceData(Archive *fout, TableDataInfo *tdinfo)
 	destroyPQExpBuffer(query);
 }
 
+/*
+ * dumpTrigger
+ *	  write the declaration of one user-defined table trigger
+ */
 static void
 dumpTrigger(Archive *fout, TriggerInfo *tginfo)
 {
@@ -14339,6 +14356,10 @@ dumpTrigger(Archive *fout, TriggerInfo *tginfo)
 	const char *p;
 	int			findx;
 
+	/*
+	 * we needn't check dobj.dump because TriggerInfo wouldn't have been
+	 * created in the first place for non-dumpable triggers
+	 */
 	if (dataOnly)
 		return;
 
@@ -14529,11 +14550,19 @@ dumpTrigger(Archive *fout, TriggerInfo *tginfo)
 	destroyPQExpBuffer(labelq);
 }
 
+/*
+ * dumpEventTrigger
+ *	  write the declaration of one user-defined event trigger
+ */
 static void
 dumpEventTrigger(Archive *fout, EventTriggerInfo *evtinfo)
 {
 	PQExpBuffer query;
 	PQExpBuffer labelq;
+
+	/* Skip if not to be dumped */
+	if (!evtinfo->dobj.dump || dataOnly)
+		return;
 
 	query = createPQExpBuffer();
 	labelq = createPQExpBuffer();
