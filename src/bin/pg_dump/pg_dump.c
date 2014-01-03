@@ -133,6 +133,7 @@ static const CatalogId nilCatalogId = {0, 0};
 
 /* flags for various command-line long options */
 static int	binary_upgrade = 0;
+static bool	copy_binary = false;
 static int	disable_dollar_quoting = 0;
 static int	dump_inserts = 0;
 static int	column_inserts = 0;
@@ -294,6 +295,7 @@ main(int argc, char **argv)
 	int			plainText = 0;
 	int			outputClean = 0;
 	int			outputCreateDB = 0;
+	bool		copyBinary = false;
 	bool		outputBlobs = false;
 	int			outputNoOwner = 0;
 	char	   *outputSuperuser = NULL;
@@ -311,6 +313,7 @@ main(int argc, char **argv)
 	static struct option long_options[] = {
 		{"data-only", no_argument, NULL, 'a'},
 		{"blobs", no_argument, NULL, 'b'},
+		{"copy-binary", no_argument, NULL, 'B'},
 		{"clean", no_argument, NULL, 'c'},
 		{"create", no_argument, NULL, 'C'},
 		{"dbname", required_argument, NULL, 'd'},
@@ -402,7 +405,7 @@ main(int argc, char **argv)
 		}
 	}
 
-	while ((c = getopt_long(argc, argv, "abcCd:E:f:F:h:ij:K:n:N:oOp:RsS:t:T:U:vwWxZ:",
+	while ((c = getopt_long(argc, argv, "abBcCd:E:f:F:h:ij:K:n:N:oOp:RsS:t:T:U:vwWxZ:",
 							long_options, &optindex)) != -1)
 	{
 		switch (c)
@@ -413,6 +416,10 @@ main(int argc, char **argv)
 
 			case 'b':			/* Dump blobs */
 				outputBlobs = true;
+				break;
+
+			case 'B':			/* Use binary format */
+				copy_binary = true;
 				break;
 
 			case 'c':			/* clean (i.e., drop) schema prior to create */
@@ -872,6 +879,7 @@ help(const char *progname)
 	printf(_("\nOptions controlling the output content:\n"));
 	printf(_("  -a, --data-only              dump only the data, not the schema\n"));
 	printf(_("  -b, --blobs                  include large objects in dump\n"));
+	printf(_("  -B, --copy-binary            use COPY BINARY instead of regular COPY\n"));
 	printf(_("  -c, --clean                  clean (drop) database objects before recreating\n"));
 	printf(_("  -C, --create                 include commands to create database in dump\n"));
 	printf(_("  -E, --encoding=ENCODING      dump the data in encoding ENCODING\n"));
@@ -1414,7 +1422,7 @@ dumpTableData_copy(Archive *fout, void *dcontext)
 
 	if (oids && hasoids)
 	{
-		appendPQExpBuffer(q, "COPY %s %s WITH OIDS TO stdout;",
+		appendPQExpBuffer(q, copy_binary ? "COPY BINARY %s %s WITH OIDS TO stdout;" : "COPY %s %s WITH OIDS TO stdout;" ,
 						  fmtQualifiedId(fout->remoteVersion,
 										 tbinfo->dobj.namespace->dobj.name,
 										 classname),
@@ -1423,7 +1431,7 @@ dumpTableData_copy(Archive *fout, void *dcontext)
 	else if (tdinfo->filtercond)
 	{
 		/* Note: this syntax is only supported in 8.2 and up */
-		appendPQExpBufferStr(q, "COPY (SELECT ");
+		appendPQExpBufferStr(q, copy_binary ? "COPY BINARY (SELECT " : "COPY (SELECT " );
 		/* klugery to get rid of parens in column list */
 		if (strlen(column_list) > 2)
 		{
@@ -1440,7 +1448,7 @@ dumpTableData_copy(Archive *fout, void *dcontext)
 	}
 	else
 	{
-		appendPQExpBuffer(q, "COPY %s %s TO stdout;",
+		appendPQExpBuffer(q, copy_binary ? "COPY %s %s TO stdout;" : "COPY BINARY %s %s TO stdout;" ,
 						  fmtQualifiedId(fout->remoteVersion,
 										 tbinfo->dobj.namespace->dobj.name,
 										 classname),
@@ -1743,7 +1751,7 @@ dumpTableData(Archive *fout, TableDataInfo *tdinfo)
 		/* Dump/restore using COPY */
 		dumpFn = dumpTableData_copy;
 		/* must use 2 steps here 'cause fmtId is nonreentrant */
-		appendPQExpBuffer(copyBuf, "COPY %s ",
+		appendPQExpBuffer(copyBuf, copy_binary ? "COPY BINARY %s " : "COPY %s ",
 						  fmtId(tbinfo->dobj.name));
 		appendPQExpBuffer(copyBuf, "%s %sFROM stdin;\n",
 						  fmtCopyColumnList(tbinfo, clistBuf),

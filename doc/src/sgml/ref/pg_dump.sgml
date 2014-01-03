@@ -139,6 +139,17 @@ PostgreSQL documentation
      </varlistentry>
 
      <varlistentry>
+      <term><option>-B</></term>
+      <term><option>--copy-binary</></term>
+      <listitem>
+       <para>
+        Use COPY BINARY for the dump.  This option can only work when
+        dumping and restoring to identical architecture and OS.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
       <term><option>-c</option></term>
       <term><option>--clean</option></term>
       <listitem>
