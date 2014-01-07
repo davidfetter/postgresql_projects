@@ -1507,6 +1507,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	aggstate->aggs = NIL;
 	aggstate->numaggs = 0;
+	aggstate->numsets = node->numCols + 1;
 	aggstate->eqfunctions = NULL;
 	aggstate->hashfunctions = NULL;
 	aggstate->peragg = NULL;
@@ -1973,6 +1974,9 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	/* Update numaggs to match number of unique aggregates found */
 	aggstate->numaggs = aggno + 1;
+
+	/* Allocate pergroupingset array in AggState to an array of size (numaggs * 4) */
+	aggstate->pergroup = (AggStatePerGroupData *) palloc(sizeof(AggStatePerGroupData) * (aggstate->numaggs) * 4);
 
 	return aggstate;
 }
