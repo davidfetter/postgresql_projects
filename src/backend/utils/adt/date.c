@@ -3,7 +3,7 @@
  * date.c
  *	  implements DATE and TIME data types specified in SQL standard
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994-5, Regents of the University of California
  *
  *
@@ -91,14 +91,12 @@ anytime_typmodin(bool istz, ArrayType *ta)
 static char *
 anytime_typmodout(bool istz, int32 typmod)
 {
-	char	   *res = (char *) palloc(64);
 	const char *tz = istz ? " with time zone" : " without time zone";
 
 	if (typmod >= 0)
-		snprintf(res, 64, "(%d)%s", (int) typmod, tz);
+		return psprintf("(%d)%s", (int) typmod, tz);
 	else
-		snprintf(res, 64, "%s", tz);
-	return res;
+		return psprintf("%s", tz);
 }
 
 

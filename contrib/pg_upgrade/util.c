@@ -3,7 +3,7 @@
  *
  *	utility functions
  *
- *	Copyright (c) 2010-2013, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2014, PostgreSQL Global Development Group
  *	contrib/pg_upgrade/util.c
  */
 
@@ -131,6 +131,8 @@ pg_log_v(eLogType type, const char *fmt, va_list ap)
 
 		case PG_FATAL:
 			printf("\n%s", _(message));
+			printf("Failure, exiting\n");
+			exit(1);
 			break;
 
 		default:
