@@ -3,7 +3,7 @@
  * transam.c
  *	  postgres transaction log interface routines
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -301,7 +301,7 @@ TransactionIdPrecedes(TransactionId id1, TransactionId id2)
 {
 	/*
 	 * If either ID is a permanent XID then we can just do unsigned
-	 * comparison.	If both are normal, do a modulo-2^31 comparison.
+	 * comparison.	If both are normal, do a modulo-2^32 comparison.
 	 */
 	int32		diff;
 

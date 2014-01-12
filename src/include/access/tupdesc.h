@@ -4,7 +4,7 @@
  *	  POSTGRES tuple descriptor definitions.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/access/tupdesc.h
@@ -87,9 +87,11 @@ extern TupleDesc CreateTupleDesc(int natts, bool hasoid,
 				Form_pg_attribute *attrs);
 
 extern TupleDesc CreateTupleDescCopy(TupleDesc tupdesc);
-extern TupleDesc CreateTupleDescCopyExtend(TupleDesc tupdesc, int moreatts);
 
 extern TupleDesc CreateTupleDescCopyConstr(TupleDesc tupdesc);
+
+extern void TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
+				   TupleDesc src, AttrNumber srcAttno);
 
 extern void FreeTupleDesc(TupleDesc tupdesc);
 

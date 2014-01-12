@@ -5,7 +5,7 @@
  *	  Planning is complete, we just need to convert the selected
  *	  Path into a Plan.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -115,9 +115,7 @@ static BitmapHeapScan *make_bitmap_heapscan(List *qptlist,
 static TidScan *make_tidscan(List *qptlist, List *qpqual, Index scanrelid,
 			 List *tidquals);
 static FunctionScan *make_functionscan(List *qptlist, List *qpqual,
-				  Index scanrelid, Node *funcexpr, bool ordinality,
-				  List *funccolnames, List *funccoltypes, List *funccoltypmods,
-				  List *funccolcollations);
+				  Index scanrelid, List *functions, bool funcordinality);
 static ValuesScan *make_valuesscan(List *qptlist, List *qpqual,
 				Index scanrelid, List *values_lists);
 static CteScan *make_ctescan(List *qptlist, List *qpqual,
@@ -1415,9 +1413,6 @@ create_bitmap_scan_plan(PlannerInfo *root,
  * OR subtrees.  This could be done in a less hacky way if we returned the
  * indexquals in RestrictInfo form, but that would be slower and still pretty
  * messy, since we'd have to build new RestrictInfos in many cases.)
- *
- * Note: if you find yourself changing this, you probably need to change
- * make_restrictinfo_from_bitmapqual too.
  */
 static Plan *
 create_bitmap_subplan(PlannerInfo *root, Path *bitmapqual,
@@ -1709,13 +1704,13 @@ create_functionscan_plan(PlannerInfo *root, Path *best_path,
 	FunctionScan *scan_plan;
 	Index		scan_relid = best_path->parent->relid;
 	RangeTblEntry *rte;
-	Node	   *funcexpr;
+	List	   *functions;
 
 	/* it should be a function base rel... */
 	Assert(scan_relid > 0);
 	rte = planner_rt_fetch(scan_relid, root);
 	Assert(rte->rtekind == RTE_FUNCTION);
-	funcexpr = rte->funcexpr;
+	functions = rte->functions;
 
 	/* Sort clauses into best execution order */
 	scan_clauses = order_qual_clauses(root, scan_clauses);
@@ -1728,17 +1723,12 @@ create_functionscan_plan(PlannerInfo *root, Path *best_path,
 	{
 		scan_clauses = (List *)
 			replace_nestloop_params(root, (Node *) scan_clauses);
-		/* The func expression itself could contain nestloop params, too */
-		funcexpr = replace_nestloop_params(root, funcexpr);
+		/* The function expressions could contain nestloop params, too */
+		functions = (List *) replace_nestloop_params(root, (Node *) functions);
 	}
 
 	scan_plan = make_functionscan(tlist, scan_clauses, scan_relid,
-								  funcexpr,
-								  rte->funcordinality,
-								  rte->eref->colnames,
-								  rte->funccoltypes,
-								  rte->funccoltypmods,
-								  rte->funccolcollations);
+								  functions, rte->funcordinality);
 
 	copy_path_costsize(&scan_plan->scan.plan, best_path);
 
@@ -3388,12 +3378,8 @@ static FunctionScan *
 make_functionscan(List *qptlist,
 				  List *qpqual,
 				  Index scanrelid,
-				  Node *funcexpr,
-				  bool ordinality,
-				  List *funccolnames,
-				  List *funccoltypes,
-				  List *funccoltypmods,
-				  List *funccolcollations)
+				  List *functions,
+				  bool funcordinality)
 {
 	FunctionScan *node = makeNode(FunctionScan);
 	Plan	   *plan = &node->scan.plan;
@@ -3404,12 +3390,8 @@ make_functionscan(List *qptlist,
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
 	node->scan.scanrelid = scanrelid;
-	node->funcexpr = funcexpr;
-	node->funcordinality = ordinality;
-	node->funccolnames = funccolnames;
-	node->funccoltypes = funccoltypes;
-	node->funccoltypmods = funccoltypmods;
-	node->funccolcollations = funccolcollations;
+	node->functions = functions;
+	node->funcordinality = funcordinality;
 
 	return node;
 }

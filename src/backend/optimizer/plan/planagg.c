@@ -17,7 +17,7 @@
  * scan all the rows anyway.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -328,17 +328,20 @@ find_minmax_aggs_walker(Node *node, List **context)
 		 * that differs for each of those equal values of the argument
 		 * expression makes the result predictable once again.  This is a
 		 * niche requirement, and we do not implement it with subquery paths.
+		 * In any case, this test lets us reject ordered-set aggregates
+		 * quickly.
 		 */
 		if (aggref->aggorder != NIL)
 			return true;
+		/* note: we do not care if DISTINCT is mentioned ... */
 
 		/*
 		 * We might implement the optimization when a FILTER clause is present
-		 * by adding the filter to the quals of the generated subquery.
+		 * by adding the filter to the quals of the generated subquery.  For
+		 * now, just punt.
 		 */
 		if (aggref->aggfilter != NULL)
 			return true;
-		/* note: we do not care if DISTINCT is mentioned ... */
 
 		aggsortop = fetch_agg_sort_op(aggref->aggfnoid);
 		if (!OidIsValid(aggsortop))

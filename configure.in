@@ -19,20 +19,24 @@ m4_pattern_forbid(^PGAC_)dnl to catch undefined macros
 
 AC_INIT([PostgreSQL], [9.4devel], [pgsql-bugs@postgresql.org])
 
-m4_if(m4_defn([m4_PACKAGE_VERSION]), [2.63], [], [m4_fatal([Autoconf version 2.63 is required.
+m4_if(m4_defn([m4_PACKAGE_VERSION]), [2.69], [], [m4_fatal([Autoconf version 2.69 is required.
 Untested combinations of 'autoconf' and PostgreSQL versions are not
 recommended.  You can remove the check from 'configure.in' but it is then
 your responsibility whether the result works or not.])])
-AC_COPYRIGHT([Copyright (c) 1996-2013, PostgreSQL Global Development Group])
+AC_COPYRIGHT([Copyright (c) 1996-2014, PostgreSQL Global Development Group])
 AC_CONFIG_SRCDIR([src/backend/access/common/heaptuple.c])
 AC_CONFIG_AUX_DIR(config)
 AC_PREFIX_DEFAULT(/usr/local/pgsql)
 AC_SUBST(configure_args, [$ac_configure_args])
 
-AC_DEFINE_UNQUOTED(PG_VERSION, "$PACKAGE_VERSION", [PostgreSQL version as a string])
 [PG_MAJORVERSION=`expr "$PACKAGE_VERSION" : '\([0-9][0-9]*\.[0-9][0-9]*\)'`]
 AC_SUBST(PG_MAJORVERSION)
 AC_DEFINE_UNQUOTED(PG_MAJORVERSION, "$PG_MAJORVERSION", [PostgreSQL major version as a string])
+
+PGAC_ARG_REQ(with, extra-version, [STRING], [append STRING to version],
+             [PG_VERSION="$PACKAGE_VERSION$withval"],
+             [PG_VERSION="$PACKAGE_VERSION"])
+AC_DEFINE_UNQUOTED(PG_VERSION, "$PG_VERSION", [PostgreSQL version as a string])
 
 AC_CANONICAL_HOST
 
@@ -1114,12 +1118,9 @@ fi
 
 m4_defun([AC_PROG_CC_STDC], []) dnl We don't want that.
 AC_C_BIGENDIAN
-AC_C_CONST
 PGAC_C_INLINE
-AC_C_STRINGIZE
 AC_C_FLEXIBLE_ARRAY_MEMBER
 PGAC_C_SIGNED
-AC_C_VOLATILE
 PGAC_C_FUNCNAME_SUPPORT
 PGAC_C_STATIC_ASSERT
 PGAC_C_TYPES_COMPATIBLE
@@ -1204,6 +1205,11 @@ esac
 # defines can affect what is generated for that.
 if test "$PORTNAME" != "win32"; then
    AC_SYS_LARGEFILE
+   # Autoconf 2.69's AC_SYS_LARGEFILE believes it's a good idea to #define
+   # _DARWIN_USE_64_BIT_INODE, but it isn't: on OS X 10.5 that activates a
+   # bug that causes readdir() to sometimes return EINVAL.  On later OS X
+   # versions where the feature actually works, it's on by default anyway.
+   AH_VERBATIM([_DARWIN_USE_64_BIT_INODE],[])
 fi
 
 # Check for largefile support (must be after AC_SYS_LARGEFILE)
@@ -1749,9 +1755,6 @@ operating system;  use --disable-thread-safety to disable thread safety.])
 fi
 fi
 
-# SunOS doesn't handle negative byte comparisons properly with +/- return
-AC_FUNC_MEMCMP
-
 
 # Select semaphore implementation type.
 if test "$PORTNAME" != "win32"; then
@@ -1920,7 +1923,7 @@ else
 fi
 
 AC_DEFINE_UNQUOTED(PG_VERSION_STR,
-                   ["PostgreSQL $PACKAGE_VERSION on $host, compiled by $cc_string, `expr $ac_cv_sizeof_void_p \* 8`-bit"],
+                   ["PostgreSQL $PG_VERSION on $host, compiled by $cc_string, `expr $ac_cv_sizeof_void_p \* 8`-bit"],
                    [A string containing the version number, platform, and C compiler])
 
 # Supply a numeric version string for use by 3rd party add-ons

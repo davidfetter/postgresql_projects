@@ -1,16 +1,13 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2014, PostgreSQL Global Development Group
  *
  * src/bin/psql/help.c
  */
 #include "postgres_fe.h"
 
 #ifndef WIN32
-#ifdef HAVE_PWD_H
-#include <pwd.h>				/* for getpwuid() */
-#endif
 #include <sys/types.h>			/* (ditto) */
 #include <unistd.h>				/* for geteuid() */
 #else
@@ -26,6 +23,7 @@
 #endif
 
 #include "common.h"
+#include "common/username.h"
 #include "help.h"
 #include "input.h"
 #include "settings.h"
@@ -52,31 +50,18 @@ usage(void)
 {
 	const char *env;
 	const char *user;
-
-#ifndef WIN32
-	struct passwd *pw = NULL;
-#endif
+	char	   *errstr;
 
 	/* Find default user, in case we need it. */
 	user = getenv("PGUSER");
 	if (!user)
 	{
-#if !defined(WIN32) && !defined(__OS2__)
-		pw = getpwuid(geteuid());
-		if (pw)
-			user = pw->pw_name;
-		else
+		user = get_user_name(&errstr);
+		if (!user)
 		{
-			psql_error("could not get current user name: %s\n", strerror(errno));
+			psql_error("%s\n", errstr);
 			exit(EXIT_FAILURE);
 		}
-#else							/* WIN32 */
-		char		buf[128];
-		DWORD		bufsize = sizeof(buf) - 1;
-
-		if (GetUserName(buf, &bufsize))
-			user = buf;
-#endif   /* WIN32 */
 	}
 
 	printf(_("psql is the PostgreSQL interactive terminal.\n\n"));
@@ -446,7 +431,7 @@ print_copyright(void)
 	puts(
 		 "PostgreSQL Database Management System\n"
 		 "(formerly known as Postgres, then as Postgres95)\n\n"
-		 "Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group\n\n"
+		 "Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group\n\n"
 		 "Portions Copyright (c) 1994, The Regents of the University of California\n\n"
 	"Permission to use, copy, modify, and distribute this software and its\n"
 		 "documentation for any purpose, without fee, and without a written agreement\n"

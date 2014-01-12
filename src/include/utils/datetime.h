@@ -6,7 +6,7 @@
  *	   including abstime, reltime, date, and time.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/datetime.h
@@ -293,6 +293,9 @@ extern void EncodeDateOnly(struct pg_tm * tm, int style, char *str);
 extern void EncodeTimeOnly(struct pg_tm * tm, fsec_t fsec, bool print_tz, int tz, int style, char *str);
 extern void EncodeDateTime(struct pg_tm * tm, fsec_t fsec, bool print_tz, int tz, const char *tzn, int style, char *str);
 extern void EncodeInterval(struct pg_tm * tm, fsec_t fsec, int style, char *str);
+
+extern int ValidateDate(int fmask, bool isjulian, bool is2digits, bool bc,
+			 struct pg_tm * tm);
 
 extern int	DecodeSpecial(int field, char *lowtoken, int *val);
 extern int	DecodeUnits(int field, char *lowtoken, int *val);

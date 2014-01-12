@@ -3,7 +3,7 @@
  * auth.c
  *	  Routines to handle network authentication
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -21,6 +21,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
+#include "common/username.h"
 #include "libpq/auth.h"
 #include "libpq/crypt.h"
 #include "libpq/ip.h"
@@ -1771,7 +1772,8 @@ auth_peer(hbaPort *port)
 	char		ident_user[IDENT_USERNAME_MAX + 1];
 	uid_t		uid;
 	gid_t		gid;
-	struct passwd *pass;
+	const char *user_name;
+	char	   *errstr;
 
 	errno = 0;
 	if (getpeereid(port->sock, &uid, &gid) != 0)
@@ -1788,17 +1790,15 @@ auth_peer(hbaPort *port)
 		return STATUS_ERROR;
 	}
 
-	pass = getpwuid(uid);
-
-	if (pass == NULL)
+	user_name = get_user_name(&errstr);
+	if (!user_name)
 	{
-		ereport(LOG,
-				(errmsg("local user with ID %d does not exist",
-						(int) uid)));
+		ereport(LOG, (errmsg_internal("%s", errstr)));
+		pfree(errstr);
 		return STATUS_ERROR;
 	}
 
-	strlcpy(ident_user, pass->pw_name, IDENT_USERNAME_MAX + 1);
+	strlcpy(ident_user, user_name, IDENT_USERNAME_MAX + 1);
 
 	return check_usermap(port->hba->usermap, port->user_name, ident_user, false);
 }

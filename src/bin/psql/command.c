@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2014, PostgreSQL Global Development Group
  *
  * src/bin/psql/command.c
  */
@@ -265,10 +265,13 @@ exec_command(const char *cmd,
 #ifndef WIN32
 			struct passwd *pw;
 
+			errno = 0;	/* clear errno before call */
 			pw = getpwuid(geteuid());
 			if (!pw)
 			{
-				psql_error("could not get home directory: %s\n", strerror(errno));
+				psql_error("could not get home directory for user id %d: %s\n",
+						   (int) geteuid(), errno ?
+						   strerror(errno) : "user does not exist");
 				exit(EXIT_FAILURE);
 			}
 			dir = pw->pw_dir;
@@ -2786,7 +2789,7 @@ lookup_function_oid(PGconn *conn, const char *desc, Oid *foid)
 	PGresult   *res;
 
 	query = createPQExpBuffer();
-	printfPQExpBuffer(query, "SELECT ");
+	appendPQExpBufferStr(query, "SELECT ");
 	appendStringLiteralConn(query, desc, conn);
 	appendPQExpBuffer(query, "::pg_catalog.%s::pg_catalog.oid",
 					  strchr(desc, '(') ? "regprocedure" : "regproc");

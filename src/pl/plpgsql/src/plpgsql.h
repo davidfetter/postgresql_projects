@@ -3,7 +3,7 @@
  * plpgsql.h		- Definitions for the PL/pgSQL
  *			  procedural language
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -773,9 +773,13 @@ typedef struct PLpgSQL_execstate
 	ResourceOwner tuple_store_owner;
 	ReturnSetInfo *rsi;
 
+	/* the datums representing the function's local variables */
 	int			found_varno;
 	int			ndatums;
 	PLpgSQL_datum **datums;
+
+	/* EState to use for "simple" expression evaluation */
+	EState	   *simple_eval_estate;
 
 	/* temporary state for results from evaluation of query or expr */
 	SPITupleTable *eval_tuptable;
@@ -943,7 +947,8 @@ extern Datum plpgsql_validator(PG_FUNCTION_ARGS);
  * ----------
  */
 extern Datum plpgsql_exec_function(PLpgSQL_function *func,
-					  FunctionCallInfo fcinfo);
+					  FunctionCallInfo fcinfo,
+					  EState *simple_eval_estate);
 extern HeapTuple plpgsql_exec_trigger(PLpgSQL_function *func,
 					 TriggerData *trigdata);
 extern void plpgsql_exec_event_trigger(PLpgSQL_function *func,

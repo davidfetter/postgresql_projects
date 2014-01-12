@@ -9,7 +9,7 @@
  * proper FooMain() routine for the incarnation.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -20,7 +20,6 @@
  */
 #include "postgres.h"
 
-#include <pwd.h>
 #include <unistd.h>
 
 #if defined(__alpha) && defined(__osf__)		/* no __alpha__ ? */
@@ -36,9 +35,11 @@
 #endif
 
 #include "bootstrap/bootstrap.h"
+#include "common/username.h"
 #include "postmaster/postmaster.h"
 #include "tcop/tcopprot.h"
 #include "utils/help_config.h"
+#include "utils/memutils.h"
 #include "utils/pg_locale.h"
 #include "utils/ps_status.h"
 
@@ -49,7 +50,6 @@ const char *progname;
 static void startup_hacks(const char *progname);
 static void help(const char *progname);
 static void check_root(const char *progname);
-static char *get_current_username(const char *progname);
 
 
 /*
@@ -85,6 +85,15 @@ main(int argc, char *argv[])
 #if defined(WIN32) && defined(HAVE_MINIDUMP_TYPE)
 	pgwin32_install_crashdump_handler();
 #endif
+
+	/*
+	 * Fire up essential subsystems: error and memory management
+	 *
+	 * Code after this point is allowed to use elog/ereport, though
+	 * localization of messages may not work right away, and messages won't go
+	 * anywhere but stderr until GUC settings get loaded.
+	 */
+	MemoryContextInit();
 
 	/*
 	 * Set up locale information from environment.	Note that LC_CTYPE and
@@ -191,7 +200,7 @@ main(int argc, char *argv[])
 	else if (argc > 1 && strcmp(argv[1], "--single") == 0)
 		PostgresMain(argc, argv,
 					 NULL,		/* no dbname */
-					 get_current_username(progname));	/* does not return */
+					 strdup(get_user_name_or_exit(progname)));	/* does not return */
 	else
 		PostmasterMain(argc, argv);		/* does not return */
 	abort();					/* should not get here */
@@ -371,37 +380,4 @@ check_root(const char *progname)
 		exit(1);
 	}
 #endif   /* WIN32 */
-}
-
-
-
-static char *
-get_current_username(const char *progname)
-{
-#ifndef WIN32
-	struct passwd *pw;
-
-	pw = getpwuid(geteuid());
-	if (pw == NULL)
-	{
-		write_stderr("%s: invalid effective UID: %d\n",
-					 progname, (int) geteuid());
-		exit(1);
-	}
-	/* Allocate new memory because later getpwuid() calls can overwrite it. */
-	return strdup(pw->pw_name);
-#else
-	unsigned long namesize = 256 /* UNLEN */ + 1;
-	char	   *name;
-
-	name = malloc(namesize);
-	if (!GetUserName(name, &namesize))
-	{
-		write_stderr("%s: could not determine user name (GetUserName failed)\n",
-					 progname);
-		exit(1);
-	}
-
-	return name;
-#endif
 }

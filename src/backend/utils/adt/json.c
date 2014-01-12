@@ -3,7 +3,7 @@
  * json.c
  *		JSON data type support.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -50,7 +50,7 @@ typedef enum					/* contexts of JSON parser */
 
 static inline void json_lex(JsonLexContext *lex);
 static inline void json_lex_string(JsonLexContext *lex);
-static inline void json_lex_number(JsonLexContext *lex, char *s);
+static inline void json_lex_number(JsonLexContext *lex, char *s, bool *num_err);
 static inline void parse_scalar(JsonLexContext *lex, JsonSemAction *sem);
 static void parse_object_field(JsonLexContext *lex, JsonSemAction *sem);
 static void parse_object(JsonLexContext *lex, JsonSemAction *sem);
@@ -147,8 +147,6 @@ lex_expect(JsonParseContext ctx, JsonLexContext *lex, JsonTokenType token)
 #define TYPCATEGORY_JSON 'j'
 /* fake category for types that have a cast to json */
 #define TYPCATEGORY_JSON_CAST 'c'
-/* letters appearing in numeric output that aren't valid in a JSON number */
-#define NON_NUMERIC_LETTER "NnAaIiFfTtYy"
 /* chars to consider as part of an alphanumeric token */
 #define JSON_ALPHANUMERIC_CHAR(c)  \
 	(((c) >= 'a' && (c) <= 'z') || \
@@ -567,7 +565,7 @@ json_lex(JsonLexContext *lex)
 				break;
 			case '-':
 				/* Negative number. */
-				json_lex_number(lex, s + 1);
+				json_lex_number(lex, s + 1, NULL);
 				lex->token_type = JSON_TOKEN_NUMBER;
 				break;
 			case '0':
@@ -581,7 +579,7 @@ json_lex(JsonLexContext *lex)
 			case '8':
 			case '9':
 				/* Positive number. */
-				json_lex_number(lex, s);
+				json_lex_number(lex, s, NULL);
 				lex->token_type = JSON_TOKEN_NUMBER;
 				break;
 			default:
@@ -903,7 +901,7 @@ json_lex_string(JsonLexContext *lex)
  *-------------------------------------------------------------------------
  */
 static inline void
-json_lex_number(JsonLexContext *lex, char *s)
+json_lex_number(JsonLexContext *lex, char *s, bool *num_err)
 {
 	bool		error = false;
 	char	   *p;
@@ -976,10 +974,19 @@ json_lex_number(JsonLexContext *lex, char *s)
 	 */
 	for (p = s; len < lex->input_length && JSON_ALPHANUMERIC_CHAR(*p); p++, len++)
 		error = true;
-	lex->prev_token_terminator = lex->token_terminator;
-	lex->token_terminator = p;
-	if (error)
-		report_invalid_token(lex);
+
+	if (num_err != NULL)
+	{
+		/* let the caller handle the error */
+		*num_err = error;
+	}
+	else
+	{
+		lex->prev_token_terminator = lex->token_terminator;
+		lex->token_terminator = p;
+		if (error)
+			report_invalid_token(lex);
+	}
 }
 
 /*
@@ -1214,6 +1221,8 @@ datum_to_json(Datum val, bool is_null, StringInfo result,
 {
 	char	   *outputstr;
 	text	   *jsontext;
+	bool       numeric_error;
+	JsonLexContext dummy_lex;
 
 	if (is_null)
 	{
@@ -1237,14 +1246,13 @@ datum_to_json(Datum val, bool is_null, StringInfo result,
 			break;
 		case TYPCATEGORY_NUMERIC:
 			outputstr = OidOutputFunctionCall(typoutputfunc, val);
-
 			/*
 			 * Don't call escape_json here if it's a valid JSON number.
-			 * Numeric output should usually be a valid JSON number and JSON
-			 * numbers shouldn't be quoted. Quote cases like "Nan" and
-			 * "Infinity", however.
 			 */
-			if (strpbrk(outputstr, NON_NUMERIC_LETTER) == NULL)
+			dummy_lex.input = *outputstr == '-' ? outputstr + 1 : outputstr;
+			dummy_lex.input_length = strlen(dummy_lex.input);
+			json_lex_number(&dummy_lex, dummy_lex.input, &numeric_error);
+			if (! numeric_error)
 				appendStringInfoString(result, outputstr);
 			else
 				escape_json(result, outputstr);
@@ -1499,7 +1507,7 @@ array_to_json(PG_FUNCTION_ARGS)
 
 	array_to_json_internal(array, result, false);
 
-	PG_RETURN_TEXT_P(cstring_to_text(result->data));
+	PG_RETURN_TEXT_P(cstring_to_text_with_len(result->data, result->len));
 }
 
 /*
@@ -1516,7 +1524,7 @@ array_to_json_pretty(PG_FUNCTION_ARGS)
 
 	array_to_json_internal(array, result, use_line_feeds);
 
-	PG_RETURN_TEXT_P(cstring_to_text(result->data));
+	PG_RETURN_TEXT_P(cstring_to_text_with_len(result->data, result->len));
 }
 
 /*
@@ -1532,7 +1540,7 @@ row_to_json(PG_FUNCTION_ARGS)
 
 	composite_to_json(array, result, false);
 
-	PG_RETURN_TEXT_P(cstring_to_text(result->data));
+	PG_RETURN_TEXT_P(cstring_to_text_with_len(result->data, result->len));
 }
 
 /*
@@ -1549,7 +1557,7 @@ row_to_json_pretty(PG_FUNCTION_ARGS)
 
 	composite_to_json(array, result, use_line_feeds);
 
-	PG_RETURN_TEXT_P(cstring_to_text(result->data));
+	PG_RETURN_TEXT_P(cstring_to_text_with_len(result->data, result->len));
 }
 
 /*
@@ -1607,7 +1615,7 @@ to_json(PG_FUNCTION_ARGS)
 
 	datum_to_json(val, false, result, tcategory, typoutput);
 
-	PG_RETURN_TEXT_P(cstring_to_text(result->data));
+	PG_RETURN_TEXT_P(cstring_to_text_with_len(result->data, result->len));
 }
 
 /*
@@ -1733,7 +1741,7 @@ json_agg_finalfn(PG_FUNCTION_ARGS)
 
 	appendStringInfoChar(state, ']');
 
-	PG_RETURN_TEXT_P(cstring_to_text(state->data));
+	PG_RETURN_TEXT_P(cstring_to_text_with_len(state->data, state->len));
 }
 
 /*

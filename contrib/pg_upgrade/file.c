@@ -3,7 +3,7 @@
  *
  *	file system operations
  *
- *	Copyright (c) 2010-2013, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2014, PostgreSQL Global Development Group
  *	contrib/pg_upgrade/file.c
  */
 
@@ -136,16 +136,22 @@ copy_file(const char *srcfile, const char *dstfile, bool force)
 	int			save_errno = 0;
 
 	if ((srcfile == NULL) || (dstfile == NULL))
+	{
+		errno = EINVAL;
 		return -1;
+	}
 
 	if ((src_fd = open(srcfile, O_RDONLY, 0)) < 0)
 		return -1;
 
 	if ((dest_fd = open(dstfile, O_RDWR | O_CREAT | (force ? 0 : O_EXCL), S_IRUSR | S_IWUSR)) < 0)
 	{
+		save_errno = errno;
+
 		if (src_fd != 0)
 			close(src_fd);
 
+		errno = save_errno;
 		return -1;
 	}
 
@@ -170,6 +176,9 @@ copy_file(const char *srcfile, const char *dstfile, bool force)
 
 		if (write(dest_fd, buffer, nbytes) != nbytes)
 		{
+			/* if write didn't set errno, assume problem is no disk space */
+			if (errno == 0)
+				errno = ENOSPC;
 			save_errno = errno;
 			ret = -1;
 			break;

@@ -4,7 +4,7 @@
  *
  * Author: Magnus Hagander <magnus@hagander.net>
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *		  src/bin/pg_basebackup/pg_basebackup.c
@@ -34,17 +34,18 @@
 
 
 /* Global options */
-char	   *basedir = NULL;
-char		format = 'p';		/* p(lain)/t(ar) */
-char	   *label = "pg_basebackup base backup";
-bool		showprogress = false;
-int			verbose = 0;
-int			compresslevel = 0;
-bool		includewal = false;
-bool		streamwal = false;
-bool		fastcheckpoint = false;
-bool		writerecoveryconf = false;
-int			standby_message_timeout = 10 * 1000;		/* 10 sec = default */
+static char *basedir = NULL;
+static char *xlog_dir = "";
+static char	format = 'p';		/* p(lain)/t(ar) */
+static char *label = "pg_basebackup base backup";
+static bool	showprogress = false;
+static int verbose = 0;
+static int	compresslevel = 0;
+static bool	includewal = false;
+static bool	streamwal = false;
+static bool	fastcheckpoint = false;
+static bool	writerecoveryconf = false;
+static int	standby_message_timeout = 10 * 1000;		/* 10 sec = default */
 
 /* Progress counters */
 static uint64 totalsize;
@@ -115,6 +116,7 @@ usage(void)
 	printf(_("  -x, --xlog             include required WAL files in backup (fetch mode)\n"));
 	printf(_("  -X, --xlog-method=fetch|stream\n"
 			 "                         include required WAL files with specified method\n"));
+	printf(_("      --xlogdir=XLOGDIR  location for the transaction log directory\n"));
 	printf(_("  -z, --gzip             compress tar output\n"));
 	printf(_("  -Z, --compress=0-9     compress tar output with given compression level\n"));
 	printf(_("\nGeneral options:\n"));
@@ -980,10 +982,14 @@ ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum)
 					{
 						/*
 						 * When streaming WAL, pg_xlog will have been created
-						 * by the wal receiver process, so just ignore failure
-						 * on that.
+						 * by the wal receiver process. Also, when transaction
+						 * log directory location was specified, pg_xlog has
+						 * already been created as a symbolic link before
+						 * starting the actual backup. So just ignore failure
+						 * on them.
 						 */
-						if (!streamwal || strcmp(filename + strlen(filename) - 8, "/pg_xlog") != 0)
+						if ((!streamwal && (strcmp(xlog_dir, "") == 0))
+							|| strcmp(filename + strlen(filename) - 8, "/pg_xlog") != 0)
 						{
 							fprintf(stderr,
 							_("%s: could not create directory \"%s\": %s\n"),
@@ -1666,6 +1672,7 @@ main(int argc, char **argv)
 		{"status-interval", required_argument, NULL, 's'},
 		{"verbose", no_argument, NULL, 'v'},
 		{"progress", no_argument, NULL, 'P'},
+		{"xlogdir", required_argument, NULL, 1},
 		{NULL, 0, NULL, 0}
 	};
 	int			c;
@@ -1749,6 +1756,9 @@ main(int argc, char **argv)
 							progname, optarg);
 					exit(1);
 				}
+				break;
+			case 1:
+				xlog_dir = pg_strdup(optarg);
 				break;
 			case 'l':
 				label = pg_strdup(optarg);
@@ -1872,6 +1882,30 @@ main(int argc, char **argv)
 		exit(1);
 	}
 
+	if (strcmp(xlog_dir, "") != 0)
+	{
+		if (format != 'p')
+		{
+			fprintf(stderr,
+					_("%s: transaction log directory location can only be specified in plain mode\n"),
+					progname);
+			fprintf(stderr, _("Try \"%s --help\" for more information.\n"),
+					progname);
+			exit(1);
+		}
+
+		/* clean up xlog directory name, check it's absolute */
+		canonicalize_path(xlog_dir);
+		if (!is_absolute_path(xlog_dir))
+		{
+			fprintf(stderr, _("%s: transaction log directory location must be "
+							  "an absolute path\n"), progname);
+			fprintf(stderr, _("Try \"%s --help\" for more information.\n"),
+					progname);
+			exit(1);
+		}
+	}
+
 #ifndef HAVE_LIBZ
 	if (compresslevel != 0)
 	{
@@ -1889,6 +1923,30 @@ main(int argc, char **argv)
 	 */
 	if (format == 'p' || strcmp(basedir, "-") != 0)
 		verify_dir_is_empty_or_create(basedir);
+
+	/* Create transaction log symlink, if required */
+	if (strcmp(xlog_dir, "") != 0)
+	{
+		char	   *linkloc;
+
+		verify_dir_is_empty_or_create(xlog_dir);
+
+		/* form name of the place where the symlink must go */
+		linkloc = psprintf("%s/pg_xlog", basedir);
+
+#ifdef HAVE_SYMLINK
+		if (symlink(xlog_dir, linkloc) != 0)
+		{
+			fprintf(stderr, _("%s: could not create symbolic link \"%s\": %s\n"),
+					progname, linkloc, strerror(errno));
+			exit(1);
+		}
+#else
+		fprintf(stderr, _("%s: symlinks are not supported on this platform"));
+		exit(1);
+#endif
+		free(linkloc);
+	}
 
 	BaseBackup();
 

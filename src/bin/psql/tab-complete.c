@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2014, PostgreSQL Global Development Group
  *
  * src/bin/psql/tab-complete.c
  */
@@ -541,6 +541,12 @@ static const SchemaQuery Query_for_list_of_matviews = {
 "SELECT pg_catalog.quote_ident(nspname) FROM pg_catalog.pg_namespace "\
 " WHERE substring(pg_catalog.quote_ident(nspname),1,%d)='%s'"
 
+#define Query_for_list_of_alter_system_set_vars \
+"SELECT name FROM "\
+" (SELECT pg_catalog.lower(name) AS name FROM pg_catalog.pg_settings "\
+"  WHERE context != 'internal') ss "\
+" WHERE substring(name,1,%d)='%s'"
+
 #define Query_for_list_of_set_vars \
 "SELECT name FROM "\
 " (SELECT pg_catalog.lower(name) AS name FROM pg_catalog.pg_settings "\
@@ -930,7 +936,7 @@ psql_completion(char *text, int start, int end)
 		{"AGGREGATE", "COLLATION", "CONVERSION", "DATABASE", "DEFAULT PRIVILEGES", "DOMAIN",
 			"EXTENSION", "FOREIGN DATA WRAPPER", "FOREIGN TABLE", "FUNCTION",
 			"GROUP", "INDEX", "LANGUAGE", "LARGE OBJECT", "MATERIALIZED VIEW", "OPERATOR",
-			"ROLE", "RULE", "SCHEMA", "SERVER", "SEQUENCE", "TABLE",
+			 "ROLE", "RULE", "SCHEMA", "SERVER", "SEQUENCE", "SYSTEM SET", "TABLE",
 			"TABLESPACE", "TEXT SEARCH", "TRIGGER", "TYPE",
 		"USER", "USER MAPPING FOR", "VIEW", NULL};
 
@@ -1263,6 +1269,11 @@ psql_completion(char *text, int start, int end)
 
 		COMPLETE_WITH_LIST(list_ALTER_SERVER);
 	}
+	/* ALTER SYSTEM SET <name> */
+	else if (pg_strcasecmp(prev3_wd, "ALTER") == 0 &&
+			 pg_strcasecmp(prev2_wd, "SYSTEM") == 0 &&
+			 pg_strcasecmp(prev_wd, "SET") == 0)
+		COMPLETE_WITH_QUERY(Query_for_list_of_alter_system_set_vars);
 	/* ALTER VIEW <name> */
 	else if (pg_strcasecmp(prev3_wd, "ALTER") == 0 &&
 			 pg_strcasecmp(prev2_wd, "VIEW") == 0)
@@ -3335,9 +3346,10 @@ psql_completion(char *text, int start, int end)
 	else if (strcmp(prev_wd, "\\pset") == 0)
 	{
 		static const char *const my_list[] =
-		{"format", "border", "expanded",
-			"null", "fieldsep", "tuples_only", "title", "tableattr",
-		"linestyle", "pager", "recordsep", NULL};
+		{"border", "columns", "expanded", "fieldsep", "fieldsep_zero",
+		 "footer", "format", "linestyle", "null", "numericlocale",
+		 "pager", "recordsep", "recordsep_zero", "tableattr", "title",
+		 "tuples_only", NULL};
 
 		COMPLETE_WITH_LIST_CS(my_list);
 	}
@@ -3613,8 +3625,8 @@ _complete_from_query(int is_schema_query, const char *text, int state)
 					   "pg_catalog.pg_class c") == 0 &&
 				strncmp(text, "pg_", 3) !=0)
 			{
-				appendPQExpBuffer(&query_buffer,
-								  " AND c.relnamespace <> (SELECT oid FROM"
+				appendPQExpBufferStr(&query_buffer,
+									 " AND c.relnamespace <> (SELECT oid FROM"
 				   " pg_catalog.pg_namespace WHERE nspname = 'pg_catalog')");
 			}
 

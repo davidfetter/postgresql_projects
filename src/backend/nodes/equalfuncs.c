@@ -18,7 +18,7 @@
  * "x" to be considered equal() to another reference to "x" in the query.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -193,12 +193,14 @@ _equalAggref(const Aggref *a, const Aggref *b)
 	COMPARE_SCALAR_FIELD(aggtype);
 	COMPARE_SCALAR_FIELD(aggcollid);
 	COMPARE_SCALAR_FIELD(inputcollid);
+	COMPARE_NODE_FIELD(aggdirectargs);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_NODE_FIELD(aggorder);
 	COMPARE_NODE_FIELD(aggdistinct);
 	COMPARE_NODE_FIELD(aggfilter);
 	COMPARE_SCALAR_FIELD(aggstar);
 	COMPARE_SCALAR_FIELD(aggvariadic);
+	COMPARE_SCALAR_FIELD(aggkind);
 	COMPARE_SCALAR_FIELD(agglevelsup);
 	COMPARE_LOCATION_FIELD(location);
 
@@ -1547,6 +1549,15 @@ _equalReplicaIdentityStmt(const ReplicaIdentityStmt *a, const ReplicaIdentityStm
 }
 
 static bool
+_equalAlterSystemStmt(const AlterSystemStmt * a, const AlterSystemStmt * b)
+{
+	COMPARE_NODE_FIELD(setstmt);
+
+	return true;
+}
+
+
+static bool
 _equalCreateSeqStmt(const CreateSeqStmt *a, const CreateSeqStmt *b)
 {
 	COMPARE_NODE_FIELD(sequence);
@@ -2012,6 +2023,7 @@ _equalFuncCall(const FuncCall *a, const FuncCall *b)
 	COMPARE_NODE_FIELD(args);
 	COMPARE_NODE_FIELD(agg_order);
 	COMPARE_NODE_FIELD(agg_filter);
+	COMPARE_SCALAR_FIELD(agg_within_group);
 	COMPARE_SCALAR_FIELD(agg_star);
 	COMPARE_SCALAR_FIELD(agg_distinct);
 	COMPARE_SCALAR_FIELD(func_variadic);
@@ -2140,9 +2152,10 @@ _equalRangeSubselect(const RangeSubselect *a, const RangeSubselect *b)
 static bool
 _equalRangeFunction(const RangeFunction *a, const RangeFunction *b)
 {
-	COMPARE_SCALAR_FIELD(ordinality);
 	COMPARE_SCALAR_FIELD(lateral);
-	COMPARE_NODE_FIELD(funccallnode);
+	COMPARE_SCALAR_FIELD(ordinality);
+	COMPARE_SCALAR_FIELD(is_rowsfrom);
+	COMPARE_NODE_FIELD(functions);
 	COMPARE_NODE_FIELD(alias);
 	COMPARE_NODE_FIELD(coldeflist);
 
@@ -2179,6 +2192,7 @@ _equalColumnDef(const ColumnDef *a, const ColumnDef *b)
 	COMPARE_SCALAR_FIELD(collOid);
 	COMPARE_NODE_FIELD(constraints);
 	COMPARE_NODE_FIELD(fdwoptions);
+	COMPARE_LOCATION_FIELD(location);
 
 	return true;
 }
@@ -2245,10 +2259,7 @@ _equalRangeTblEntry(const RangeTblEntry *a, const RangeTblEntry *b)
 	COMPARE_SCALAR_FIELD(security_barrier);
 	COMPARE_SCALAR_FIELD(jointype);
 	COMPARE_NODE_FIELD(joinaliasvars);
-	COMPARE_NODE_FIELD(funcexpr);
-	COMPARE_NODE_FIELD(funccoltypes);
-	COMPARE_NODE_FIELD(funccoltypmods);
-	COMPARE_NODE_FIELD(funccolcollations);
+	COMPARE_NODE_FIELD(functions);
 	COMPARE_SCALAR_FIELD(funcordinality);
 	COMPARE_NODE_FIELD(values_lists);
 	COMPARE_NODE_FIELD(values_collations);
@@ -2267,6 +2278,20 @@ _equalRangeTblEntry(const RangeTblEntry *a, const RangeTblEntry *b)
 	COMPARE_SCALAR_FIELD(checkAsUser);
 	COMPARE_BITMAPSET_FIELD(selectedCols);
 	COMPARE_BITMAPSET_FIELD(modifiedCols);
+
+	return true;
+}
+
+static bool
+_equalRangeTblFunction(const RangeTblFunction *a, const RangeTblFunction *b)
+{
+	COMPARE_NODE_FIELD(funcexpr);
+	COMPARE_SCALAR_FIELD(funccolcount);
+	COMPARE_NODE_FIELD(funccolnames);
+	COMPARE_NODE_FIELD(funccoltypes);
+	COMPARE_NODE_FIELD(funccoltypmods);
+	COMPARE_NODE_FIELD(funccolcollations);
+	COMPARE_BITMAPSET_FIELD(funcparams);
 
 	return true;
 }
@@ -2825,6 +2850,9 @@ equal(const void *a, const void *b)
 		case T_ReplicaIdentityStmt:
 			retval = _equalReplicaIdentityStmt(a, b);
 			break;
+		case T_AlterSystemStmt:
+			retval = _equalAlterSystemStmt(a, b);
+			break;
 		case T_CreateSeqStmt:
 			retval = _equalCreateSeqStmt(a, b);
 			break;
@@ -3017,6 +3045,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_RangeTblEntry:
 			retval = _equalRangeTblEntry(a, b);
+			break;
+		case T_RangeTblFunction:
+			retval = _equalRangeTblFunction(a, b);
 			break;
 		case T_WithCheckOption:
 			retval = _equalWithCheckOption(a, b);

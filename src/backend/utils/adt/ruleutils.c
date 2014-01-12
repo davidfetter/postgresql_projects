@@ -4,7 +4,7 @@
  *	  Functions to convert stored expressions/querytrees back to
  *	  source text
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -22,6 +22,7 @@
 #include "access/sysattr.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
+#include "catalog/pg_aggregate.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_constraint.h"
@@ -40,6 +41,7 @@
 #include "nodes/nodeFuncs.h"
 #include "optimizer/tlist.h"
 #include "parser/keywords.h"
+#include "parser/parse_agg.h"
 #include "parser/parse_func.h"
 #include "parser/parse_oper.h"
 #include "parser/parser.h"
@@ -387,8 +389,8 @@ static void get_from_clause_item(Node *jtnode, Query *query,
 					 deparse_context *context);
 static void get_column_alias_list(deparse_columns *colinfo,
 					  deparse_context *context);
-static void get_from_clause_coldeflist(deparse_columns *colinfo,
-						   List *types, List *typmods, List *collations,
+static void get_from_clause_coldeflist(RangeTblFunction *rtfunc,
+						   deparse_columns *colinfo,
 						   deparse_context *context);
 static void get_opclass_name(Oid opclass, Oid actual_datatype,
 				 StringInfo buf);
@@ -480,7 +482,7 @@ pg_get_ruledef_worker(Oid ruleoid, int prettyFlags)
 	 */
 	args[0] = ObjectIdGetDatum(ruleoid);
 	nulls[0] = ' ';
-	spirc = SPI_execute_plan(plan_getrulebyoid, args, nulls, true, 1);
+	spirc = SPI_execute_plan(plan_getrulebyoid, args, nulls, true, 0);
 	if (spirc != SPI_OK_SELECT)
 		elog(ERROR, "failed to get pg_rewrite tuple for rule %u", ruleoid);
 	if (SPI_processed != 1)
@@ -632,10 +634,10 @@ pg_get_viewdef_worker(Oid viewoid, int prettyFlags, int wrapColumn)
 	 * Get the pg_rewrite tuple for the view's SELECT rule
 	 */
 	args[0] = ObjectIdGetDatum(viewoid);
-	args[1] = PointerGetDatum(ViewSelectRuleName);
+	args[1] = DirectFunctionCall1(namein, CStringGetDatum(ViewSelectRuleName));
 	nulls[0] = ' ';
 	nulls[1] = ' ';
-	spirc = SPI_execute_plan(plan_getviewrule, args, nulls, true, 2);
+	spirc = SPI_execute_plan(plan_getviewrule, args, nulls, true, 0);
 	if (spirc != SPI_OK_SELECT)
 		elog(ERROR, "failed to get pg_rewrite tuple for view %u", viewoid);
 	if (SPI_processed != 1)
@@ -2166,6 +2168,7 @@ print_function_arguments(StringInfo buf, HeapTuple proctup,
 	Oid		   *argtypes;
 	char	  **argnames;
 	char	   *argmodes;
+	int			insertorderbyat = -1;
 	int			argsprinted;
 	int			inputargno;
 	int			nlackdefaults;
@@ -2197,6 +2200,23 @@ print_function_arguments(StringInfo buf, HeapTuple proctup,
 			/* nlackdefaults counts only *input* arguments lacking defaults */
 			nlackdefaults = proc->pronargs - list_length(argdefaults);
 		}
+	}
+
+	/* Check for special treatment of ordered-set aggregates */
+	if (proc->proisagg)
+	{
+		HeapTuple	aggtup;
+		Form_pg_aggregate agg;
+
+		aggtup = SearchSysCache1(AGGFNOID,
+								 ObjectIdGetDatum(HeapTupleGetOid(proctup)));
+		if (!HeapTupleIsValid(aggtup))
+			elog(ERROR, "cache lookup failed for aggregate %u",
+				 HeapTupleGetOid(proctup));
+		agg = (Form_pg_aggregate) GETSTRUCT(aggtup);
+		if (AGGKIND_IS_ORDERED_SET(agg->aggkind))
+			insertorderbyat = agg->aggnumdirectargs;
+		ReleaseSysCache(aggtup);
 	}
 
 	argsprinted = 0;
@@ -2243,8 +2263,15 @@ print_function_arguments(StringInfo buf, HeapTuple proctup,
 		if (print_table_args != (argmode == PROARGMODE_TABLE))
 			continue;
 
-		if (argsprinted)
+		if (argsprinted == insertorderbyat)
+		{
+			if (argsprinted)
+				appendStringInfoChar(buf, ' ');
+			appendStringInfoString(buf, "ORDER BY ");
+		}
+		else if (argsprinted)
 			appendStringInfoString(buf, ", ");
+
 		appendStringInfoString(buf, modename);
 		if (argname && argname[0])
 			appendStringInfo(buf, "%s ", quote_identifier(argname));
@@ -2261,9 +2288,101 @@ print_function_arguments(StringInfo buf, HeapTuple proctup,
 							 deparse_expression(expr, NIL, false, false));
 		}
 		argsprinted++;
+
+		/* nasty hack: print the last arg twice for variadic ordered-set agg */
+		if (argsprinted == insertorderbyat && i == numargs - 1)
+		{
+			i--;
+			/* aggs shouldn't have defaults anyway, but just to be sure ... */
+			print_defaults = false;
+		}
 	}
 
 	return argsprinted;
+}
+
+static bool
+is_input_argument(int nth, const char *argmodes)
+{
+	return (!argmodes
+			|| argmodes[nth] == PROARGMODE_IN
+			|| argmodes[nth] == PROARGMODE_INOUT
+			|| argmodes[nth] == PROARGMODE_VARIADIC);
+}
+
+/*
+ * Get textual representation of a function argument's default value.  The
+ * second argument of this function is the argument number among all arguments
+ * (i.e. proallargtypes, *not* proargtypes), starting with 1, because that's
+ * how information_schema.sql uses it.
+ */
+Datum
+pg_get_function_arg_default(PG_FUNCTION_ARGS)
+{
+	Oid			funcid = PG_GETARG_OID(0);
+	int32		nth_arg = PG_GETARG_INT32(1);
+	HeapTuple	proctup;
+	Form_pg_proc proc;
+	int			numargs;
+	Oid		   *argtypes;
+	char	  **argnames;
+	char	   *argmodes;
+	int			i;
+	List	   *argdefaults;
+	Node	   *node;
+	char	   *str;
+	int			nth_inputarg;
+	Datum		proargdefaults;
+	bool		isnull;
+	int			nth_default;
+
+	proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
+	if (!HeapTupleIsValid(proctup))
+		elog(ERROR, "cache lookup failed for function %u", funcid);
+
+	numargs = get_func_arg_info(proctup, &argtypes, &argnames, &argmodes);
+	if (nth_arg < 1 || nth_arg > numargs || !is_input_argument(nth_arg - 1, argmodes))
+	{
+		ReleaseSysCache(proctup);
+		PG_RETURN_NULL();
+	}
+
+	nth_inputarg = 0;
+	for (i = 0; i < nth_arg; i++)
+		if (is_input_argument(i, argmodes))
+			nth_inputarg++;
+
+	proargdefaults = SysCacheGetAttr(PROCOID, proctup,
+									 Anum_pg_proc_proargdefaults,
+									 &isnull);
+	if (isnull)
+	{
+		ReleaseSysCache(proctup);
+		PG_RETURN_NULL();
+	}
+
+	str = TextDatumGetCString(proargdefaults);
+	argdefaults = (List *) stringToNode(str);
+	Assert(IsA(argdefaults, List));
+	pfree(str);
+
+	proc = (Form_pg_proc) GETSTRUCT(proctup);
+
+	/* Calculate index into proargdefaults: proargdefaults corresponds to the
+	 * last N input arguments, where N = pronargdefaults. */
+	nth_default = nth_inputarg - 1 - (proc->pronargs - proc->pronargdefaults);
+
+	if (nth_default < 0 || nth_default >= list_length(argdefaults))
+	{
+		ReleaseSysCache(proctup);
+		PG_RETURN_NULL();
+	}
+	node = list_nth(argdefaults, nth_default);
+	str = deparse_expression(node, NIL, false, false);
+
+	ReleaseSysCache(proctup);
+
+	PG_RETURN_TEXT_P(string_to_text(str));
 }
 
 
@@ -7410,31 +7529,13 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 {
 	StringInfo	buf = context->buf;
 	Oid			argtypes[FUNC_MAX_ARGS];
-	List	   *arglist;
 	int			nargs;
 	bool		use_variadic;
-	ListCell   *l;
 
-	/* Extract the regular arguments, ignoring resjunk stuff for the moment */
-	arglist = NIL;
-	nargs = 0;
-	foreach(l, aggref->args)
-	{
-		TargetEntry *tle = (TargetEntry *) lfirst(l);
-		Node	   *arg = (Node *) tle->expr;
+	/* Extract the argument types as seen by the parser */
+	nargs = get_aggregate_argtypes(aggref, argtypes);
 
-		Assert(!IsA(arg, NamedArgExpr));
-		if (tle->resjunk)
-			continue;
-		if (nargs >= FUNC_MAX_ARGS)		/* paranoia */
-			ereport(ERROR,
-					(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
-					 errmsg("too many arguments")));
-		argtypes[nargs] = exprType(arg);
-		arglist = lappend(arglist, arg);
-		nargs++;
-	}
-
+	/* Print the aggregate name, schema-qualified if needed */
 	appendStringInfo(buf, "%s(%s",
 					 generate_function_name(aggref->aggfnoid, nargs,
 											NIL, argtypes,
@@ -7442,26 +7543,51 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 											&use_variadic),
 					 (aggref->aggdistinct != NIL) ? "DISTINCT " : "");
 
-	/* aggstar can be set only in zero-argument aggregates */
-	if (aggref->aggstar)
-		appendStringInfoChar(buf, '*');
+	if (AGGKIND_IS_ORDERED_SET(aggref->aggkind))
+	{
+		/*
+		 * Ordered-set aggregates do not use "*" syntax.  Also, we needn't
+		 * worry about inserting VARIADIC.	So we can just dump the direct
+		 * args as-is.
+		 */
+		Assert(!aggref->aggvariadic);
+		get_rule_expr((Node *) aggref->aggdirectargs, context, true);
+		Assert(aggref->aggorder != NIL);
+		appendStringInfoString(buf, ") WITHIN GROUP (ORDER BY ");
+		get_rule_orderby(aggref->aggorder, aggref->args, false, context);
+	}
 	else
 	{
-		nargs = 0;
-		foreach(l, arglist)
+		/* aggstar can be set only in zero-argument aggregates */
+		if (aggref->aggstar)
+			appendStringInfoChar(buf, '*');
+		else
 		{
-			if (nargs++ > 0)
-				appendStringInfoString(buf, ", ");
-			if (use_variadic && lnext(l) == NULL)
-				appendStringInfoString(buf, "VARIADIC ");
-			get_rule_expr((Node *) lfirst(l), context, true);
-		}
-	}
+			ListCell   *l;
+			int			i;
 
-	if (aggref->aggorder != NIL)
-	{
-		appendStringInfoString(buf, " ORDER BY ");
-		get_rule_orderby(aggref->aggorder, aggref->args, false, context);
+			i = 0;
+			foreach(l, aggref->args)
+			{
+				TargetEntry *tle = (TargetEntry *) lfirst(l);
+				Node	   *arg = (Node *) tle->expr;
+
+				Assert(!IsA(arg, NamedArgExpr));
+				if (tle->resjunk)
+					continue;
+				if (i++ > 0)
+					appendStringInfoString(buf, ", ");
+				if (use_variadic && i == nargs)
+					appendStringInfoString(buf, "VARIADIC ");
+				get_rule_expr(arg, context, true);
+			}
+		}
+
+		if (aggref->aggorder != NIL)
+		{
+			appendStringInfoString(buf, " ORDER BY ");
+			get_rule_orderby(aggref->aggorder, aggref->args, false, context);
+		}
 	}
 
 	if (aggref->aggfilter != NULL)
@@ -8013,6 +8139,7 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 		RangeTblEntry *rte = rt_fetch(varno, query->rtable);
 		char	   *refname = get_rtable_name(varno, context);
 		deparse_columns *colinfo = deparse_columns_fetch(varno, dpns);
+		RangeTblFunction *rtfunc1 = NULL;
 		bool		printalias;
 
 		if (rte->lateral)
@@ -8038,7 +8165,96 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 				break;
 			case RTE_FUNCTION:
 				/* Function RTE */
-				get_rule_expr(rte->funcexpr, context, true);
+				rtfunc1 = (RangeTblFunction *) linitial(rte->functions);
+
+				/*
+				 * Omit ROWS FROM() syntax for just one function, unless it
+				 * has both a coldeflist and WITH ORDINALITY. If it has both,
+				 * we must use ROWS FROM() syntax to avoid ambiguity about
+				 * whether the coldeflist includes the ordinality column.
+				 */
+				if (list_length(rte->functions) == 1 &&
+					(rtfunc1->funccolnames == NIL || !rte->funcordinality))
+				{
+					get_rule_expr(rtfunc1->funcexpr, context, true);
+					/* we'll print the coldeflist below, if it has one */
+				}
+				else
+				{
+					bool		all_unnest;
+					ListCell   *lc;
+
+					/*
+					 * If all the function calls in the list are to unnest,
+					 * and none need a coldeflist, then collapse the list back
+					 * down to UNNEST(args).  (If we had more than one
+					 * built-in unnest function, this would get more
+					 * difficult.)
+					 *
+					 * XXX This is pretty ugly, since it makes not-terribly-
+					 * future-proof assumptions about what the parser would do
+					 * with the output; but the alternative is to emit our
+					 * nonstandard ROWS FROM() notation for what might have
+					 * been a perfectly spec-compliant multi-argument
+					 * UNNEST().
+					 */
+					all_unnest = true;
+					foreach(lc, rte->functions)
+					{
+						RangeTblFunction *rtfunc = (RangeTblFunction *) lfirst(lc);
+
+						if (!IsA(rtfunc->funcexpr, FuncExpr) ||
+							((FuncExpr *) rtfunc->funcexpr)->funcid != F_ARRAY_UNNEST ||
+							rtfunc->funccolnames != NIL)
+						{
+							all_unnest = false;
+							break;
+						}
+					}
+
+					if (all_unnest)
+					{
+						List	   *allargs = NIL;
+
+						foreach(lc, rte->functions)
+						{
+							RangeTblFunction *rtfunc = (RangeTblFunction *) lfirst(lc);
+							List	   *args = ((FuncExpr *) rtfunc->funcexpr)->args;
+
+							allargs = list_concat(allargs, list_copy(args));
+						}
+
+						appendStringInfoString(buf, "UNNEST(");
+						get_rule_expr((Node *) allargs, context, true);
+						appendStringInfoChar(buf, ')');
+					}
+					else
+					{
+						int			funcno = 0;
+
+						appendStringInfoString(buf, "ROWS FROM(");
+						foreach(lc, rte->functions)
+						{
+							RangeTblFunction *rtfunc = (RangeTblFunction *) lfirst(lc);
+
+							if (funcno > 0)
+								appendStringInfoString(buf, ", ");
+							get_rule_expr(rtfunc->funcexpr, context, true);
+							if (rtfunc->funccolnames != NIL)
+							{
+								/* Reconstruct the column definition list */
+								appendStringInfoString(buf, " AS ");
+								get_from_clause_coldeflist(rtfunc,
+														   NULL,
+														   context);
+							}
+							funcno++;
+						}
+						appendStringInfoChar(buf, ')');
+					}
+					/* prevent printing duplicate coldeflist below */
+					rtfunc1 = NULL;
+				}
 				if (rte->funcordinality)
 					appendStringInfoString(buf, " WITH ORDINALITY");
 				break;
@@ -8082,7 +8298,7 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 			 * For a function RTE, always print alias.	This covers possible
 			 * renaming of the function and/or instability of the
 			 * FigureColname rules for things that aren't simple functions.
-			 * Also note we'd need to force it anyway for the RECORD case.
+			 * Note we'd need to force it anyway for the columndef list case.
 			 */
 			printalias = true;
 		}
@@ -8100,14 +8316,10 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 			appendStringInfo(buf, " %s", quote_identifier(refname));
 
 		/* Print the column definitions or aliases, if needed */
-		if (rte->rtekind == RTE_FUNCTION && rte->funccoltypes != NIL)
+		if (rtfunc1 && rtfunc1->funccolnames != NIL)
 		{
-			/* Function returning RECORD, reconstruct the columndefs */
-			get_from_clause_coldeflist(colinfo,
-									   rte->funccoltypes,
-									   rte->funccoltypmods,
-									   rte->funccolcollations,
-									   context);
+			/* Reconstruct the columndef list, which is also the aliases */
+			get_from_clause_coldeflist(rtfunc1, colinfo, context);
 		}
 		else
 		{
@@ -8251,29 +8463,45 @@ get_column_alias_list(deparse_columns *colinfo, deparse_context *context)
 /*
  * get_from_clause_coldeflist - reproduce FROM clause coldeflist
  *
+ * When printing a top-level coldeflist (which is syntactically also the
+ * relation's column alias list), use column names from colinfo.  But when
+ * printing a coldeflist embedded inside ROWS FROM(), we prefer to use the
+ * original coldeflist's names, which are available in rtfunc->funccolnames.
+ * Pass NULL for colinfo to select the latter behavior.
+ *
  * The coldeflist is appended immediately (no space) to buf.  Caller is
  * responsible for ensuring that an alias or AS is present before it.
  */
 static void
-get_from_clause_coldeflist(deparse_columns *colinfo,
-						   List *types, List *typmods, List *collations,
+get_from_clause_coldeflist(RangeTblFunction *rtfunc,
+						   deparse_columns *colinfo,
 						   deparse_context *context)
 {
 	StringInfo	buf = context->buf;
 	ListCell   *l1;
 	ListCell   *l2;
 	ListCell   *l3;
+	ListCell   *l4;
 	int			i;
 
 	appendStringInfoChar(buf, '(');
 
+	/* there's no forfour(), so must chase one list the hard way */
 	i = 0;
-	forthree(l1, types, l2, typmods, l3, collations)
+	l4 = list_head(rtfunc->funccolnames);
+	forthree(l1, rtfunc->funccoltypes,
+			 l2, rtfunc->funccoltypmods,
+			 l3, rtfunc->funccolcollations)
 	{
-		char	   *attname = colinfo->colnames[i];
 		Oid			atttypid = lfirst_oid(l1);
 		int32		atttypmod = lfirst_int(l2);
 		Oid			attcollation = lfirst_oid(l3);
+		char	   *attname;
+
+		if (colinfo)
+			attname = colinfo->colnames[i];
+		else
+			attname = strVal(lfirst(l4));
 
 		Assert(attname);		/* shouldn't be any dropped columns here */
 
@@ -8286,6 +8514,8 @@ get_from_clause_coldeflist(deparse_columns *colinfo,
 			attcollation != get_typcollation(atttypid))
 			appendStringInfo(buf, " COLLATE %s",
 							 generate_collation_name(attcollation));
+
+		l4 = lnext(l4);
 		i++;
 	}
 

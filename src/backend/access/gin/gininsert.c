@@ -4,7 +4,7 @@
  *	  insert routines for the postgres inverted index access method.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -81,7 +81,6 @@ addItemPointersToLeafTuple(GinState *ginstate,
 	{
 		/* posting list would be too big, convert to posting tree */
 		BlockNumber postingRoot;
-		GinPostingTreeScan *gdi;
 
 		/*
 		 * Initialize posting tree with the old tuple's posting list.  It's
@@ -94,12 +93,9 @@ addItemPointersToLeafTuple(GinState *ginstate,
 										buildStats);
 
 		/* Now insert the TIDs-to-be-added into the posting tree */
-		gdi = ginPrepareScanPostingTree(ginstate->index, postingRoot, FALSE);
-		gdi->btree.isBuild = (buildStats != NULL);
-
-		ginInsertItemPointers(gdi, items, nitem, buildStats);
-
-		pfree(gdi);
+		ginInsertItemPointers(ginstate->index, postingRoot,
+							  items, nitem,
+							  buildStats);
 
 		/* And build a new posting-tree-only result tuple */
 		res = GinFormTuple(ginstate, attnum, key, category, NULL, 0, true);
@@ -167,9 +163,12 @@ ginEntryInsert(GinState *ginstate,
 			   GinStatsData *buildStats)
 {
 	GinBtreeData btree;
+	GinBtreeEntryInsertData insertdata;
 	GinBtreeStack *stack;
 	IndexTuple	itup;
 	Page		page;
+
+	insertdata.isDelete = FALSE;
 
 	/* During index build, count the to-be-inserted entry */
 	if (buildStats)
@@ -177,7 +176,7 @@ ginEntryInsert(GinState *ginstate,
 
 	ginPrepareEntryScan(&btree, attnum, key, category, ginstate);
 
-	stack = ginFindLeafPage(&btree, NULL);
+	stack = ginFindLeafPage(&btree, false);
 	page = BufferGetPage(stack->buffer);
 
 	if (btree.findItem(&btree, stack))
@@ -189,18 +188,15 @@ ginEntryInsert(GinState *ginstate,
 		{
 			/* add entries to existing posting tree */
 			BlockNumber rootPostingTree = GinGetPostingTree(itup);
-			GinPostingTreeScan *gdi;
 
 			/* release all stack */
 			LockBuffer(stack->buffer, GIN_UNLOCK);
 			freeGinBtreeStack(stack);
 
 			/* insert into posting tree */
-			gdi = ginPrepareScanPostingTree(ginstate->index, rootPostingTree, FALSE);
-			gdi->btree.isBuild = (buildStats != NULL);
-			ginInsertItemPointers(gdi, items, nitem, buildStats);
-			pfree(gdi);
-
+			ginInsertItemPointers(ginstate->index, rootPostingTree,
+								  items, nitem,
+								  buildStats);
 			return;
 		}
 
@@ -208,7 +204,7 @@ ginEntryInsert(GinState *ginstate,
 		itup = addItemPointersToLeafTuple(ginstate, itup,
 										  items, nitem, buildStats);
 
-		btree.isDelete = TRUE;
+		insertdata.isDelete = TRUE;
 	}
 	else
 	{
@@ -218,8 +214,8 @@ ginEntryInsert(GinState *ginstate,
 	}
 
 	/* Insert the new or modified leaf tuple */
-	btree.entry = itup;
-	ginInsertValue(&btree, stack, buildStats);
+	insertdata.entry = itup;
+	ginInsertValue(&btree, stack, &insertdata, buildStats);
 	pfree(itup);
 }
 
@@ -439,10 +435,10 @@ ginbuildempty(PG_FUNCTION_ARGS)
 	START_CRIT_SECTION();
 	GinInitMetabuffer(MetaBuffer);
 	MarkBufferDirty(MetaBuffer);
-	log_newpage_buffer(MetaBuffer);
+	log_newpage_buffer(MetaBuffer, false);
 	GinInitBuffer(RootBuffer, GIN_LEAF);
 	MarkBufferDirty(RootBuffer);
-	log_newpage_buffer(RootBuffer);
+	log_newpage_buffer(RootBuffer, false);
 	END_CRIT_SECTION();
 
 	/* Unlock and release the buffers. */

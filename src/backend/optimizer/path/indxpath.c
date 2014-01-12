@@ -4,7 +4,7 @@
  *	  Routines to determine which indexes are usable for scanning a
  *	  given relation, and create Paths accordingly.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -121,7 +121,8 @@ static List *build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 				  SaOpControl saop_control, ScanTypeControl scantype);
 static List *build_paths_for_OR(PlannerInfo *root, RelOptInfo *rel,
 				   List *clauses, List *other_clauses);
-static List *drop_indexable_join_clauses(RelOptInfo *rel, List *clauses);
+static List *generate_bitmap_or_paths(PlannerInfo *root, RelOptInfo *rel,
+						 List *clauses, List *other_clauses);
 static Path *choose_bitmap_and(PlannerInfo *root, RelOptInfo *rel,
 				  List *paths);
 static int	path_usage_comparator(const void *a, const void *b);
@@ -311,8 +312,7 @@ create_index_paths(PlannerInfo *root, RelOptInfo *rel)
 	 * restriction list.  Add these to bitindexpaths.
 	 */
 	indexpaths = generate_bitmap_or_paths(root, rel,
-										  rel->baserestrictinfo, NIL,
-										  false);
+										  rel->baserestrictinfo, NIL);
 	bitindexpaths = list_concat(bitindexpaths, indexpaths);
 
 	/*
@@ -320,8 +320,7 @@ create_index_paths(PlannerInfo *root, RelOptInfo *rel)
 	 * the joinclause list.  Add these to bitjoinpaths.
 	 */
 	indexpaths = generate_bitmap_or_paths(root, rel,
-										joinorclauses, rel->baserestrictinfo,
-										  false);
+									   joinorclauses, rel->baserestrictinfo);
 	bitjoinpaths = list_concat(bitjoinpaths, indexpaths);
 
 	/*
@@ -1154,16 +1153,10 @@ build_paths_for_OR(PlannerInfo *root, RelOptInfo *rel,
  * other_clauses is a list of additional clauses that can be assumed true
  * for the purpose of generating indexquals, but are not to be searched for
  * ORs.  (See build_paths_for_OR() for motivation.)
- *
- * If restriction_only is true, ignore OR elements that are join clauses.
- * When using this feature it is caller's responsibility that neither clauses
- * nor other_clauses contain any join clauses that are not ORs, as we do not
- * re-filter those lists.
  */
-List *
+static List *
 generate_bitmap_or_paths(PlannerInfo *root, RelOptInfo *rel,
-						 List *clauses, List *other_clauses,
-						 bool restriction_only)
+						 List *clauses, List *other_clauses)
 {
 	List	   *result = NIL;
 	List	   *all_clauses;
@@ -1202,9 +1195,6 @@ generate_bitmap_or_paths(PlannerInfo *root, RelOptInfo *rel,
 			{
 				List	   *andargs = ((BoolExpr *) orarg)->args;
 
-				if (restriction_only)
-					andargs = drop_indexable_join_clauses(rel, andargs);
-
 				indlist = build_paths_for_OR(root, rel,
 											 andargs,
 											 all_clauses);
@@ -1213,8 +1203,7 @@ generate_bitmap_or_paths(PlannerInfo *root, RelOptInfo *rel,
 				indlist = list_concat(indlist,
 									  generate_bitmap_or_paths(root, rel,
 															   andargs,
-															   all_clauses,
-														  restriction_only));
+															   all_clauses));
 			}
 			else
 			{
@@ -1223,9 +1212,6 @@ generate_bitmap_or_paths(PlannerInfo *root, RelOptInfo *rel,
 				Assert(IsA(orarg, RestrictInfo));
 				Assert(!restriction_is_or_clause((RestrictInfo *) orarg));
 				orargs = list_make1(orarg);
-
-				if (restriction_only)
-					orargs = drop_indexable_join_clauses(rel, orargs);
 
 				indlist = build_paths_for_OR(root, rel,
 											 orargs,
@@ -1261,34 +1247,6 @@ generate_bitmap_or_paths(PlannerInfo *root, RelOptInfo *rel,
 		}
 	}
 
-	return result;
-}
-
-/*
- * drop_indexable_join_clauses
- *		Remove any indexable join clauses from the list.
- *
- * This is a helper for generate_bitmap_or_paths().  We leave OR clauses
- * in the list whether they are joins or not, since we might be able to
- * extract a restriction item from an OR list.	It's safe to leave such
- * clauses in the list because match_clauses_to_index() will ignore them,
- * so there's no harm in passing such clauses to build_paths_for_OR().
- */
-static List *
-drop_indexable_join_clauses(RelOptInfo *rel, List *clauses)
-{
-	List	   *result = NIL;
-	ListCell   *lc;
-
-	foreach(lc, clauses)
-	{
-		RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
-
-		Assert(IsA(rinfo, RestrictInfo));
-		if (restriction_is_or_clause(rinfo) ||
-			bms_is_subset(rinfo->clause_relids, rel->relids))
-			result = lappend(result, rinfo);
-	}
 	return result;
 }
 
@@ -1354,7 +1312,8 @@ choose_bitmap_and(PlannerInfo *root, RelOptInfo *rel, List *paths)
 	 * we can remove this limitation.  (But note that this also defends
 	 * against flat-out duplicate input paths, which can happen because
 	 * match_join_clauses_to_index will find the same OR join clauses that
-	 * create_or_index_quals has pulled OR restriction clauses out of.)
+	 * extract_restriction_or_clauses has pulled OR restriction clauses out
+	 * of.)
 	 *
 	 * For the same reason, we reject AND combinations in which an index
 	 * predicate clause duplicates another clause.	Here we find it necessary
@@ -1707,8 +1666,7 @@ get_bitmap_tree_required_outer(Path *bitmapqual)
  * These are appended to the initial contents of *quals and *preds (hence
  * caller should initialize those to NIL).
  *
- * This is sort of a simplified version of make_restrictinfo_from_bitmapqual;
- * here, we are not trying to produce an accurate representation of the AND/OR
+ * Note we are not trying to produce an accurate representation of the AND/OR
  * semantics of the Path, but just find out all the base conditions used.
  *
  * The result lists contain pointers to the expressions used in the Path,

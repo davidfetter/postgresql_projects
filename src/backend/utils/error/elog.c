@@ -43,7 +43,7 @@
  * overflow.)
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -311,6 +311,18 @@ errstart(int elevel, const char *filename, int lineno,
 		return false;
 
 	/*
+	 * We need to do some actual work.  Make sure that memory context
+	 * initialization has finished, else we can't do anything useful.
+	 */
+	if (ErrorContext == NULL)
+	{
+		/* Ooops, hard crash time; very little we can do safely here */
+		write_stderr("error occurred at %s:%d before error message processing is available\n",
+					 filename ? filename : "(unknown file)", lineno);
+		exit(2);
+	}
+
+	/*
 	 * Okay, crank up a stack entry to store the info in.
 	 */
 
@@ -397,12 +409,13 @@ void
 errfinish(int dummy,...)
 {
 	ErrorData  *edata = &errordata[errordata_stack_depth];
-	int			elevel = edata->elevel;
+	int			elevel;
 	MemoryContext oldcontext;
 	ErrorContextCallback *econtext;
 
 	recursion_depth++;
 	CHECK_STACK_DEPTH();
+	elevel = edata->elevel;
 
 	/*
 	 * Do processing in ErrorContext, which we hope has enough reserved space
@@ -1236,6 +1249,15 @@ void
 elog_start(const char *filename, int lineno, const char *funcname)
 {
 	ErrorData  *edata;
+
+	/* Make sure that memory context initialization has finished */
+	if (ErrorContext == NULL)
+	{
+		/* Ooops, hard crash time; very little we can do safely here */
+		write_stderr("error occurred at %s:%d before error message processing is available\n",
+					 filename ? filename : "(unknown file)", lineno);
+		exit(2);
+	}
 
 	if (++errordata_stack_depth >= ERRORDATA_STACK_SIZE)
 	{

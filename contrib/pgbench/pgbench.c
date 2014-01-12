@@ -5,7 +5,7 @@
  * Originally written by Tatsuo Ishii and enhanced by many contributors.
  *
  * contrib/pgbench/pgbench.c
- * Copyright (c) 2000-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2014, PostgreSQL Global Development Group
  * ALL RIGHTS RESERVED;
  *
  * Permission to use, copy, modify, and distribute this software and its
@@ -1720,11 +1720,11 @@ init(bool is_no_vacuum)
 			INSTR_TIME_SUBTRACT(diff, start);
 
 			elapsed_sec = INSTR_TIME_GET_DOUBLE(diff);
-			remaining_sec = (scale * naccounts - j) * elapsed_sec / j;
+			remaining_sec = ((double) scale * naccounts - j) * elapsed_sec / j;
 
 			fprintf(stderr, INT64_FORMAT " of " INT64_FORMAT " tuples (%d%%) done (elapsed %.2f s, remaining %.2f s).\n",
 					j, (int64) naccounts * scale,
-					(int) (((int64) j * 100) / (naccounts * scale)),
+					(int) (((int64) j * 100) / (naccounts * (int64) scale)),
 					elapsed_sec, remaining_sec);
 		}
 		/* let's not call the timing for each row, but only each 100 rows */
@@ -1734,14 +1734,14 @@ init(bool is_no_vacuum)
 			INSTR_TIME_SUBTRACT(diff, start);
 
 			elapsed_sec = INSTR_TIME_GET_DOUBLE(diff);
-			remaining_sec = (scale * naccounts - j) * elapsed_sec / j;
+			remaining_sec = ((double) scale * naccounts - j) * elapsed_sec / j;
 
 			/* have we reached the next interval (or end)? */
 			if ((j == scale * naccounts) || (elapsed_sec >= log_interval * LOG_STEP_SECONDS))
 			{
 				fprintf(stderr, INT64_FORMAT " of " INT64_FORMAT " tuples (%d%%) done (elapsed %.2f s, remaining %.2f s).\n",
 						j, (int64) naccounts * scale,
-						(int) (((int64) j * 100) / (naccounts * scale)), elapsed_sec, remaining_sec);
+						(int) (((int64) j * 100) / (naccounts * (int64) scale)), elapsed_sec, remaining_sec);
 
 				/* skip to the next interval */
 				log_interval = (int) ceil(elapsed_sec / LOG_STEP_SECONDS);
@@ -2016,6 +2016,49 @@ process_commands(char *buf)
 	return my_commands;
 }
 
+/*
+ * Read a line from fd, and return it in a malloc'd buffer.
+ * Return NULL at EOF.
+ *
+ * The buffer will typically be larger than necessary, but we don't care
+ * in this program, because we'll free it as soon as we've parsed the line.
+ */
+static char *
+read_line_from_file(FILE *fd)
+{
+	char		tmpbuf[BUFSIZ];
+	char	   *buf;
+	size_t		buflen = BUFSIZ;
+	size_t		used = 0;
+
+	buf = (char *) palloc(buflen);
+	buf[0] = '\0';
+
+	while (fgets(tmpbuf, BUFSIZ, fd) != NULL)
+	{
+		size_t		thislen = strlen(tmpbuf);
+
+		/* Append tmpbuf to whatever we had already */
+		memcpy(buf + used, tmpbuf, thislen + 1);
+		used += thislen;
+
+		/* Done if we collected a newline */
+		if (thislen > 0 && tmpbuf[thislen - 1] == '\n')
+			break;
+
+		/* Else, enlarge buf to ensure we can append next bufferload */
+		buflen += BUFSIZ;
+		buf = (char *) pg_realloc(buf, buflen);
+	}
+
+	if (used > 0)
+		return buf;
+
+	/* Reached EOF */
+	free(buf);
+	return NULL;
+}
+
 static int
 process_file(char *filename)
 {
@@ -2024,7 +2067,7 @@ process_file(char *filename)
 	Command   **my_commands;
 	FILE	   *fd;
 	int			lineno;
-	char		buf[BUFSIZ];
+	char	   *buf;
 	int			alloc_num;
 
 	if (num_files >= MAX_FILES)
@@ -2046,11 +2089,14 @@ process_file(char *filename)
 
 	lineno = 0;
 
-	while (fgets(buf, sizeof(buf), fd) != NULL)
+	while ((buf = read_line_from_file(fd)) != NULL)
 	{
 		Command    *command;
 
 		command = process_commands(buf);
+
+		free(buf);
+
 		if (command == NULL)
 			continue;
 

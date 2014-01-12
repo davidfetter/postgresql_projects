@@ -3,7 +3,7 @@
  * fmgr.c
  *	  The Postgres function manager.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -514,7 +514,7 @@ lookup_C_func(HeapTuple procedureTuple)
 					NULL);
 	if (entry == NULL)
 		return NULL;			/* no such entry */
-	if (entry->fn_xmin == HeapTupleHeaderGetXmin(procedureTuple->t_data) &&
+	if (entry->fn_xmin == HeapTupleHeaderGetRawXmin(procedureTuple->t_data) &&
 		ItemPointerEquals(&entry->fn_tid, &procedureTuple->t_self))
 		return entry;			/* OK */
 	return NULL;				/* entry is out of date */
@@ -552,7 +552,7 @@ record_C_func(HeapTuple procedureTuple,
 					HASH_ENTER,
 					&found);
 	/* OID is already filled in */
-	entry->fn_xmin = HeapTupleHeaderGetXmin(procedureTuple->t_data);
+	entry->fn_xmin = HeapTupleHeaderGetRawXmin(procedureTuple->t_data);
 	entry->fn_tid = procedureTuple->t_self;
 	entry->user_fn = user_fn;
 	entry->inforec = inforec;

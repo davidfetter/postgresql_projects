@@ -157,7 +157,7 @@ PLy_input_tuple_funcs(PLyTypeInfo *arg, TupleDesc desc)
 			elog(ERROR, "cache lookup failed for relation %u", arg->typ_relid);
 
 		/* Remember XMIN and TID for later validation if cache is still OK */
-		arg->typrel_xmin = HeapTupleHeaderGetXmin(relTup->t_data);
+		arg->typrel_xmin = HeapTupleHeaderGetRawXmin(relTup->t_data);
 		arg->typrel_tid = relTup->t_self;
 
 		ReleaseSysCache(relTup);
@@ -221,7 +221,7 @@ PLy_output_tuple_funcs(PLyTypeInfo *arg, TupleDesc desc)
 			elog(ERROR, "cache lookup failed for relation %u", arg->typ_relid);
 
 		/* Remember XMIN and TID for later validation if cache is still OK */
-		arg->typrel_xmin = HeapTupleHeaderGetXmin(relTup->t_data);
+		arg->typrel_xmin = HeapTupleHeaderGetRawXmin(relTup->t_data);
 		arg->typrel_tid = relTup->t_self;
 
 		ReleaseSysCache(relTup);
@@ -373,7 +373,7 @@ PLy_output_datum_func2(PLyObToDatum *arg, HeapTuple typeTup)
 	arg->typioparam = getTypeIOParam(typeTup);
 	arg->typbyval = typeStruct->typbyval;
 
-	element_type = get_element_type(arg->typoid);
+	element_type = get_base_element_type(arg->typoid);
 
 	/*
 	 * Select a conversion function to convert Python objects to PostgreSQL
@@ -427,7 +427,8 @@ static void
 PLy_input_datum_func2(PLyDatumToOb *arg, Oid typeOid, HeapTuple typeTup)
 {
 	Form_pg_type typeStruct = (Form_pg_type) GETSTRUCT(typeTup);
-	Oid			element_type = get_element_type(typeOid);
+	/* It's safe to handle domains of array types as its base array type. */
+	Oid			element_type = get_base_element_type(typeOid);
 
 	/* Get the type's conversion information */
 	perm_fmgr_info(typeStruct->typoutput, &arg->typfunc);
@@ -808,6 +809,7 @@ static Datum
 PLySequence_ToArray(PLyObToDatum *arg, int32 typmod, PyObject *plrv)
 {
 	ArrayType  *array;
+	Datum       rv;
 	int			i;
 	Datum	   *elems;
 	bool	   *nulls;
@@ -844,8 +846,15 @@ PLySequence_ToArray(PLyObToDatum *arg, int32 typmod, PyObject *plrv)
 
 	lbs = 1;
 	array = construct_md_array(elems, nulls, 1, &len, &lbs,
-							   get_element_type(arg->typoid), arg->elm->typlen, arg->elm->typbyval, arg->elm->typalign);
-	return PointerGetDatum(array);
+							   get_base_element_type(arg->typoid), arg->elm->typlen, arg->elm->typbyval, arg->elm->typalign);
+	/*
+	 * If the result type is a domain of array, the resulting array must be
+	 * checked.
+	 */
+	rv = PointerGetDatum(array);
+	if (get_typtype(arg->typoid) == TYPTYPE_DOMAIN)
+		domain_check(rv, false, arg->typoid, &arg->typfunc.fn_extra, arg->typfunc.fn_mcxt);
+	return rv;
 }
 
 

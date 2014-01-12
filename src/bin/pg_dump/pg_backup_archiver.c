@@ -297,8 +297,12 @@ RestoreArchive(Archive *AHX)
 		if (AH->version < K_VERS_1_3)
 			exit_horribly(modulename, "direct database connections are not supported in pre-1.3 archives\n");
 
-		/* XXX Should get this from the archive */
-		AHX->minRemoteVersion = 070100;
+		/*
+		 * We don't want to guess at whether the dump will successfully
+		 * restore; allow the attempt regardless of the version of the restore
+		 * target.
+		 */
+		AHX->minRemoteVersion = 0;
 		AHX->maxRemoteVersion = 999999;
 
 		ConnectDatabase(AHX, ropt->dbname,
@@ -2619,7 +2623,7 @@ _doSetSessionAuth(ArchiveHandle *AH, const char *user)
 {
 	PQExpBuffer cmd = createPQExpBuffer();
 
-	appendPQExpBuffer(cmd, "SET SESSION AUTHORIZATION ");
+	appendPQExpBufferStr(cmd, "SET SESSION AUTHORIZATION ");
 
 	/*
 	 * SQL requires a string literal here.	Might as well be correct.
@@ -2627,8 +2631,8 @@ _doSetSessionAuth(ArchiveHandle *AH, const char *user)
 	if (user && *user)
 		appendStringLiteralAHX(cmd, user, AH);
 	else
-		appendPQExpBuffer(cmd, "DEFAULT");
-	appendPQExpBuffer(cmd, ";");
+		appendPQExpBufferStr(cmd, "DEFAULT");
+	appendPQExpBufferChar(cmd, ';');
 
 	if (RestoringToDB(AH))
 	{
@@ -2798,7 +2802,7 @@ _selectOutputSchema(ArchiveHandle *AH, const char *schemaName)
 	appendPQExpBuffer(qry, "SET search_path = %s",
 					  fmtId(schemaName));
 	if (strcmp(schemaName, "pg_catalog") != 0)
-		appendPQExpBuffer(qry, ", pg_catalog");
+		appendPQExpBufferStr(qry, ", pg_catalog");
 
 	if (RestoringToDB(AH))
 	{
@@ -2853,7 +2857,7 @@ _selectTablespace(ArchiveHandle *AH, const char *tablespace)
 	if (strcmp(want, "") == 0)
 	{
 		/* We want the tablespace to be the database's default */
-		appendPQExpBuffer(qry, "SET default_tablespace = ''");
+		appendPQExpBufferStr(qry, "SET default_tablespace = ''");
 	}
 	else
 	{
@@ -3119,7 +3123,7 @@ _printTocEntry(ArchiveHandle *AH, TocEntry *te, RestoreOptions *ropt, bool isDat
 		{
 			PQExpBuffer temp = createPQExpBuffer();
 
-			appendPQExpBuffer(temp, "ALTER ");
+			appendPQExpBufferStr(temp, "ALTER ");
 			_getObjectDescription(temp, te, AH);
 			appendPQExpBuffer(temp, " OWNER TO %s;", fmtId(te->owner));
 			ahprintf(AH, "%s\n\n", temp->data);

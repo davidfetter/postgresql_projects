@@ -33,7 +33,7 @@
  * specific parts are in the libpqwalreceiver module. It's loaded
  * dynamically to avoid linking the server with libpq.
  *
- * Portions Copyright (c) 2010-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010-2014, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -1152,7 +1152,7 @@ XLogWalRcvSendHSFeedback(bool immed)
 	elog(DEBUG2, "sending hot standby feedback xmin %u epoch %u",
 		 xmin, nextEpoch);
 
-	/* Construct the the message and send it. */
+	/* Construct the message and send it. */
 	resetStringInfo(&reply_message);
 	pq_sendbyte(&reply_message, 'h');
 	pq_sendint64(&reply_message, GetCurrentIntegerTimestamp());

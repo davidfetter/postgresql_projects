@@ -3,7 +3,7 @@
  * xlogdesc.c
  *	  rmgr descriptor routines for access/transam/xlog.c
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -28,6 +28,7 @@ const struct config_enum_entry wal_level_options[] = {
 	{"minimal", WAL_LEVEL_MINIMAL, false},
 	{"archive", WAL_LEVEL_ARCHIVE, false},
 	{"hot_standby", WAL_LEVEL_HOT_STANDBY, false},
+	{"logical", WAL_LEVEL_LOGICAL, false},
 	{NULL, 0, false}
 };
 

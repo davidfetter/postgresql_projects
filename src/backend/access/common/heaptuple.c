@@ -45,7 +45,7 @@
  * and we'd like to still refer to them via C struct offsets.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -539,7 +539,7 @@ heap_getsysattr(HeapTuple tup, int attnum, TupleDesc tupleDesc, bool *isnull)
 			result = ObjectIdGetDatum(HeapTupleGetOid(tup));
 			break;
 		case MinTransactionIdAttributeNumber:
-			result = TransactionIdGetDatum(HeapTupleHeaderGetXmin(tup->t_data));
+			result = TransactionIdGetDatum(HeapTupleHeaderGetRawXmin(tup->t_data));
 			break;
 		case MaxTransactionIdAttributeNumber:
 			result = TransactionIdGetDatum(HeapTupleHeaderGetRawXmax(tup->t_data));

@@ -50,7 +50,7 @@
  * there is a window (caused by pgstat delay) on which a worker may choose a
  * table that was already vacuumed; this is a bug in the current design.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -110,6 +110,7 @@
  */
 bool		autovacuum_start_daemon = false;
 int			autovacuum_max_workers;
+int			autovacuum_work_mem = -1;
 int			autovacuum_naptime;
 int			autovacuum_vac_thresh;
 double		autovacuum_vac_scale;
@@ -493,9 +494,8 @@ AutoVacLauncherMain(int argc, char *argv[])
 		HOLD_INTERRUPTS();
 
 		/* Forget any pending QueryCancel or timeout request */
-		QueryCancelPending = false;
 		disable_all_timeouts(false);
-		QueryCancelPending = false;		/* again in case timeout occurred */
+		QueryCancelPending = false;		/* second to avoid race condition */
 
 		/* Report the error to the server log */
 		EmitErrorReport();

@@ -3,7 +3,7 @@
  * aclchk.c
  *	  Routines to check access control permissions.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -3628,7 +3628,7 @@ pg_class_aclmask(Oid table_oid, Oid roleid,
 	 * themselves.	ACL_USAGE is if we ever have system sequences.
 	 */
 	if ((mask & (ACL_INSERT | ACL_UPDATE | ACL_DELETE | ACL_TRUNCATE | ACL_USAGE)) &&
-		IsSystemClass(classForm) &&
+		IsSystemClass(table_oid, classForm) &&
 		classForm->relkind != RELKIND_VIEW &&
 		!has_rolcatupdate(roleid) &&
 		!allowSystemTableMods)

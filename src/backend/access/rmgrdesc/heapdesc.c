@@ -3,7 +3,7 @@
  * heapdesc.c
  *	  rmgr descriptor routines for access/heap/heapam.c
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -131,16 +131,7 @@ heap2_desc(StringInfo buf, uint8 xl_info, char *rec)
 	uint8		info = xl_info & ~XLR_INFO_MASK;
 
 	info &= XLOG_HEAP_OPMASK;
-	if (info == XLOG_HEAP2_FREEZE)
-	{
-		xl_heap_freeze *xlrec = (xl_heap_freeze *) rec;
-
-		appendStringInfo(buf, "freeze: rel %u/%u/%u; blk %u; cutoff xid %u multi %u",
-						 xlrec->node.spcNode, xlrec->node.dbNode,
-						 xlrec->node.relNode, xlrec->block,
-						 xlrec->cutoff_xid, xlrec->cutoff_multi);
-	}
-	else if (info == XLOG_HEAP2_CLEAN)
+	if (info == XLOG_HEAP2_CLEAN)
 	{
 		xl_heap_clean *xlrec = (xl_heap_clean *) rec;
 
@@ -148,6 +139,15 @@ heap2_desc(StringInfo buf, uint8 xl_info, char *rec)
 						 xlrec->node.spcNode, xlrec->node.dbNode,
 						 xlrec->node.relNode, xlrec->block,
 						 xlrec->latestRemovedXid);
+	}
+	else if (info == XLOG_HEAP2_FREEZE_PAGE)
+	{
+		xl_heap_freeze_page *xlrec = (xl_heap_freeze_page *) rec;
+
+		appendStringInfo(buf, "freeze_page: rel %u/%u/%u; blk %u; cutoff xid %u ntuples %u",
+						 xlrec->node.spcNode, xlrec->node.dbNode,
+						 xlrec->node.relNode, xlrec->block,
+						 xlrec->cutoff_xid, xlrec->ntuples);
 	}
 	else if (info == XLOG_HEAP2_CLEANUP_INFO)
 	{
@@ -183,6 +183,15 @@ heap2_desc(StringInfo buf, uint8 xl_info, char *rec)
 		appendStringInfo(buf, "lock updated: xmax %u msk %04x; ", xlrec->xmax,
 						 xlrec->infobits_set);
 		out_target(buf, &(xlrec->target));
+	}
+	else if (info == XLOG_HEAP2_NEW_CID)
+	{
+		xl_heap_new_cid *xlrec = (xl_heap_new_cid *) rec;
+
+		appendStringInfo(buf, "new_cid: ");
+		out_target(buf, &(xlrec->target));
+		appendStringInfo(buf, "; cmin: %u, cmax: %u, combo: %u",
+						 xlrec->cmin, xlrec->cmax, xlrec->combocid);
 	}
 	else
 		appendStringInfoString(buf, "UNKNOWN");

@@ -5,7 +5,7 @@
  *
  * See src/backend/access/transam/README for more information.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -34,6 +34,7 @@
 #include "commands/trigger.h"
 #include "executor/spi.h"
 #include "libpq/be-fsstubs.h"
+#include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "replication/walsender.h"
@@ -52,6 +53,7 @@
 #include "utils/memutils.h"
 #include "utils/relmapper.h"
 #include "utils/snapmgr.h"
+#include "utils/timeout.h"
 #include "utils/timestamp.h"
 #include "pg_trace.h"
 
@@ -146,6 +148,7 @@ typedef struct TransactionStateData
 	int			prevSecContext; /* previous SecurityRestrictionContext */
 	bool		prevXactReadOnly;		/* entry-time xact r/o state */
 	bool		startedInRecovery;		/* did we start in recovery? */
+	bool		didLogXid;		/* has xid been included in WAL record? */
 	struct TransactionStateData *parent;		/* back link to parent */
 } TransactionStateData;
 
@@ -175,6 +178,7 @@ static TransactionStateData TopTransactionStateData = {
 	0,							/* previous SecurityRestrictionContext */
 	false,						/* entry-time xact r/o state */
 	false,						/* startedInRecovery */
+	false,						/* didLogXid */
 	NULL						/* link to parent state block */
 };
 
@@ -265,6 +269,8 @@ static void CallSubXactCallbacks(SubXactEvent event,
 					 SubTransactionId mySubid,
 					 SubTransactionId parentSubid);
 static void CleanupTransaction(void);
+static void CheckTransactionChain(bool isTopLevel, bool throwError,
+					 const char *stmtType);
 static void CommitTransaction(void);
 static TransactionId RecordTransactionAbort(bool isSubXact);
 static void StartTransaction(void);
@@ -391,6 +397,19 @@ GetCurrentTransactionIdIfAny(void)
 }
 
 /*
+ *	MarkCurrentTransactionIdLoggedIfAny
+ *
+ * Remember that the current xid - if it is assigned - now has been wal logged.
+ */
+void
+MarkCurrentTransactionIdLoggedIfAny(void)
+{
+	if (TransactionIdIsValid(CurrentTransactionState->transactionId))
+		CurrentTransactionState->didLogXid = true;
+}
+
+
+/*
  *	GetStableLatestTransactionId
  *
  * Get the transaction's XID if it has one, else read the next-to-be-assigned
@@ -431,6 +450,7 @@ AssignTransactionId(TransactionState s)
 {
 	bool		isSubXact = (s->parent != NULL);
 	ResourceOwner currentOwner;
+	bool log_unknown_top = false;
 
 	/* Assert that caller didn't screw up */
 	Assert(!TransactionIdIsValid(s->transactionId));
@@ -464,6 +484,20 @@ AssignTransactionId(TransactionState s)
 
 		pfree(parents);
 	}
+
+	/*
+	 * When wal_level=logical, guarantee that a subtransaction's xid can only
+	 * be seen in the WAL stream if its toplevel xid has been logged
+	 * before. If necessary we log a xact_assignment record with fewer than
+	 * PGPROC_MAX_CACHED_SUBXIDS. Note that it is fine if didLogXid isn't set
+	 * for a transaction even though it appears in a WAL record, we just might
+	 * superfluously log something. That can happen when an xid is included
+	 * somewhere inside a wal record, but not in XLogRecord->xl_xid, like in
+	 * xl_standby_locks.
+	 */
+	if (isSubXact && XLogLogicalInfoActive() &&
+		!TopTransactionStateData.didLogXid)
+		log_unknown_top = true;
 
 	/*
 	 * Generate a new Xid and record it in PG_PROC and pg_subtrans.
@@ -519,6 +553,9 @@ AssignTransactionId(TransactionState s)
 	 * top-level transaction that each subxact belongs to. This is correct in
 	 * recovery only because aborted subtransactions are separately WAL
 	 * logged.
+	 *
+	 * This is correct even for the case where several levels above us didn't
+	 * have an xid assigned as we recursed up to them beforehand.
 	 */
 	if (isSubXact && XLogStandbyInfoActive())
 	{
@@ -529,7 +566,8 @@ AssignTransactionId(TransactionState s)
 		 * ensure this test matches similar one in
 		 * RecoverPreparedTransactions()
 		 */
-		if (nUnreportedXids >= PGPROC_MAX_CACHED_SUBXIDS)
+		if (nUnreportedXids >= PGPROC_MAX_CACHED_SUBXIDS ||
+			log_unknown_top)
 		{
 			XLogRecData rdata[2];
 			xl_xact_assignment xlrec;
@@ -548,13 +586,15 @@ AssignTransactionId(TransactionState s)
 			rdata[0].next = &rdata[1];
 
 			rdata[1].data = (char *) unreportedXids;
-			rdata[1].len = PGPROC_MAX_CACHED_SUBXIDS * sizeof(TransactionId);
+			rdata[1].len = nUnreportedXids * sizeof(TransactionId);
 			rdata[1].buffer = InvalidBuffer;
 			rdata[1].next = NULL;
 
 			(void) XLogInsert(RM_XACT_ID, XLOG_XACT_ASSIGNMENT, rdata);
 
 			nUnreportedXids = 0;
+			/* mark top, not current xact as having been logged */
+			TopTransactionStateData.didLogXid = true;
 		}
 	}
 }
@@ -1733,6 +1773,7 @@ StartTransaction(void)
 	 * initialize reported xid accounting
 	 */
 	nUnreportedXids = 0;
+	s->didLogXid = false;
 
 	/*
 	 * must initialize resource-management stuff first
@@ -2293,6 +2334,22 @@ AbortTransaction(void)
 	 * if we try to wait for another lock before doing this.
 	 */
 	LockErrorCleanup();
+
+	/*
+	 * If any timeout events are still active, make sure the timeout interrupt
+	 * is scheduled.  This covers possible loss of a timeout interrupt due to
+	 * longjmp'ing out of the SIGINT handler (see notes in handle_sig_alarm).
+	 * We delay this till after LockErrorCleanup so that we don't uselessly
+	 * reschedule lock or deadlock check timeouts.
+	 */
+	reschedule_timeouts();
+
+	/*
+	 * Re-enable signals, in case we got here by longjmp'ing out of a signal
+	 * handler.  We do this fairly early in the sequence so that the timeout
+	 * infrastructure will be functional if needed while aborting.
+	 */
+	PG_SETMASK(&UnBlockSig);
 
 	/*
 	 * check the current transaction state
@@ -2949,6 +3006,26 @@ PreventTransactionChain(bool isTopLevel, const char *stmtType)
 }
 
 /*
+ *	These two functions allow for warnings or errors if a command is
+ *	executed outside of a transaction block.
+ *
+ *	While top-level transaction control commands (BEGIN/COMMIT/ABORT) and
+ *	SET that have no effect issue warnings, all other no-effect commands
+ *	generate errors.
+ */
+void
+WarnNoTransactionChain(bool isTopLevel, const char *stmtType)
+{
+	CheckTransactionChain(isTopLevel, false, stmtType);
+}
+
+void
+RequireTransactionChain(bool isTopLevel, const char *stmtType)
+{
+	CheckTransactionChain(isTopLevel, true, stmtType);
+}
+
+/*
  *	RequireTransactionChain
  *
  *	This routine is to be called by statements that must run inside
@@ -2957,16 +3034,16 @@ PreventTransactionChain(bool isTopLevel, const char *stmtType)
  *	is presumably an error).  DECLARE CURSOR is an example.
  *
  *	If we appear to be running inside a user-defined function, we do not
- *	issue an error, since the function could issue more commands that make
+ *	issue anything, since the function could issue more commands that make
  *	use of the current statement's results.  Likewise subtransactions.
  *	Thus this is an inverse for PreventTransactionChain.
  *
  *	isTopLevel: passed down from ProcessUtility to determine whether we are
  *	inside a function.
- *	stmtType: statement type name, for error messages.
+ *	stmtType: statement type name, for warning or error messages.
  */
-void
-RequireTransactionChain(bool isTopLevel, const char *stmtType)
+static void
+CheckTransactionChain(bool isTopLevel, bool throwError, const char *stmtType)
 {
 	/*
 	 * xact block already started?
@@ -2986,11 +3063,12 @@ RequireTransactionChain(bool isTopLevel, const char *stmtType)
 	if (!isTopLevel)
 		return;
 
-	ereport(ERROR,
+	ereport(throwError ? ERROR : WARNING,
 			(errcode(ERRCODE_NO_ACTIVE_SQL_TRANSACTION),
 	/* translator: %s represents an SQL statement name */
 			 errmsg("%s can only be used in transaction blocks",
 					stmtType)));
+	return;
 }
 
 /*
@@ -3425,12 +3503,12 @@ UserAbortTransactionBlock(void)
 
 			/*
 			 * The user issued ABORT when not inside a transaction. Issue a
-			 * NOTICE and go to abort state.  The upcoming call to
+			 * WARNING and go to abort state.  The upcoming call to
 			 * CommitTransactionCommand() will then put us back into the
 			 * default state.
 			 */
 		case TBLOCK_STARTED:
-			ereport(NOTICE,
+			ereport(WARNING,
 					(errcode(ERRCODE_NO_ACTIVE_SQL_TRANSACTION),
 					 errmsg("there is no transaction in progress")));
 			s->blockState = TBLOCK_ABORT_PENDING;
@@ -4199,7 +4277,27 @@ AbortSubTransaction(void)
 	AbortBufferIO();
 	UnlockBuffers();
 
+	/*
+	 * Also clean up any open wait for lock, since the lock manager will choke
+	 * if we try to wait for another lock before doing this.
+	 */
 	LockErrorCleanup();
+
+	/*
+	 * If any timeout events are still active, make sure the timeout interrupt
+	 * is scheduled.  This covers possible loss of a timeout interrupt due to
+	 * longjmp'ing out of the SIGINT handler (see notes in handle_sig_alarm).
+	 * We delay this till after LockErrorCleanup so that we don't uselessly
+	 * reschedule lock or deadlock check timeouts.
+	 */
+	reschedule_timeouts();
+
+	/*
+	 * Re-enable signals, in case we got here by longjmp'ing out of a signal
+	 * handler.  We do this fairly early in the sequence so that the timeout
+	 * infrastructure will be functional if needed while aborting.
+	 */
+	PG_SETMASK(&UnBlockSig);
 
 	/*
 	 * check the current transaction state

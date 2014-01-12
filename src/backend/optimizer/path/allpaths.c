@@ -3,7 +3,7 @@
  * allpaths.c
  *	  Routines to find possible search paths for processing a query
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -18,6 +18,7 @@
 #include <math.h>
 
 #include "catalog/pg_class.h"
+#include "catalog/pg_operator.h"
 #include "foreign/fdwapi.h"
 #include "nodes/nodeFuncs.h"
 #ifdef OPTIMIZER_DEBUG
@@ -361,17 +362,6 @@ set_plain_rel_size(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Mark rel with estimated output rows, width, etc */
 	set_baserel_size_estimates(root, rel);
-
-	/*
-	 * Check to see if we can extract any restriction conditions from join
-	 * quals that are OR-of-AND structures.  If so, add them to the rel's
-	 * restriction list, and redo the above steps.
-	 */
-	if (create_or_index_quals(root, rel))
-	{
-		check_partial_indexes(root, rel);
-		set_baserel_size_estimates(root, rel);
-	}
 }
 
 /*
@@ -1258,6 +1248,7 @@ static void
 set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 {
 	Relids		required_outer;
+	List	   *pathkeys = NIL;
 
 	/*
 	 * We don't support pushing join clauses into the quals of a function
@@ -1266,8 +1257,55 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	 */
 	required_outer = rel->lateral_relids;
 
+	/*
+	 * The result is considered unordered unless ORDINALITY was used, in which
+	 * case it is ordered by the ordinal column (the last one).  See if we
+	 * care, by checking for uses of that Var in equivalence classes.
+	 */
+	if (rte->funcordinality)
+	{
+		AttrNumber	ordattno = rel->max_attr;
+		Var		   *var = NULL;
+		ListCell   *lc;
+
+		/*
+		 * Is there a Var for it in reltargetlist?	If not, the query did not
+		 * reference the ordinality column, or at least not in any way that
+		 * would be interesting for sorting.
+		 */
+		foreach(lc, rel->reltargetlist)
+		{
+			Var		   *node = (Var *) lfirst(lc);
+
+			/* checking varno/varlevelsup is just paranoia */
+			if (IsA(node, Var) &&
+				node->varattno == ordattno &&
+				node->varno == rel->relid &&
+				node->varlevelsup == 0)
+			{
+				var = node;
+				break;
+			}
+		}
+
+		/*
+		 * Try to build pathkeys for this Var with int8 sorting.  We tell
+		 * build_expression_pathkey not to build any new equivalence class; if
+		 * the Var isn't already mentioned in some EC, it means that nothing
+		 * cares about the ordering.
+		 */
+		if (var)
+			pathkeys = build_expression_pathkey(root,
+												(Expr *) var,
+												NULL,	/* below outer joins */
+												Int8LessOperator,
+												rel->relids,
+												false);
+	}
+
 	/* Generate appropriate path */
-	add_path(rel, create_functionscan_path(root, rel, required_outer));
+	add_path(rel, create_functionscan_path(root, rel,
+										   pathkeys, required_outer));
 
 	/* Select cheapest path (pretty easy in this case...) */
 	set_cheapest(rel);

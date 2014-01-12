@@ -3,7 +3,7 @@
  * copy.c
  *		Implements the COPY utility command
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -2199,8 +2199,8 @@ CopyFrom(CopyState cstate)
 		{
 			/*
 			 * Reset the per-tuple exprcontext. We can only do this if the
-			 * tuple buffer is empty (calling the context the per-tuple memory
-			 * context is a bit of a misnomer now
+			 * tuple buffer is empty. (Calling the context the per-tuple memory
+			 * context is a bit of a misnomer now.)
 			 */
 			ResetPerTupleExprContext(estate);
 		}

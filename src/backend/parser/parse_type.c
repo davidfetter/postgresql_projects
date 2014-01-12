@@ -3,7 +3,7 @@
  * parse_type.c
  *		handle type operations for parser
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -313,8 +313,7 @@ typenameTypeMod(ParseState *pstate, const TypeName *typeName, Type typ)
 
 			if (IsA(&ac->val, Integer))
 			{
-				cstr = (char *) palloc(32);
-				snprintf(cstr, 32, "%ld", (long) ac->val.val.ival);
+				cstr = psprintf("%ld", (long) ac->val.val.ival);
 			}
 			else if (IsA(&ac->val, Float) ||
 					 IsA(&ac->val, String))
@@ -472,7 +471,7 @@ GetColumnDefCollation(ParseState *pstate, ColumnDef *coldef, Oid typeOid)
 {
 	Oid			result;
 	Oid			typcollation = get_typcollation(typeOid);
-	int			location = -1;
+	int			location = coldef->location;
 
 	if (coldef->collClause)
 	{

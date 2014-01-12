@@ -13,7 +13,7 @@
  *	plan --- consider improving this someday.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  *
  * src/backend/utils/adt/ri_triggers.c
  *
@@ -3586,8 +3586,7 @@ ri_HashCompareOp(Oid eq_opr, Oid typeid)
 				 * special cases such as RECORD; find_coercion_pathway
 				 * currently doesn't subsume these special cases.
 				 */
-				if (!IsPolymorphicType(lefttype) &&
-					!IsBinaryCoercible(typeid, lefttype))
+				if (!IsBinaryCoercible(typeid, lefttype))
 					elog(ERROR, "no conversion function from %s to %s",
 						 format_type_be(typeid),
 						 format_type_be(lefttype));

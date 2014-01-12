@@ -30,7 +30,7 @@
  * destroyed at the end of each transaction.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -148,11 +148,11 @@ HeapTupleHeaderAdjustCmax(HeapTupleHeader tup,
 	/*
 	 * If we're marking a tuple deleted that was inserted by (any
 	 * subtransaction of) our transaction, we need to use a combo command id.
-	 * Test for HEAP_XMIN_COMMITTED first, because it's cheaper than a
+	 * Test for HeapTupleHeaderXminCommitted() first, because it's cheaper than a
 	 * TransactionIdIsCurrentTransactionId call.
 	 */
-	if (!(tup->t_infomask & HEAP_XMIN_COMMITTED) &&
-		TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetXmin(tup)))
+	if (!HeapTupleHeaderXminCommitted(tup) &&
+		TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmin(tup)))
 	{
 		CommandId	cmin = HeapTupleHeaderGetCmin(tup);
 

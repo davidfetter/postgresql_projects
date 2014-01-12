@@ -3,7 +3,7 @@
  * parse_coerce.c
  *		handle type coercions/conversions for parser
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -2007,6 +2007,10 @@ IsBinaryCoercible(Oid srctype, Oid targettype)
 
 	/* Fast path if same type */
 	if (srctype == targettype)
+		return true;
+
+	/* Anything is coercible to ANY or ANYELEMENT */
+	if (targettype == ANYOID || targettype == ANYELEMENTOID)
 		return true;
 
 	/* If srctype is a domain, reduce to its base type */

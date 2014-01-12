@@ -3,12 +3,13 @@
  *
  *	utility functions
  *
- *	Copyright (c) 2010-2013, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2014, PostgreSQL Global Development Group
  *	contrib/pg_upgrade/util.c
  */
 
 #include "postgres_fe.h"
 
+#include "common/username.h"
 #include "pg_upgrade.h"
 
 #include <signal.h>
@@ -131,6 +132,8 @@ pg_log_v(eLogType type, const char *fmt, va_list ap)
 
 		case PG_FATAL:
 			printf("\n%s", _(message));
+			printf("Failure, exiting\n");
+			exit(1);
 			break;
 
 		default:
@@ -203,32 +206,26 @@ quote_identifier(const char *s)
 
 /*
  * get_user_info()
- * (copied from initdb.c) find the current user
  */
 int
-get_user_info(char **user_name)
+get_user_info(char **user_name_p)
 {
 	int			user_id;
+	const char *user_name;
+	char	   *errstr;
 
 #ifndef WIN32
-	struct passwd *pw = getpwuid(geteuid());
-
 	user_id = geteuid();
-#else							/* the windows code */
-	struct passwd_win32
-	{
-		int			pw_uid;
-		char		pw_name[128];
-	}			pass_win32;
-	struct passwd_win32 *pw = &pass_win32;
-	DWORD		pwname_size = sizeof(pass_win32.pw_name) - 1;
-
-	GetUserName(pw->pw_name, &pwname_size);
-
+#else
 	user_id = 1;
 #endif
 
-	*user_name = pg_strdup(pw->pw_name);
+	user_name = get_user_name(&errstr);
+	if (!user_name)
+		pg_fatal("%s\n", errstr);
+
+	/* make a copy */
+	*user_name_p = pg_strdup(user_name);
 
 	return user_id;
 }

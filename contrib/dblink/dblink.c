@@ -9,7 +9,7 @@
  * Shridhar Daithankar <shridhar_daithankar@persistent.co.in>
  *
  * contrib/dblink/dblink.c
- * Copyright (c) 2001-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2001-2014, PostgreSQL Global Development Group
  * ALL RIGHTS RESERVED;
  *
  * Permission to use, copy, modify, and distribute this software and its
@@ -209,7 +209,8 @@ typedef struct remoteConnHashEnt
 							 errdetail_internal("%s", msg))); \
 				} \
 				dblink_security_check(conn, rconn); \
-				PQsetClientEncoding(conn, GetDatabaseEncodingName()); \
+				if (PQclientEncoding(conn) != GetDatabaseEncoding()) \
+					PQsetClientEncoding(conn, GetDatabaseEncodingName()); \
 				freeconn = true; \
 			} \
 	} while (0)
@@ -288,8 +289,9 @@ dblink_connect(PG_FUNCTION_ARGS)
 	/* check password actually used if not superuser */
 	dblink_security_check(conn, rconn);
 
-	/* attempt to set client encoding to match server encoding */
-	PQsetClientEncoding(conn, GetDatabaseEncodingName());
+	/* attempt to set client encoding to match server encoding, if needed */
+	if (PQclientEncoding(conn) != GetDatabaseEncoding())
+		PQsetClientEncoding(conn, GetDatabaseEncodingName());
 
 	if (connname)
 	{
@@ -1561,10 +1563,7 @@ dblink_get_pkey(PG_FUNCTION_ARGS)
 		Datum		result;
 
 		values = (char **) palloc(2 * sizeof(char *));
-		values[0] = (char *) palloc(12);		/* sign, 10 digits, '\0' */
-
-		sprintf(values[0], "%d", call_cntr + 1);
-
+		values[0] = psprintf("%d", call_cntr + 1);
 		values[1] = results[call_cntr];
 
 		/* build the tuple */

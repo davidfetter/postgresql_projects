@@ -4,7 +4,7 @@
  *	  fetch tuples from a GIN scan.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -20,6 +20,8 @@
 #include "utils/datum.h"
 #include "utils/memutils.h"
 
+/* GUC parameter */
+int			GinFuzzySearchLimit = 0;
 
 typedef struct pendingPosition
 {
@@ -124,18 +126,16 @@ static void
 scanPostingTree(Relation index, GinScanEntry scanEntry,
 				BlockNumber rootPostingTree)
 {
-	GinPostingTreeScan *gdi;
+	GinBtreeStack *stack;
 	Buffer		buffer;
 	Page		page;
 
 	/* Descend to the leftmost leaf page */
-	gdi = ginPrepareScanPostingTree(index, rootPostingTree, TRUE);
-
-	buffer = ginScanBeginPostingTree(gdi);
+	stack = ginScanBeginPostingTree(index, rootPostingTree);
+	buffer = stack->buffer;
 	IncrBufferRefCount(buffer); /* prevent unpin in freeGinBtreeStack */
 
-	freeGinBtreeStack(gdi->stack);
-	pfree(gdi);
+	freeGinBtreeStack(stack);
 
 	/*
 	 * Loop iterates through all leaf pages of posting tree
@@ -376,8 +376,7 @@ restartScanEntry:
 	ginPrepareEntryScan(&btreeEntry, entry->attnum,
 						entry->queryKey, entry->queryCategory,
 						ginstate);
-	btreeEntry.searchMode = TRUE;
-	stackEntry = ginFindLeafPage(&btreeEntry, NULL);
+	stackEntry = ginFindLeafPage(&btreeEntry, true);
 	page = BufferGetPage(stackEntry->buffer);
 	needUnlock = TRUE;
 
@@ -427,7 +426,7 @@ restartScanEntry:
 		if (GinIsPostingTree(itup))
 		{
 			BlockNumber rootPostingTree = GinGetPostingTree(itup);
-			GinPostingTreeScan *gdi;
+			GinBtreeStack *stack;
 			Page		page;
 
 			/*
@@ -439,9 +438,9 @@ restartScanEntry:
 			 */
 			LockBuffer(stackEntry->buffer, GIN_UNLOCK);
 			needUnlock = FALSE;
-			gdi = ginPrepareScanPostingTree(ginstate->index, rootPostingTree, TRUE);
 
-			entry->buffer = ginScanBeginPostingTree(gdi);
+			stack = ginScanBeginPostingTree(ginstate->index, rootPostingTree);
+			entry->buffer = stack->buffer;
 
 			/*
 			 * We keep buffer pinned because we need to prevent deletion of
@@ -451,7 +450,7 @@ restartScanEntry:
 			IncrBufferRefCount(entry->buffer);
 
 			page = BufferGetPage(entry->buffer);
-			entry->predictNumberResult = gdi->stack->predictNumber * GinPageGetOpaque(page)->maxoff;
+			entry->predictNumberResult = stack->predictNumber * GinPageGetOpaque(page)->maxoff;
 
 			/*
 			 * Keep page content in memory to prevent durable page locking
@@ -463,8 +462,7 @@ restartScanEntry:
 				   GinPageGetOpaque(page)->maxoff * sizeof(ItemPointerData));
 
 			LockBuffer(entry->buffer, GIN_UNLOCK);
-			freeGinBtreeStack(gdi->stack);
-			pfree(gdi);
+			freeGinBtreeStack(stack);
 			entry->isFinished = FALSE;
 		}
 		else if (GinGetNPosting(itup) > 0)

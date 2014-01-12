@@ -39,6 +39,18 @@ SELECT var_samp(b::numeric) FROM aggtest;
 SELECT var_pop(1.0), var_samp(2.0);
 SELECT stddev_pop(3.0::numeric), stddev_samp(4.0::numeric);
 
+-- verify correct results for null and NaN inputs
+select sum(null::int4) from generate_series(1,3);
+select sum(null::int8) from generate_series(1,3);
+select sum(null::numeric) from generate_series(1,3);
+select sum(null::float8) from generate_series(1,3);
+select avg(null::int4) from generate_series(1,3);
+select avg(null::int8) from generate_series(1,3);
+select avg(null::numeric) from generate_series(1,3);
+select avg(null::float8) from generate_series(1,3);
+select sum('NaN'::numeric) from generate_series(1,3);
+select avg('NaN'::numeric) from generate_series(1,3);
+
 -- SQL2003 binary aggregates
 SELECT regr_count(b, a) FROM aggtest;
 SELECT regr_sxx(b, a) FROM aggtest;
@@ -208,7 +220,6 @@ FROM bool_test;
 -- Test cases that should be optimized into indexscans instead of
 -- the generic aggregate implementation.
 --
-analyze tenk1;		-- ensure we get consistent plans here
 
 -- Basic cases
 explain (costs off)
@@ -480,6 +491,101 @@ select sum(unique1) FILTER (WHERE
 select aggfns(distinct a,b,c order by a,c using ~<~,b) filter (where a > 1)
     from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c),
     generate_series(1,2) i;
+
+-- ordered-set aggregates
+
+select p, percentile_cont(p) within group (order by x::float8)
+from generate_series(1,5) x,
+     (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p)
+group by p order by p;
+
+select p, percentile_cont(p order by p) within group (order by x)  -- error
+from generate_series(1,5) x,
+     (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p)
+group by p order by p;
+
+select p, sum() within group (order by x::float8)  -- error
+from generate_series(1,5) x,
+     (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p)
+group by p order by p;
+
+select p, percentile_cont(p,p)  -- error
+from generate_series(1,5) x,
+     (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p)
+group by p order by p;
+
+select percentile_cont(0.5) within group (order by b) from aggtest;
+select percentile_cont(0.5) within group (order by b), sum(b) from aggtest;
+select percentile_cont(0.5) within group (order by thousand) from tenk1;
+select percentile_disc(0.5) within group (order by thousand) from tenk1;
+select rank(3) within group (order by x)
+from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
+select cume_dist(3) within group (order by x)
+from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
+select percent_rank(3) within group (order by x)
+from (values (1),(1),(2),(2),(3),(3),(4),(5)) v(x);
+select dense_rank(3) within group (order by x)
+from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
+
+select percentile_disc(array[0,0.1,0.25,0.5,0.75,0.9,1]) within group (order by thousand)
+from tenk1;
+select percentile_cont(array[0,0.25,0.5,0.75,1]) within group (order by thousand)
+from tenk1;
+select percentile_disc(array[[null,1,0.5],[0.75,0.25,null]]) within group (order by thousand)
+from tenk1;
+select percentile_cont(array[0,1,0.25,0.75,0.5,1]) within group (order by x)
+from generate_series(1,6) x;
+
+select ten, mode() within group (order by string4) from tenk1 group by ten;
+
+select percentile_disc(array[0.25,0.5,0.75]) within group (order by x)
+from unnest('{fred,jim,fred,jack,jill,fred,jill,jim,jim,sheila,jim,sheila}'::text[]) u(x);
+
+-- check collation propagates up in suitable cases:
+select pg_collation_for(percentile_disc(1) within group (order by x collate "POSIX"))
+  from (values ('fred'),('jim')) v(x);
+
+-- ordered-set aggs created with CREATE AGGREGATE
+select test_rank(3) within group (order by x)
+from (values (1),(1),(2),(2),(3),(3),(4)) v(x);
+select test_percentile_disc(0.5) within group (order by thousand) from tenk1;
+
+-- ordered-set aggs can't use ungrouped vars in direct args:
+select rank(x) within group (order by x) from generate_series(1,5) x;
+
+-- outer-level agg can't use a grouped arg of a lower level, either:
+select array(select percentile_disc(a) within group (order by x)
+               from (values (0.3),(0.7)) v(a) group by a)
+  from generate_series(1,5) g(x);
+
+-- agg in the direct args is a grouping violation, too:
+select rank(sum(x)) within group (order by x) from generate_series(1,5) x;
+
+-- hypothetical-set type unification and argument-count failures:
+select rank(3) within group (order by x) from (values ('fred'),('jim')) v(x);
+select rank(3) within group (order by stringu1,stringu2) from tenk1;
+select rank('fred') within group (order by x) from generate_series(1,5) x;
+select rank('adam'::text collate "C") within group (order by x collate "POSIX")
+  from (values ('fred'),('jim')) v(x);
+-- hypothetical-set type unification successes:
+select rank('adam'::varchar) within group (order by x) from (values ('fred'),('jim')) v(x);
+select rank('3') within group (order by x) from generate_series(1,5) x;
+
+-- divide by zero check
+select percent_rank(0) within group (order by x) from generate_series(1,0) x;
+
+-- deparse and multiple features:
+create view aggordview1 as
+select ten,
+       percentile_disc(0.5) within group (order by thousand) as p50,
+       percentile_disc(0.5) within group (order by thousand) filter (where hundred=1) as px,
+       rank(5,'AZZZZ',50) within group (order by hundred, string4 desc, hundred)
+  from tenk1
+ group by ten order by ten;
+
+select pg_get_viewdef('aggordview1');
+select * from aggordview1 order by ten;
+drop view aggordview1;
 
 -- variadic aggregates
 select least_agg(q1,q2) from int8_tbl;

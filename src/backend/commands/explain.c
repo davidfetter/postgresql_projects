@@ -3,7 +3,7 @@
  * explain.c
  *	  Explain query execution plans
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994-5, Regents of the University of California
  *
  * IDENTIFICATION
@@ -76,9 +76,13 @@ static void show_sort_keys(SortState *sortstate, List *ancestors,
 			   ExplainState *es);
 static void show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 					   ExplainState *es);
-static void show_sort_keys_common(PlanState *planstate,
-					  int nkeys, AttrNumber *keycols,
-					  List *ancestors, ExplainState *es);
+static void show_agg_keys(AggState *astate, List *ancestors,
+			  ExplainState *es);
+static void show_group_keys(GroupState *gstate, List *ancestors,
+				ExplainState *es);
+static void show_sort_group_keys(PlanState *planstate, const char *qlabel,
+					 int nkeys, AttrNumber *keycols,
+					 List *ancestors, ExplainState *es);
 static void show_sort_info(SortState *sortstate, ExplainState *es);
 static void show_hash_info(HashState *hashstate, ExplainState *es);
 static void show_instrumentation_count(const char *qlabel, int which,
@@ -1259,9 +1263,21 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			break;
 		case T_FunctionScan:
 			if (es->verbose)
-				show_expression(((FunctionScan *) plan)->funcexpr,
+			{
+				List	   *fexprs = NIL;
+				ListCell   *lc;
+
+				foreach(lc, ((FunctionScan *) plan)->functions)
+				{
+					RangeTblFunction *rtfunc = (RangeTblFunction *) lfirst(lc);
+
+					fexprs = lappend(fexprs, rtfunc->funcexpr);
+				}
+				/* We rely on show_expression to insert commas as needed */
+				show_expression((Node *) fexprs,
 								"Function Call", planstate, ancestors,
 								es->verbose, es);
+			}
 			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
@@ -1329,7 +1345,14 @@ ExplainNode(PlanState *planstate, List *ancestors,
 										   planstate, es);
 			break;
 		case T_Agg:
+			show_agg_keys((AggState *) planstate, ancestors, es);
+			show_upper_qual(plan->qual, "Filter", planstate, ancestors, es);
+			if (plan->qual)
+				show_instrumentation_count("Rows Removed by Filter", 1,
+										   planstate, es);
+			break;
 		case T_Group:
+			show_group_keys((GroupState *) planstate, ancestors, es);
 			show_upper_qual(plan->qual, "Filter", planstate, ancestors, es);
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
@@ -1681,9 +1704,9 @@ show_sort_keys(SortState *sortstate, List *ancestors, ExplainState *es)
 {
 	Sort	   *plan = (Sort *) sortstate->ss.ps.plan;
 
-	show_sort_keys_common((PlanState *) sortstate,
-						  plan->numCols, plan->sortColIdx,
-						  ancestors, es);
+	show_sort_group_keys((PlanState *) sortstate, "Sort Key",
+						 plan->numCols, plan->sortColIdx,
+						 ancestors, es);
 }
 
 /*
@@ -1695,14 +1718,56 @@ show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 {
 	MergeAppend *plan = (MergeAppend *) mstate->ps.plan;
 
-	show_sort_keys_common((PlanState *) mstate,
-						  plan->numCols, plan->sortColIdx,
-						  ancestors, es);
+	show_sort_group_keys((PlanState *) mstate, "Sort Key",
+						 plan->numCols, plan->sortColIdx,
+						 ancestors, es);
 }
 
+/*
+ * Show the grouping keys for an Agg node.
+ */
 static void
-show_sort_keys_common(PlanState *planstate, int nkeys, AttrNumber *keycols,
-					  List *ancestors, ExplainState *es)
+show_agg_keys(AggState *astate, List *ancestors,
+			  ExplainState *es)
+{
+	Agg		   *plan = (Agg *) astate->ss.ps.plan;
+
+	if (plan->numCols > 0)
+	{
+		/* The key columns refer to the tlist of the child plan */
+		ancestors = lcons(astate, ancestors);
+		show_sort_group_keys(outerPlanState(astate), "Group Key",
+							 plan->numCols, plan->grpColIdx,
+							 ancestors, es);
+		ancestors = list_delete_first(ancestors);
+	}
+}
+
+/*
+ * Show the grouping keys for a Group node.
+ */
+static void
+show_group_keys(GroupState *gstate, List *ancestors,
+				ExplainState *es)
+{
+	Group	   *plan = (Group *) gstate->ss.ps.plan;
+
+	/* The key columns refer to the tlist of the child plan */
+	ancestors = lcons(gstate, ancestors);
+	show_sort_group_keys(outerPlanState(gstate), "Group Key",
+						 plan->numCols, plan->grpColIdx,
+						 ancestors, es);
+	ancestors = list_delete_first(ancestors);
+}
+
+/*
+ * Common code to show sort/group keys, which are represented in plan nodes
+ * as arrays of targetlist indexes
+ */
+static void
+show_sort_group_keys(PlanState *planstate, const char *qlabel,
+					 int nkeys, AttrNumber *keycols,
+					 List *ancestors, ExplainState *es)
 {
 	Plan	   *plan = planstate->plan;
 	List	   *context;
@@ -1736,7 +1801,7 @@ show_sort_keys_common(PlanState *planstate, int nkeys, AttrNumber *keycols,
 		result = lappend(result, exprstr);
 	}
 
-	ExplainPropertyList("Sort Key", result, es);
+	ExplainPropertyList(qlabel, result, es);
 }
 
 /*
@@ -1984,26 +2049,31 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
 			break;
 		case T_FunctionScan:
 			{
-				Node	   *funcexpr;
+				FunctionScan *fscan = (FunctionScan *) plan;
 
 				/* Assert it's on a RangeFunction */
 				Assert(rte->rtekind == RTE_FUNCTION);
 
 				/*
-				 * If the expression is still a function call, we can get the
-				 * real name of the function.  Otherwise, punt (this can
-				 * happen if the optimizer simplified away the function call,
-				 * for example).
+				 * If the expression is still a function call of a single
+				 * function, we can get the real name of the function.
+				 * Otherwise, punt.  (Even if it was a single function call
+				 * originally, the optimizer could have simplified it away.)
 				 */
-				funcexpr = ((FunctionScan *) plan)->funcexpr;
-				if (funcexpr && IsA(funcexpr, FuncExpr))
+				if (list_length(fscan->functions) == 1)
 				{
-					Oid			funcid = ((FuncExpr *) funcexpr)->funcid;
+					RangeTblFunction *rtfunc = (RangeTblFunction *) linitial(fscan->functions);
 
-					objectname = get_func_name(funcid);
-					if (es->verbose)
-						namespace =
-							get_namespace_name(get_func_namespace(funcid));
+					if (IsA(rtfunc->funcexpr, FuncExpr))
+					{
+						FuncExpr   *funcexpr = (FuncExpr *) rtfunc->funcexpr;
+						Oid			funcid = funcexpr->funcid;
+
+						objectname = get_func_name(funcid);
+						if (es->verbose)
+							namespace =
+								get_namespace_name(get_func_namespace(funcid));
+					}
 				}
 				objecttag = "Function Name";
 			}

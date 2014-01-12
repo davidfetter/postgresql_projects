@@ -4,7 +4,7 @@
  *	  This file contains routines to support creation of toast tables
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -16,6 +16,7 @@
 
 #include "access/tuptoaster.h"
 #include "access/xact.h"
+#include "catalog/binary_upgrade.h"
 #include "catalog/dependency.h"
 #include "catalog/heap.h"
 #include "catalog/index.h"
@@ -31,8 +32,6 @@
 #include "utils/syscache.h"
 
 /* Potentially set by contrib/pg_upgrade_support functions */
-extern Oid	binary_upgrade_next_toast_pg_class_oid;
-
 Oid			binary_upgrade_next_toast_pg_type_oid = InvalidOid;
 
 static bool create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
