@@ -3,7 +3,7 @@
  * indexcmds.c
  *	  POSTGRES define and remove index code.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -651,9 +651,10 @@ DefineIndex(IndexStmt *stmt,
 	 * for an overview of how this works)
 	 *
 	 * Now we must wait until no running transaction could have the table open
-	 * with the old list of indexes. Note we do not need to worry about xacts
-	 * that open the table for writing after this point; they will see the new
-	 * index when they open it.
+	 * with the old list of indexes.  Use ShareLock to consider running
+	 * transactions that hold locks that permit writing to the table.  Note we
+	 * do not need to worry about xacts that open the table for writing after
+	 * this point; they will see the new index when they open it.
 	 *
 	 * Note: the reason we use actual lock acquisition here, rather than just
 	 * checking the ProcArray and sleeping, is that deadlock is possible if

@@ -3,7 +3,7 @@
  * subselect.c
  *	  Planning routines for subselects and parameters.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -778,10 +778,7 @@ build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
 		sprintf(splan->plan_name + offset, ")");
 	}
 	else
-	{
-		splan->plan_name = palloc(32);
-		sprintf(splan->plan_name, "SubPlan %d", splan->plan_id);
-	}
+		splan->plan_name = psprintf("SubPlan %d", splan->plan_id);
 
 	/* Lastly, fill in the cost estimates for use later */
 	cost_subplan(root, splan, plan);
@@ -2600,8 +2597,7 @@ SS_make_initplan_from_plan(PlannerInfo *root, Plan *plan,
 	node->setParam = list_make1_int(prm->paramid);
 
 	/* Label the subplan for EXPLAIN purposes */
-	node->plan_name = palloc(64);
-	sprintf(node->plan_name, "InitPlan %d (returns $%d)",
+	node->plan_name = psprintf("InitPlan %d (returns $%d)",
 			node->plan_id, prm->paramid);
 
 	return prm;
