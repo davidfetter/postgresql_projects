@@ -2,7 +2,7 @@
  *
  * pg_dumpall.c
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * pg_dumpall forces all pg_dump output to be text, since it also outputs
@@ -699,7 +699,7 @@ dumpRoles(PGconn *conn)
 						  "valuntil as rolvaliduntil, "
 						  "false as rolreplication, "
 						  "null as rolcomment, "
-						  "rolname = current_user AS is_current_user "
+						  "usename = current_user AS is_current_user "
 						  "FROM pg_shadow "
 						  "UNION ALL "
 						  "SELECT 0, groname as rolname, "
