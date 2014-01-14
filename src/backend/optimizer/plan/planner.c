@@ -2493,6 +2493,10 @@ preprocess_groupclause(PlannerInfo *root)
 	if (parse->sortClause == NIL)
 		return;
 
+	/* If ROLLUP is present, rearrangement cannot be done */
+	if (IsA(linitial(parse->groupClause), List))
+		return;
+
 	/*
 	 * Scan the ORDER BY clause and construct a list of matching GROUP BY
 	 * items, but only as far as we can make a matching prefix.
@@ -2673,6 +2677,8 @@ choose_hashed_grouping(PlannerInfo *root,
 		if (can_hash)
 			return true;
 		else if (can_sort)
+			return false;
+		else if (IsA(linitial(parse->groupClause), List))
 			return false;
 		else
 			ereport(ERROR,

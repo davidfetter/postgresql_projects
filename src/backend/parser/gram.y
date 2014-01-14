@@ -9329,7 +9329,7 @@ select_clause:
 simple_select:
 			SELECT opt_distinct opt_target_list
 			into_clause from_clause where_clause
-			group_clause rollup_clause having_clause window_clause
+			group_clause having_clause window_clause
 				{
 					SelectStmt *n = makeNode(SelectStmt);
 					n->distinctClause = $2;
@@ -9338,8 +9338,8 @@ simple_select:
 					n->fromClause = $5;
 					n->whereClause = $6;
 					n->groupClause = $7;
-					n->havingClause = $9;
-					n->windowClause = $10;
+					n->havingClause = $8;
+					n->windowClause = $9;
 					$$ = (Node *)n;
 				}
 			| values_clause							{ $$ = $1; }
@@ -9632,7 +9632,7 @@ first_or_next: FIRST_P								{ $$ = 0; }
 
 group_clause:
 			GROUP_P BY expr_list					{ $$ = $3; }
-			| GROUP_P BY ROLLUP '(' expr_list ')'				{ $$ = $5; }
+			| GROUP_P BY ROLLUP '(' expr_list ')'				{ $$ = list_make1($5); }
 			| /*EMPTY*/								{ $$ = NIL; }
 		;
 
