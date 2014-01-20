@@ -1610,6 +1610,7 @@ _equalCreateTableSpaceStmt(const CreateTableSpaceStmt *a, const CreateTableSpace
 	COMPARE_STRING_FIELD(tablespacename);
 	COMPARE_STRING_FIELD(owner);
 	COMPARE_STRING_FIELD(location);
+	COMPARE_NODE_FIELD(options);
 
 	return true;
 }
@@ -1630,6 +1631,17 @@ _equalAlterTableSpaceOptionsStmt(const AlterTableSpaceOptionsStmt *a,
 	COMPARE_STRING_FIELD(tablespacename);
 	COMPARE_NODE_FIELD(options);
 	COMPARE_SCALAR_FIELD(isReset);
+
+	return true;
+}
+
+static bool
+_equalAlterTableSpaceMoveStmt(const AlterTableSpaceMoveStmt *a,
+							  const AlterTableSpaceMoveStmt *b)
+{
+	COMPARE_STRING_FIELD(orig_tablespacename);
+	COMPARE_STRING_FIELD(new_tablespacename);
+	COMPARE_SCALAR_FIELD(nowait);
 
 	return true;
 }
@@ -2876,6 +2888,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_AlterTableSpaceOptionsStmt:
 			retval = _equalAlterTableSpaceOptionsStmt(a, b);
+			break;
+		case T_AlterTableSpaceMoveStmt:
+			retval = _equalAlterTableSpaceMoveStmt(a, b);
 			break;
 		case T_CreateExtensionStmt:
 			retval = _equalCreateExtensionStmt(a, b);

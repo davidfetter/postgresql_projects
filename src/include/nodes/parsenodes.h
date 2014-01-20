@@ -1669,6 +1669,7 @@ typedef struct CreateTableSpaceStmt
 	char	   *tablespacename;
 	char	   *owner;
 	char	   *location;
+	List	   *options;
 } CreateTableSpaceStmt;
 
 typedef struct DropTableSpaceStmt
@@ -1685,6 +1686,16 @@ typedef struct AlterTableSpaceOptionsStmt
 	List	   *options;
 	bool		isReset;
 } AlterTableSpaceOptionsStmt;
+
+typedef struct AlterTableSpaceMoveStmt
+{
+	NodeTag		type;
+	char	   *orig_tablespacename;
+	char	   *new_tablespacename;
+	ObjectType	objtype;
+	bool		nowait;
+	bool		move_all;
+} AlterTableSpaceMoveStmt;
 
 /* ----------------------
  *		Create/Alter Extension Statements
