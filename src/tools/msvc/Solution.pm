@@ -219,12 +219,8 @@ s{PG_VERSION_STR "[^"]+"}{__STRINGIFY(x) #x\n#define __STRINGIFY2(z) __STRINGIFY
 			print O "#define HAVE_LIBXSLT\n";
 			print O "#define USE_LIBXSLT\n";
 		}
-		if ($self->{options}->{krb5})
+		if ($self->{options}->{gss})
 		{
-			print O "#define KRB5 1\n";
-			print O "#define HAVE_KRB5_ERROR_TEXT_DATA 1\n";
-			print O "#define HAVE_KRB5_TICKET_ENC_PART2 1\n";
-			print O "#define HAVE_KRB5_FREE_UNPARSED_NAME 1\n";
 			print O "#define ENABLE_GSS 1\n";
 		}
 		if (my $port = $self->{options}->{"--with-pgport"})
@@ -498,14 +494,14 @@ sub AddProject
 		$proj->AddIncludeDir($self->{options}->{nls} . '\include');
 		$proj->AddLibrary($self->{options}->{nls} . '\lib\libintl.lib');
 	}
-	if ($self->{options}->{krb5})
+	if ($self->{options}->{gss})
 	{
-		$proj->AddIncludeDir($self->{options}->{krb5} . '\inc\krb5');
-		$proj->AddLibrary($self->{options}->{krb5} . '\lib\i386\krb5_32.lib');
+		$proj->AddIncludeDir($self->{options}->{gss} . '\inc\krb5');
+		$proj->AddLibrary($self->{options}->{gss} . '\lib\i386\krb5_32.lib');
 		$proj->AddLibrary(
-			$self->{options}->{krb5} . '\lib\i386\comerr32.lib');
+			$self->{options}->{gss} . '\lib\i386\comerr32.lib');
 		$proj->AddLibrary(
-			$self->{options}->{krb5} . '\lib\i386\gssapi32.lib');
+			$self->{options}->{gss} . '\lib\i386\gssapi32.lib');
 	}
 	if ($self->{options}->{iconv})
 	{
@@ -625,7 +621,7 @@ sub GetFakeConfigure
 	$cfg .= ' --with-ossp-uuid' if ($self->{options}->{uuid});
 	$cfg .= ' --with-libxml'    if ($self->{options}->{xml});
 	$cfg .= ' --with-libxslt'   if ($self->{options}->{xslt});
-	$cfg .= ' --with-krb5'      if ($self->{options}->{krb5});
+	$cfg .= ' --with-gssapi'    if ($self->{options}->{gss});
 	$cfg .= ' --with-tcl'       if ($self->{options}->{tcl});
 	$cfg .= ' --with-perl'      if ($self->{options}->{perl});
 	$cfg .= ' --with-python'    if ($self->{options}->{python});
