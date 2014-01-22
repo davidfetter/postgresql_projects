@@ -353,14 +353,30 @@ get_sortgrouplist_exprs(List *sgClauses, List *targetList)
 {
 	List	   *result = NIL;
 	ListCell   *l;
+	ListCell   *l2;
 
 	foreach(l, sgClauses)
 	{
-		SortGroupClause *sortcl = (SortGroupClause *) lfirst(l);
-		Node	   *sortexpr;
+		if (IsA(linitial(l), List))
+		{
+			foreach(l2, linitial(l))
+			{
+				SortGroupClause *sortcl = (SortGroupClause *) lfirst(l2);
+				Node	   *sortexpr;
 
-		sortexpr = get_sortgroupclause_expr(sortcl, targetList);
-		result = lappend(result, sortexpr);
+				sortexpr = get_sortgroupclause_expr(sortcl, targetList);
+				result = lappend(result, sortexpr);
+			}
+		}
+		else
+		{
+
+			SortGroupClause *sortcl = (SortGroupClause *) lfirst(l);
+			Node	   *sortexpr;
+
+			sortexpr = get_sortgroupclause_expr(sortcl, targetList);
+			result = lappend(result, sortexpr);
+		}
 	}
 	return result;
 }
