@@ -126,6 +126,7 @@ CREATE FOREIGN TABLE [ IF NOT EXISTS ] <replaceable class="PARAMETER">table_name
      <para>
       Inapplicable options like <literal>INCLUDING STORAGE</literal> are ignored.
      </para>
+     </listitem>
    </varlistentry>
 
    <varlistentry>
