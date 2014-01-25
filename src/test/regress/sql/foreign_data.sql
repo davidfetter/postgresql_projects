@@ -280,18 +280,6 @@ COMMENT ON COLUMN ft1.c1 IS 'ft1.c1';
 CREATE INDEX id_ft1_c2 ON ft1 (c2);                             -- ERROR
 SELECT * FROM ft1;                                              -- ERROR
 EXPLAIN SELECT * FROM ft1;                                      -- ERROR
-CREATE FOREIGN TABLE ft2 (
-    LIKE pg_catalog.pg_enum
-    INCLUDING CONSTRAINTS
-) SERVER s0;                                                    -- ERROR
-CREATE FOREIGN TABLE ft2 (
-    LIKE pg_catalog.pg_enum
-    INCLUDING INDEXES
-) SERVER s0;                                                    -- ERROR
-CREATE FOREIGN TABLE ft2 (
-    LIKE pg_catalog.pg_enum
-    INCLUDING STORAGE
-) SERVER s0;                                                    -- ERROR
 
 -- ALTER FOREIGN TABLE
 COMMENT ON FOREIGN TABLE ft1 IS 'foreign table';

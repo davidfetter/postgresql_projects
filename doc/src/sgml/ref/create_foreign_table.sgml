@@ -32,6 +32,8 @@ CREATE FOREIGN TABLE [ IF NOT EXISTS ] <replaceable class="PARAMETER">table_name
 { NOT NULL |
   NULL |
   DEFAULT <replaceable>default_expr</replaceable> }
+
+  <phrase> and <replaceable class="PARAMETER">like_option</replaceable> is the same as for <xref linkend="SQL-CREATETABLE">.</phrase>
 </synopsis>
  </refsynopsisdiv>
 
@@ -115,11 +117,14 @@ CREATE FOREIGN TABLE [ IF NOT EXISTS ] <replaceable class="PARAMETER">table_name
    </varlistentry>
 
    <varlistentry>
-    <term><literal>LIKE <replaceable>source_table</replaceable></literal></term>
+    <term><literal>LIKE <replaceable>source_table</replaceable> [ <replaceable>like_option</replaceable> ... ]</literal></term>
     <listitem>
      <para>
       The <literal>LIKE</literal> clause specifies a table from which
       the new foreign table automatically copies all column names and their data types.
+     </para>
+     <para>
+      Inapplicable options like <literal>INCLUDING STORAGE</literal> are ignored.
      </para>
    </varlistentry>
 

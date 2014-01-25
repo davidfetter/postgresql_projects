@@ -683,23 +683,10 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 	cancel_parser_errposition_callback(&pcbstate);
 
 	/*
-	 * For foreign tables, disallow some options.
+	 * For foreign tables, ignore all but applicable options.
 	 */
 	if (cxt->isforeign)
-	{
-		if (table_like_clause->options & CREATE_TABLE_LIKE_CONSTRAINTS)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("ERROR: foreign tables do not support LIKE INCLUDING CONSTRAINTS")));
-		else if (table_like_clause->options & CREATE_TABLE_LIKE_INDEXES)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("ERROR: foreign tables do not support LIKE INCLUDING INDEXES")));
-		else if (table_like_clause->options & CREATE_TABLE_LIKE_STORAGE)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("ERROR: foreign tables do not support LIKE INCLUDING STORAGE")));
-	}
+		table_like_clause->options &= CREATE_TABLE_LIKE_DEFAULTS | CREATE_TABLE_LIKE_COMMENTS;
 
 	/*
 	 * Check for privileges
