@@ -3,7 +3,7 @@
  * pg_enum.c
  *	  routines to support manipulation of the pg_enum relation
  *
- * Copyright (c) 2006-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2006-2014, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -17,6 +17,7 @@
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/xact.h"
+#include "catalog/binary_upgrade.h"
 #include "catalog/catalog.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_enum.h"

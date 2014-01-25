@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2014, PostgreSQL Global Development Group
  *
  * src/bin/psql/large_obj.c
  */
@@ -200,12 +200,12 @@ do_lo_import(const char *filename_arg, const char *comment_arg)
 		char	   *cmdbuf;
 		char	   *bufptr;
 		size_t		slen = strlen(comment_arg);
-		int			rv;
 
-		rv = asprintf(&cmdbuf, "COMMENT ON LARGE OBJECT %u IS '", loid);
-		if (rv < 0)
+		cmdbuf = malloc(slen * 2 + 256);
+		if (!cmdbuf)
 			return fail_lo_xact("\\lo_import", own_transaction);
-		bufptr = cmdbuf + rv;
+		sprintf(cmdbuf, "COMMENT ON LARGE OBJECT %u IS '", loid);
+		bufptr = cmdbuf + strlen(cmdbuf);
 		bufptr += PQescapeStringConn(pset.db, bufptr, comment_arg, slen, NULL);
 		strcpy(bufptr, "'");
 

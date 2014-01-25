@@ -70,8 +70,6 @@ exit_nicely(void)
 
 	for (i = 0; i < nconns; i++)
 		PQfinish(conns[i]);
-	fflush(stderr);
-	fflush(stdout);
 	exit(1);
 }
 
@@ -85,18 +83,28 @@ main(int argc, char **argv)
 	PQExpBufferData wait_query;
 	int			opt;
 
-	while ((opt = getopt(argc, argv, "n")) != -1)
+	while ((opt = getopt(argc, argv, "nV")) != -1)
 	{
 		switch (opt)
 		{
 			case 'n':
 				dry_run = true;
 				break;
+			case 'V':
+				puts("isolationtester (PostgreSQL) " PG_VERSION);
+				exit(0);
 			default:
 				fprintf(stderr, "Usage: isolationtester [-n] [CONNINFO]\n");
 				return EXIT_FAILURE;
 		}
 	}
+
+	/*
+	 * Make stdout unbuffered to match stderr; and ensure stderr is unbuffered
+	 * too, which it should already be everywhere except sometimes in Windows.
+	 */
+	setbuf(stdout, NULL);
+	setbuf(stderr, NULL);
 
 	/*
 	 * If the user supplies a non-option parameter on the command line, use it
@@ -201,7 +209,7 @@ main(int argc, char **argv)
 						 "AND holder.granted "
 						 "AND holder.pid <> $1 AND holder.pid IN (");
 	/* The spec syntax requires at least one session; assume that here. */
-	appendPQExpBuffer(&wait_query, "%s", backend_pids[1]);
+	appendPQExpBufferStr(&wait_query, backend_pids[1]);
 	for (i = 2; i < nconns; i++)
 		appendPQExpBuffer(&wait_query, ", %s", backend_pids[i]);
 	appendPQExpBufferStr(&wait_query,
@@ -285,8 +293,6 @@ main(int argc, char **argv)
 	/* Clean up and exit */
 	for (i = 0; i < nconns; i++)
 		PQfinish(conns[i]);
-	fflush(stderr);
-	fflush(stdout);
 	return 0;
 }
 
@@ -466,7 +472,7 @@ report_two_error_messages(Step * step1, Step * step2)
 {
 	char	   *prefix;
 
-	pg_asprintf(&prefix, "%s %s", step1->name, step2->name);
+	prefix = psprintf("%s %s", step1->name, step2->name);
 
 	if (step1->errormsg)
 	{
@@ -571,9 +577,7 @@ run_permutation(TestSpec * testspec, int nsteps, Step ** steps)
 			 * but it can only be unblocked by running steps from other
 			 * sessions.
 			 */
-			fflush(stdout);
 			fprintf(stderr, "invalid permutation detected\n");
-			fflush(stderr);
 
 			/* Cancel the waiting statement from this session. */
 			cancel = PQgetCancel(conn);
@@ -661,7 +665,6 @@ teardown:
 						testspec->sessions[i]->name,
 						PQerrorMessage(conns[i + 1]));
 				/* don't exit on teardown failure */
-				fflush(stderr);
 			}
 			PQclear(res);
 		}
@@ -680,7 +683,6 @@ teardown:
 			fprintf(stderr, "teardown failed: %s",
 					PQerrorMessage(conns[0]));
 			/* don't exit on teardown failure */
-			fflush(stderr);
 		}
 		PQclear(res);
 	}
@@ -794,7 +796,7 @@ try_complete_step(Step * step, int flags)
 													PG_DIAG_MESSAGE_PRIMARY);
 
 					if (sev && msg)
-						pg_asprintf(&step->errormsg, "%s:  %s", sev, msg);
+						step->errormsg = psprintf("%s:  %s", sev, msg);
 					else
 						step->errormsg = pg_strdup(PQresultErrorMessage(res));
 				}

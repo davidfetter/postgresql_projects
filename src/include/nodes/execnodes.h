@@ -4,7 +4,7 @@
  *	  definitions for executor state nodes
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/nodes/execnodes.h
@@ -141,7 +141,7 @@ typedef struct ExprContext
 	/* Link to containing EState (NULL if a standalone ExprContext) */
 	struct EState *ecxt_estate;
 
-	/* Functions to call back when ExprContext is shut down */
+	/* Functions to call back when ExprContext is shut down or rescanned */
 	ExprContext_CB *ecxt_callbacks;
 } ExprContext;
 
@@ -587,8 +587,9 @@ typedef struct WholeRowVarExprState
 typedef struct AggrefExprState
 {
 	ExprState	xprstate;
-	List	   *args;			/* states of argument expressions */
-	ExprState  *aggfilter;		/* FILTER expression */
+	List	   *aggdirectargs;	/* states of direct-argument expressions */
+	List	   *args;			/* states of aggregated-argument expressions */
+	ExprState  *aggfilter;		/* state of FILTER expression, if any */
 	int			aggno;			/* ID number for agg within its plan node */
 } AggrefExprState;
 
@@ -1337,6 +1338,8 @@ typedef struct BitmapIndexScanState
  *		tbm				   bitmap obtained from child index scan(s)
  *		tbmiterator		   iterator for scanning current pages
  *		tbmres			   current-page data
+ *		exact_pages		   total number of exact pages retrieved
+ *		lossy_pages		   total number of lossy pages retrieved
  *		prefetch_iterator  iterator for prefetching ahead of current page
  *		prefetch_pages	   # pages prefetch iterator is ahead of current
  *		prefetch_target    target prefetch distance
@@ -1349,6 +1352,8 @@ typedef struct BitmapHeapScanState
 	TIDBitmap  *tbm;
 	TBMIterator *tbmiterator;
 	TBMIterateResult *tbmres;
+	long		exact_pages;
+	long		lossy_pages;
 	TBMIterator *prefetch_iterator;
 	int			prefetch_pages;
 	int			prefetch_target;
@@ -1395,24 +1400,26 @@ typedef struct SubqueryScanState
  *		function appearing in FROM (typically a function returning set).
  *
  *		eflags				node's capability flags
- *		ordinal				column value for WITH ORDINALITY
- *		scan_tupdesc		scan tuple descriptor 
- *		func_tupdesc		function tuple descriptor 
- *		func_slot			function result slot, or null
- *		tuplestorestate		private state of tuplestore.c
- *		funcexpr			state for function expression being evaluated
+ *		ordinality			is this scan WITH ORDINALITY?
+ *		simple				true if we have 1 function and no ordinality
+ *		ordinal				current ordinal column value
+ *		nfuncs				number of functions being executed
+ *		funcstates			per-function execution states (private in
+ *							nodeFunctionscan.c)
  * ----------------
  */
+struct FunctionScanPerFuncState;
+
 typedef struct FunctionScanState
 {
 	ScanState	ss;				/* its first field is NodeTag */
 	int			eflags;
-	int64       ordinal;
-	TupleDesc	scan_tupdesc;
-	TupleDesc	func_tupdesc;
-	TupleTableSlot *func_slot;
-	Tuplestorestate *tuplestorestate;
-	ExprState  *funcexpr;
+	bool		ordinality;
+	bool		simple;
+	int64		ordinal;
+	int			nfuncs;
+	struct FunctionScanPerFuncState *funcstates;		/* array of length
+														 * nfuncs */
 } FunctionScanState;
 
 /* ----------------
@@ -1702,6 +1709,7 @@ typedef struct AggState
 	AggStatePerAgg peragg;		/* per-Aggref information */
 	MemoryContext aggcontext;	/* memory context for long-lived data */
 	ExprContext *tmpcontext;	/* econtext for input expressions */
+	AggStatePerAgg curperagg;	/* identifies currently active aggregate */
 	bool		agg_done;		/* indicates completion of Agg scan */
 	/* these fields are used in AGG_PLAIN and AGG_SORTED modes: */
 	AggStatePerGroup pergroup;	/* per-Aggref-per-group working state */

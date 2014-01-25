@@ -3,7 +3,7 @@
  * readfuncs.c
  *	  Reader functions for Postgres tree nodes.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -107,6 +107,7 @@
 #define READ_LOCATION_FIELD(fldname) \
 	token = pg_strtok(&length);		/* skip :fldname */ \
 	token = pg_strtok(&length);		/* get field value */ \
+	(void) token;				/* in case not used elsewhere */ \
 	local_node->fldname = -1	/* set field to "unknown" */
 
 /* Read a Node field */
@@ -118,6 +119,7 @@
 /* Read a bitmapset field */
 #define READ_BITMAPSET_FIELD(fldname) \
 	token = pg_strtok(&length);		/* skip :fldname */ \
+	(void) token;				/* in case not used elsewhere */ \
 	local_node->fldname = _readBitmapset()
 
 /* Routine exit */
@@ -492,12 +494,14 @@ _readAggref(void)
 	READ_OID_FIELD(aggtype);
 	READ_OID_FIELD(aggcollid);
 	READ_OID_FIELD(inputcollid);
+	READ_NODE_FIELD(aggdirectargs);
 	READ_NODE_FIELD(args);
 	READ_NODE_FIELD(aggorder);
 	READ_NODE_FIELD(aggdistinct);
 	READ_NODE_FIELD(aggfilter);
 	READ_BOOL_FIELD(aggstar);
 	READ_BOOL_FIELD(aggvariadic);
+	READ_CHAR_FIELD(aggkind);
 	READ_UINT_FIELD(agglevelsup);
 	READ_LOCATION_FIELD(location);
 
@@ -1220,10 +1224,7 @@ _readRangeTblEntry(void)
 			READ_NODE_FIELD(joinaliasvars);
 			break;
 		case RTE_FUNCTION:
-			READ_NODE_FIELD(funcexpr);
-			READ_NODE_FIELD(funccoltypes);
-			READ_NODE_FIELD(funccoltypmods);
-			READ_NODE_FIELD(funccolcollations);
+			READ_NODE_FIELD(functions);
 			READ_BOOL_FIELD(funcordinality);
 			break;
 		case RTE_VALUES:
@@ -1251,6 +1252,25 @@ _readRangeTblEntry(void)
 	READ_OID_FIELD(checkAsUser);
 	READ_BITMAPSET_FIELD(selectedCols);
 	READ_BITMAPSET_FIELD(modifiedCols);
+
+	READ_DONE();
+}
+
+/*
+ * _readRangeTblFunction
+ */
+static RangeTblFunction *
+_readRangeTblFunction(void)
+{
+	READ_LOCALS(RangeTblFunction);
+
+	READ_NODE_FIELD(funcexpr);
+	READ_INT_FIELD(funccolcount);
+	READ_NODE_FIELD(funccolnames);
+	READ_NODE_FIELD(funccoltypes);
+	READ_NODE_FIELD(funccoltypmods);
+	READ_NODE_FIELD(funccolcollations);
+	READ_BITMAPSET_FIELD(funcparams);
 
 	READ_DONE();
 }
@@ -1378,6 +1398,8 @@ parseNodeString(void)
 		return_value = _readFromExpr();
 	else if (MATCH("RTE", 3))
 		return_value = _readRangeTblEntry();
+	else if (MATCH("RANGETBLFUNCTION", 16))
+		return_value = _readRangeTblFunction();
 	else if (MATCH("NOTIFY", 6))
 		return_value = _readNotifyStmt();
 	else if (MATCH("DECLARECURSOR", 13))
@@ -1417,15 +1439,13 @@ readDatum(bool typbyval)
 
 	token = pg_strtok(&tokenLength);	/* read the '[' */
 	if (token == NULL || token[0] != '[')
-		elog(ERROR, "expected \"[\" to start datum, but got \"%s\"; length = %lu",
-			 token ? (const char *) token : "[NULL]",
-			 (unsigned long) length);
+		elog(ERROR, "expected \"[\" to start datum, but got \"%s\"; length = %zu",
+			 token ? (const char *) token : "[NULL]", length);
 
 	if (typbyval)
 	{
 		if (length > (Size) sizeof(Datum))
-			elog(ERROR, "byval datum but length = %lu",
-				 (unsigned long) length);
+			elog(ERROR, "byval datum but length = %zu", length);
 		res = (Datum) 0;
 		s = (char *) (&res);
 		for (i = 0; i < (Size) sizeof(Datum); i++)
@@ -1449,9 +1469,8 @@ readDatum(bool typbyval)
 
 	token = pg_strtok(&tokenLength);	/* read the ']' */
 	if (token == NULL || token[0] != ']')
-		elog(ERROR, "expected \"]\" to end datum, but got \"%s\"; length = %lu",
-			 token ? (const char *) token : "[NULL]",
-			 (unsigned long) length);
+		elog(ERROR, "expected \"]\" to end datum, but got \"%s\"; length = %zu",
+			 token ? (const char *) token : "[NULL]", length);
 
 	return res;
 }

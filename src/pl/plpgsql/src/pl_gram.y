@@ -3,7 +3,7 @@
  *
  * pl_gram.y			- Parser for the PL/pgSQL procedural language
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -185,7 +185,7 @@ static	List			*read_raise_options(void);
 %type <forvariable>	for_variable
 %type <stmt>	for_control
 
-%type <str>		any_identifier opt_block_label opt_label option_value 
+%type <str>		any_identifier opt_block_label opt_label option_value
 
 %type <list>	proc_sect proc_stmts stmt_elsifs stmt_else
 %type <loop_body>	loop_body
@@ -796,7 +796,12 @@ decl_defkey		: assign_operator
 				| K_DEFAULT
 				;
 
-assign_operator	: '='	/* not documented because it might be removed someday */
+/*
+ * Ada-based PL/SQL uses := for assignment and variable defaults, while
+ * the SQL standard uses equals for these cases and for GET
+ * DIAGNOSTICS, so we support both.  FOR and OPEN only support :=.
+ */
+assign_operator	: '='
 				| COLON_EQUALS
 				;
 

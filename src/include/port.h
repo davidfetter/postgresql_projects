@@ -3,7 +3,7 @@
  * port.h
  *	  Header for src/port/ compatibility functions.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/port.h
@@ -402,11 +402,6 @@ extern double rint(double x);
 #include <netinet/in.h>
 #include <arpa/inet.h>
 extern int	inet_aton(const char *cp, struct in_addr * addr);
-#endif
-
-#ifndef HAVE_ASPRINTF
-extern int asprintf(char **ret, const char *fmt, ...) __attribute__((format(PG_PRINTF_ATTRIBUTE, 2, 3)));
-extern int vasprintf(char **ret, const char *fmt, va_list ap) __attribute__((format(PG_PRINTF_ATTRIBUTE, 2, 0)));
 #endif
 
 #if !HAVE_DECL_STRLCAT

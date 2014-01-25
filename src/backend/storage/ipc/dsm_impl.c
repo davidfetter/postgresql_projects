@@ -36,7 +36,7 @@
  *
  * As ever, Windows requires its own implemetation.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -69,24 +69,24 @@
 #include "utils/memutils.h"
 
 #ifdef USE_DSM_POSIX
-static bool dsm_impl_posix(dsm_op op, dsm_handle handle, uint64 request_size,
+static bool dsm_impl_posix(dsm_op op, dsm_handle handle, Size request_size,
 			   void **impl_private, void **mapped_address,
-			   uint64 *mapped_size, int elevel);
+			   Size *mapped_size, int elevel);
 #endif
 #ifdef USE_DSM_SYSV
-static bool dsm_impl_sysv(dsm_op op, dsm_handle handle, uint64 request_size,
+static bool dsm_impl_sysv(dsm_op op, dsm_handle handle, Size request_size,
 			   void **impl_private, void **mapped_address,
-			   uint64 *mapped_size, int elevel);
+			   Size *mapped_size, int elevel);
 #endif
 #ifdef USE_DSM_WINDOWS
-static bool dsm_impl_windows(dsm_op op, dsm_handle handle, uint64 request_size,
+static bool dsm_impl_windows(dsm_op op, dsm_handle handle, Size request_size,
 			  void **impl_private, void **mapped_address,
-			  uint64 *mapped_size, int elevel);
+			  Size *mapped_size, int elevel);
 #endif
 #ifdef USE_DSM_MMAP
-static bool dsm_impl_mmap(dsm_op op, dsm_handle handle, uint64 request_size,
+static bool dsm_impl_mmap(dsm_op op, dsm_handle handle, Size request_size,
 			  void **impl_private, void **mapped_address,
-			  uint64 *mapped_size, int elevel);
+			  Size *mapped_size, int elevel);
 #endif
 static int errcode_for_dynamic_shared_memory(void);
 
@@ -156,18 +156,13 @@ int dynamic_shared_memory_type;
  *-----
  */
 bool
-dsm_impl_op(dsm_op op, dsm_handle handle, uint64 request_size,
-			void **impl_private, void **mapped_address, uint64 *mapped_size,
+dsm_impl_op(dsm_op op, dsm_handle handle, Size request_size,
+			void **impl_private, void **mapped_address, Size *mapped_size,
 			int elevel)
 {
 	Assert(op == DSM_OP_CREATE || op == DSM_OP_RESIZE || request_size == 0);
 	Assert((op != DSM_OP_CREATE && op != DSM_OP_ATTACH) ||
 			(*mapped_address == NULL && *mapped_size == 0));
-
-	if (request_size > (size_t) -1)
-		ereport(ERROR,
-				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-				 errmsg("requested shared memory size overflows size_t")));
 
 	switch (dynamic_shared_memory_type)
 	{
@@ -191,9 +186,11 @@ dsm_impl_op(dsm_op op, dsm_handle handle, uint64 request_size,
 			return dsm_impl_mmap(op, handle, request_size, impl_private,
 								 mapped_address, mapped_size, elevel);
 #endif
+		default:
+			elog(ERROR, "unexpected dynamic shared memory type: %d",
+				 dynamic_shared_memory_type);
+			return false;
 	}
-	elog(ERROR, "unexpected dynamic shared memory type: %d",
-		 dynamic_shared_memory_type);
 }
 
 /*
@@ -217,7 +214,7 @@ dsm_impl_can_resize(void)
 		case DSM_IMPL_WINDOWS:
 			return false;
 		case DSM_IMPL_MMAP:
-			return false;
+			return true;
 		default:
 			return false;		/* should not happen */
 	}
@@ -239,8 +236,8 @@ dsm_impl_can_resize(void)
  * a different shared memory implementation.
  */
 static bool
-dsm_impl_posix(dsm_op op, dsm_handle handle, uint64 request_size,
-			   void **impl_private, void **mapped_address, uint64 *mapped_size,
+dsm_impl_posix(dsm_op op, dsm_handle handle, Size request_size,
+			   void **impl_private, void **mapped_address, Size *mapped_size,
 			   int elevel)
 {
 	char	name[64];
@@ -332,7 +329,7 @@ dsm_impl_posix(dsm_op op, dsm_handle handle, uint64 request_size,
 
 		ereport(elevel,
 				(errcode_for_dynamic_shared_memory(),
-				 errmsg("could not resize shared memory segment %s to " UINT64_FORMAT " bytes: %m",
+				 errmsg("could not resize shared memory segment %s to %zu bytes: %m",
 					name, request_size)));
 		return false;
 	}
@@ -405,8 +402,8 @@ dsm_impl_posix(dsm_op op, dsm_handle handle, uint64 request_size,
  * those are not supported everywhere.
  */
 static bool
-dsm_impl_sysv(dsm_op op, dsm_handle handle, uint64 request_size,
-			  void **impl_private, void **mapped_address, uint64 *mapped_size,
+dsm_impl_sysv(dsm_op op, dsm_handle handle, Size request_size,
+			  void **impl_private, void **mapped_address, Size *mapped_size,
 			  int elevel)
 {
 	key_t	key;
@@ -610,9 +607,9 @@ dsm_impl_sysv(dsm_op op, dsm_handle handle, uint64 request_size,
  * when the process containing the reference exits.
  */
 static bool
-dsm_impl_windows(dsm_op op, dsm_handle handle, uint64 request_size,
+dsm_impl_windows(dsm_op op, dsm_handle handle, Size request_size,
 				 void **impl_private, void **mapped_address,
-				 uint64 *mapped_size, int elevel)
+				 Size *mapped_size, int elevel)
 {
 	char   *address;
 	HANDLE		hmap;
@@ -676,8 +673,17 @@ dsm_impl_windows(dsm_op op, dsm_handle handle, uint64 request_size,
 	/* Create new segment or open an existing one for attach. */
 	if (op == DSM_OP_CREATE)
 	{
-		DWORD		size_high = (DWORD) (request_size >> 32);
-		DWORD		size_low = (DWORD) request_size;
+		DWORD		size_high;
+		DWORD		size_low;
+
+		/* Shifts >= the width of the type are undefined. */
+#ifdef _WIN64
+		size_high = request_size >> 32;
+#else
+		size_high = 0;
+#endif
+		size_low = (DWORD) request_size;
+
 		hmap = CreateFileMapping(INVALID_HANDLE_VALUE,	/* Use the pagefile */
 								 NULL,			/* Default security attrs */
 								 PAGE_READWRITE,	/* Memory is read/write */
@@ -778,8 +784,8 @@ dsm_impl_windows(dsm_op op, dsm_handle handle, uint64 request_size,
  * directory to a ramdisk to avoid this problem, if available.
  */
 static bool
-dsm_impl_mmap(dsm_op op, dsm_handle handle, uint64 request_size,
-			  void **impl_private, void **mapped_address, uint64 *mapped_size,
+dsm_impl_mmap(dsm_op op, dsm_handle handle, Size request_size,
+			  void **impl_private, void **mapped_address, Size *mapped_size,
 			  int elevel)
 {
 	char	name[64];
@@ -865,7 +871,7 @@ dsm_impl_mmap(dsm_op op, dsm_handle handle, uint64 request_size,
 
 		ereport(elevel,
 				(errcode_for_dynamic_shared_memory(),
-				 errmsg("could not resize shared memory segment %s to " UINT64_FORMAT " bytes: %m",
+				 errmsg("could not resize shared memory segment %s to %zu bytes: %m",
 					name, request_size)));
 		return false;
 	}
@@ -890,7 +896,7 @@ dsm_impl_mmap(dsm_op op, dsm_handle handle, uint64 request_size,
 		 */
 		while (success && remaining > 0)
 		{
-			uint64	goal = remaining;
+			Size	goal = remaining;
 
 			if (goal > ZBUFFER_SIZE)
 				goal = ZBUFFER_SIZE;
@@ -913,7 +919,7 @@ dsm_impl_mmap(dsm_op op, dsm_handle handle, uint64 request_size,
 
 			ereport(elevel,
 					(errcode_for_dynamic_shared_memory(),
-					 errmsg("could not resize shared memory segment %s to " UINT64_FORMAT " bytes: %m",
+					 errmsg("could not resize shared memory segment %s to %zu bytes: %m",
 						name, request_size)));
 			return false;
 		}

@@ -12,7 +12,7 @@
  * to assorted legacy behaviors that we still try to preserve, notably that
  * we must return a tuples-processed count in the completionTag.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -319,6 +319,7 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 		col->collOid = attribute->attcollation;
 		col->constraints = NIL;
 		col->fdwoptions = NIL;
+		col->location = -1;
 
 		coltype->names = NIL;
 		coltype->typeOid = attribute->atttypid;

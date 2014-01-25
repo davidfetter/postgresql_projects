@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2014, PostgreSQL Global Development Group
  *
  * src/bin/psql/command.c
  */
@@ -265,10 +265,13 @@ exec_command(const char *cmd,
 #ifndef WIN32
 			struct passwd *pw;
 
+			errno = 0;	/* clear errno before call */
 			pw = getpwuid(geteuid());
 			if (!pw)
 			{
-				psql_error("could not get home directory: %s\n", strerror(errno));
+				psql_error("could not get home directory for user id %d: %s\n",
+						   (int) geteuid(), errno ?
+						   strerror(errno) : "user does not exist");
 				exit(EXIT_FAILURE);
 			}
 			dir = pw->pw_dir;
@@ -289,11 +292,6 @@ exec_command(const char *cmd,
 			success = false;
 		}
 
-		if (pset.dirname)
-			free(pset.dirname);
-		pset.dirname = pg_strdup(dir);
-		canonicalize_path(pset.dirname);
-
 		if (opt)
 			free(opt);
 	}
@@ -302,7 +300,7 @@ exec_command(const char *cmd,
 	else if (strcmp(cmd, "conninfo") == 0)
 	{
 		char	   *db = PQdb(pset.db);
-		char	   *host = PQhost(pset.db);
+		char	   *host = (PQhostaddr(pset.db) != NULL) ? PQhostaddr(pset.db) : PQhost(pset.db);
 
 		if (db == NULL)
 			printf(_("You are currently not connected to a database.\n"));
@@ -412,7 +410,7 @@ exec_command(const char *cmd,
 				success = listSchemas(pattern, show_verbose, show_system);
 				break;
 			case 'o':
-				success = describeOperators(pattern, show_system);
+				success = describeOperators(pattern, show_verbose, show_system);
 				break;
 			case 'O':
 				success = listCollations(pattern, show_verbose, show_system);
@@ -1046,20 +1044,21 @@ exec_command(const char *cmd,
 
 		if (!opt0)
 		{
-		       size_t i;
-		       /* list all variables */
-		       static const char *const my_list[] = {
+			/* list all variables */
+
+			int i;
+			static const char *const my_list[] = {
 				"border", "columns", "expanded", "fieldsep",
 				"footer", "format", "linestyle", "null",
 				"numericlocale", "pager", "recordsep",
 				"tableattr", "title", "tuples_only",
-				NULL };
-		       for (i = 0; my_list[i] != NULL; i++) {
-			       printPsetInfo(my_list[i], &pset.popt);
-		       }
+				NULL
+			};
 
-		       success = true;
+			for (i = 0; my_list[i] != NULL; i++)
+				printPsetInfo(my_list[i], &pset.popt);
 
+			success = true;
 		}
 		else
 			success = do_pset(opt0, opt1, &pset.popt, pset.quiet);
@@ -1102,8 +1101,7 @@ exec_command(const char *cmd,
 		/* This scrolls off the screen when using /dev/tty */
 		success = saveHistory(fname ? fname : DEVTTY, -1, false, false);
 		if (success && !pset.quiet && fname)
-			printf(gettext("Wrote history to file \"%s/%s\".\n"),
-				   pset.dirname ? pset.dirname : ".", fname);
+			printf(_("Wrote history to file \"%s\".\n"), fname);
 		if (!fname)
 			putchar('\n');
 		free(fname);
@@ -1188,7 +1186,7 @@ exec_command(const char *cmd,
 			/* Set variable to the value of the next argument */
 			char	   *newval;
 
-			pg_asprintf(&newval, "%s=%s", envvar, envval);
+			newval = psprintf("%s=%s", envvar, envval);
 			putenv(newval);
 			success = true;
 
@@ -1549,7 +1547,7 @@ prompt_for_password(const char *username)
 	{
 		char	   *prompt_text;
 
-		pg_asprintf(&prompt_text, _("Password for user %s: "), username);
+		prompt_text = psprintf(_("Password for user %s: "), username);
 		result = simple_prompt(prompt_text, 100, false);
 		free(prompt_text);
 	}
@@ -1800,8 +1798,8 @@ printSSLInfo(void)
 		return;					/* no SSL */
 
 	SSL_get_cipher_bits(ssl, &sslbits);
-	printf(_("SSL connection (cipher: %s, bits: %d)\n"),
-		   SSL_get_cipher(ssl), sslbits);
+	printf(_("SSL connection (protocol: %s, cipher: %s, bits: %d)\n"),
+		   SSL_get_version(ssl), SSL_get_cipher(ssl), sslbits);
 #else
 
 	/*
@@ -1929,17 +1927,17 @@ editFile(const char *fname, int lineno)
 	 */
 #ifndef WIN32
 	if (lineno > 0)
-		pg_asprintf(&sys, "exec %s %s%d '%s'",
+		sys = psprintf("exec %s %s%d '%s'",
 					editorName, editor_lineno_arg, lineno, fname);
 	else
-		pg_asprintf(&sys, "exec %s '%s'",
+		sys = psprintf("exec %s '%s'",
 					editorName, fname);
 #else
 	if (lineno > 0)
-		pg_asprintf(&sys, SYSTEMQUOTE "\"%s\" %s%d \"%s\"" SYSTEMQUOTE,
+		sys = psprintf(SYSTEMQUOTE "\"%s\" %s%d \"%s\"" SYSTEMQUOTE,
 				editorName, editor_lineno_arg, lineno, fname);
 	else
-		pg_asprintf(&sys, SYSTEMQUOTE "\"%s\" \"%s\"" SYSTEMQUOTE,
+		sys = psprintf(SYSTEMQUOTE "\"%s\" \"%s\"" SYSTEMQUOTE,
 					editorName, fname);
 #endif
 	result = system(sys);
@@ -2438,8 +2436,8 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 		return false;
 	}
 
-       if (!quiet)
-	       printPsetInfo(param, &pset.popt);
+	if (!quiet)
+		printPsetInfo(param, &pset.popt);
 
 	return true;
 }
@@ -2635,9 +2633,9 @@ do_shell(const char *command)
 
 		/* See EDITOR handling comment for an explanation */
 #ifndef WIN32
-		pg_asprintf(&sys, "exec %s", shellName);
+		sys = psprintf("exec %s", shellName);
 #else
-		pg_asprintf(&sys, SYSTEMQUOTE "\"%s\"" SYSTEMQUOTE, shellName);
+		sys = psprintf(SYSTEMQUOTE "\"%s\"" SYSTEMQUOTE, shellName);
 #endif
 		result = system(sys);
 		free(sys);
@@ -2791,7 +2789,7 @@ lookup_function_oid(PGconn *conn, const char *desc, Oid *foid)
 	PGresult   *res;
 
 	query = createPQExpBuffer();
-	printfPQExpBuffer(query, "SELECT ");
+	appendPQExpBufferStr(query, "SELECT ");
 	appendStringLiteralConn(query, desc, conn);
 	appendPQExpBuffer(query, "::pg_catalog.%s::pg_catalog.oid",
 					  strchr(desc, '(') ? "regprocedure" : "regproc");

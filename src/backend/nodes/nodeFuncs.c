@@ -3,7 +3,7 @@
  * nodeFuncs.c
  *		Various general-purpose manipulations of Node trees
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -1447,8 +1447,15 @@ exprLocation(const Node *expr)
 		case T_TypeName:
 			loc = ((const TypeName *) expr)->location;
 			break;
+		case T_ColumnDef:
+			loc = ((const ColumnDef *) expr)->location;
+			break;
 		case T_Constraint:
 			loc = ((const Constraint *) expr)->location;
+			break;
+		case T_FunctionParameter:
+			/* just use typename's location */
+			loc = exprLocation((Node *) ((const FunctionParameter *) expr)->argType);
 			break;
 		case T_XmlSerialize:
 			/* XMLSERIALIZE keyword should always be the first thing */
@@ -1622,6 +1629,9 @@ expression_tree_walker(Node *node,
 				Aggref	   *expr = (Aggref *) node;
 
 				/* recurse directly on List */
+				if (expression_tree_walker((Node *) expr->aggdirectargs,
+										   walker, context))
+					return true;
 				if (expression_tree_walker((Node *) expr->args,
 										   walker, context))
 					return true;
@@ -1901,6 +1911,8 @@ expression_tree_walker(Node *node,
 			break;
 		case T_PlaceHolderInfo:
 			return walker(((PlaceHolderInfo *) node)->ph_var, context);
+		case T_RangeTblFunction:
+			return walker(((RangeTblFunction *) node)->funcexpr, context);
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(node));
@@ -2000,7 +2012,7 @@ range_table_walker(List *rtable,
 						return true;
 				break;
 			case RTE_FUNCTION:
-				if (walker(rte->funcexpr, context))
+				if (walker(rte->functions, context))
 					return true;
 				break;
 			case RTE_VALUES:
@@ -2152,6 +2164,7 @@ expression_tree_mutator(Node *node,
 				Aggref	   *newnode;
 
 				FLATCOPY(newnode, aggref, Aggref);
+				MUTATE(newnode->aggdirectargs, aggref->aggdirectargs, List *);
 				MUTATE(newnode->args, aggref->args, List *);
 				MUTATE(newnode->aggorder, aggref->aggorder, List *);
 				MUTATE(newnode->aggdistinct, aggref->aggdistinct, List *);
@@ -2615,6 +2628,17 @@ expression_tree_mutator(Node *node,
 				return (Node *) newnode;
 			}
 			break;
+		case T_RangeTblFunction:
+			{
+				RangeTblFunction *rtfunc = (RangeTblFunction *) node;
+				RangeTblFunction *newnode;
+
+				FLATCOPY(newnode, rtfunc, RangeTblFunction);
+				MUTATE(newnode->funcexpr, rtfunc->funcexpr, Node *);
+				/* Assume we need not copy the coldef info lists */
+				return (Node *) newnode;
+			}
+			break;
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(node));
@@ -2725,7 +2749,7 @@ range_table_mutator(List *rtable,
 				}
 				break;
 			case RTE_FUNCTION:
-				MUTATE(newrte->funcexpr, rte->funcexpr, Node *);
+				MUTATE(newrte->functions, rte->functions, List *);
 				break;
 			case RTE_VALUES:
 				MUTATE(newrte->values_lists, rte->values_lists, List *);
@@ -3113,9 +3137,11 @@ raw_expression_tree_walker(Node *node,
 			{
 				RangeFunction *rf = (RangeFunction *) node;
 
-				if (walker(rf->funccallnode, context))
+				if (walker(rf->functions, context))
 					return true;
 				if (walker(rf->alias, context))
+					return true;
+				if (walker(rf->coldeflist, context))
 					return true;
 			}
 			break;

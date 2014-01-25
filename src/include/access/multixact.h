@@ -3,7 +3,7 @@
  *
  * PostgreSQL multi-transaction-log manager
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/access/multixact.h
@@ -81,12 +81,18 @@ extern MultiXactId MultiXactIdCreate(TransactionId xid1,
 				  MultiXactStatus status2);
 extern MultiXactId MultiXactIdExpand(MultiXactId multi, TransactionId xid,
 				  MultiXactStatus status);
+extern MultiXactId MultiXactIdCreateFromMembers(int nmembers,
+							 MultiXactMember *members);
+
 extern MultiXactId ReadNextMultiXactId(void);
 extern bool MultiXactIdIsRunning(MultiXactId multi);
 extern void MultiXactIdSetOldestMember(void);
 extern int GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **xids,
 					  bool allow_old);
+extern bool MultiXactHasRunningRemoteMembers(MultiXactId multi);
 extern bool MultiXactIdPrecedes(MultiXactId multi1, MultiXactId multi2);
+extern bool MultiXactIdPrecedesOrEquals(MultiXactId multi1,
+							MultiXactId multi2);
 
 extern void AtEOXact_MultiXact(void);
 extern void AtPrepare_MultiXact(void);
@@ -96,6 +102,7 @@ extern Size MultiXactShmemSize(void);
 extern void MultiXactShmemInit(void);
 extern void BootStrapMultiXact(void);
 extern void StartupMultiXact(void);
+extern void TrimMultiXact(void);
 extern void ShutdownMultiXact(void);
 extern void SetMultiXactIdLimit(MultiXactId oldest_datminmxid,
 					Oid oldest_datoid);

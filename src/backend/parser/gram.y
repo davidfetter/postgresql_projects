@@ -6,7 +6,7 @@
  * gram.y
  *	  POSTGRESQL BISON rules/actions
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -142,6 +142,9 @@ static void check_qualified_name(List *names, core_yyscan_t yyscanner);
 static List *check_func_name(List *names, core_yyscan_t yyscanner);
 static List *check_indirection(List *indirection, core_yyscan_t yyscanner);
 static List *extractArgTypes(List *parameters);
+static List *extractAggrArgTypes(List *aggrargs);
+static List *makeOrderedSetArgs(List *directargs, List *orderedargs,
+								core_yyscan_t yyscanner);
 static void insertSelectOptions(SelectStmt *stmt,
 								List *sortClause, List *lockingClause,
 								Node *limitOffset, Node *limitCount,
@@ -216,7 +219,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 		AlterEventTrigStmt
 		AlterDatabaseStmt AlterDatabaseSetStmt AlterDomainStmt AlterEnumStmt
 		AlterFdwStmt AlterForeignServerStmt AlterGroupStmt
-		AlterObjectSchemaStmt AlterOwnerStmt AlterSeqStmt AlterTableStmt
+		AlterObjectSchemaStmt AlterOwnerStmt AlterSeqStmt AlterSystemStmt AlterTableStmt
 		AlterExtensionStmt AlterExtensionContentsStmt AlterForeignTableStmt
 		AlterCompositeTypeStmt AlterUserStmt AlterUserMappingStmt AlterUserSetStmt
 		AlterRoleStmt AlterRoleSetStmt
@@ -255,6 +258,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <ival>	add_drop opt_asc_desc opt_nulls_order
 
 %type <node>	alter_table_cmd alter_type_cmd opt_collate_clause
+	   replica_identity
 %type <list>	alter_table_cmds alter_type_cmds
 
 %type <dbehavior>	opt_drop_behavior
@@ -330,10 +334,10 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				oper_argtypes RuleActionList RuleActionMulti
 				opt_column_list columnList opt_name_list
 				sort_clause opt_sort_clause sortby_list index_params
-				name_list from_clause from_list opt_array_bounds
+				name_list role_list from_clause from_list opt_array_bounds
 				qualified_name_list any_name any_name_list
 				any_operator expr_list attrs
-				target_list insert_column_list set_target_list
+				target_list opt_target_list insert_column_list set_target_list
 				set_clause_list set_clause multiple_set_clause
 				ctext_expr_list ctext_row def_list indirection opt_indirection
 				reloption_list group_clause TriggerFuncArgs select_limit
@@ -396,7 +400,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 %type <istmt>	insert_rest
 
-%type <vsetstmt> set_rest set_rest_more SetResetClause FunctionSetResetClause
+%type <vsetstmt> generic_set set_rest set_rest_more SetResetClause FunctionSetResetClause
 
 %type <node>	TableElement TypedTableElement ConstraintElem TableFuncElement
 %type <node>	columnDef columnOptions
@@ -405,6 +409,8 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				a_expr b_expr c_expr AexprConst indirection_el
 				columnref in_expr having_clause func_table array_expr
 				ExclusionWhereClause
+%type <list>	rowsfrom_item rowsfrom_list opt_col_def_list
+%type <boolean> opt_ordinality
 %type <list>	ExclusionConstraintList ExclusionConstraintElem
 %type <list>	func_arg_list
 %type <node>	func_arg_expr
@@ -488,12 +494,13 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <with>	with_clause opt_with_clause
 %type <list>	cte_list
 
+%type <list>	within_group_clause
+%type <node>	filter_clause
 %type <list>	window_clause window_definition_list opt_partition_clause
 %type <windef>	window_definition over_clause window_specification
 				opt_frame_clause frame_extent frame_bound
 %type <str>		opt_existing_window_name
 %type <boolean> opt_if_not_exists
-%type <node>    filter_clause
 
 /*
  * Non-keyword token types.  These are hard-wired into the "flex" lexer.
@@ -594,9 +601,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	UNTIL UPDATE USER USING
 
 	VACUUM VALID VALIDATE VALIDATOR VALUE_P VALUES VARCHAR VARIADIC VARYING
-	VERBOSE VERSION_P VIEW VOLATILE
+	VERBOSE VERSION_P VIEW VIEWS VOLATILE
 
-	WHEN WHERE WHITESPACE_P WINDOW WITH WITHOUT WORK WRAPPER WRITE
+	WHEN WHERE WHITESPACE_P WINDOW WITH WITHIN WITHOUT WORK WRAPPER WRITE
 
 	XML_P XMLATTRIBUTES XMLCONCAT XMLELEMENT XMLEXISTS XMLFOREST XMLPARSE
 	XMLPI XMLROOT XMLSERIALIZE
@@ -611,6 +618,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
  * creates these tokens when required.
  */
 %token			NULLS_FIRST NULLS_LAST WITH_ORDINALITY WITH_TIME
+
 
 /* Precedence: lowest to highest */
 %nonassoc	SET				/* see relation_expr_opt_alias */
@@ -720,6 +728,7 @@ stmt :
 			| AlterObjectSchemaStmt
 			| AlterOwnerStmt
 			| AlterSeqStmt
+			| AlterSystemStmt
 			| AlterTableStmt
 			| AlterCompositeTypeStmt
 			| AlterRoleSetStmt
@@ -892,7 +901,7 @@ AlterOptRoleElem:
 					$$ = makeDefElem("validUntil", (Node *)makeString($3));
 				}
 		/*	Supported but not documented for roles, for use by ALTER GROUP. */
-			| USER name_list
+			| USER role_list
 				{
 					$$ = makeDefElem("rolemembers", (Node *)$2);
 				}
@@ -956,19 +965,19 @@ CreateOptRoleElem:
 				{
 					$$ = makeDefElem("sysid", (Node *)makeInteger($2));
 				}
-			| ADMIN name_list
+			| ADMIN role_list
 				{
 					$$ = makeDefElem("adminmembers", (Node *)$2);
 				}
-			| ROLE name_list
+			| ROLE role_list
 				{
 					$$ = makeDefElem("rolemembers", (Node *)$2);
 				}
-			| IN_P ROLE name_list
+			| IN_P ROLE role_list
 				{
 					$$ = makeDefElem("addroleto", (Node *)$3);
 				}
-			| IN_P GROUP_P name_list
+			| IN_P GROUP_P role_list
 				{
 					$$ = makeDefElem("addroleto", (Node *)$3);
 				}
@@ -1075,14 +1084,14 @@ AlterUserSetStmt:
  *****************************************************************************/
 
 DropRoleStmt:
-			DROP ROLE name_list
+			DROP ROLE role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = FALSE;
 					n->roles = $3;
 					$$ = (Node *)n;
 				}
-			| DROP ROLE IF_P EXISTS name_list
+			| DROP ROLE IF_P EXISTS role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = TRUE;
@@ -1101,14 +1110,14 @@ DropRoleStmt:
  *****************************************************************************/
 
 DropUserStmt:
-			DROP USER name_list
+			DROP USER role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = FALSE;
 					n->roles = $3;
 					$$ = (Node *)n;
 				}
-			| DROP USER IF_P EXISTS name_list
+			| DROP USER IF_P EXISTS role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->roles = $5;
@@ -1143,7 +1152,7 @@ CreateGroupStmt:
  *****************************************************************************/
 
 AlterGroupStmt:
-			ALTER GROUP_P RoleId add_drop USER name_list
+			ALTER GROUP_P RoleId add_drop USER role_list
 				{
 					AlterRoleStmt *n = makeNode(AlterRoleStmt);
 					n->role = $3;
@@ -1167,14 +1176,14 @@ add_drop:	ADD_P									{ $$ = +1; }
  *****************************************************************************/
 
 DropGroupStmt:
-			DROP GROUP_P name_list
+			DROP GROUP_P role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = FALSE;
 					n->roles = $3;
 					$$ = (Node *)n;
 				}
-			| DROP GROUP_P IF_P EXISTS name_list
+			| DROP GROUP_P IF_P EXISTS role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = TRUE;
@@ -1329,7 +1338,7 @@ set_rest:
 			| set_rest_more
 			;
 
-set_rest_more:	/* Generic SET syntaxes: */
+generic_set:
 			var_name TO var_list
 				{
 					VariableSetStmt *n = makeNode(VariableSetStmt);
@@ -1360,6 +1369,9 @@ set_rest_more:	/* Generic SET syntaxes: */
 					n->name = $1;
 					$$ = n;
 				}
+
+set_rest_more:	/* Generic SET syntaxes: */
+			generic_set 						{$$ = $1;}
 			| var_name FROM CURRENT_P
 				{
 					VariableSetStmt *n = makeNode(VariableSetStmt);
@@ -1925,10 +1937,11 @@ alter_table_cmd:
 					n->subtype = AT_AlterColumnType;
 					n->name = $3;
 					n->def = (Node *) def;
-					/* We only use these three fields of the ColumnDef node */
+					/* We only use these fields of the ColumnDef node */
 					def->typeName = $6;
 					def->collClause = (CollateClause *) $7;
 					def->raw_default = $8;
+					def->location = @3;
 					$$ = (Node *)n;
 				}
 			/* ALTER FOREIGN TABLE <name> ALTER [COLUMN] <colname> OPTIONS */
@@ -2178,6 +2191,14 @@ alter_table_cmd:
 					n->def = (Node *)$2;
 					$$ = (Node *)n;
 				}
+			/* ALTER TABLE <name> REPLICA IDENTITY  */
+			| REPLICA IDENTITY_P replica_identity
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_ReplicaIdentity;
+					n->def = $3;
+					$$ = (Node *)n;
+				}
 			| alter_generic_options
 				{
 					AlterTableCmd *n = makeNode(AlterTableCmd);
@@ -2214,6 +2235,37 @@ alter_using:
 			USING a_expr				{ $$ = $2; }
 			| /* EMPTY */				{ $$ = NULL; }
 		;
+
+replica_identity:
+			NOTHING
+				{
+					ReplicaIdentityStmt *n = makeNode(ReplicaIdentityStmt);
+					n->identity_type = REPLICA_IDENTITY_NOTHING;
+					n->name = NULL;
+					$$ = (Node *) n;
+				}
+			| FULL
+				{
+					ReplicaIdentityStmt *n = makeNode(ReplicaIdentityStmt);
+					n->identity_type = REPLICA_IDENTITY_FULL;
+					n->name = NULL;
+					$$ = (Node *) n;
+				}
+			| DEFAULT
+				{
+					ReplicaIdentityStmt *n = makeNode(ReplicaIdentityStmt);
+					n->identity_type = REPLICA_IDENTITY_DEFAULT;
+					n->name = NULL;
+					$$ = (Node *) n;
+				}
+			| USING INDEX name
+				{
+					ReplicaIdentityStmt *n = makeNode(ReplicaIdentityStmt);
+					n->identity_type = REPLICA_IDENTITY_INDEX;
+					n->name = $3;
+					$$ = (Node *) n;
+				}
+;
 
 reloptions:
 			'(' reloption_list ')'					{ $$ = $2; }
@@ -2314,10 +2366,11 @@ alter_type_cmd:
 					n->name = $3;
 					n->def = (Node *) def;
 					n->behavior = $8;
-					/* We only use these three fields of the ColumnDef node */
+					/* We only use these fields of the ColumnDef node */
 					def->typeName = $6;
 					def->collClause = (CollateClause *) $7;
 					def->raw_default = NULL;
+					def->location = @3;
 					$$ = (Node *)n;
 				}
 		;
@@ -2742,6 +2795,7 @@ columnDef:	ColId Typename create_generic_options ColQualList
 					n->fdwoptions = $3;
 					SplitColQualList($4, &n->constraints, &n->collClause,
 									 yyscanner);
+					n->location = @1;
 					$$ = (Node *)n;
 				}
 		;
@@ -2761,6 +2815,7 @@ columnOptions:	ColId WITH OPTIONS ColQualList
 					n->collOid = InvalidOid;
 					SplitColQualList($4, &n->constraints, &n->collClause,
 									 yyscanner);
+					n->location = @1;
 					$$ = (Node *)n;
 				}
 		;
@@ -3533,12 +3588,13 @@ opt_procedural:
  *
  *****************************************************************************/
 
-CreateTableSpaceStmt: CREATE TABLESPACE name OptTableSpaceOwner LOCATION Sconst
+CreateTableSpaceStmt: CREATE TABLESPACE name OptTableSpaceOwner LOCATION Sconst opt_reloptions
 				{
 					CreateTableSpaceStmt *n = makeNode(CreateTableSpaceStmt);
 					n->tablespacename = $3;
 					n->owner = $4;
 					n->location = $6;
+					n->options = $7;
 					$$ = (Node *) n;
 				}
 		;
@@ -3664,7 +3720,7 @@ AlterExtensionContentsStmt:
 					n->action = $4;
 					n->objtype = OBJECT_AGGREGATE;
 					n->objname = $6;
-					n->objargs = extractArgTypes($7);
+					n->objargs = extractAggrArgTypes($7);
 					$$ = (Node *)n;
 				}
 			| ALTER EXTENSION name add_drop CAST '(' Typename AS Typename ')'
@@ -3934,7 +3990,7 @@ DropFdwStmt: DROP FOREIGN DATA_P WRAPPER name opt_drop_behavior
 					$$ = (Node *) n;
 				}
 				|  DROP FOREIGN DATA_P WRAPPER IF_P EXISTS name opt_drop_behavior
-                {
+				{
 					DropStmt *n = makeNode(DropStmt);
 					n->removeType = OBJECT_FDW;
 					n->objects = list_make1(list_make1(makeString($7)));
@@ -4096,7 +4152,7 @@ DropForeignServerStmt: DROP SERVER name opt_drop_behavior
 					$$ = (Node *) n;
 				}
 				|  DROP SERVER IF_P EXISTS name opt_drop_behavior
-                {
+				{
 					DropStmt *n = makeNode(DropStmt);
 					n->removeType = OBJECT_FOREIGN_SERVER;
 					n->objects = list_make1(list_make1(makeString($5)));
@@ -4834,8 +4890,8 @@ AlterEnumStmt:
 		 ;
 
 opt_if_not_exists: IF_P NOT EXISTS              { $$ = true; }
-         | /* empty */                          { $$ = false; }
-         ;
+		| /* empty */                          { $$ = false; }
+		;
 
 
 /*****************************************************************************
@@ -5066,7 +5122,7 @@ DropOpFamilyStmt:
  *
  *****************************************************************************/
 DropOwnedStmt:
-			DROP OWNED BY name_list opt_drop_behavior
+			DROP OWNED BY role_list opt_drop_behavior
 				{
 					DropOwnedStmt *n = makeNode(DropOwnedStmt);
 					n->roles = $4;
@@ -5076,7 +5132,7 @@ DropOwnedStmt:
 		;
 
 ReassignOwnedStmt:
-			REASSIGN OWNED BY name_list TO name
+			REASSIGN OWNED BY role_list TO name
 				{
 					ReassignOwnedStmt *n = makeNode(ReassignOwnedStmt);
 					n->roles = $4;
@@ -5243,7 +5299,7 @@ CommentStmt:
 					CommentStmt *n = makeNode(CommentStmt);
 					n->objtype = OBJECT_AGGREGATE;
 					n->objname = $4;
-					n->objargs = extractArgTypes($5);
+					n->objargs = extractAggrArgTypes($5);
 					n->comment = $7;
 					$$ = (Node *) n;
 				}
@@ -5409,7 +5465,7 @@ SecLabelStmt:
 					n->provider = $3;
 					n->objtype = OBJECT_AGGREGATE;
 					n->objname = $6;
-					n->objargs = extractArgTypes($7);
+					n->objargs = extractAggrArgTypes($7);
 					n->label = $9;
 					$$ = (Node *) n;
 				}
@@ -5942,7 +5998,7 @@ function_with_argtypes:
  *****************************************************************************/
 
 GrantRoleStmt:
-			GRANT privilege_list TO name_list opt_grant_admin_option opt_granted_by
+			GRANT privilege_list TO role_list opt_grant_admin_option opt_granted_by
 				{
 					GrantRoleStmt *n = makeNode(GrantRoleStmt);
 					n->is_grant = true;
@@ -5955,7 +6011,7 @@ GrantRoleStmt:
 		;
 
 RevokeRoleStmt:
-			REVOKE privilege_list FROM name_list opt_granted_by opt_drop_behavior
+			REVOKE privilege_list FROM role_list opt_granted_by opt_drop_behavior
 				{
 					GrantRoleStmt *n = makeNode(GrantRoleStmt);
 					n->is_grant = false;
@@ -5965,7 +6021,7 @@ RevokeRoleStmt:
 					n->behavior = $6;
 					$$ = (Node*)n;
 				}
-			| REVOKE ADMIN OPTION FOR privilege_list FROM name_list opt_granted_by opt_drop_behavior
+			| REVOKE ADMIN OPTION FOR privilege_list FROM role_list opt_granted_by opt_drop_behavior
 				{
 					GrantRoleStmt *n = makeNode(GrantRoleStmt);
 					n->is_grant = false;
@@ -6011,11 +6067,11 @@ DefACLOption:
 				{
 					$$ = makeDefElem("schemas", (Node *)$3);
 				}
-			| FOR ROLE name_list
+			| FOR ROLE role_list
 				{
 					$$ = makeDefElem("roles", (Node *)$3);
 				}
-			| FOR USER name_list
+			| FOR USER role_list
 				{
 					$$ = makeDefElem("roles", (Node *)$3);
 				}
@@ -6409,9 +6465,52 @@ aggr_arg:	func_arg
 				}
 		;
 
-/* Zero-argument aggregates are named with * for consistency with COUNT(*) */
-aggr_args:	'(' aggr_args_list ')'					{ $$ = $2; }
-			| '(' '*' ')'							{ $$ = NIL; }
+/*
+ * The SQL standard offers no guidance on how to declare aggregate argument
+ * lists, since it doesn't have CREATE AGGREGATE etc.  We accept these cases:
+ *
+ * (*)									- normal agg with no args
+ * (aggr_arg,...)						- normal agg with args
+ * (ORDER BY aggr_arg,...)				- ordered-set agg with no direct args
+ * (aggr_arg,... ORDER BY aggr_arg,...)	- ordered-set agg with direct args
+ *
+ * The zero-argument case is spelled with '*' for consistency with COUNT(*).
+ *
+ * An additional restriction is that if the direct-args list ends in a
+ * VARIADIC item, the ordered-args list must contain exactly one item that
+ * is also VARIADIC with the same type.  This allows us to collapse the two
+ * VARIADIC items into one, which is necessary to represent the aggregate in
+ * pg_proc.  We check this at the grammar stage so that we can return a list
+ * in which the second VARIADIC item is already discarded, avoiding extra work
+ * in cases such as DROP AGGREGATE.
+ *
+ * The return value of this production is a two-element list, in which the
+ * first item is a sublist of FunctionParameter nodes (with any duplicate
+ * VARIADIC item already dropped, as per above) and the second is an integer
+ * Value node, containing -1 if there was no ORDER BY and otherwise the number
+ * of argument declarations before the ORDER BY.  (If this number is equal
+ * to the first sublist's length, then we dropped a duplicate VARIADIC item.)
+ * This representation is passed as-is to CREATE AGGREGATE; for operations
+ * on existing aggregates, we can just apply extractArgTypes to the first
+ * sublist.
+ */
+aggr_args:	'(' '*' ')'
+				{
+					$$ = list_make2(NIL, makeInteger(-1));
+				}
+			| '(' aggr_args_list ')'
+				{
+					$$ = list_make2($2, makeInteger(-1));
+				}
+			| '(' ORDER BY aggr_args_list ')'
+				{
+					$$ = list_make2($4, makeInteger(0));
+				}
+			| '(' aggr_args_list ORDER BY aggr_args_list ')'
+				{
+					/* this is the only case requiring consistency checking */
+					$$ = makeOrderedSetArgs($2, $5, yyscanner);
+				}
 		;
 
 aggr_args_list:
@@ -6617,7 +6716,7 @@ RemoveAggrStmt:
 					DropStmt *n = makeNode(DropStmt);
 					n->removeType = OBJECT_AGGREGATE;
 					n->objects = list_make1($3);
-					n->arguments = list_make1(extractArgTypes($4));
+					n->arguments = list_make1(extractAggrArgTypes($4));
 					n->behavior = $5;
 					n->missing_ok = false;
 					n->concurrent = false;
@@ -6628,7 +6727,7 @@ RemoveAggrStmt:
 					DropStmt *n = makeNode(DropStmt);
 					n->removeType = OBJECT_AGGREGATE;
 					n->objects = list_make1($5);
-					n->arguments = list_make1(extractArgTypes($6));
+					n->arguments = list_make1(extractAggrArgTypes($6));
 					n->behavior = $7;
 					n->missing_ok = true;
 					n->concurrent = false;
@@ -6844,7 +6943,7 @@ RenameStmt: ALTER AGGREGATE func_name aggr_args RENAME TO name
 					RenameStmt *n = makeNode(RenameStmt);
 					n->renameType = OBJECT_AGGREGATE;
 					n->object = $3;
-					n->objarg = extractArgTypes($4);
+					n->objarg = extractAggrArgTypes($4);
 					n->newname = $7;
 					n->missing_ok = false;
 					$$ = (Node *)n;
@@ -7221,6 +7320,102 @@ RenameStmt: ALTER AGGREGATE func_name aggr_args RENAME TO name
 					n->missing_ok = false;
 					$$ = (Node *)n;
 				}
+			| ALTER TABLESPACE name MOVE ALL TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = -1;
+					n->move_all = true;
+					n->roles = NIL;
+					n->new_tablespacename = $7;
+					n->nowait = $8;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE TABLES TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = OBJECT_TABLE;
+					n->move_all = false;
+					n->roles = NIL;
+					n->new_tablespacename = $7;
+					n->nowait = $8;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE INDEXES TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = OBJECT_INDEX;
+					n->move_all = false;
+					n->roles = NIL;
+					n->new_tablespacename = $7;
+					n->nowait = $8;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE MATERIALIZED VIEWS TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = OBJECT_MATVIEW;
+					n->move_all = false;
+					n->roles = NIL;
+					n->new_tablespacename = $8;
+					n->nowait = $9;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE ALL OWNED BY role_list TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = -1;
+					n->move_all = true;
+					n->roles = $8;
+					n->new_tablespacename = $10;
+					n->nowait = $11;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE TABLES OWNED BY role_list TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = OBJECT_TABLE;
+					n->move_all = false;
+					n->roles = $8;
+					n->new_tablespacename = $10;
+					n->nowait = $11;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE INDEXES OWNED BY role_list TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = OBJECT_INDEX;
+					n->move_all = false;
+					n->roles = $8;
+					n->new_tablespacename = $10;
+					n->nowait = $11;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE MATERIALIZED VIEWS OWNED BY role_list TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = OBJECT_MATVIEW;
+					n->move_all = false;
+					n->roles = $9;
+					n->new_tablespacename = $11;
+					n->nowait = $12;
+					$$ = (Node *)n;
+				}
 			| ALTER TABLESPACE name SET reloptions
 				{
 					AlterTableSpaceOptionsStmt *n =
@@ -7318,7 +7513,7 @@ AlterObjectSchemaStmt:
 					AlterObjectSchemaStmt *n = makeNode(AlterObjectSchemaStmt);
 					n->objectType = OBJECT_AGGREGATE;
 					n->object = $3;
-					n->objarg = extractArgTypes($4);
+					n->objarg = extractAggrArgTypes($4);
 					n->newschema = $7;
 					n->missing_ok = false;
 					$$ = (Node *)n;
@@ -7547,7 +7742,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_AGGREGATE;
 					n->object = $3;
-					n->objarg = extractArgTypes($4);
+					n->objarg = extractAggrArgTypes($4);
 					n->newowner = $7;
 					$$ = (Node *)n;
 				}
@@ -8258,6 +8453,23 @@ DropdbStmt: DROP DATABASE database_name
 					DropdbStmt *n = makeNode(DropdbStmt);
 					n->dbname = $5;
 					n->missing_ok = TRUE;
+					$$ = (Node *)n;
+				}
+		;
+
+
+/*****************************************************************************
+ *
+ *		ALTER SYSTEM SET
+ *
+ * This is used to change configuration parameters persistently.
+ *****************************************************************************/
+
+AlterSystemStmt:
+			ALTER SYSTEM_P SET generic_set
+				{
+					AlterSystemStmt *n = makeNode(AlterSystemStmt);
+					n->setstmt = $4;
 					$$ = (Node *)n;
 				}
 		;
@@ -9212,7 +9424,7 @@ select_clause:
  * However, this is not checked by the grammar; parse analysis must check it.
  */
 simple_select:
-			SELECT opt_distinct target_list
+			SELECT opt_distinct opt_target_list
 			into_clause from_clause where_clause
 			group_clause having_clause window_clause
 				{
@@ -9608,42 +9820,17 @@ table_ref:	relation_expr opt_alias_clause
 				}
 			| func_table func_alias_clause
 				{
-					RangeFunction *n = makeNode(RangeFunction);
-					n->lateral = false;
-					n->ordinality = false;
-					n->funccallnode = $1;
+					RangeFunction *n = (RangeFunction *) $1;
 					n->alias = linitial($2);
 					n->coldeflist = lsecond($2);
 					$$ = (Node *) n;
 				}
-			| func_table WITH_ORDINALITY func_alias_clause
-				{
-					RangeFunction *n = makeNode(RangeFunction);
-					n->lateral = false;
-					n->ordinality = true;
-					n->funccallnode = $1;
-					n->alias = linitial($3);
-					n->coldeflist = lsecond($3);
-					$$ = (Node *) n;
-				}
 			| LATERAL_P func_table func_alias_clause
 				{
-					RangeFunction *n = makeNode(RangeFunction);
+					RangeFunction *n = (RangeFunction *) $2;
 					n->lateral = true;
-					n->ordinality = false;
-					n->funccallnode = $2;
 					n->alias = linitial($3);
 					n->coldeflist = lsecond($3);
-					$$ = (Node *) n;
-				}
-			| LATERAL_P func_table WITH_ORDINALITY func_alias_clause
-				{
-					RangeFunction *n = makeNode(RangeFunction);
-					n->lateral = true;
-					n->ordinality = true;
-					n->funccallnode = $2;
-					n->alias = linitial($4);
-					n->coldeflist = lsecond($4);
 					$$ = (Node *) n;
 				}
 			| select_with_parens opt_alias_clause
@@ -9956,7 +10143,55 @@ relation_expr_opt_alias: relation_expr					%prec UMINUS
 				}
 		;
 
-func_table: func_expr_windowless					{ $$ = $1; }
+/*
+ * func_table represents a function invocation in a FROM list. It can be
+ * a plain function call, like "foo(...)", or a ROWS FROM expression with
+ * one or more function calls, "ROWS FROM (foo(...), bar(...))",
+ * optionally with WITH ORDINALITY attached.
+ * In the ROWS FROM syntax, a column definition list can be given for each
+ * function, for example:
+ *     ROWS FROM (foo() AS (foo_res_a text, foo_res_b text),
+ *                bar() AS (bar_res_a text, bar_res_b text))
+ * It's also possible to attach a column definition list to the RangeFunction
+ * as a whole, but that's handled by the table_ref production.
+ */
+func_table: func_expr_windowless opt_ordinality
+				{
+					RangeFunction *n = makeNode(RangeFunction);
+					n->lateral = false;
+					n->ordinality = $2;
+					n->is_rowsfrom = false;
+					n->functions = list_make1(list_make2($1, NIL));
+					/* alias and coldeflist are set by table_ref production */
+					$$ = (Node *) n;
+				}
+			| ROWS FROM '(' rowsfrom_list ')' opt_ordinality
+				{
+					RangeFunction *n = makeNode(RangeFunction);
+					n->lateral = false;
+					n->ordinality = $6;
+					n->is_rowsfrom = true;
+					n->functions = $4;
+					/* alias and coldeflist are set by table_ref production */
+					$$ = (Node *) n;
+				}
+		;
+
+rowsfrom_item: func_expr_windowless opt_col_def_list
+				{ $$ = list_make2($1, $2); }
+		;
+
+rowsfrom_list:
+			rowsfrom_item						{ $$ = list_make1($1); }
+			| rowsfrom_list ',' rowsfrom_item	{ $$ = lappend($1, $3); }
+		;
+
+opt_col_def_list: AS '(' TableFuncElementList ')'	{ $$ = $3; }
+			| /*EMPTY*/								{ $$ = NIL; }
+		;
+
+opt_ordinality: WITH_ORDINALITY						{ $$ = true; }
+			| /*EMPTY*/								{ $$ = false; }
 		;
 
 
@@ -10011,6 +10246,7 @@ TableFuncElement:	ColId Typename opt_collate_clause
 					n->collClause = (CollateClause *) $3;
 					n->collOid = InvalidOid;
 					n->constraints = NIL;
+					n->location = @1;
 					$$ = (Node *)n;
 				}
 		;
@@ -11073,26 +11309,24 @@ func_application: func_name '(' ')'
 				{
 					$$ = (Node *) makeFuncCall($1, NIL, @1);
 				}
-			| func_name '(' func_arg_list ')'
-				{
-					$$ = (Node *) makeFuncCall($1, $3, @1);
-				}
-			| func_name '(' VARIADIC func_arg_expr ')'
-				{
-					FuncCall *n = makeFuncCall($1, list_make1($4), @1);
-					n->func_variadic = TRUE;
-					$$ = (Node *)n;
-				}
-			| func_name '(' func_arg_list ',' VARIADIC func_arg_expr ')'
-				{
-					FuncCall *n = makeFuncCall($1, lappend($3, $6), @1);
-					n->func_variadic = TRUE;
-					$$ = (Node *)n;
-				}
-			| func_name '(' func_arg_list sort_clause ')'
+			| func_name '(' func_arg_list opt_sort_clause ')'
 				{
 					FuncCall *n = makeFuncCall($1, $3, @1);
 					n->agg_order = $4;
+					$$ = (Node *)n;
+				}
+			| func_name '(' VARIADIC func_arg_expr opt_sort_clause ')'
+				{
+					FuncCall *n = makeFuncCall($1, list_make1($4), @1);
+					n->func_variadic = TRUE;
+					n->agg_order = $5;
+					$$ = (Node *)n;
+				}
+			| func_name '(' func_arg_list ',' VARIADIC func_arg_expr opt_sort_clause ')'
+				{
+					FuncCall *n = makeFuncCall($1, lappend($3, $6), @1);
+					n->func_variadic = TRUE;
+					n->agg_order = $7;
 					$$ = (Node *)n;
 				}
 			| func_name '(' ALL func_arg_list opt_sort_clause ')'
@@ -11128,44 +11362,72 @@ func_application: func_name '(' ')'
 					n->agg_star = TRUE;
 					$$ = (Node *)n;
 				}
-        ;
+		;
 
 
 /*
- * func_expr and its cousin func_expr_windowless is split out from c_expr just 
- * so that we have classifications for "everything that is a function call or 
- * looks like one".  This isn't very important, but it saves us having to document 
- * which variants are legal in the backwards-compatible functional-index syntax 
- * for CREATE INDEX.
+ * func_expr and its cousin func_expr_windowless are split out from c_expr just
+ * so that we have classifications for "everything that is a function call or
+ * looks like one".  This isn't very important, but it saves us having to
+ * document which variants are legal in places like "FROM function()" or the
+ * backwards-compatible functional-index syntax for CREATE INDEX.
  * (Note that many of the special SQL functions wouldn't actually make any
  * sense as functional index entries, but we ignore that consideration here.)
  */
-func_expr: func_application filter_clause over_clause 
+func_expr: func_application within_group_clause filter_clause over_clause
 				{
-              		FuncCall *n = (FuncCall*)$1;
-					n->agg_filter = $2;
-					n->over = $3;
-					$$ = (Node*)n;
-				} 
+					FuncCall *n = (FuncCall *) $1;
+					/*
+					 * The order clause for WITHIN GROUP and the one for
+					 * plain-aggregate ORDER BY share a field, so we have to
+					 * check here that at most one is present.  We also check
+					 * for DISTINCT and VARIADIC here to give a better error
+					 * location.  Other consistency checks are deferred to
+					 * parse analysis.
+					 */
+					if ($2 != NIL)
+					{
+						if (n->agg_order != NIL)
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									 errmsg("cannot use multiple ORDER BY clauses with WITHIN GROUP"),
+									 parser_errposition(@2)));
+						if (n->agg_distinct)
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									 errmsg("cannot use DISTINCT with WITHIN GROUP"),
+									 parser_errposition(@2)));
+						if (n->func_variadic)
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									 errmsg("cannot use VARIADIC with WITHIN GROUP"),
+									 parser_errposition(@2)));
+						n->agg_order = $2;
+						n->agg_within_group = TRUE;
+					}
+					n->agg_filter = $3;
+					n->over = $4;
+					$$ = (Node *) n;
+				}
 			| func_expr_common_subexpr
 				{ $$ = $1; }
 		;
 
-/* 
- * As func_expr but does not accept WINDOW functions directly (they
- * can still be contained in arguments for functions etc.)
- * Use this when window expressions are not allowed, so to disambiguate 
- * the grammar. (e.g. in CREATE INDEX)
+/*
+ * As func_expr but does not accept WINDOW functions directly
+ * (but they can still be contained in arguments for functions etc).
+ * Use this when window expressions are not allowed, where needed to
+ * disambiguate the grammar (e.g. in CREATE INDEX).
  */
-func_expr_windowless: 
+func_expr_windowless:
 			func_application						{ $$ = $1; }
-			| func_expr_common_subexpr 				{ $$ = $1; }
+			| func_expr_common_subexpr				{ $$ = $1; }
 		;
 
 /*
- * Special expression 
+ * Special expressions that are considered to be functions.
  */
-func_expr_common_subexpr:	
+func_expr_common_subexpr:
 			COLLATION FOR '(' a_expr ')'
 				{
 					$$ = (Node *) makeFuncCall(SystemFuncName("pg_collation_for"),
@@ -11188,10 +11450,15 @@ func_expr_common_subexpr:
 					 * of type-input conversion functions.  (As of PG 7.3
 					 * that is actually possible, but not clear that we want
 					 * to rely on it.)
+					 *
+					 * The token location is attached to the run-time
+					 * typecast, not to the Const, for the convenience of
+					 * pg_stat_statements (which doesn't want these constructs
+					 * to appear to be replaceable constants).
 					 */
 					Node *n;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
-					$$ = makeTypeCast(n, SystemTypeName("date"), -1);
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
+					$$ = makeTypeCast(n, SystemTypeName("date"), @1);
 				}
 			| CURRENT_TIME
 				{
@@ -11200,8 +11467,8 @@ func_expr_common_subexpr:
 					 * See comments for CURRENT_DATE.
 					 */
 					Node *n;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
-					$$ = makeTypeCast(n, SystemTypeName("timetz"), -1);
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
+					$$ = makeTypeCast(n, SystemTypeName("timetz"), @1);
 				}
 			| CURRENT_TIME '(' Iconst ')'
 				{
@@ -11211,10 +11478,10 @@ func_expr_common_subexpr:
 					 */
 					Node *n;
 					TypeName *d;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
 					d = SystemTypeName("timetz");
 					d->typmods = list_make1(makeIntConst($3, @3));
-					$$ = makeTypeCast(n, d, -1);
+					$$ = makeTypeCast(n, d, @1);
 				}
 			| CURRENT_TIMESTAMP
 				{
@@ -11232,10 +11499,10 @@ func_expr_common_subexpr:
 					 */
 					Node *n;
 					TypeName *d;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
 					d = SystemTypeName("timestamptz");
 					d->typmods = list_make1(makeIntConst($3, @3));
-					$$ = makeTypeCast(n, d, -1);
+					$$ = makeTypeCast(n, d, @1);
 				}
 			| LOCALTIME
 				{
@@ -11244,8 +11511,8 @@ func_expr_common_subexpr:
 					 * See comments for CURRENT_DATE.
 					 */
 					Node *n;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
-					$$ = makeTypeCast((Node *)n, SystemTypeName("time"), -1);
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
+					$$ = makeTypeCast((Node *)n, SystemTypeName("time"), @1);
 				}
 			| LOCALTIME '(' Iconst ')'
 				{
@@ -11255,10 +11522,10 @@ func_expr_common_subexpr:
 					 */
 					Node *n;
 					TypeName *d;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
 					d = SystemTypeName("time");
 					d->typmods = list_make1(makeIntConst($3, @3));
-					$$ = makeTypeCast((Node *)n, d, -1);
+					$$ = makeTypeCast((Node *)n, d, @1);
 				}
 			| LOCALTIMESTAMP
 				{
@@ -11267,8 +11534,8 @@ func_expr_common_subexpr:
 					 * See comments for CURRENT_DATE.
 					 */
 					Node *n;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
-					$$ = makeTypeCast(n, SystemTypeName("timestamp"), -1);
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
+					$$ = makeTypeCast(n, SystemTypeName("timestamp"), @1);
 				}
 			| LOCALTIMESTAMP '(' Iconst ')'
 				{
@@ -11278,10 +11545,10 @@ func_expr_common_subexpr:
 					 */
 					Node *n;
 					TypeName *d;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
 					d = SystemTypeName("timestamp");
 					d->typmods = list_make1(makeIntConst($3, @3));
-					$$ = makeTypeCast(n, d, -1);
+					$$ = makeTypeCast(n, d, @1);
 				}
 			| CURRENT_ROLE
 				{
@@ -11346,8 +11613,8 @@ func_expr_common_subexpr:
 					 * at the moment they result in the same thing.
 					 */
 					$$ = (Node *) makeFuncCall(SystemFuncName(((Value *)llast($5->names))->val.str),
-											    list_make1($3),
-											    @1);
+												list_make1($3),
+												@1);
 				}
 			| TRIM '(' BOTH trim_list ')'
 				{
@@ -11533,6 +11800,20 @@ xmlexists_argument:
 
 
 /*
+ * Aggregate decoration clauses
+ */
+within_group_clause:
+			WITHIN GROUP_P '(' sort_clause ')'		{ $$ = $4; }
+			| /*EMPTY*/								{ $$ = NIL; }
+		;
+
+filter_clause:
+			FILTER '(' WHERE a_expr ')'				{ $$ = $4; }
+			| /*EMPTY*/								{ $$ = NULL; }
+		;
+
+
+/*
  * Window Definitions
  */
 window_clause:
@@ -11554,11 +11835,6 @@ window_definition:
 					$$ = n;
 				}
 		;
-
-filter_clause:
-             FILTER '(' WHERE a_expr ')'            { $$ = $4; }
-             | /*EMPTY*/                            { $$ = NULL; }
-         ;
 
 over_clause: OVER window_specification
 				{ $$ = $2; }
@@ -12144,6 +12420,10 @@ ctext_row: '(' ctext_expr_list ')'					{ $$ = $2; }
  *
  *****************************************************************************/
 
+opt_target_list: target_list						{ $$ = $1; }
+			| /* EMPTY */							{ $$ = NIL; }
+		;
+
 target_list:
 			target_el								{ $$ = list_make1($1); }
 			| target_list ',' target_el				{ $$ = lappend($1, $3); }
@@ -12320,16 +12600,17 @@ AexprConst: Iconst
 					t->location = @1;
 					$$ = makeStringConstCast($2, @2, t);
 				}
-			| func_name '(' func_arg_list ')' Sconst
+			| func_name '(' func_arg_list opt_sort_clause ')' Sconst
 				{
 					/* generic syntax with a type modifier */
 					TypeName *t = makeTypeNameFromNameList($1);
 					ListCell *lc;
 
 					/*
-					 * We must use func_arg_list in the production to avoid
-					 * reduce/reduce conflicts, but we don't actually wish
-					 * to allow NamedArgExpr in this context.
+					 * We must use func_arg_list and opt_sort_clause in the
+					 * production to avoid reduce/reduce conflicts, but we
+					 * don't actually wish to allow NamedArgExpr in this
+					 * context, nor ORDER BY.
 					 */
 					foreach(lc, $3)
 					{
@@ -12341,9 +12622,15 @@ AexprConst: Iconst
 									 errmsg("type modifier cannot have parameter name"),
 									 parser_errposition(arg->location)));
 					}
+					if ($4 != NIL)
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									 errmsg("type modifier cannot have ORDER BY"),
+									 parser_errposition(@4)));
+
 					t->typmods = $3;
 					t->location = @1;
-					$$ = makeStringConstCast($5, @5, t);
+					$$ = makeStringConstCast($6, @6, t);
 				}
 			| ConstTypename Sconst
 				{
@@ -12389,6 +12676,12 @@ AexprConst: Iconst
 Iconst:		ICONST									{ $$ = $1; };
 Sconst:		SCONST									{ $$ = $1; };
 RoleId:		NonReservedWord							{ $$ = $1; };
+
+role_list:	RoleId
+					{ $$ = list_make1(makeString($1)); }
+			| role_list ',' RoleId
+					{ $$ = lappend($1, makeString($3)); }
+		;
 
 SignedIconst: Iconst								{ $$ = $1; }
 			| '+' Iconst							{ $$ = + $2; }
@@ -12702,8 +12995,10 @@ unreserved_keyword:
 			| VARYING
 			| VERSION_P
 			| VIEW
+			| VIEWS
 			| VOLATILE
 			| WHITESPACE_P
+			| WITHIN
 			| WITHOUT
 			| WORK
 			| WRAPPER
@@ -13177,6 +13472,56 @@ extractArgTypes(List *parameters)
 			result = lappend(result, p->argType);
 	}
 	return result;
+}
+
+/* extractAggrArgTypes()
+ * As above, but work from the output of the aggr_args production.
+ */
+static List *
+extractAggrArgTypes(List *aggrargs)
+{
+	Assert(list_length(aggrargs) == 2);
+	return extractArgTypes((List *) linitial(aggrargs));
+}
+
+/* makeOrderedSetArgs()
+ * Build the result of the aggr_args production (which see the comments for).
+ * This handles only the case where both given lists are nonempty, so that
+ * we have to deal with multiple VARIADIC arguments.
+ */
+static List *
+makeOrderedSetArgs(List *directargs, List *orderedargs,
+				   core_yyscan_t yyscanner)
+{
+	FunctionParameter *lastd = (FunctionParameter *) llast(directargs);
+	int			ndirectargs;
+
+	/* No restriction unless last direct arg is VARIADIC */
+	if (lastd->mode == FUNC_PARAM_VARIADIC)
+	{
+		FunctionParameter *firsto = (FunctionParameter *) linitial(orderedargs);
+
+		/*
+		 * We ignore the names, though the aggr_arg production allows them;
+		 * it doesn't allow default values, so those need not be checked.
+		 */
+		if (list_length(orderedargs) != 1 ||
+			firsto->mode != FUNC_PARAM_VARIADIC ||
+			!equal(lastd->argType, firsto->argType))
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("an ordered-set aggregate with a VARIADIC direct argument must have one VARIADIC aggregated argument of the same data type"),
+					 parser_errposition(exprLocation((Node *) firsto))));
+
+		/* OK, drop the duplicate VARIADIC argument from the internal form */
+		orderedargs = NIL;
+	}
+
+	/* don't merge into the next line, as list_concat changes directargs */
+	ndirectargs = list_length(directargs);
+
+	return list_make2(list_concat(directargs, orderedargs),
+					  makeInteger(ndirectargs));
 }
 
 /* insertSelectOptions()

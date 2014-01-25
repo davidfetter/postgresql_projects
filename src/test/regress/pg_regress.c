@@ -8,7 +8,7 @@
  *
  * This code is released under the terms of the PostgreSQL License.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/test/regress/pg_regress.c
@@ -656,7 +656,7 @@ doputenv(const char *var, const char *val)
 {
 	char	   *s;
 
-	pg_asprintf(&s, "%s=%s", var, val);
+	s = psprintf("%s=%s", var, val);
 	putenv(s);
 }
 
@@ -671,10 +671,12 @@ add_to_path(const char *pathname, char separator, const char *addval)
 	char	   *newval;
 
 	if (!oldval || !oldval[0])
+	{
 		/* no previous value */
-		pg_asprintf(&newval, "%s=%s", pathname, addval);
+		newval = psprintf("%s=%s", pathname, addval);
+	}
 	else
-		pg_asprintf(&newval, "%s=%s%c%s", pathname, addval, separator, oldval);
+		newval = psprintf("%s=%s%c%s", pathname, addval, separator, oldval);
 
 	putenv(newval);
 }
@@ -685,8 +687,6 @@ add_to_path(const char *pathname, char separator, const char *addval)
 static void
 initialize_environment(void)
 {
-	char	   *tmp;
-
 	putenv("PGAPPNAME=pg_regress");
 
 	if (nolocale)
@@ -742,7 +742,8 @@ initialize_environment(void)
 
 		if (!old_pgoptions)
 			old_pgoptions = "";
-		pg_asprintf(&new_pgoptions, "PGOPTIONS=%s %s", old_pgoptions, my_pgoptions);
+		new_pgoptions = psprintf("PGOPTIONS=%s %s",
+								 old_pgoptions, my_pgoptions);
 		putenv(new_pgoptions);
 	}
 
@@ -792,14 +793,11 @@ initialize_environment(void)
 		/*
 		 * Adjust path variables to point into the temp-install tree
 		 */
-		pg_asprintf(&tmp, "%s/install/%s", temp_install, bindir);
-		bindir = tmp;
+		bindir = psprintf("%s/install/%s", temp_install, bindir);
 
-		pg_asprintf(&tmp, "%s/install/%s", temp_install, libdir);
-		libdir = tmp;
+		libdir = psprintf("%s/install/%s", temp_install, libdir);
 
-		pg_asprintf(&tmp, "%s/install/%s", temp_install, datadir);
-		datadir = tmp;
+		datadir = psprintf("%s/install/%s", temp_install, datadir);
 
 		/* psql will be installed into temp-install bindir */
 		psqldir = bindir;
@@ -954,7 +952,7 @@ spawn_process(const char *cmdline)
 		 */
 		char	   *cmdline2;
 
-		pg_asprintf(&cmdline2, "exec %s", cmdline);
+		cmdline2 = psprintf("exec %s", cmdline);
 		execl(shellprog, shellprog, "-c", cmdline2, (char *) NULL);
 		fprintf(stderr, _("%s: could not exec \"%s\": %s\n"),
 				progname, shellprog, strerror(errno));
@@ -1031,7 +1029,7 @@ spawn_process(const char *cmdline)
 		exit(2);
 	}
 
-	pg_asprintf(&cmdline2, "cmd /c %s", cmdline);
+	cmdline2 = psprintf("cmd /c %s", cmdline);
 
 #ifndef __CYGWIN__
 	AddUserToTokenDacl(restrictedToken);
@@ -1657,6 +1655,8 @@ run_schedule(const char *schedule, test_function tfunc)
 		}
 	}
 
+	free_stringlist(&ignorelist);
+
 	fclose(scf);
 }
 
@@ -1852,7 +1852,7 @@ make_absolute_path(const char *in)
 			}
 		}
 
-		pg_asprintf(&result, "%s/%s", cwdbuf, in);
+		result = psprintf("%s/%s", cwdbuf, in);
 	}
 
 	canonicalize_path(result);
@@ -1957,7 +1957,7 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 	 * We call the initialization function here because that way we can set
 	 * default parameters and let them be overwritten by the commandline.
 	 */
-	ifunc();
+	ifunc(argc, argv);
 
 	if (getenv("PG_REGRESS_DIFF_OPTS"))
 		pretty_diff_opts = getenv("PG_REGRESS_DIFF_OPTS");

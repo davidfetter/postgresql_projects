@@ -7,7 +7,7 @@
  * by the PG_KEYWORD macro, which is not defined in this file; it can
  * be defined by the caller for special purposes.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -406,12 +406,14 @@ PG_KEYWORD("varying", VARYING, UNRESERVED_KEYWORD)
 PG_KEYWORD("verbose", VERBOSE, TYPE_FUNC_NAME_KEYWORD)
 PG_KEYWORD("version", VERSION_P, UNRESERVED_KEYWORD)
 PG_KEYWORD("view", VIEW, UNRESERVED_KEYWORD)
+PG_KEYWORD("views", VIEWS, UNRESERVED_KEYWORD)
 PG_KEYWORD("volatile", VOLATILE, UNRESERVED_KEYWORD)
 PG_KEYWORD("when", WHEN, RESERVED_KEYWORD)
 PG_KEYWORD("where", WHERE, RESERVED_KEYWORD)
 PG_KEYWORD("whitespace", WHITESPACE_P, UNRESERVED_KEYWORD)
 PG_KEYWORD("window", WINDOW, RESERVED_KEYWORD)
 PG_KEYWORD("with", WITH, RESERVED_KEYWORD)
+PG_KEYWORD("within", WITHIN, UNRESERVED_KEYWORD)
 PG_KEYWORD("without", WITHOUT, UNRESERVED_KEYWORD)
 PG_KEYWORD("work", WORK, UNRESERVED_KEYWORD)
 PG_KEYWORD("wrapper", WRAPPER, UNRESERVED_KEYWORD)

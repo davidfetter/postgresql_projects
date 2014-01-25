@@ -3,7 +3,7 @@
  * miscinit.c
  *	  miscellaneous initialization support stuff
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -165,10 +165,12 @@ make_absolute_path(const char *path)
 			}
 		}
 
-		if (asprintf(&new, "%s/%s", buf, path) < 0)
+		new = malloc(strlen(buf) + strlen(path) + 2);
+		if (!new)
 			ereport(FATAL,
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 					 errmsg("out of memory")));
+		sprintf(new, "%s/%s", buf, path);
 		free(buf);
 	}
 	else
@@ -1238,7 +1240,6 @@ load_libraries(const char *libraries, const char *gucname, bool restricted)
 {
 	char	   *rawstring;
 	List	   *elemlist;
-	int			elevel;
 	ListCell   *l;
 
 	if (libraries == NULL || libraries[0] == '\0')
@@ -1260,18 +1261,6 @@ load_libraries(const char *libraries, const char *gucname, bool restricted)
 		return;
 	}
 
-	/*
-	 * Choose notice level: avoid repeat messages when re-loading a library
-	 * that was preloaded into the postmaster.	(Only possible in EXEC_BACKEND
-	 * configurations)
-	 */
-#ifdef EXEC_BACKEND
-	if (IsUnderPostmaster && process_shared_preload_libraries_in_progress)
-		elevel = DEBUG2;
-	else
-#endif
-		elevel = LOG;
-
 	foreach(l, elemlist)
 	{
 		char	   *tok = (char *) lfirst(l);
@@ -1289,7 +1278,7 @@ load_libraries(const char *libraries, const char *gucname, bool restricted)
 			filename = expanded;
 		}
 		load_file(filename, restricted);
-		ereport(elevel,
+		ereport(DEBUG1,
 				(errmsg("loaded library \"%s\"", filename)));
 		pfree(filename);
 	}

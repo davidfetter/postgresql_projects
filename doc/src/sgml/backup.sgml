@@ -47,8 +47,13 @@ pg_dump <replaceable class="parameter">dbname</replaceable> &gt; <replaceable cl
    that you can perform this backup procedure from any remote host that has
    access to the database. But remember that <application>pg_dump</>
    does not operate with special permissions. In particular, it must
-   have read access to all tables that you want to back up, so in
-   practice you almost always have to run it as a database superuser.
+   have read access to all tables that you want to back up, so in order
+   to back up the entire database you almost always have to run it as a
+   database superuser.  (If you do not have sufficient privileges to back up
+   the entire database, you can still back up portions of the database to which
+   you do have access using options such as
+   <option>-n <replaceable>schema</replaceable></option>
+   or <option>-t <replaceable>table</replaceable></option>.)
   </para>
 
   <para>
@@ -582,7 +587,7 @@ tar -cf backup.tar /usr/local/pgsql/data
 
    <para>
     To enable WAL archiving, set the <xref linkend="guc-wal-level">
-    configuration parameter to <literal>archive</> (or <literal>hot_standby</>),
+    configuration parameter to <literal>archive</> or higher,
     <xref linkend="guc-archive-mode"> to <literal>on</>,
     and specify the shell command to use in the <xref
     linkend="guc-archive-command"> configuration parameter.  In practice
@@ -1079,9 +1084,17 @@ restore_command = 'cp /mnt/server/archivedir/%f %p'
 
    <para>
     It is important that the command return nonzero exit status on failure.
-    The command <emphasis>will</> be called requesting files that are not present
-    in the archive; it must return nonzero when so asked.  This is not an
-    error condition.  Not all of the requested files will be WAL segment
+    The command <emphasis>will</> be called requesting files that are not
+    present in the archive; it must return nonzero when so asked.  This is not
+    an error condition.  An exception is that if the command was terminated by
+    a signal (other than <systemitem>SIGTERM</systemitem>, which is used as
+    part of a database server shutdown) or an error by the shell (such as
+    command not found), then recovery will abort and the server will not start
+    up.
+   </para>
+
+   <para>
+    Not all of the requested files will be WAL segment
     files; you should also expect requests for files with a suffix of
     <literal>.backup</> or <literal>.history</>. Also be aware that
     the base name of the <literal>%p</> path will be different from
@@ -1246,7 +1259,7 @@ restore_command = 'cp /mnt/server/archivedir/%f %p'
       If more flexibility in copying the backup files is needed, a lower
       level process can be used for standalone hot backups as well.
       To prepare for low level standalone hot backups, set <varname>wal_level</> to
-      <literal>archive</> (or <literal>hot_standby</>), <varname>archive_mode</> to
+      <literal>archive</> or higher, <varname>archive_mode</> to
       <literal>on</>, and set up an <varname>archive_command</> that performs
       archiving only when a <emphasis>switch file</> exists.  For example:
 <programlisting>

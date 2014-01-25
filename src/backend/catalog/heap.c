@@ -3,7 +3,7 @@
  * heap.c
  *	  code to create and destroy POSTGRES heap relations
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -34,6 +34,7 @@
 #include "access/sysattr.h"
 #include "access/transam.h"
 #include "access/xact.h"
+#include "catalog/binary_upgrade.h"
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/heap.h"
@@ -256,10 +257,17 @@ heap_create(const char *relname,
 	Assert(OidIsValid(relid));
 
 	/*
-	 * sanity checks
+	 * Don't allow creating relations in pg_catalog directly, even though it
+	 * is allowed to move user defined relations there. Semantics with search
+	 * paths including pg_catalog are too confusing for now.
+	 *
+	 * But allow creating indexes on relations in pg_catalog even if
+	 * allow_system_table_mods = off, upper layers already guarantee it's on a
+	 * user defined relation, not a system one.
 	 */
 	if (!allow_system_table_mods &&
-		(IsSystemNamespace(relnamespace) || IsToastNamespace(relnamespace)) &&
+		((IsSystemNamespace(relnamespace) && relkind != RELKIND_INDEX) ||
+		 IsToastNamespace(relnamespace)) &&
 		IsNormalProcessingMode())
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
@@ -793,6 +801,7 @@ InsertPgClassTuple(Relation pg_class_desc,
 	values[Anum_pg_class_relhastriggers - 1] = BoolGetDatum(rd_rel->relhastriggers);
 	values[Anum_pg_class_relhassubclass - 1] = BoolGetDatum(rd_rel->relhassubclass);
 	values[Anum_pg_class_relispopulated - 1] = BoolGetDatum(rd_rel->relispopulated);
+	values[Anum_pg_class_relreplident - 1] = CharGetDatum(rd_rel->relreplident);
 	values[Anum_pg_class_relfrozenxid - 1] = TransactionIdGetDatum(rd_rel->relfrozenxid);
 	values[Anum_pg_class_relminmxid - 1] = MultiXactIdGetDatum(rd_rel->relminmxid);
 	if (relacl != (Datum) 0)
@@ -902,7 +911,7 @@ AddNewRelationTuple(Relation pg_class_desc,
 		 * commands/sequence.c.)
 		 */
 		new_rel_reltup->relfrozenxid = InvalidTransactionId;
-		new_rel_reltup->relfrozenxid = InvalidMultiXactId;
+		new_rel_reltup->relminmxid = InvalidMultiXactId;
 	}
 
 	new_rel_reltup->relowner = relowner;

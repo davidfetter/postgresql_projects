@@ -140,7 +140,6 @@ ALTER INDEX tmp_onek_unique1 RENAME TO onek_unique1;
 CREATE VIEW tmp_view (unique1) AS SELECT unique1 FROM tenk1;
 ALTER TABLE tmp_view RENAME TO tmp_view_new;
 -- hack to ensure we get an indexscan here
-ANALYZE tenk1;
 set enable_seqscan to off;
 set enable_bitmapscan to off;
 -- 5 values, sorted
@@ -1196,6 +1195,20 @@ select * from atacc1;
 --
 (1 row)
 
+drop table atacc1;
+-- test constraint error reporting in presence of dropped columns
+create table atacc1 (id serial primary key, value int check (value < 10));
+insert into atacc1(value) values (100);
+ERROR:  new row for relation "atacc1" violates check constraint "atacc1_value_check"
+DETAIL:  Failing row contains (1, 100).
+alter table atacc1 drop column value;
+alter table atacc1 add column value int check (value < 10);
+insert into atacc1(value) values (100);
+ERROR:  new row for relation "atacc1" violates check constraint "atacc1_value_check"
+DETAIL:  Failing row contains (2, 100).
+insert into atacc1(id, value) values (null, 0);
+ERROR:  null value in column "id" violates not-null constraint
+DETAIL:  Failing row contains (null, 0).
 drop table atacc1;
 -- test inheritance
 create table parent (a int, b int, c int);
@@ -2323,3 +2336,37 @@ FROM (
                   0 | t
 (1 row)
 
+-- Checks on creating and manipulation of user defined relations in
+-- pg_catalog.
+--
+-- XXX: It would be useful to add checks around trying to manipulate
+-- catalog tables, but that might have ugly consequences when run
+-- against an existing server with allow_system_table_mods = on.
+SHOW allow_system_table_mods;
+ allow_system_table_mods 
+-------------------------
+ off
+(1 row)
+
+-- disallowed because of search_path issues with pg_dump
+CREATE TABLE pg_catalog.new_system_table();
+ERROR:  permission denied to create "pg_catalog.new_system_table"
+DETAIL:  System catalog modifications are currently disallowed.
+-- instead create in public first, move to catalog
+CREATE TABLE new_system_table(id serial primary key, othercol text);
+ALTER TABLE new_system_table SET SCHEMA pg_catalog;
+-- XXX: it's currently impossible to move relations out of pg_catalog
+ALTER TABLE new_system_table SET SCHEMA public;
+ERROR:  cannot remove dependency on schema pg_catalog because it is a system object
+-- move back, will currently error out, already there
+ALTER TABLE new_system_table SET SCHEMA pg_catalog;
+ERROR:  table new_system_table is already in schema "pg_catalog"
+ALTER TABLE new_system_table RENAME TO old_system_table;
+CREATE INDEX old_system_table__othercol ON old_system_table (othercol);
+INSERT INTO old_system_table(othercol) VALUES ('somedata'), ('otherdata');
+UPDATE old_system_table SET id = -id;
+DELETE FROM old_system_table WHERE othercol = 'somedata';
+TRUNCATE old_system_table;
+ALTER TABLE old_system_table DROP CONSTRAINT new_system_table_pkey;
+ALTER TABLE old_system_table DROP COLUMN othercol;
+DROP TABLE old_system_table;

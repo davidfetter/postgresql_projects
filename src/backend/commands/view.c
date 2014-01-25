@@ -3,7 +3,7 @@
  * view.c
  *	  use rewrite rules to construct views
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -100,6 +100,7 @@ DefineVirtualRelation(RangeVar *relation, List *tlist, bool replace,
 			def->cooked_default = NULL;
 			def->collClause = NULL;
 			def->collOid = exprCollation((Node *) tle->expr);
+			def->location = -1;
 
 			/*
 			 * It's possible that the column is of a collatable type but the
@@ -469,7 +470,7 @@ DefineView(ViewStmt *stmt, const char *queryString)
 	if (check_option)
 	{
 		const char *view_updatable_error =
-			view_query_is_auto_updatable(viewParse, security_barrier);
+			view_query_is_auto_updatable(viewParse, security_barrier, true);
 
 		if (view_updatable_error)
 			ereport(ERROR,

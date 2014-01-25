@@ -10,7 +10,7 @@
  *	  Over time, this has also become the preferred place for widely known
  *	  resource-limitation stuff, such as work_mem and check_stack_depth().
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/miscadmin.h
@@ -80,7 +80,7 @@ extern volatile bool ProcDiePending;
 extern volatile bool ClientConnectionLost;
 
 /* these are marked volatile because they are examined by signal handlers: */
-extern volatile bool ImmediateInterruptOK;
+extern PGDLLIMPORT volatile bool ImmediateInterruptOK;
 extern PGDLLIMPORT volatile uint32 InterruptHoldoffCount;
 extern PGDLLIMPORT volatile uint32 CritSectionCount;
 
@@ -218,15 +218,6 @@ extern int	DateOrder;
 #define INTSTYLE_ISO_8601			3
 
 extern int	IntervalStyle;
-
-/*
- * HasCTZSet is true if user has set timezone as a numeric offset from UTC.
- * If so, CTimeZone is the timezone offset in seconds (using the Unix-ish
- * sign convention, ie, positive offset is west of UTC, rather than the
- * SQL-ish convention that positive is east of UTC).
- */
-extern bool HasCTZSet;
-extern int	CTimeZone;
 
 #define MAXTZLEN		10		/* max TZ name len, not counting tr. null */
 

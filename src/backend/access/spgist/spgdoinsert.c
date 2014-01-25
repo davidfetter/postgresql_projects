@@ -4,7 +4,7 @@
  *	  implementation of insert algorithm
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -1885,9 +1885,9 @@ spgdoinsert(Relation index, SpGistState *state,
 	if (leafSize > SPGIST_PAGE_CAPACITY && !state->config.longValuesOK)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-			errmsg("index row size %lu exceeds maximum %lu for index \"%s\"",
-				   (unsigned long) (leafSize - sizeof(ItemIdData)),
-				 (unsigned long) (SPGIST_PAGE_CAPACITY - sizeof(ItemIdData)),
+			errmsg("index row size %zu exceeds maximum %zu for index \"%s\"",
+				   leafSize - sizeof(ItemIdData),
+				   SPGIST_PAGE_CAPACITY - sizeof(ItemIdData),
 				   RelationGetRelationName(index)),
 			errhint("Values larger than a buffer page cannot be indexed.")));
 
@@ -1946,9 +1946,12 @@ spgdoinsert(Relation index, SpGistState *state,
 			 * Attempt to acquire lock on child page.  We must beware of
 			 * deadlock against another insertion process descending from that
 			 * page to our parent page (see README).  If we fail to get lock,
-			 * abandon the insertion and tell our caller to start over.  XXX
-			 * this could be improved; perhaps it'd be worth sleeping a bit
-			 * before giving up?
+			 * abandon the insertion and tell our caller to start over.
+			 *
+			 * XXX this could be improved, because failing to get lock on a
+			 * buffer is not proof of a deadlock situation; the lock might be
+			 * held by a reader, or even just background writer/checkpointer
+			 * process.  Perhaps it'd be worth retrying after sleeping a bit?
 			 */
 			if (!ConditionalLockBuffer(current.buffer))
 			{

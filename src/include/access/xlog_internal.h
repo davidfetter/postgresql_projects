@@ -11,7 +11,7 @@
  * Note: This file must be includable in both frontend and backend contexts,
  * to allow stand-alone tools like pg_receivexlog to deal with WAL files.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/access/xlog_internal.h
@@ -55,7 +55,7 @@ typedef struct BkpBlock
 /*
  * Each page of XLOG file has a header like this:
  */
-#define XLOG_PAGE_MAGIC 0xD076	/* can be used as WAL version indicator */
+#define XLOG_PAGE_MAGIC 0xD07B	/* can be used as WAL version indicator */
 
 typedef struct XLogPageHeaderData
 {
@@ -209,6 +209,7 @@ typedef struct xl_parameter_change
 	int			max_prepared_xacts;
 	int			max_locks_per_xact;
 	int			wal_level;
+	bool		wal_log_hints;
 } xl_parameter_change;
 
 /* logs restore point */

@@ -3,7 +3,7 @@
  *
  *	Definitions for the PostgreSQL statistics collector daemon.
  *
- *	Copyright (c) 2001-2013, PostgreSQL Global Development Group
+ *	Copyright (c) 2001-2014, PostgreSQL Global Development Group
  *
  *	src/include/pgstat.h
  * ----------
@@ -177,11 +177,13 @@ typedef struct PgStat_MsgHdr
 
 /* ----------
  * Space available in a message.  This will keep the UDP packets below 1K,
- * which should fit unfragmented into the MTU of the lo interface on most
- * platforms. Does anybody care for platforms where it doesn't?
+ * which should fit unfragmented into the MTU of the loopback interface.
+ * (Larger values of PGSTAT_MAX_MSG_SIZE would work for that on most
+ * platforms, but we're being conservative here.)
  * ----------
  */
-#define PGSTAT_MSG_PAYLOAD	(1000 - sizeof(PgStat_MsgHdr))
+#define PGSTAT_MAX_MSG_SIZE 1000
+#define PGSTAT_MSG_PAYLOAD	(PGSTAT_MAX_MSG_SIZE - sizeof(PgStat_MsgHdr))
 
 
 /* ----------
@@ -225,7 +227,7 @@ typedef struct PgStat_TableEntry
  * ----------
  */
 #define PGSTAT_NUM_TABENTRIES  \
-	((PGSTAT_MSG_PAYLOAD - sizeof(Oid) - 3 * sizeof(int))  \
+	((PGSTAT_MSG_PAYLOAD - sizeof(Oid) - 3 * sizeof(int) - 2 * sizeof(PgStat_Counter))	\
 	 / sizeof(PgStat_TableEntry))
 
 typedef struct PgStat_MsgTabstat
@@ -331,7 +333,8 @@ typedef struct PgStat_MsgVacuum
 	Oid			m_tableoid;
 	bool		m_autovacuum;
 	TimestampTz m_vacuumtime;
-	PgStat_Counter m_tuples;
+	PgStat_Counter m_live_tuples;
+	PgStat_Counter m_dead_tuples;
 } PgStat_MsgVacuum;
 
 
@@ -773,7 +776,7 @@ extern void pgstat_reset_single_counter(Oid objectid, PgStat_Single_Reset_Type t
 
 extern void pgstat_report_autovac(Oid dboid);
 extern void pgstat_report_vacuum(Oid tableoid, bool shared,
-					 PgStat_Counter tuples);
+					 PgStat_Counter livetuples, PgStat_Counter deadtuples);
 extern void pgstat_report_analyze(Relation rel,
 					  PgStat_Counter livetuples, PgStat_Counter deadtuples);
 

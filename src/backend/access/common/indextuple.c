@@ -4,7 +4,7 @@
  *	   This file contains index tuple accessor and mutator routines,
  *	   as well as various tuple utilities.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -165,9 +165,8 @@ index_form_tuple(TupleDesc tupleDescriptor,
 	if ((size & INDEX_SIZE_MASK) != size)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-				 errmsg("index row requires %lu bytes, maximum size is %lu",
-						(unsigned long) size,
-						(unsigned long) INDEX_SIZE_MASK)));
+				 errmsg("index row requires %zu bytes, maximum size is %zu",
+						size, (Size) INDEX_SIZE_MASK)));
 
 	infomask |= size;
 

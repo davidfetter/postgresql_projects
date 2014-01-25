@@ -6,7 +6,7 @@
  * These routines represent a fairly thin layer on top of SysV shared
  * memory functionality.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -138,8 +138,8 @@ InternalIpcMemoryCreate(IpcMemoryKey memKey, Size size)
 		 */
 		ereport(FATAL,
 				(errmsg("could not create shared memory segment: %m"),
-		  errdetail("Failed system call was shmget(key=%lu, size=%lu, 0%o).",
-					(unsigned long) memKey, (unsigned long) size,
+		  errdetail("Failed system call was shmget(key=%lu, size=%zu, 0%o).",
+					(unsigned long) memKey, size,
 					IPC_CREAT | IPC_EXCL | IPCProtection),
 				 (errno == EINVAL) ?
 				 errhint("This error usually means that PostgreSQL's request for a shared memory "
@@ -395,10 +395,10 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 				errhint("This error usually means that PostgreSQL's request "
 					 "for a shared memory segment exceeded available memory "
 					  "or swap space. To reduce the request size (currently "
-					  "%lu bytes), reduce PostgreSQL's shared memory usage, "
+					  "%zu bytes), reduce PostgreSQL's shared memory usage, "
 						"perhaps by reducing shared_buffers or "
 						"max_connections.",
-						(unsigned long) size) : 0));
+						size) : 0));
 		AnonymousShmemSize = size;
 
 		/* Now we need only allocate a minimal-sized SysV shmem block. */

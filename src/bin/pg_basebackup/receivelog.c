@@ -5,7 +5,7 @@
  *
  * Author: Magnus Hagander <magnus@hagander.net>
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *		  src/bin/pg_basebackup/receivelog.c
@@ -989,7 +989,7 @@ HandleCopyStream(PGconn *conn, XLogRecPtr startpos, uint32 timeline,
 			hdr_len += 8;		/* dataStart */
 			hdr_len += 8;		/* walEnd */
 			hdr_len += 8;		/* sendTime */
-			if (r < hdr_len + 1)
+			if (r < hdr_len)
 			{
 				fprintf(stderr, _("%s: streaming header too small: %d\n"),
 						progname, r);

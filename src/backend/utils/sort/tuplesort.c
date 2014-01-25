@@ -87,7 +87,7 @@
  * above.  Nonetheless, with large workMem we can have many tapes.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -1715,6 +1715,76 @@ tuplesort_getdatum(Tuplesortstate *state, bool forward,
 	MemoryContextSwitchTo(oldcontext);
 
 	return true;
+}
+
+/*
+ * Advance over N tuples in either forward or back direction,
+ * without returning any data.  N==0 is a no-op.
+ * Returns TRUE if successful, FALSE if ran out of tuples.
+ */
+bool
+tuplesort_skiptuples(Tuplesortstate *state, int64 ntuples, bool forward)
+{
+	MemoryContext oldcontext;
+
+	/*
+	 * We don't actually support backwards skip yet, because no callers need
+	 * it.	The API is designed to allow for that later, though.
+	 */
+	Assert(forward);
+	Assert(ntuples >= 0);
+
+	switch (state->status)
+	{
+		case TSS_SORTEDINMEM:
+			if (state->memtupcount - state->current >= ntuples)
+			{
+				state->current += ntuples;
+				return true;
+			}
+			state->current = state->memtupcount;
+			state->eof_reached = true;
+
+			/*
+			 * Complain if caller tries to retrieve more tuples than
+			 * originally asked for in a bounded sort.	This is because
+			 * returning EOF here might be the wrong thing.
+			 */
+			if (state->bounded && state->current >= state->bound)
+				elog(ERROR, "retrieved too many tuples in a bounded sort");
+
+			return false;
+
+		case TSS_SORTEDONTAPE:
+		case TSS_FINALMERGE:
+
+			/*
+			 * We could probably optimize these cases better, but for now it's
+			 * not worth the trouble.
+			 */
+			oldcontext = MemoryContextSwitchTo(state->sortcontext);
+			while (ntuples-- > 0)
+			{
+				SortTuple	stup;
+				bool		should_free;
+
+				if (!tuplesort_gettuple_common(state, forward,
+											   &stup, &should_free))
+				{
+					MemoryContextSwitchTo(oldcontext);
+					return false;
+				}
+				if (should_free && stup.tuple)
+					pfree(stup.tuple);
+				CHECK_FOR_INTERRUPTS();
+			}
+			MemoryContextSwitchTo(oldcontext);
+			return true;
+
+		default:
+			elog(ERROR, "invalid tuplesort state");
+			return false;		/* keep compiler quiet */
+	}
 }
 
 /*

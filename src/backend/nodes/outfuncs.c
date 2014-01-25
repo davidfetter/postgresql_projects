@@ -3,7 +3,7 @@
  * outfuncs.c
  *	  Output functions for Postgres tree nodes.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -111,7 +111,7 @@ _outToken(StringInfo str, const char *s)
 {
 	if (s == NULL || *s == '\0')
 	{
-		appendStringInfo(str, "<>");
+		appendStringInfoString(str, "<>");
 		return;
 	}
 
@@ -214,19 +214,19 @@ _outDatum(StringInfo str, Datum value, int typlen, bool typbyval)
 		appendStringInfo(str, "%u [ ", (unsigned int) length);
 		for (i = 0; i < (Size) sizeof(Datum); i++)
 			appendStringInfo(str, "%d ", (int) (s[i]));
-		appendStringInfo(str, "]");
+		appendStringInfoChar(str, ']');
 	}
 	else
 	{
 		s = (char *) DatumGetPointer(value);
 		if (!PointerIsValid(s))
-			appendStringInfo(str, "0 [ ]");
+			appendStringInfoString(str, "0 [ ]");
 		else
 		{
 			appendStringInfo(str, "%u [ ", (unsigned int) length);
 			for (i = 0; i < length; i++)
 				appendStringInfo(str, "%d ", (int) (s[i]));
-			appendStringInfo(str, "]");
+			appendStringInfoChar(str, ']');
 		}
 	}
 }
@@ -362,19 +362,19 @@ _outMergeAppend(StringInfo str, const MergeAppend *node)
 
 	WRITE_INT_FIELD(numCols);
 
-	appendStringInfo(str, " :sortColIdx");
+	appendStringInfoString(str, " :sortColIdx");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %d", node->sortColIdx[i]);
 
-	appendStringInfo(str, " :sortOperators");
+	appendStringInfoString(str, " :sortOperators");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %u", node->sortOperators[i]);
 
-	appendStringInfo(str, " :collations");
+	appendStringInfoString(str, " :collations");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %u", node->collations[i]);
 
-	appendStringInfo(str, " :nullsFirst");
+	appendStringInfoString(str, " :nullsFirst");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
 }
@@ -391,11 +391,11 @@ _outRecursiveUnion(StringInfo str, const RecursiveUnion *node)
 	WRITE_INT_FIELD(wtParam);
 	WRITE_INT_FIELD(numCols);
 
-	appendStringInfo(str, " :dupColIdx");
+	appendStringInfoString(str, " :dupColIdx");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %d", node->dupColIdx[i]);
 
-	appendStringInfo(str, " :dupOperators");
+	appendStringInfoString(str, " :dupOperators");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %u", node->dupOperators[i]);
 
@@ -516,11 +516,7 @@ _outFunctionScan(StringInfo str, const FunctionScan *node)
 
 	_outScanInfo(str, (const Scan *) node);
 
-	WRITE_NODE_FIELD(funcexpr);
-	WRITE_NODE_FIELD(funccolnames);
-	WRITE_NODE_FIELD(funccoltypes);
-	WRITE_NODE_FIELD(funccoltypmods);
-	WRITE_NODE_FIELD(funccolcollations);
+	WRITE_NODE_FIELD(functions);
 	WRITE_BOOL_FIELD(funcordinality);
 }
 
@@ -599,19 +595,19 @@ _outMergeJoin(StringInfo str, const MergeJoin *node)
 
 	numCols = list_length(node->mergeclauses);
 
-	appendStringInfo(str, " :mergeFamilies");
+	appendStringInfoString(str, " :mergeFamilies");
 	for (i = 0; i < numCols; i++)
 		appendStringInfo(str, " %u", node->mergeFamilies[i]);
 
-	appendStringInfo(str, " :mergeCollations");
+	appendStringInfoString(str, " :mergeCollations");
 	for (i = 0; i < numCols; i++)
 		appendStringInfo(str, " %u", node->mergeCollations[i]);
 
-	appendStringInfo(str, " :mergeStrategies");
+	appendStringInfoString(str, " :mergeStrategies");
 	for (i = 0; i < numCols; i++)
 		appendStringInfo(str, " %d", node->mergeStrategies[i]);
 
-	appendStringInfo(str, " :mergeNullsFirst");
+	appendStringInfoString(str, " :mergeNullsFirst");
 	for (i = 0; i < numCols; i++)
 		appendStringInfo(str, " %d", (int) node->mergeNullsFirst[i]);
 }
@@ -638,11 +634,11 @@ _outAgg(StringInfo str, const Agg *node)
 	WRITE_ENUM_FIELD(aggstrategy, AggStrategy);
 	WRITE_INT_FIELD(numCols);
 
-	appendStringInfo(str, " :grpColIdx");
+	appendStringInfoString(str, " :grpColIdx");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %d", node->grpColIdx[i]);
 
-	appendStringInfo(str, " :grpOperators");
+	appendStringInfoString(str, " :grpOperators");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %u", node->grpOperators[i]);
 
@@ -661,21 +657,21 @@ _outWindowAgg(StringInfo str, const WindowAgg *node)
 	WRITE_UINT_FIELD(winref);
 	WRITE_INT_FIELD(partNumCols);
 
-	appendStringInfo(str, " :partColIdx");
+	appendStringInfoString(str, " :partColIdx");
 	for (i = 0; i < node->partNumCols; i++)
 		appendStringInfo(str, " %d", node->partColIdx[i]);
 
-	appendStringInfo(str, " :partOperations");
+	appendStringInfoString(str, " :partOperations");
 	for (i = 0; i < node->partNumCols; i++)
 		appendStringInfo(str, " %u", node->partOperators[i]);
 
 	WRITE_INT_FIELD(ordNumCols);
 
-	appendStringInfo(str, " :ordColIdx");
+	appendStringInfoString(str, " :ordColIdx");
 	for (i = 0; i < node->ordNumCols; i++)
 		appendStringInfo(str, " %d", node->ordColIdx[i]);
 
-	appendStringInfo(str, " :ordOperations");
+	appendStringInfoString(str, " :ordOperations");
 	for (i = 0; i < node->ordNumCols; i++)
 		appendStringInfo(str, " %u", node->ordOperators[i]);
 
@@ -695,11 +691,11 @@ _outGroup(StringInfo str, const Group *node)
 
 	WRITE_INT_FIELD(numCols);
 
-	appendStringInfo(str, " :grpColIdx");
+	appendStringInfoString(str, " :grpColIdx");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %d", node->grpColIdx[i]);
 
-	appendStringInfo(str, " :grpOperators");
+	appendStringInfoString(str, " :grpOperators");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %u", node->grpOperators[i]);
 }
@@ -723,19 +719,19 @@ _outSort(StringInfo str, const Sort *node)
 
 	WRITE_INT_FIELD(numCols);
 
-	appendStringInfo(str, " :sortColIdx");
+	appendStringInfoString(str, " :sortColIdx");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %d", node->sortColIdx[i]);
 
-	appendStringInfo(str, " :sortOperators");
+	appendStringInfoString(str, " :sortOperators");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %u", node->sortOperators[i]);
 
-	appendStringInfo(str, " :collations");
+	appendStringInfoString(str, " :collations");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %u", node->collations[i]);
 
-	appendStringInfo(str, " :nullsFirst");
+	appendStringInfoString(str, " :nullsFirst");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
 }
@@ -751,11 +747,11 @@ _outUnique(StringInfo str, const Unique *node)
 
 	WRITE_INT_FIELD(numCols);
 
-	appendStringInfo(str, " :uniqColIdx");
+	appendStringInfoString(str, " :uniqColIdx");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %d", node->uniqColIdx[i]);
 
-	appendStringInfo(str, " :uniqOperators");
+	appendStringInfoString(str, " :uniqOperators");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %u", node->uniqOperators[i]);
 }
@@ -787,11 +783,11 @@ _outSetOp(StringInfo str, const SetOp *node)
 	WRITE_ENUM_FIELD(strategy, SetOpStrategy);
 	WRITE_INT_FIELD(numCols);
 
-	appendStringInfo(str, " :dupColIdx");
+	appendStringInfoString(str, " :dupColIdx");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %d", node->dupColIdx[i]);
 
-	appendStringInfo(str, " :dupOperators");
+	appendStringInfoString(str, " :dupOperators");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %u", node->dupOperators[i]);
 
@@ -928,9 +924,9 @@ _outConst(StringInfo str, const Const *node)
 	WRITE_BOOL_FIELD(constisnull);
 	WRITE_LOCATION_FIELD(location);
 
-	appendStringInfo(str, " :constvalue ");
+	appendStringInfoString(str, " :constvalue ");
 	if (node->constisnull)
-		appendStringInfo(str, "<>");
+		appendStringInfoString(str, "<>");
 	else
 		_outDatum(str, node->constvalue, node->constlen, node->constbyval);
 }
@@ -957,12 +953,14 @@ _outAggref(StringInfo str, const Aggref *node)
 	WRITE_OID_FIELD(aggtype);
 	WRITE_OID_FIELD(aggcollid);
 	WRITE_OID_FIELD(inputcollid);
+	WRITE_NODE_FIELD(aggdirectargs);
 	WRITE_NODE_FIELD(args);
 	WRITE_NODE_FIELD(aggorder);
 	WRITE_NODE_FIELD(aggdistinct);
 	WRITE_NODE_FIELD(aggfilter);
 	WRITE_BOOL_FIELD(aggstar);
 	WRITE_BOOL_FIELD(aggvariadic);
+	WRITE_CHAR_FIELD(aggkind);
 	WRITE_UINT_FIELD(agglevelsup);
 	WRITE_LOCATION_FIELD(location);
 }
@@ -1104,7 +1102,7 @@ _outBoolExpr(StringInfo str, const BoolExpr *node)
 			opstr = "not";
 			break;
 	}
-	appendStringInfo(str, " :boolop ");
+	appendStringInfoString(str, " :boolop ");
 	_outToken(str, opstr);
 
 	WRITE_NODE_FIELD(args);
@@ -1477,9 +1475,9 @@ static void
 _outPathInfo(StringInfo str, const Path *node)
 {
 	WRITE_ENUM_FIELD(pathtype, NodeTag);
-	appendStringInfo(str, " :parent_relids ");
+	appendStringInfoString(str, " :parent_relids ");
 	_outBitmapset(str, node->parent->relids);
-	appendStringInfo(str, " :required_outer ");
+	appendStringInfoString(str, " :required_outer ");
 	if (node->param_info)
 		_outBitmapset(str, node->param_info->ppi_req_outer);
 	else
@@ -1698,6 +1696,7 @@ _outPlannerInfo(StringInfo str, const PlannerInfo *node)
 	WRITE_UINT_FIELD(query_level);
 	WRITE_NODE_FIELD(plan_params);
 	WRITE_BITMAPSET_FIELD(all_baserels);
+	WRITE_BITMAPSET_FIELD(nullable_baserels);
 	WRITE_NODE_FIELD(join_rel_list);
 	WRITE_INT_FIELD(join_cur_level);
 	WRITE_NODE_FIELD(init_plans);
@@ -2087,6 +2086,7 @@ _outFuncCall(StringInfo str, const FuncCall *node)
 	WRITE_NODE_FIELD(args);
 	WRITE_NODE_FIELD(agg_order);
 	WRITE_NODE_FIELD(agg_filter);
+	WRITE_BOOL_FIELD(agg_within_group);
 	WRITE_BOOL_FIELD(agg_star);
 	WRITE_BOOL_FIELD(agg_distinct);
 	WRITE_BOOL_FIELD(func_variadic);
@@ -2153,6 +2153,7 @@ _outColumnDef(StringInfo str, const ColumnDef *node)
 	WRITE_OID_FIELD(collOid);
 	WRITE_NODE_FIELD(constraints);
 	WRITE_NODE_FIELD(fdwoptions);
+	WRITE_LOCATION_FIELD(location);
 }
 
 static void
@@ -2232,12 +2233,12 @@ _outQuery(StringInfo str, const Query *node)
 				WRITE_NODE_FIELD(utilityStmt);
 				break;
 			default:
-				appendStringInfo(str, " :utilityStmt ?");
+				appendStringInfoString(str, " :utilityStmt ?");
 				break;
 		}
 	}
 	else
-		appendStringInfo(str, " :utilityStmt <>");
+		appendStringInfoString(str, " :utilityStmt <>");
 
 	WRITE_INT_FIELD(resultRelation);
 	WRITE_BOOL_FIELD(hasAggs);
@@ -2381,10 +2382,7 @@ _outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
 			WRITE_NODE_FIELD(joinaliasvars);
 			break;
 		case RTE_FUNCTION:
-			WRITE_NODE_FIELD(funcexpr);
-			WRITE_NODE_FIELD(funccoltypes);
-			WRITE_NODE_FIELD(funccoltypmods);
-			WRITE_NODE_FIELD(funccolcollations);
+			WRITE_NODE_FIELD(functions);
 			WRITE_BOOL_FIELD(funcordinality);
 			break;
 		case RTE_VALUES:
@@ -2414,6 +2412,20 @@ _outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
 }
 
 static void
+_outRangeTblFunction(StringInfo str, const RangeTblFunction *node)
+{
+	WRITE_NODE_TYPE("RANGETBLFUNCTION");
+
+	WRITE_NODE_FIELD(funcexpr);
+	WRITE_INT_FIELD(funccolcount);
+	WRITE_NODE_FIELD(funccolnames);
+	WRITE_NODE_FIELD(funccoltypes);
+	WRITE_NODE_FIELD(funccoltypmods);
+	WRITE_NODE_FIELD(funccolcollations);
+	WRITE_BITMAPSET_FIELD(funcparams);
+}
+
+static void
 _outAExpr(StringInfo str, const A_Expr *node)
 {
 	WRITE_NODE_TYPE("AEXPR");
@@ -2421,46 +2433,46 @@ _outAExpr(StringInfo str, const A_Expr *node)
 	switch (node->kind)
 	{
 		case AEXPR_OP:
-			appendStringInfo(str, " ");
+			appendStringInfoChar(str, ' ');
 			WRITE_NODE_FIELD(name);
 			break;
 		case AEXPR_AND:
-			appendStringInfo(str, " AND");
+			appendStringInfoString(str, " AND");
 			break;
 		case AEXPR_OR:
-			appendStringInfo(str, " OR");
+			appendStringInfoString(str, " OR");
 			break;
 		case AEXPR_NOT:
-			appendStringInfo(str, " NOT");
+			appendStringInfoString(str, " NOT");
 			break;
 		case AEXPR_OP_ANY:
-			appendStringInfo(str, " ");
+			appendStringInfoChar(str, ' ');
 			WRITE_NODE_FIELD(name);
-			appendStringInfo(str, " ANY ");
+			appendStringInfoString(str, " ANY ");
 			break;
 		case AEXPR_OP_ALL:
-			appendStringInfo(str, " ");
+			appendStringInfoChar(str, ' ');
 			WRITE_NODE_FIELD(name);
-			appendStringInfo(str, " ALL ");
+			appendStringInfoString(str, " ALL ");
 			break;
 		case AEXPR_DISTINCT:
-			appendStringInfo(str, " DISTINCT ");
+			appendStringInfoString(str, " DISTINCT ");
 			WRITE_NODE_FIELD(name);
 			break;
 		case AEXPR_NULLIF:
-			appendStringInfo(str, " NULLIF ");
+			appendStringInfoString(str, " NULLIF ");
 			WRITE_NODE_FIELD(name);
 			break;
 		case AEXPR_OF:
-			appendStringInfo(str, " OF ");
+			appendStringInfoString(str, " OF ");
 			WRITE_NODE_FIELD(name);
 			break;
 		case AEXPR_IN:
-			appendStringInfo(str, " IN ");
+			appendStringInfoString(str, " IN ");
 			WRITE_NODE_FIELD(name);
 			break;
 		default:
-			appendStringInfo(str, " ??");
+			appendStringInfoString(str, " ??");
 			break;
 	}
 
@@ -2527,7 +2539,7 @@ _outAConst(StringInfo str, const A_Const *node)
 {
 	WRITE_NODE_TYPE("A_CONST");
 
-	appendStringInfo(str, " :val ");
+	appendStringInfoString(str, " :val ");
 	_outValue(str, &(node->val));
 	WRITE_LOCATION_FIELD(location);
 }
@@ -2618,9 +2630,10 @@ _outRangeFunction(StringInfo str, const RangeFunction *node)
 {
 	WRITE_NODE_TYPE("RANGEFUNCTION");
 
-	WRITE_BOOL_FIELD(ordinality);
 	WRITE_BOOL_FIELD(lateral);
-	WRITE_NODE_FIELD(funccallnode);
+	WRITE_BOOL_FIELD(ordinality);
+	WRITE_BOOL_FIELD(is_rowsfrom);
+	WRITE_NODE_FIELD(functions);
 	WRITE_NODE_FIELD(alias);
 	WRITE_NODE_FIELD(coldeflist);
 }
@@ -2635,32 +2648,32 @@ _outConstraint(StringInfo str, const Constraint *node)
 	WRITE_BOOL_FIELD(initdeferred);
 	WRITE_LOCATION_FIELD(location);
 
-	appendStringInfo(str, " :contype ");
+	appendStringInfoString(str, " :contype ");
 	switch (node->contype)
 	{
 		case CONSTR_NULL:
-			appendStringInfo(str, "NULL");
+			appendStringInfoString(str, "NULL");
 			break;
 
 		case CONSTR_NOTNULL:
-			appendStringInfo(str, "NOT_NULL");
+			appendStringInfoString(str, "NOT_NULL");
 			break;
 
 		case CONSTR_DEFAULT:
-			appendStringInfo(str, "DEFAULT");
+			appendStringInfoString(str, "DEFAULT");
 			WRITE_NODE_FIELD(raw_expr);
 			WRITE_STRING_FIELD(cooked_expr);
 			break;
 
 		case CONSTR_CHECK:
-			appendStringInfo(str, "CHECK");
+			appendStringInfoString(str, "CHECK");
 			WRITE_BOOL_FIELD(is_no_inherit);
 			WRITE_NODE_FIELD(raw_expr);
 			WRITE_STRING_FIELD(cooked_expr);
 			break;
 
 		case CONSTR_PRIMARY:
-			appendStringInfo(str, "PRIMARY_KEY");
+			appendStringInfoString(str, "PRIMARY_KEY");
 			WRITE_NODE_FIELD(keys);
 			WRITE_NODE_FIELD(options);
 			WRITE_STRING_FIELD(indexname);
@@ -2669,7 +2682,7 @@ _outConstraint(StringInfo str, const Constraint *node)
 			break;
 
 		case CONSTR_UNIQUE:
-			appendStringInfo(str, "UNIQUE");
+			appendStringInfoString(str, "UNIQUE");
 			WRITE_NODE_FIELD(keys);
 			WRITE_NODE_FIELD(options);
 			WRITE_STRING_FIELD(indexname);
@@ -2678,7 +2691,7 @@ _outConstraint(StringInfo str, const Constraint *node)
 			break;
 
 		case CONSTR_EXCLUSION:
-			appendStringInfo(str, "EXCLUSION");
+			appendStringInfoString(str, "EXCLUSION");
 			WRITE_NODE_FIELD(exclusions);
 			WRITE_NODE_FIELD(options);
 			WRITE_STRING_FIELD(indexname);
@@ -2688,7 +2701,7 @@ _outConstraint(StringInfo str, const Constraint *node)
 			break;
 
 		case CONSTR_FOREIGN:
-			appendStringInfo(str, "FOREIGN_KEY");
+			appendStringInfoString(str, "FOREIGN_KEY");
 			WRITE_NODE_FIELD(pktable);
 			WRITE_NODE_FIELD(fk_attrs);
 			WRITE_NODE_FIELD(pk_attrs);
@@ -2701,19 +2714,19 @@ _outConstraint(StringInfo str, const Constraint *node)
 			break;
 
 		case CONSTR_ATTR_DEFERRABLE:
-			appendStringInfo(str, "ATTR_DEFERRABLE");
+			appendStringInfoString(str, "ATTR_DEFERRABLE");
 			break;
 
 		case CONSTR_ATTR_NOT_DEFERRABLE:
-			appendStringInfo(str, "ATTR_NOT_DEFERRABLE");
+			appendStringInfoString(str, "ATTR_NOT_DEFERRABLE");
 			break;
 
 		case CONSTR_ATTR_DEFERRED:
-			appendStringInfo(str, "ATTR_DEFERRED");
+			appendStringInfoString(str, "ATTR_DEFERRED");
 			break;
 
 		case CONSTR_ATTR_IMMEDIATE:
-			appendStringInfo(str, "ATTR_IMMEDIATE");
+			appendStringInfoString(str, "ATTR_IMMEDIATE");
 			break;
 
 		default:
@@ -2732,7 +2745,7 @@ static void
 _outNode(StringInfo str, const void *obj)
 {
 	if (obj == NULL)
-		appendStringInfo(str, "<>");
+		appendStringInfoString(str, "<>");
 	else if (IsA(obj, List) ||IsA(obj, IntList) || IsA(obj, OidList))
 		_outList(str, obj);
 	else if (IsA(obj, Integer) ||
@@ -3154,6 +3167,9 @@ _outNode(StringInfo str, const void *obj)
 				break;
 			case T_RangeTblEntry:
 				_outRangeTblEntry(str, obj);
+				break;
+			case T_RangeTblFunction:
+				_outRangeTblFunction(str, obj);
 				break;
 			case T_A_Expr:
 				_outAExpr(str, obj);

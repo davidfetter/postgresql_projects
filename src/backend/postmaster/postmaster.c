@@ -32,7 +32,7 @@
  *	  clients.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -471,6 +471,9 @@ typedef struct
 	slock_t    *ShmemLock;
 	VariableCache ShmemVariableCache;
 	Backend    *ShmemBackendArray;
+#ifndef HAVE_SPINLOCKS
+	PGSemaphore	SpinlockSemaArray;
+#endif
 	LWLock	   *LWLockArray;
 	slock_t    *ProcStructLock;
 	PROC_HDR   *ProcGlobal;
@@ -556,11 +559,6 @@ PostmasterMain(int argc, char *argv[])
 	 * for security, no dir or file created can be group or other accessible
 	 */
 	umask(S_IRWXG | S_IRWXO);
-
-	/*
-	 * Fire up essential subsystems: memory management
-	 */
-	MemoryContextInit();
 
 	/*
 	 * By default, palloc() requests in the postmaster will be allocated in
@@ -816,10 +814,10 @@ PostmasterMain(int argc, char *argv[])
 	}
 	if (XLogArchiveMode && wal_level == WAL_LEVEL_MINIMAL)
 		ereport(ERROR,
-				(errmsg("WAL archival (archive_mode=on) requires wal_level \"archive\" or \"hot_standby\"")));
+				(errmsg("WAL archival (archive_mode=on) requires wal_level \"archive\", \"hot_standby\" or \"logical\"")));
 	if (max_wal_senders > 0 && wal_level == WAL_LEVEL_MINIMAL)
 		ereport(ERROR,
-				(errmsg("WAL streaming (max_wal_senders > 0) requires wal_level \"archive\" or \"hot_standby\"")));
+				(errmsg("WAL streaming (max_wal_senders > 0) requires wal_level \"archive\", \"hot_standby\" or \"logical\"")));
 
 	/*
 	 * Other one-time internal sanity checks can go here, if they are fast.
@@ -1463,7 +1461,8 @@ DetermineSleepTime(struct timeval * timeout)
 			if (rw->rw_crashed_at == 0)
 				continue;
 
-			if (rw->rw_worker.bgw_restart_time == BGW_NEVER_RESTART)
+			if (rw->rw_worker.bgw_restart_time == BGW_NEVER_RESTART
+				|| rw->rw_terminate)
 			{
 				ForgetBackgroundWorker(&siter);
 				continue;
@@ -4032,9 +4031,9 @@ BackendRun(Port *port)
 	 */
 	random_seed = 0;
 	random_start_time.tv_usec = 0;
-	/* slightly hacky way to get integer microseconds part of timestamptz */
+	/* slightly hacky way to convert timestamptz into integers */
 	TimestampDifference(0, port->SessionStartTime, &secs, &usecs);
-	srandom((unsigned int) (MyProcPid ^ usecs));
+	srandom((unsigned int) (MyProcPid ^ (usecs << 12) ^ secs));
 
 	/*
 	 * Now, build the argv vector that will be given to PostgresMain.
@@ -4464,7 +4463,6 @@ SubPostmasterMain(int argc, char *argv[])
 	whereToSendOutput = DestNone;
 
 	/* Setup essential subsystems (to ensure elog() behaves sanely) */
-	MemoryContextInit();
 	InitializeGUCOptions();
 
 	/* Read in the variables file */
@@ -5471,6 +5469,13 @@ maybe_start_bgworker(void)
 		if (rw->rw_pid != 0)
 			continue;
 
+		/* marked for death? */
+		if (rw->rw_terminate)
+		{
+			ForgetBackgroundWorker(&iter);
+			continue;
+		}
+
 		/*
 		 * If this worker has crashed previously, maybe it needs to be
 		 * restarted (unless on registration it specified it doesn't want to
@@ -5618,6 +5623,9 @@ save_backend_variables(BackendParameters *param, Port *port,
 	param->ShmemVariableCache = ShmemVariableCache;
 	param->ShmemBackendArray = ShmemBackendArray;
 
+#ifndef HAVE_SPINLOCKS
+	param->SpinlockSemaArray = SpinlockSemaArray;
+#endif
 	param->LWLockArray = LWLockArray;
 	param->ProcStructLock = ProcStructLock;
 	param->ProcGlobal = ProcGlobal;
@@ -5846,6 +5854,9 @@ restore_backend_variables(BackendParameters *param, Port *port)
 	ShmemVariableCache = param->ShmemVariableCache;
 	ShmemBackendArray = param->ShmemBackendArray;
 
+#ifndef HAVE_SPINLOCKS
+	SpinlockSemaArray = param->SpinlockSemaArray;
+#endif
 	LWLockArray = param->LWLockArray;
 	ProcStructLock = param->ProcStructLock;
 	ProcGlobal = param->ProcGlobal;

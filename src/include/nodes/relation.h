@@ -4,7 +4,7 @@
  *	  Definitions for planner's internal data structures.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/nodes/relation.h
@@ -47,15 +47,16 @@ typedef struct QualCost
 
 /*
  * Costing aggregate function execution requires these statistics about
- * the aggregates to be executed by a given Agg node.  Note that transCost
- * includes the execution costs of the aggregates' input expressions.
+ * the aggregates to be executed by a given Agg node.  Note that the costs
+ * include the execution costs of the aggregates' argument expressions as
+ * well as the aggregate functions themselves.
  */
 typedef struct AggClauseCosts
 {
 	int			numAggs;		/* total number of aggregate functions */
-	int			numOrderedAggs; /* number that use DISTINCT or ORDER BY */
+	int			numOrderedAggs; /* number w/ DISTINCT/ORDER BY/WITHIN GROUP */
 	QualCost	transCost;		/* total per-input-row execution costs */
-	Cost		finalCost;		/* total costs of agg final functions */
+	Cost		finalCost;		/* total per-aggregated-row costs */
 	Size		transitionSpace;	/* space for pass-by-ref transition data */
 } AggClauseCosts;
 
@@ -150,9 +151,18 @@ typedef struct PlannerInfo
 	/*
 	 * all_baserels is a Relids set of all base relids (but not "other"
 	 * relids) in the query; that is, the Relids identifier of the final join
-	 * we need to form.
+	 * we need to form.  This is computed in make_one_rel, just before we
+	 * start making Paths.
 	 */
 	Relids		all_baserels;
+
+	/*
+	 * nullable_baserels is a Relids set of base relids that are nullable by
+	 * some outer join in the jointree; these are rels that are potentially
+	 * nullable below the WHERE clause, SELECT targetlist, etc.  This is
+	 * computed in deconstruct_jointree.
+	 */
+	Relids		nullable_baserels;
 
 	/*
 	 * join_rel_list is a list of all join-relation RelOptInfos we have

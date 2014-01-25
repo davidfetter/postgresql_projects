@@ -4,7 +4,7 @@
  *	  prototypes for pathnode.c, relnode.c.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/optimizer/pathnode.h
@@ -70,7 +70,7 @@ extern UniquePath *create_unique_path(PlannerInfo *root, RelOptInfo *rel,
 extern Path *create_subqueryscan_path(PlannerInfo *root, RelOptInfo *rel,
 						 List *pathkeys, Relids required_outer);
 extern Path *create_functionscan_path(PlannerInfo *root, RelOptInfo *rel,
-						 Relids required_outer);
+						 List *pathkeys, Relids required_outer);
 extern Path *create_valuesscan_path(PlannerInfo *root, RelOptInfo *rel,
 					   Relids required_outer);
 extern Path *create_ctescan_path(PlannerInfo *root, RelOptInfo *rel,

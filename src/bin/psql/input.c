@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2014, PostgreSQL Global Development Group
  *
  * src/bin/psql/input.c
  */
@@ -298,7 +298,7 @@ initializeInput(int flags)
 		if (histfile == NULL)
 		{
 			if (get_home_path(home))
-				pg_asprintf(&psql_history, "%s/%s", home, PSQLHISTORY);
+				psql_history = psprintf("%s/%s", home, PSQLHISTORY);
 		}
 		else
 		{

@@ -483,7 +483,8 @@ typedef struct
        with an entry having a null <structfield>keyword</> pointer.  The
        null pointer is returned if memory could not be allocated. Note that
        the current default values (<structfield>val</structfield> fields)
-       will depend on environment variables and other context.  Callers
+       will depend on environment variables and other context.  A
+       missing or invalid service file will be silently ignored.  Callers
        must treat the connection options data as read-only.
       </para>
 
@@ -895,7 +896,7 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
         Using <literal>hostaddr</> instead of <literal>host</> allows the
         application to avoid a host name look-up, which might be important
         in applications with time constraints. However, a host name is
-        required for Kerberos, GSSAPI, or SSPI authentication
+        required for GSSAPI or SSPI authentication
         methods, as well as for <literal>verify-full</> SSL
         certificate verification.  The following rules are used:
         <itemizedlist>
@@ -1330,11 +1331,10 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
       <term><literal>krbsrvname</literal></term>
       <listitem>
        <para>
-        Kerberos service name to use when authenticating with Kerberos 5
-        or GSSAPI.
+        Kerberos service name to use when authenticating with GSSAPI.
         This must match the service name specified in the server
         configuration for Kerberos authentication to succeed. (See also
-        <xref linkend="kerberos-auth"> and <xref linkend="gssapi-auth">.)
+        <xref linkend="gssapi-auth">.)
        </para>
       </listitem>
      </varlistentry>
@@ -1459,6 +1459,24 @@ char *PQpass(const PGconn *conn);
        Returns the server host name of the connection.
 <synopsis>
 char *PQhost(const PGconn *conn);
+</synopsis>
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry id="libpq-pqhostaddr">
+     <term>
+      <function>PQhostaddr</function>
+      <indexterm>
+       <primary>PQhostaddr</primary>
+      </indexterm>
+     </term>
+
+     <listitem>
+      <para>
+       Returns the server numeric IP address of the connection.
+<synopsis>
+char *PQhostaddr(const PGconn *conn);
 </synopsis>
       </para>
      </listitem>
@@ -6651,7 +6669,7 @@ myEventProc(PGEventId evtId, void *evtInfo, void *passThrough)
       <application>libpq</application> applications will attempt
       authentication  with  servers for this realm and use separate ticket
       files to avoid conflicts with local ticket files.   This
-      environment  variable is only used if Kerberos authentication is
+      environment  variable is only used if GSSAPI authentication is
       selected by the server.
      </para>
     </listitem>
@@ -7121,7 +7139,9 @@ ldap://ldap.acme.com/cn=dbserver,cn=hosts?pgconnectinfo?base?(objectclass=*)
    To allow server certificate verification, the certificate(s) of one or more
    trusted <acronym>CA</>s must be
    placed in the file <filename>~/.postgresql/root.crt</> in the user's home
-   directory. (On Microsoft Windows the file is named
+   directory. If intermediate <acronym>CA</>s appear in
+   <filename>root.crt</filename>, the file must also contain certificate
+   chains to their root <acronym>CA</>s. (On Microsoft Windows the file is named
    <filename>%APPDATA%\postgresql\root.crt</filename>.)
   </para>
 
@@ -7179,15 +7199,15 @@ ldap://ldap.acme.com/cn=dbserver,cn=hosts?pgconnectinfo?base?(objectclass=*)
    <quote>intermediate</> certificate authority, rather than one that is
    directly trusted by the server.  To use such a certificate, append the
    certificate of the signing authority to the <filename>postgresql.crt</>
-   file, then its parent authority's certificate, and so on up to a
-   <quote>root</> authority that is trusted by the server.  The root
-   certificate should be included in every case where
-   <filename>postgresql.crt</> contains more than one certificate.
+   file, then its parent authority's certificate, and so on up to a certificate
+   authority, <quote>root</> or <quote>intermediate</>, that is trusted by
+   the server, i.e. signed by a certificate in the server's
+   <filename>root.crt</filename> file.
   </para>
 
   <para>
-   Note that <filename>root.crt</filename> lists the top-level CAs that are
-   considered trusted for signing server certificates.  In principle it need
+   Note that the client's <filename>~/.postgresql/root.crt</> lists the top-level CAs 
+   that are considered trusted for signing server certificates.  In principle it need
    not list the CA that signed the client's certificate, though in most cases
    that CA would also be trusted for server certificates.
   </para>

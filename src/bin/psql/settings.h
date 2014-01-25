@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2014, PostgreSQL Global Development Group
  *
  * src/bin/psql/settings.h
  */
@@ -84,8 +84,6 @@ typedef struct _psqlSettings
 	int			sversion;		/* backend server version */
 	const char *progname;		/* in case you renamed psql */
 	char	   *inputfile;		/* file being currently processed, if any */
-	char	   *dirname;		/* current directory for \s display */
-
 	uint64		lineno;			/* also for error reporting */
 
 	bool		timing;			/* enable timing of all queries */

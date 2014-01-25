@@ -3,7 +3,7 @@
  * datetime.c
  *	  Support functions for date/time types.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -44,8 +44,6 @@ static int	DecodeTimezone(char *str, int *tzp);
 static const datetkn *datebsearch(const char *key, const datetkn *base, int nel);
 static int DecodeDate(char *str, int fmask, int *tmask, bool *is2digits,
 		   struct pg_tm * tm);
-static int ValidateDate(int fmask, bool isjulian, bool is2digits, bool bc,
-			 struct pg_tm * tm);
 static void TrimTrailingZeros(char *str);
 static void AppendSeconds(char *cp, int sec, fsec_t fsec,
 			  int precision, bool fillzeros);
@@ -61,10 +59,10 @@ const int	day_tab[2][13] =
 	{31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 0}
 };
 
-char	   *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+const char *const months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", NULL};
 
-char	   *days[] = {"Sunday", "Monday", "Tuesday", "Wednesday",
+const char *const days[] = {"Sunday", "Monday", "Tuesday", "Wednesday",
 "Thursday", "Friday", "Saturday", NULL};
 
 
@@ -188,7 +186,7 @@ static const datetkn datetktbl[] = {
 
 static int	szdatetktbl = sizeof datetktbl / sizeof datetktbl[0];
 
-static datetkn deltatktbl[] = {
+static const datetkn deltatktbl[] = {
 	/* text, token, lexval */
 	{"@", IGNORE_DTF, 0},		/* postgres relative prefix */
 	{DAGO, AGO, 0},				/* "ago" indicates negative time offset */
@@ -1161,7 +1159,17 @@ DecodeDateTime(char **field, int *ftype, int nf,
 						if (dterr < 0)
 							return dterr;
 					}
-					else if (flen > 4)
+					/*
+					 * Is this a YMD or HMS specification, or a year number?
+					 * YMD and HMS are required to be six digits or more, so
+					 * if it is 5 digits, it is a year.  If it is six or more
+					 * more digits, we assume it is YMD or HMS unless no date
+					 * and no time values have been specified.  This forces
+					 * 6+ digit years to be at the end of the string, or to use
+					 * the ISO date specification.
+					 */
+					else if (flen >= 6 && (!(fmask & DTK_DATE_M) ||
+							 !(fmask & DTK_TIME_M)))
 					{
 						dterr = DecodeNumberField(flen, field[i], fmask,
 												  &tmask, tm,
@@ -1454,12 +1462,6 @@ DetermineTimeZoneOffset(struct pg_tm * tm, pg_tz *tzp)
 	int			before_isdst,
 				after_isdst;
 	int			res;
-
-	if (tzp == session_timezone && HasCTZSet)
-	{
-		tm->tm_isdst = 0;		/* for lack of a better idea */
-		return CTimeZone;
-	}
 
 	/*
 	 * First, generate the pg_time_t value corresponding to the given
@@ -2266,7 +2268,7 @@ DecodeDate(char *str, int fmask, int *tmask, bool *is2digits,
  * Check valid year/month/day values, handle BC and DOY cases
  * Return 0 if okay, a DTERR code if not.
  */
-static int
+int
 ValidateDate(int fmask, bool isjulian, bool is2digits, bool bc,
 			 struct pg_tm * tm)
 {
@@ -2647,29 +2649,20 @@ DecodeNumberField(int len, char *str, int fmask,
 	/* No decimal point and no complete date yet? */
 	else if ((fmask & DTK_DATE_M) != DTK_DATE_M)
 	{
-		/* yyyymmdd? */
-		if (len == 8)
+		if (len >= 6)
 		{
 			*tmask = DTK_DATE_M;
-
-			tm->tm_mday = atoi(str + 6);
-			*(str + 6) = '\0';
-			tm->tm_mon = atoi(str + 4);
-			*(str + 4) = '\0';
-			tm->tm_year = atoi(str + 0);
-
-			return DTK_DATE;
-		}
-		/* yymmdd? */
-		else if (len == 6)
-		{
-			*tmask = DTK_DATE_M;
-			tm->tm_mday = atoi(str + 4);
-			*(str + 4) = '\0';
-			tm->tm_mon = atoi(str + 2);
-			*(str + 2) = '\0';
-			tm->tm_year = atoi(str + 0);
-			*is2digits = TRUE;
+			/*
+			 * Start from end and consider first 2 as Day, next 2 as Month,
+			 * and the rest as Year.
+			 */
+			tm->tm_mday = atoi(str + (len - 2));
+			*(str + (len - 2)) = '\0';
+			tm->tm_mon = atoi(str + (len - 4));
+			*(str + (len - 4)) = '\0';
+			tm->tm_year = atoi(str);
+			if ((len - 4) == 2)
+				*is2digits = TRUE;
 
 			return DTK_DATE;
 		}
@@ -2686,7 +2679,7 @@ DecodeNumberField(int len, char *str, int fmask,
 			*(str + 4) = '\0';
 			tm->tm_min = atoi(str + 2);
 			*(str + 2) = '\0';
-			tm->tm_hour = atoi(str + 0);
+			tm->tm_hour = atoi(str);
 
 			return DTK_TIME;
 		}
@@ -2697,7 +2690,7 @@ DecodeNumberField(int len, char *str, int fmask,
 			tm->tm_sec = 0;
 			tm->tm_min = atoi(str + 2);
 			*(str + 2) = '\0';
-			tm->tm_hour = atoi(str + 0);
+			tm->tm_hour = atoi(str);
 
 			return DTK_TIME;
 		}

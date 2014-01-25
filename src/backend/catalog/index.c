@@ -3,7 +3,7 @@
  * index.c
  *	  code to create and destroy POSTGRES index relations
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -30,6 +30,7 @@
 #include "access/visibilitymap.h"
 #include "access/xact.h"
 #include "bootstrap/bootstrap.h"
+#include "catalog/binary_upgrade.h"
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/heap.h"
@@ -614,6 +615,7 @@ UpdateIndexRelation(Oid indexoid,
 	/* we set isvalid and isready the same way */
 	values[Anum_pg_index_indisready - 1] = BoolGetDatum(isvalid);
 	values[Anum_pg_index_indislive - 1] = BoolGetDatum(true);
+	values[Anum_pg_index_indisreplident - 1] = BoolGetDatum(false);
 	values[Anum_pg_index_indkey - 1] = PointerGetDatum(indkey);
 	values[Anum_pg_index_indcollation - 1] = PointerGetDatum(indcollation);
 	values[Anum_pg_index_indclass - 1] = PointerGetDatum(indclass);
@@ -1444,9 +1446,11 @@ index_drop(Oid indexId, bool concurrent)
 
 		/*
 		 * Now we must wait until no running transaction could be using the
-		 * index for a query. Note we do not need to worry about xacts that
-		 * open the table for reading after this point; they will see the
-		 * index as invalid when they open the relation.
+		 * index for a query.  Use AccessExclusiveLock here to check for
+		 * running transactions that hold locks of any kind on the table.
+		 * Note we do not need to worry about xacts that open the table for
+		 * reading after this point; they will see the index as invalid when
+		 * they open the relation.
 		 *
 		 * Note: the reason we use actual lock acquisition here, rather than
 		 * just checking the ProcArray and sleeping, is that deadlock is
@@ -3320,7 +3324,7 @@ reindex_relation(Oid relid, int flags)
 
 	/* Ensure rd_indexattr is valid; see comments for RelationSetIndexList */
 	if (is_pg_class)
-		(void) RelationGetIndexAttrBitmap(rel, false);
+		(void) RelationGetIndexAttrBitmap(rel, INDEX_ATTR_BITMAP_ALL);
 
 	PG_TRY();
 	{

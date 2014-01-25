@@ -3,7 +3,7 @@
  * user.c
  *	  Commands for manipulating roles (formerly called users).
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/backend/commands/user.c
@@ -16,6 +16,7 @@
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/xact.h"
+#include "catalog/binary_upgrade.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/objectaccess.h"
@@ -47,7 +48,6 @@ extern bool Password_encryption;
 /* Hook to check passwords in CreateRole() and AlterRole() */
 check_password_hook_type check_password_hook = NULL;
 
-static List *roleNamesToIds(List *memberNames);
 static void AddRoleMems(const char *rolename, Oid roleid,
 			List *memberNames, List *memberIds,
 			Oid grantorId, bool admin_opt);
@@ -1301,7 +1301,7 @@ ReassignOwnedObjects(ReassignOwnedStmt *stmt)
  * Given a list of role names (as String nodes), generate a list of role OIDs
  * in the same order.
  */
-static List *
+List *
 roleNamesToIds(List *memberNames)
 {
 	List	   *result = NIL;

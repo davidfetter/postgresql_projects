@@ -5,7 +5,7 @@
  *	  commands.  At one time acted as an interface between the Lisp and C
  *	  systems.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -110,7 +110,7 @@ CheckRelationOwnership(RangeVar *rel, bool noCatalogs)
 	if (noCatalogs)
 	{
 		if (!allowSystemTableMods &&
-			IsSystemClass((Form_pg_class) GETSTRUCT(tuple)))
+			IsSystemClass(relOid, (Form_pg_class) GETSTRUCT(tuple)))
 			ereport(ERROR,
 					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 					 errmsg("permission denied: \"%s\" is a system catalog",
@@ -243,6 +243,7 @@ check_xact_readonly(Node *parsetree)
 		case T_AlterUserMappingStmt:
 		case T_DropUserMappingStmt:
 		case T_AlterTableSpaceOptionsStmt:
+		case T_AlterTableSpaceMoveStmt:
 		case T_CreateForeignTableStmt:
 		case T_SecLabelStmt:
 			PreventCommandIfReadOnly(CreateCommandTag(parsetree));
@@ -548,6 +549,11 @@ standard_ProcessUtility(Node *parsetree,
 			AlterTableSpaceOptions((AlterTableSpaceOptionsStmt *) parsetree);
 			break;
 
+		case T_AlterTableSpaceMoveStmt:
+			/* no event triggers for global objects */
+			AlterTableSpaceMove((AlterTableSpaceMoveStmt *) parsetree);
+			break;
+
 		case T_TruncateStmt:
 			ExecuteTruncate((TruncateStmt *) parsetree);
 			break;
@@ -687,6 +693,11 @@ standard_ProcessUtility(Node *parsetree,
 			ExplainQuery((ExplainStmt *) parsetree, queryString, params, dest);
 			break;
 
+		case T_AlterSystemStmt:
+			PreventTransactionChain(isTopLevel, "ALTER SYSTEM");
+			AlterSystemSetConfigFile((AlterSystemStmt *) parsetree);
+			break;
+
 		case T_VariableSetStmt:
 			ExecSetVariableStmt((VariableSetStmt *) parsetree, isTopLevel);
 			break;
@@ -754,7 +765,7 @@ standard_ProcessUtility(Node *parsetree,
 			break;
 
 		case T_ConstraintsSetStmt:
-			RequireTransactionChain(isTopLevel, "SET CONSTRAINTS");
+			WarnNoTransactionChain(isTopLevel, "SET CONSTRAINTS");
 			AfterTriggerSetState((ConstraintsSetStmt *) parsetree);
 			break;
 
@@ -1817,6 +1828,10 @@ CreateCommandTag(Node *parsetree)
 			tag = "ALTER TABLESPACE";
 			break;
 
+		case T_AlterTableSpaceMoveStmt:
+			tag = "ALTER TABLESPACE";
+			break;
+
 		case T_CreateExtensionStmt:
 			tag = "CREATE EXTENSION";
 			break;
@@ -2155,6 +2170,10 @@ CreateCommandTag(Node *parsetree)
 
 		case T_RefreshMatViewStmt:
 			tag = "REFRESH MATERIALIZED VIEW";
+			break;
+
+		case T_AlterSystemStmt:
+			tag = "ALTER SYSTEM";
 			break;
 
 		case T_VariableSetStmt:
@@ -2505,6 +2524,10 @@ GetCommandLogLevel(Node *parsetree)
 			lev = LOGSTMT_DDL;
 			break;
 
+		case T_AlterTableSpaceMoveStmt:
+			lev = LOGSTMT_DDL;
+			break;
+
 		case T_CreateExtensionStmt:
 		case T_AlterExtensionStmt:
 		case T_AlterExtensionContentsStmt:
@@ -2724,6 +2747,10 @@ GetCommandLogLevel(Node *parsetree)
 
 		case T_RefreshMatViewStmt:
 			lev = LOGSTMT_DDL;
+			break;
+
+		case T_AlterSystemStmt:
+			lev = LOGSTMT_ALL;
 			break;
 
 		case T_VariableSetStmt:

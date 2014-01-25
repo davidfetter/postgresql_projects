@@ -3,7 +3,7 @@
  * wparser_def.c
  *		Default text search parser
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -789,7 +789,7 @@ p_isspecial(TParser *prs)
 	 */
 	if (GetDatabaseEncoding() == PG_UTF8 && prs->usewide)
 	{
-		static pg_wchar strange_letter[] = {
+		static const pg_wchar strange_letter[] = {
 			/*
 			 * use binary search, so elements should be ordered
 			 */
@@ -1023,7 +1023,7 @@ p_isspecial(TParser *prs)
 			0xAA34,				/* CHAM CONSONANT SIGN RA */
 			0xAA4D				/* CHAM CONSONANT SIGN FINAL H */
 		};
-		pg_wchar   *StopLow = strange_letter,
+		const pg_wchar *StopLow = strange_letter,
 				   *StopHigh = strange_letter + lengthof(strange_letter),
 				   *StopMiddle;
 		pg_wchar	c;

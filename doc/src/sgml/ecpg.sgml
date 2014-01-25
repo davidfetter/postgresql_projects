@@ -64,8 +64,10 @@ EXEC SQL ...;
    These statements syntactically take the place of a C statement.
    Depending on the particular statement, they can appear at the
    global level or within a function.  Embedded
-   <acronym>SQL</acronym> statements follow the case-sensitivity rules
-   of normal <acronym>SQL</acronym> code, and not those of C.
+   <acronym>SQL</acronym> statements follow the case-sensitivity rules of
+   normal <acronym>SQL</acronym> code, and not those of C. Also they allow nested
+   C-style comments that are part of the SQL standard. The C part of the
+   program, however, follows the C standard of not accepting nested comments.
   </para>
 
   <para>
@@ -940,20 +942,6 @@ struct varchar_var { int len; char arr[180]; } var;
      a query, if <literal>strlen(arr)</literal>
      and <structfield>len</structfield> are different, the shorter one
      is used.
-    </para>
-
-    <para>
-     Two or more <type>VARCHAR</type> host variables cannot be defined
-     in single line statement.  The following code will confuse
-     the <command>ecpg</command> preprocessor:
-<programlisting>
-VARCHAR v1[128], v2[128];   /* WRONG */
-</programlisting>
-     Two variables should be defined in separate statements like this:
-<programlisting>
-VARCHAR v1[128];
-VARCHAR v2[128];
-</programlisting>
     </para>
 
     <para>

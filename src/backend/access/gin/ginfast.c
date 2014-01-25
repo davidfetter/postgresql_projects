@@ -7,7 +7,7 @@
  *	  transfer pending entries into the regular index structure.  This
  *	  wins because bulk insertion is much more efficient than retail.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -487,7 +487,7 @@ ginHeapTupleFastCollect(GinState *ginstate,
 		IndexTuple	itup;
 
 		itup = GinFormTuple(ginstate, attnum, entries[i], categories[i],
-							NULL, 0, true);
+							NULL, 0, 0, true);
 		itup->t_tid = *ht_ctid;
 		collector->tuples[collector->ntuples++] = itup;
 		collector->sumsize += IndexTupleSize(itup);

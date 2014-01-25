@@ -4,7 +4,7 @@
  *	 Routines for archivers to write an uncompressed or compressed data
  *	 stream.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * This file includes two APIs for dealing with compressed data. The first
@@ -489,7 +489,7 @@ cfopen_read(const char *path, const char *mode)
 		{
 			char	   *fname;
 
-			pg_asprintf(&fname, "%s.gz", path);
+			fname = psprintf("%s.gz", path);
 			fp = cfopen(fname, mode, 1);
 			free(fname);
 		}
@@ -519,7 +519,7 @@ cfopen_write(const char *path, const char *mode, int compression)
 #ifdef HAVE_LIBZ
 		char	   *fname;
 
-		pg_asprintf(&fname, "%s.gz", path);
+		fname = psprintf("%s.gz", path);
 		fp = cfopen(fname, mode, 1);
 		free(fname);
 #else

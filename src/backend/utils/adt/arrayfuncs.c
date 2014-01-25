@@ -3,7 +3,7 @@
  * arrayfuncs.c
  *	  Support functions for arrays.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -1738,6 +1738,18 @@ array_length(PG_FUNCTION_ARGS)
 
 	PG_RETURN_INT32(result);
 }
+
+/*
+ * array_cardinality:
+ *		returns the total number of elements in an array
+ */
+Datum
+array_cardinality(PG_FUNCTION_ARGS)
+{
+	ArrayType  *v = PG_GETARG_ARRAYTYPE_P(0);
+	PG_RETURN_INT32(ArrayGetNItems(ARR_NDIM(v), ARR_DIMS(v)));
+}
+
 
 /*
  * array_ref :

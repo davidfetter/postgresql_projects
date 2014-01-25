@@ -2215,7 +2215,7 @@ create function excpt_test2() returns void as $$
 begin
     begin
         begin
-    	    raise notice '% %', sqlstate, sqlerrm;
+            raise notice '% %', sqlstate, sqlerrm;
         end;
     end;
 end; $$ language plpgsql;
@@ -2225,7 +2225,7 @@ select excpt_test2();
 create function excpt_test3() returns void as $$
 begin
     begin
-    	raise exception 'user exception';
+        raise exception 'user exception';
     exception when others then
 	    raise notice 'caught exception % %', sqlstate, sqlerrm;
 	    begin
@@ -3751,6 +3751,26 @@ BEGIN
     END LOOP;
 END$$;
 
+-- Check handling of errors thrown from/into anonymous code blocks.
+do $outer$
+begin
+  for i in 1..10 loop
+   begin
+    execute $ex$
+      do $$
+      declare x int = 0;
+      begin
+        x := 1 / x;
+      end;
+      $$;
+    $ex$;
+  exception when division_by_zero then
+    raise notice 'caught division by zero';
+  end;
+  end loop;
+end;
+$outer$;
+
 -- Check variable scoping -- a var is not available in its own or prior
 -- default expressions.
 
@@ -4084,4 +4104,3 @@ select outer_outer_func(20);
 drop function outer_outer_func(int);
 drop function outer_func(int);
 drop function inner_func(int);
-

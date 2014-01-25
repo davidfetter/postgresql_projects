@@ -3,7 +3,7 @@
  * postinit.c
  *	  postgres initialization utilities
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -230,13 +230,31 @@ PerformAuthentication(Port *port)
 	if (Log_connections)
 	{
 		if (am_walsender)
-			ereport(LOG,
-					(errmsg("replication connection authorized: user=%s",
-							port->user_name)));
+		{
+#ifdef USE_SSL
+			if (port->ssl)
+				ereport(LOG,
+						(errmsg("replication connection authorized: user=%s SSL enabled (protocol=%s, cipher=%s)",
+								port->user_name, SSL_get_version(port->ssl), SSL_get_cipher(port->ssl))));
+			else
+#endif
+				ereport(LOG,
+						(errmsg("replication connection authorized: user=%s",
+								port->user_name)));
+		}
 		else
-			ereport(LOG,
-					(errmsg("connection authorized: user=%s database=%s",
-							port->user_name, port->database_name)));
+		{
+#ifdef USE_SSL
+			if (port->ssl)
+				ereport(LOG,
+						(errmsg("connection authorized: user=%s database=%s SSL enabled (protocol=%s, cipher=%s)",
+								port->user_name, port->database_name, SSL_get_version(port->ssl), SSL_get_cipher(port->ssl))));
+			else
+#endif
+				ereport(LOG,
+						(errmsg("connection authorized: user=%s database=%s",
+								port->user_name, port->database_name)));
+		}
 	}
 
 	set_ps_display("startup", false);
@@ -587,15 +605,14 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	RelationCacheInitializePhase2();
 
 	/*
-	 * Set up process-exit callback to do pre-shutdown cleanup.  This has to
-	 * be after we've initialized all the low-level modules like the buffer
-	 * manager, because during shutdown this has to run before the low-level
-	 * modules start to close down.  On the other hand, we want it in place
-	 * before we begin our first transaction --- if we fail during the
-	 * initialization transaction, as is entirely possible, we need the
-	 * AbortTransaction call to clean up.
+	 * Set up process-exit callback to do pre-shutdown cleanup.  This is the
+	 * first before_shmem_exit callback we register; thus, this will be the
+	 * last thing we do before low-level modules like the buffer manager begin
+	 * to close down.  We need to have this in place before we begin our first
+	 * transaction --- if we fail during the initialization transaction, as is
+	 * entirely possible, we need the AbortTransaction call to clean up.
 	 */
-	on_shmem_exit(ShutdownPostgres, 0);
+	before_shmem_exit(ShutdownPostgres, 0);
 
 	/* The autovacuum launcher is done here */
 	if (IsAutoVacuumLauncherProcess())

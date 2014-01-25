@@ -4,7 +4,7 @@
  *	  Support routines for external and compressed storage of
  *	  variable size attributes.
  *
- * Copyright (c) 2000-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2014, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -2156,7 +2156,7 @@ toast_open_indexes(Relation toastrel,
 	/* Fetch the first valid index in list */
 	for (i = 0; i < *num_indexes; i++)
 	{
-		Relation toastidx = *toastidxs[i];
+		Relation toastidx = (*toastidxs)[i];
 		if (toastidx->rd_index->indisvalid)
 		{
 			res = i;

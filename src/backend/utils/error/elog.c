@@ -43,7 +43,7 @@
  * overflow.)
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -173,6 +173,7 @@ static void send_message_to_server_log(ErrorData *edata);
 static void send_message_to_frontend(ErrorData *edata);
 static char *expand_fmt_string(const char *fmt, ErrorData *edata);
 static const char *useful_strerror(int errnum);
+static const char *get_errno_symbol(int errnum);
 static const char *error_severity(int elevel);
 static void append_with_tabs(StringInfo buf, const char *str);
 static bool is_log_level_output(int elevel, int log_min_level);
@@ -310,6 +311,18 @@ errstart(int elevel, const char *filename, int lineno,
 		return false;
 
 	/*
+	 * We need to do some actual work.  Make sure that memory context
+	 * initialization has finished, else we can't do anything useful.
+	 */
+	if (ErrorContext == NULL)
+	{
+		/* Ooops, hard crash time; very little we can do safely here */
+		write_stderr("error occurred at %s:%d before error message processing is available\n",
+					 filename ? filename : "(unknown file)", lineno);
+		exit(2);
+	}
+
+	/*
 	 * Okay, crank up a stack entry to store the info in.
 	 */
 
@@ -396,12 +409,13 @@ void
 errfinish(int dummy,...)
 {
 	ErrorData  *edata = &errordata[errordata_stack_depth];
-	int			elevel = edata->elevel;
+	int			elevel;
 	MemoryContext oldcontext;
 	ErrorContextCallback *econtext;
 
 	recursion_depth++;
 	CHECK_STACK_DEPTH();
+	elevel = edata->elevel;
 
 	/*
 	 * Do processing in ErrorContext, which we hope has enough reserved space
@@ -715,13 +729,13 @@ errcode_for_socket_access(void)
 		for (;;) \
 		{ \
 			va_list		args; \
-			bool		success; \
+			int			needed; \
 			va_start(args, fmt); \
-			success = appendStringInfoVA(&buf, fmtbuf, args); \
+			needed = appendStringInfoVA(&buf, fmtbuf, args); \
 			va_end(args); \
-			if (success) \
+			if (needed == 0) \
 				break; \
-			enlargeStringInfo(&buf, buf.maxlen); \
+			enlargeStringInfo(&buf, needed); \
 		} \
 		/* Done with expanded fmt */ \
 		pfree(fmtbuf); \
@@ -758,13 +772,13 @@ errcode_for_socket_access(void)
 		for (;;) \
 		{ \
 			va_list		args; \
-			bool		success; \
+			int			needed; \
 			va_start(args, n); \
-			success = appendStringInfoVA(&buf, fmtbuf, args); \
+			needed = appendStringInfoVA(&buf, fmtbuf, args); \
 			va_end(args); \
-			if (success) \
+			if (needed == 0) \
 				break; \
-			enlargeStringInfo(&buf, buf.maxlen); \
+			enlargeStringInfo(&buf, needed); \
 		} \
 		/* Done with expanded fmt */ \
 		pfree(fmtbuf); \
@@ -1235,6 +1249,15 @@ void
 elog_start(const char *filename, int lineno, const char *funcname)
 {
 	ErrorData  *edata;
+
+	/* Make sure that memory context initialization has finished */
+	if (ErrorContext == NULL)
+	{
+		/* Ooops, hard crash time; very little we can do safely here */
+		write_stderr("error occurred at %s:%d before error message processing is available\n",
+					 filename ? filename : "(unknown file)", lineno);
+		exit(2);
+	}
 
 	if (++errordata_stack_depth >= ERRORDATA_STACK_SIZE)
 	{
@@ -2141,7 +2164,6 @@ process_log_prefix_padding(const char *p, int *ppadding)
 			return NULL;
 		paddingsign = -1;
 	}
-	
 
 	/* generate an int version of the numerical string */
 	while (*p >= '0' && *p <= '9')
@@ -2168,7 +2190,7 @@ log_line_prefix(StringInfo buf, ErrorData *edata)
 	/* has counter been reset in current process? */
 	static int	log_my_pid = 0;
 	int			padding;
-	const char *p;	
+	const char *p;
 
 	/*
 	 * This is one of the few places where we'd rather not inherit a static
@@ -2283,7 +2305,7 @@ log_line_prefix(StringInfo buf, ErrorData *edata)
 				if (padding != 0)
 				{
 					char strfbuf[128];
-					snprintf(strfbuf, sizeof(strfbuf) - 1, "%lx.%x", 
+					snprintf(strfbuf, sizeof(strfbuf) - 1, "%lx.%x",
 						(long) (MyStartTime), MyProcPid);
 					appendStringInfo(buf, "%*s", padding, strfbuf);
 				}
@@ -2351,29 +2373,25 @@ log_line_prefix(StringInfo buf, ErrorData *edata)
 			case 'r':
 				if (MyProcPort && MyProcPort->remote_host)
 				{
-					if (padding != 0) 
+					if (padding != 0)
 					{
 						if (MyProcPort->remote_port && MyProcPort->remote_port[0] != '\0')
 						{
- 							/* 
+							/*
 							 * This option is slightly special as the port number
-		 					 * may be appended onto the end. Here we need to build
+							 * may be appended onto the end. Here we need to build
 							 * 1 string which contains the remote_host and optionally
 							 * the remote_port (if set) so we can properly align the
 							 * string.
 							 */
 
 							char *hostport;
-							int alloclen = strlen(MyProcPort->remote_host) +
-								 strlen(MyProcPort->remote_port) + 3; 
-							hostport = palloc(alloclen);
-							sprintf(hostport, "%s(%s)", MyProcPort->remote_host, MyProcPort->remote_port);
+							hostport = psprintf("%s(%s)", MyProcPort->remote_host, MyProcPort->remote_port);
 							appendStringInfo(buf, "%*s", padding, hostport);
 							pfree(hostport);
 						}
 						else
 							appendStringInfo(buf, "%*s", padding, MyProcPort->remote_host);
-						
 					}
 					else
 					{
@@ -2381,7 +2399,7 @@ log_line_prefix(StringInfo buf, ErrorData *edata)
 						appendStringInfoString(buf, MyProcPort->remote_host);
 						if (MyProcPort->remote_port &&
 							MyProcPort->remote_port[0] != '\0')
-							appendStringInfo(buf, "(%s)", 
+							appendStringInfo(buf, "(%s)",
 								MyProcPort->remote_port);
 					}
 
@@ -2391,7 +2409,7 @@ log_line_prefix(StringInfo buf, ErrorData *edata)
 										   padding > 0 ? padding : -padding);
 				break;
 			case 'h':
-				if (MyProcPort && MyProcPort->remote_host) 
+				if (MyProcPort && MyProcPort->remote_host)
 				{
 					if (padding != 0)
 						appendStringInfo(buf, "%*s", padding, MyProcPort->remote_host);
@@ -3209,7 +3227,7 @@ expand_fmt_string(const char *fmt, ErrorData *edata)
 static const char *
 useful_strerror(int errnum)
 {
-	/* this buffer is only used if errno has a bogus value */
+	/* this buffer is only used if strerror() and get_errno_symbol() fail */
 	static char errorstr_buf[48];
 	const char *str;
 
@@ -3221,10 +3239,16 @@ useful_strerror(int errnum)
 	str = strerror(errnum);
 
 	/*
-	 * Some strerror()s return an empty string for out-of-range errno. This is
-	 * ANSI C spec compliant, but not exactly useful.
+	 * Some strerror()s return an empty string for out-of-range errno.	This
+	 * is ANSI C spec compliant, but not exactly useful.  Also, we may get
+	 * back strings of question marks if libc cannot transcode the message to
+	 * the codeset specified by LC_CTYPE.  If we get nothing useful, first try
+	 * get_errno_symbol(), and if that fails, print the numeric errno.
 	 */
-	if (str == NULL || *str == '\0')
+	if (str == NULL || *str == '\0' || *str == '?')
+		str = get_errno_symbol(errnum);
+
+	if (str == NULL)
 	{
 		snprintf(errorstr_buf, sizeof(errorstr_buf),
 		/*------
@@ -3235,6 +3259,178 @@ useful_strerror(int errnum)
 	}
 
 	return str;
+}
+
+/*
+ * Returns a symbol (e.g. "ENOENT") for an errno code.
+ * Returns NULL if the code is unrecognized.
+ */
+static const char *
+get_errno_symbol(int errnum)
+{
+	switch (errnum)
+	{
+		case E2BIG:
+			return "E2BIG";
+		case EACCES:
+			return "EACCES";
+#ifdef EADDRINUSE
+		case EADDRINUSE:
+			return "EADDRINUSE";
+#endif
+#ifdef EADDRNOTAVAIL
+		case EADDRNOTAVAIL:
+			return "EADDRNOTAVAIL";
+#endif
+		case EAFNOSUPPORT:
+			return "EAFNOSUPPORT";
+#ifdef EAGAIN
+		case EAGAIN:
+			return "EAGAIN";
+#endif
+#ifdef EALREADY
+		case EALREADY:
+			return "EALREADY";
+#endif
+		case EBADF:
+			return "EBADF";
+#ifdef EBADMSG
+		case EBADMSG:
+			return "EBADMSG";
+#endif
+		case EBUSY:
+			return "EBUSY";
+		case ECHILD:
+			return "ECHILD";
+#ifdef ECONNABORTED
+		case ECONNABORTED:
+			return "ECONNABORTED";
+#endif
+		case ECONNREFUSED:
+			return "ECONNREFUSED";
+#ifdef ECONNRESET
+		case ECONNRESET:
+			return "ECONNRESET";
+#endif
+		case EDEADLK:
+			return "EDEADLK";
+		case EDOM:
+			return "EDOM";
+		case EEXIST:
+			return "EEXIST";
+		case EFAULT:
+			return "EFAULT";
+		case EFBIG:
+			return "EFBIG";
+#ifdef EHOSTUNREACH
+		case EHOSTUNREACH:
+			return "EHOSTUNREACH";
+#endif
+		case EIDRM:
+			return "EIDRM";
+		case EINPROGRESS:
+			return "EINPROGRESS";
+		case EINTR:
+			return "EINTR";
+		case EINVAL:
+			return "EINVAL";
+		case EIO:
+			return "EIO";
+#ifdef EISCONN
+		case EISCONN:
+			return "EISCONN";
+#endif
+		case EISDIR:
+			return "EISDIR";
+#ifdef ELOOP
+		case ELOOP:
+			return "ELOOP";
+#endif
+		case EMFILE:
+			return "EMFILE";
+		case EMLINK:
+			return "EMLINK";
+		case EMSGSIZE:
+			return "EMSGSIZE";
+		case ENAMETOOLONG:
+			return "ENAMETOOLONG";
+		case ENFILE:
+			return "ENFILE";
+		case ENOBUFS:
+			return "ENOBUFS";
+		case ENODEV:
+			return "ENODEV";
+		case ENOENT:
+			return "ENOENT";
+		case ENOEXEC:
+			return "ENOEXEC";
+		case ENOMEM:
+			return "ENOMEM";
+		case ENOSPC:
+			return "ENOSPC";
+		case ENOSYS:
+			return "ENOSYS";
+#ifdef ENOTCONN
+		case ENOTCONN:
+			return "ENOTCONN";
+#endif
+		case ENOTDIR:
+			return "ENOTDIR";
+#if defined(ENOTEMPTY) && (ENOTEMPTY != EEXIST) /* same code on AIX */
+		case ENOTEMPTY:
+			return "ENOTEMPTY";
+#endif
+#ifdef ENOTSOCK
+		case ENOTSOCK:
+			return "ENOTSOCK";
+#endif
+#ifdef ENOTSUP
+		case ENOTSUP:
+			return "ENOTSUP";
+#endif
+		case ENOTTY:
+			return "ENOTTY";
+		case ENXIO:
+			return "ENXIO";
+#if defined(EOPNOTSUPP) && (!defined(ENOTSUP) || (EOPNOTSUPP != ENOTSUP))
+		case EOPNOTSUPP:
+			return "EOPNOTSUPP";
+#endif
+#ifdef EOVERFLOW
+		case EOVERFLOW:
+			return "EOVERFLOW";
+#endif
+		case EPERM:
+			return "EPERM";
+		case EPIPE:
+			return "EPIPE";
+		case EPROTONOSUPPORT:
+			return "EPROTONOSUPPORT";
+		case ERANGE:
+			return "ERANGE";
+#ifdef EROFS
+		case EROFS:
+			return "EROFS";
+#endif
+		case ESRCH:
+			return "ESRCH";
+#ifdef ETIMEDOUT
+		case ETIMEDOUT:
+			return "ETIMEDOUT";
+#endif
+#ifdef ETXTBSY
+		case ETXTBSY:
+			return "ETXTBSY";
+#endif
+#if defined(EWOULDBLOCK) && (!defined(EAGAIN) || (EWOULDBLOCK != EAGAIN))
+		case EWOULDBLOCK:
+			return "EWOULDBLOCK";
+#endif
+		case EXDEV:
+			return "EXDEV";
+	}
+
+	return NULL;
 }
 
 

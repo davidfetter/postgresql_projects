@@ -3,7 +3,7 @@
  * proc.c
  *	  routines to manage per-process shared memory data structure
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -1266,7 +1266,10 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 	} while (myWaitStatus == STATUS_WAITING);
 
 	/*
-	 * Disable the timers, if they are still running
+	 * Disable the timers, if they are still running.  As in LockErrorCleanup,
+	 * we must preserve the LOCK_TIMEOUT indicator flag: if a lock timeout has
+	 * already caused QueryCancelPending to become set, we want the cancel to
+	 * be reported as a lock timeout, not a user cancel.
 	 */
 	if (LockTimeout > 0)
 	{
@@ -1275,7 +1278,7 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 		timeouts[0].id = DEADLOCK_TIMEOUT;
 		timeouts[0].keep_indicator = false;
 		timeouts[1].id = LOCK_TIMEOUT;
-		timeouts[1].keep_indicator = false;
+		timeouts[1].keep_indicator = true;
 		disable_timeouts(timeouts, 2);
 	}
 	else

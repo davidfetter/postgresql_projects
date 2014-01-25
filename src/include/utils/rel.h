@@ -4,7 +4,7 @@
  *	  POSTGRES relation descriptor (a/k/a relcache entry) definitions.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/rel.h
@@ -104,11 +104,19 @@ typedef struct RelationData
 	List	   *rd_indexlist;	/* list of OIDs of indexes on relation */
 	Bitmapset  *rd_indexattr;	/* identifies columns used in indexes */
 	Bitmapset  *rd_keyattr;		/* cols that can be ref'd by foreign keys */
+	Bitmapset  *rd_idattr;		/* included in replica identity index */
 	Oid			rd_oidindex;	/* OID of unique index on OID, if any */
 	LockInfoData rd_lockInfo;	/* lock mgr's info for locking relation */
 	RuleLock   *rd_rules;		/* rewrite rules */
 	MemoryContext rd_rulescxt;	/* private memory cxt for rd_rules, if any */
 	TriggerDesc *trigdesc;		/* Trigger info, or NULL if rel has none */
+
+	/*
+	 * The index chosen as the relation's replication identity or
+	 * InvalidOid. Only set correctly if RelationGetIndexList has been
+	 * called/rd_indexvalid > 0.
+	 */
+	Oid rd_replidindex;
 
 	/*
 	 * rd_options is set whenever rd_rel is loaded into the relcache entry.
@@ -209,6 +217,7 @@ typedef struct StdRdOptions
 	AutoVacOpts autovacuum;		/* autovacuum-related options */
 	bool		security_barrier;		/* for views */
 	int			check_option_offset;	/* for views */
+	bool		user_catalog_table;		/* use as an additional catalog relation */
 } StdRdOptions;
 
 #define HEAP_MIN_FILLFACTOR			10
@@ -276,6 +285,15 @@ typedef struct StdRdOptions
 	 strcmp((char *) (relation)->rd_options +								\
 			((StdRdOptions *) (relation)->rd_options)->check_option_offset,	\
 			"cascaded") == 0 : false)
+
+/*
+ * RelationIsUsedAsCatalogTable
+ *		Returns whether the relation should be treated as a catalog table
+ *      from the pov of logical decoding.
+ */
+#define RelationIsUsedAsCatalogTable(relation)	\
+	((relation)->rd_options ?				\
+	 ((StdRdOptions *) (relation)->rd_options)->user_catalog_table : false)
 
 /*
  * RelationIsValid
@@ -446,6 +464,31 @@ typedef struct StdRdOptions
  */
 #define RelationIsPopulated(relation) ((relation)->rd_rel->relispopulated)
 
+/*
+ * RelationIsAccessibleInLogicalDecoding
+ *		True if we need to log enough information to have access via
+ *		decoding snapshot.
+ */
+#define RelationIsAccessibleInLogicalDecoding(relation) \
+	(XLogLogicalInfoActive() && \
+	 RelationNeedsWAL(relation) && \
+	 (IsCatalogRelation(relation) || RelationIsUsedAsCatalogTable(relation)))
+
+/*
+ * RelationIsLogicallyLogged
+ *		True if we need to log enough information to extract the data from the
+ *		WAL stream.
+ *
+ * We don't log information for unlogged tables (since they don't WAL log
+ * anyway) and for system tables (their content is hard to make sense of, and
+ * it would complicate decoding slightly for little gain). Note that we *do*
+ * log information for user defined catalog tables since they presumably are
+ * interesting to the user...
+ */
+#define RelationIsLogicallyLogged(relation) \
+	(XLogLogicalInfoActive() && \
+	 RelationNeedsWAL(relation) && \
+	 !IsCatalogRelation(relation))
 
 /* routines in utils/cache/relcache.c */
 extern void RelationIncrementReferenceCount(Relation rel);

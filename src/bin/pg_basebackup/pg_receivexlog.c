@@ -5,7 +5,7 @@
  *
  * Author: Magnus Hagander <magnus@hagander.net>
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *		  src/bin/pg_basebackup/pg_receivexlog.c
@@ -32,11 +32,11 @@
 #define RECONNECT_SLEEP_TIME 5
 
 /* Global options */
-char	   *basedir = NULL;
-int			verbose = 0;
-int			noloop = 0;
-int			standby_message_timeout = 10 * 1000;		/* 10 sec = default */
-volatile bool time_to_abort = false;
+static char *basedir = NULL;
+static int	verbose = 0;
+static int	noloop = 0;
+static int	standby_message_timeout = 10 * 1000;		/* 10 sec = default */
+static volatile bool time_to_abort = false;
 
 
 static void usage(void);
@@ -134,8 +134,6 @@ FindStreamingStart(uint32 *tli)
 	while ((dirent = readdir(dir)) != NULL)
 	{
 		uint32		tli;
-		unsigned int log,
-					seg;
 		XLogSegNo	segno;
 		bool		ispartial;
 
@@ -164,14 +162,7 @@ FindStreamingStart(uint32 *tli)
 		/*
 		 * Looks like an xlog file. Parse its position.
 		 */
-		if (sscanf(dirent->d_name, "%08X%08X%08X", &tli, &log, &seg) != 3)
-		{
-			fprintf(stderr,
-				 _("%s: could not parse transaction log file name \"%s\"\n"),
-					progname, dirent->d_name);
-			disconnect_and_exit(1);
-		}
-		segno = ((uint64) log) << 32 | seg;
+		XLogFromFileName(dirent->d_name, &tli, &segno);
 
 		/*
 		 * Check that the segment has the right size, if it's supposed to be

@@ -3,7 +3,7 @@
  * gindesc.c
  *	  rmgr descriptor routines for access/transam/gin/ginxlog.c
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -33,43 +33,93 @@ gin_desc(StringInfo buf, uint8 xl_info, char *rec)
 	switch (info)
 	{
 		case XLOG_GIN_CREATE_INDEX:
-			appendStringInfo(buf, "Create index, ");
+			appendStringInfoString(buf, "Create index, ");
 			desc_node(buf, *(RelFileNode *) rec, GIN_ROOT_BLKNO);
 			break;
 		case XLOG_GIN_CREATE_PTREE:
-			appendStringInfo(buf, "Create posting tree, ");
+			appendStringInfoString(buf, "Create posting tree, ");
 			desc_node(buf, ((ginxlogCreatePostingTree *) rec)->node, ((ginxlogCreatePostingTree *) rec)->blkno);
 			break;
 		case XLOG_GIN_INSERT:
-			appendStringInfo(buf, "Insert item, ");
-			desc_node(buf, ((ginxlogInsert *) rec)->node, ((ginxlogInsert *) rec)->blkno);
-			appendStringInfo(buf, " offset: %u nitem: %u isdata: %c isleaf %c isdelete %c updateBlkno:%u",
-							 ((ginxlogInsert *) rec)->offset,
-							 ((ginxlogInsert *) rec)->nitem,
-							 (((ginxlogInsert *) rec)->isData) ? 'T' : 'F',
-							 (((ginxlogInsert *) rec)->isLeaf) ? 'T' : 'F',
-							 (((ginxlogInsert *) rec)->isDelete) ? 'T' : 'F',
-							 ((ginxlogInsert *) rec)->updateBlkno);
+			{
+				ginxlogInsert *xlrec = (ginxlogInsert *) rec;
+				char	*payload = rec + sizeof(ginxlogInsert);
+
+				appendStringInfoString(buf, "Insert item, ");
+				desc_node(buf, xlrec->node, xlrec->blkno);
+				appendStringInfo(buf, " isdata: %c isleaf: %c",
+								 (xlrec->flags & GIN_INSERT_ISDATA) ? 'T' : 'F',
+								 (xlrec->flags & GIN_INSERT_ISLEAF) ? 'T' : 'F');
+				if (!(xlrec->flags & GIN_INSERT_ISLEAF))
+				{
+					BlockNumber leftChildBlkno;
+					BlockNumber rightChildBlkno;
+
+					leftChildBlkno = BlockIdGetBlockNumber((BlockId) payload);
+					payload += sizeof(BlockIdData);
+					rightChildBlkno = BlockIdGetBlockNumber((BlockId) payload);
+					payload += sizeof(BlockNumber);
+					appendStringInfo(buf, " children: %u/%u",
+									 leftChildBlkno, rightChildBlkno);
+				}
+				if (!(xlrec->flags & GIN_INSERT_ISDATA))
+					appendStringInfo(buf, " isdelete: %c",
+									 (((ginxlogInsertEntry *) payload)->isDelete) ? 'T' : 'F');
+				else if (xlrec->flags & GIN_INSERT_ISLEAF)
+				{
+					ginxlogRecompressDataLeaf *insertData =
+						(ginxlogRecompressDataLeaf *) payload;
+
+					appendStringInfo(buf, " unmodified: %u length: %u (compressed)",
+									 insertData->unmodifiedsize,
+									 insertData->length);
+				}
+				else
+				{
+					ginxlogInsertDataInternal *insertData = (ginxlogInsertDataInternal *) payload;
+					appendStringInfo(buf, " pitem: %u-%u/%u",
+									 PostingItemGetBlockNumber(&insertData->newitem),
+									 ItemPointerGetBlockNumber(&insertData->newitem.key),
+									 ItemPointerGetOffsetNumber(&insertData->newitem.key));
+				}
+			}
 			break;
 		case XLOG_GIN_SPLIT:
-			appendStringInfo(buf, "Page split, ");
-			desc_node(buf, ((ginxlogSplit *) rec)->node, ((ginxlogSplit *) rec)->lblkno);
-			appendStringInfo(buf, " isrootsplit: %c", (((ginxlogSplit *) rec)->isRootSplit) ? 'T' : 'F');
+			{
+				ginxlogSplit *xlrec = (ginxlogSplit *) rec;
+
+				appendStringInfoString(buf, "Page split, ");
+				desc_node(buf, ((ginxlogSplit *) rec)->node, ((ginxlogSplit *) rec)->lblkno);
+				appendStringInfo(buf, " isrootsplit: %c", (((ginxlogSplit *) rec)->flags & GIN_SPLIT_ROOT) ? 'T' : 'F');
+				appendStringInfo(buf, " isdata: %c isleaf: %c",
+								 (xlrec->flags & GIN_INSERT_ISDATA) ? 'T' : 'F',
+								 (xlrec->flags & GIN_INSERT_ISLEAF) ? 'T' : 'F');
+			}
 			break;
 		case XLOG_GIN_VACUUM_PAGE:
-			appendStringInfo(buf, "Vacuum page, ");
+			appendStringInfoString(buf, "Vacuum page, ");
 			desc_node(buf, ((ginxlogVacuumPage *) rec)->node, ((ginxlogVacuumPage *) rec)->blkno);
 			break;
+		case XLOG_GIN_VACUUM_DATA_LEAF_PAGE:
+			{
+				ginxlogVacuumDataLeafPage *xlrec = (ginxlogVacuumDataLeafPage *) rec;
+				appendStringInfoString(buf, "Vacuum data leaf page, ");
+				desc_node(buf, xlrec->node, xlrec->blkno);
+				appendStringInfo(buf, " unmodified: %u length: %u",
+							 xlrec->data.unmodifiedsize,
+							 xlrec->data.length);
+			}
+			break;
 		case XLOG_GIN_DELETE_PAGE:
-			appendStringInfo(buf, "Delete page, ");
+			appendStringInfoString(buf, "Delete page, ");
 			desc_node(buf, ((ginxlogDeletePage *) rec)->node, ((ginxlogDeletePage *) rec)->blkno);
 			break;
 		case XLOG_GIN_UPDATE_META_PAGE:
-			appendStringInfo(buf, "Update metapage, ");
+			appendStringInfoString(buf, "Update metapage, ");
 			desc_node(buf, ((ginxlogUpdateMeta *) rec)->node, GIN_METAPAGE_BLKNO);
 			break;
 		case XLOG_GIN_INSERT_LISTPAGE:
-			appendStringInfo(buf, "Insert new list page, ");
+			appendStringInfoString(buf, "Insert new list page, ");
 			desc_node(buf, ((ginxlogInsertListPage *) rec)->node, ((ginxlogInsertListPage *) rec)->blkno);
 			break;
 		case XLOG_GIN_DELETE_LISTPAGE:

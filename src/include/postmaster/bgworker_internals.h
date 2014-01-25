@@ -2,7 +2,7 @@
  * bgworker_internals.h
  *		POSTGRES pluggable background workers internals
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -31,6 +31,7 @@ typedef struct RegisteredBgWorker
 	int			rw_child_slot;
 	TimestampTz rw_crashed_at;	/* if not 0, time it last crashed */
 	int			rw_shmem_slot;
+	bool		rw_terminate;
 	slist_node	rw_lnode;		/* list link */
 } RegisteredBgWorker;
 

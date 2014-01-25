@@ -125,7 +125,7 @@
  *		- Protects both PredXact and SerializableXidHash.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -1185,8 +1185,8 @@ InitPredicateLocks(void)
 			ereport(ERROR,
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 			 errmsg("not enough shared memory for elements of data structure"
-					" \"%s\" (%lu bytes requested)",
-					"PredXactList", (unsigned long) requestSize)));
+					" \"%s\" (%zu bytes requested)",
+					"PredXactList", requestSize)));
 		/* Add all elements to available list, clean. */
 		memset(PredXact->element, 0, requestSize);
 		for (i = 0; i < max_table_size; i++)
@@ -1257,8 +1257,8 @@ InitPredicateLocks(void)
 			ereport(ERROR,
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 			 errmsg("not enough shared memory for elements of data structure"
-					" \"%s\" (%lu bytes requested)",
-					"RWConflictPool", (unsigned long) requestSize)));
+					" \"%s\" (%zu bytes requested)",
+					"RWConflictPool", requestSize)));
 		/* Add all elements to available list, clean. */
 		memset(RWConflictPool->element, 0, requestSize);
 		for (i = 0; i < max_table_size; i++)

@@ -2,7 +2,7 @@
  * relpath.c
  *		Shared frontend/backend code to find out pathnames of relation files
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -29,7 +29,7 @@
  * documentation for pg_relation_size(). Also keep FORKNAMECHARS above
  * up-to-date.
  */
-const char *forkNames[] = {
+const char *const forkNames[] = {
 	"main",						/* MAIN_FORKNUM */
 	"fsm",						/* FSM_FORKNUM */
 	"vm",						/* VISIBILITYMAP_FORKNUM */

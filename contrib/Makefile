@@ -32,6 +32,7 @@ SUBDIRS = \
 		pg_archivecleanup \
 		pg_buffercache	\
 		pg_freespacemap \
+		pg_prewarm	\
 		pg_standby	\
 		pg_stat_statements \
 		pg_test_fsync	\
@@ -50,6 +51,7 @@ SUBDIRS = \
 		tablefunc	\
 		tcn		\
 		test_parser	\
+		test_shm_mq	\
 		tsearch2	\
 		unaccent	\
 		vacuumlo	\

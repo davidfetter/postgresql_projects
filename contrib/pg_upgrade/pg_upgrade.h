@@ -1,7 +1,7 @@
 /*
  *	pg_upgrade.h
  *
- *	Copyright (c) 2010-2013, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2014, PostgreSQL Global Development Group
  *	contrib/pg_upgrade/pg_upgrade.h
  */
 
@@ -443,7 +443,7 @@ void		check_pghost_envvar(void);
 /* util.c */
 
 char	   *quote_identifier(const char *s);
-int			get_user_info(char **user_name);
+int			get_user_info(char **user_name_p);
 void		check_ok(void);
 void
 report_status(eLogType type, const char *fmt,...)

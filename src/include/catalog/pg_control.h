@@ -5,7 +5,7 @@
  *	  However, we define it here so that the format is documented.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_control.h
@@ -171,6 +171,7 @@ typedef struct ControlFileData
 	 * or hot standby.
 	 */
 	int			wal_level;
+	bool		wal_log_hints;
 	int			MaxConnections;
 	int			max_worker_processes;
 	int			max_prepared_xacts;

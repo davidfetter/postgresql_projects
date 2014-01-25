@@ -3,7 +3,7 @@
  * aclchk.c
  *	  Routines to check access control permissions.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -3628,7 +3628,7 @@ pg_class_aclmask(Oid table_oid, Oid roleid,
 	 * themselves.	ACL_USAGE is if we ever have system sequences.
 	 */
 	if ((mask & (ACL_INSERT | ACL_UPDATE | ACL_DELETE | ACL_TRUNCATE | ACL_USAGE)) &&
-		IsSystemClass(classForm) &&
+		IsSystemClass(table_oid, classForm) &&
 		classForm->relkind != RELKIND_VIEW &&
 		!has_rolcatupdate(roleid) &&
 		!allowSystemTableMods)
@@ -3861,7 +3861,7 @@ pg_language_aclmask(Oid lang_oid, Oid roleid,
  * relative to the same snapshot that will be used to read the underlying
  * data.  The caller will actually pass NULL for an instantaneous MVCC
  * snapshot, since all we do with the snapshot argument is pass it through
- * to systable_beginscan().  
+ * to systable_beginscan().
  */
 AclMode
 pg_largeobject_aclmask_snapshot(Oid lobj_oid, Oid roleid,

@@ -11,7 +11,7 @@
  *			- Add a pgstat config column to pg_database, so this
  *			  entire thing can be enabled/disabled on a per db basis.
  *
- *	Copyright (c) 2001-2013, PostgreSQL Global Development Group
+ *	Copyright (c) 2001-2014, PostgreSQL Global Development Group
  *
  *	src/backend/postmaster/pgstat.c
  * ----------
@@ -328,6 +328,16 @@ pgstat_init(void)
 	int			tries = 0;
 
 #define TESTBYTEVAL ((char) 199)
+
+	/*
+	 * This static assertion verifies that we didn't mess up the calculations
+	 * involved in selecting maximum payload sizes for our UDP messages.
+	 * Because the only consequence of overrunning PGSTAT_MAX_MSG_SIZE would
+	 * be silent performance loss from fragmentation, it seems worth having a
+	 * compile-time cross-check that we didn't.
+	 */
+	StaticAssertStmt(sizeof(PgStat_Msg) <= PGSTAT_MAX_MSG_SIZE,
+				   "maximum stats message size exceeds PGSTAT_MAX_MSG_SIZE");
 
 	/*
 	 * Create the UDP socket for sending and receiving statistic messages
@@ -1317,7 +1327,8 @@ pgstat_report_autovac(Oid dboid)
  * ---------
  */
 void
-pgstat_report_vacuum(Oid tableoid, bool shared, PgStat_Counter tuples)
+pgstat_report_vacuum(Oid tableoid, bool shared,
+					 PgStat_Counter livetuples, PgStat_Counter deadtuples)
 {
 	PgStat_MsgVacuum msg;
 
@@ -1329,7 +1340,8 @@ pgstat_report_vacuum(Oid tableoid, bool shared, PgStat_Counter tuples)
 	msg.m_tableoid = tableoid;
 	msg.m_autovacuum = IsAutoVacuumWorkerProcess();
 	msg.m_vacuumtime = GetCurrentTimestamp();
-	msg.m_tuples = tuples;
+	msg.m_live_tuples = livetuples;
+	msg.m_dead_tuples = deadtuples;
 	pgstat_send(&msg, sizeof(msg));
 }
 
@@ -4799,9 +4811,8 @@ pgstat_recv_vacuum(PgStat_MsgVacuum *msg, int len)
 
 	tabentry = pgstat_get_tab_entry(dbentry, msg->m_tableoid, true);
 
-	tabentry->n_live_tuples = msg->m_tuples;
-	/* Resetting dead_tuples to 0 is an approximation ... */
-	tabentry->n_dead_tuples = 0;
+	tabentry->n_live_tuples = msg->m_live_tuples;
+	tabentry->n_dead_tuples = msg->m_dead_tuples;
 
 	if (msg->m_autovacuum)
 	{

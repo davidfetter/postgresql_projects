@@ -3,7 +3,7 @@
  * clauses.c
  *	  routines to manipulate qualification clauses
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -37,6 +37,7 @@
 #include "optimizer/prep.h"
 #include "optimizer/var.h"
 #include "parser/analyze.h"
+#include "parser/parse_agg.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_func.h"
 #include "rewrite/rewriteManip.h"
@@ -44,6 +45,7 @@
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
+#include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/syscache.h"
@@ -93,6 +95,7 @@ static bool expression_returns_set_rows_walker(Node *node, double *count);
 static bool contain_subplans_walker(Node *node, void *context);
 static bool contain_mutable_functions_walker(Node *node, void *context);
 static bool contain_volatile_functions_walker(Node *node, void *context);
+static bool contain_volatile_functions_not_nextval_walker(Node *node, void *context);
 static bool contain_nonstrict_functions_walker(Node *node, void *context);
 static bool contain_leaky_functions_walker(Node *node, void *context);
 static Relids find_nonnullable_rels_walker(Node *node, bool top_level);
@@ -461,10 +464,10 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		Oid			aggtransfn;
 		Oid			aggfinalfn;
 		Oid			aggtranstype;
+		int32		aggtransspace;
 		QualCost	argcosts;
-		Oid		   *inputTypes;
+		Oid			inputTypes[FUNC_MAX_ARGS];
 		int			numArguments;
-		ListCell   *l;
 
 		Assert(aggref->agglevelsup == 0);
 
@@ -478,9 +481,10 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		aggtransfn = aggform->aggtransfn;
 		aggfinalfn = aggform->aggfinalfn;
 		aggtranstype = aggform->aggtranstype;
+		aggtransspace = aggform->aggtransspace;
 		ReleaseSysCache(aggTuple);
 
-		/* count it */
+		/* count it; note ordered-set aggs always have nonempty aggorder */
 		costs->numAggs++;
 		if (aggref->aggorder != NIL || aggref->aggdistinct != NIL)
 			costs->numOrderedAggs++;
@@ -496,42 +500,39 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		costs->transCost.per_tuple += argcosts.per_tuple;
 
 		/*
-		 * Add the filter's cost to per-input-row costs.  XXX We should reduce
-		 * input expression costs according to filter selectivity.
+		 * Add any filter's cost to per-input-row costs.
+		 *
+		 * XXX Ideally we should reduce input expression costs according to
+		 * filter selectivity, but it's not clear it's worth the trouble.
 		 */
-		cost_qual_eval_node(&argcosts, (Node *) aggref->aggfilter,
-							context->root);
-		costs->transCost.startup += argcosts.startup;
-		costs->transCost.per_tuple += argcosts.per_tuple;
+		if (aggref->aggfilter)
+		{
+			cost_qual_eval_node(&argcosts, (Node *) aggref->aggfilter,
+								context->root);
+			costs->transCost.startup += argcosts.startup;
+			costs->transCost.per_tuple += argcosts.per_tuple;
+		}
+
+		/*
+		 * If there are direct arguments, treat their evaluation cost like the
+		 * cost of the finalfn.
+		 */
+		if (aggref->aggdirectargs)
+		{
+			cost_qual_eval_node(&argcosts, (Node *) aggref->aggdirectargs,
+								context->root);
+			costs->transCost.startup += argcosts.startup;
+			costs->finalCost += argcosts.per_tuple;
+		}
 
 		/* extract argument types (ignoring any ORDER BY expressions) */
-		inputTypes = (Oid *) palloc(sizeof(Oid) * list_length(aggref->args));
-		numArguments = 0;
-		foreach(l, aggref->args)
-		{
-			TargetEntry *tle = (TargetEntry *) lfirst(l);
-
-			if (!tle->resjunk)
-				inputTypes[numArguments++] = exprType((Node *) tle->expr);
-		}
+		numArguments = get_aggregate_argtypes(aggref, inputTypes);
 
 		/* resolve actual type of transition state, if polymorphic */
-		if (IsPolymorphicType(aggtranstype))
-		{
-			/* have to fetch the agg's declared input types... */
-			Oid		   *declaredArgTypes;
-			int			agg_nargs;
-
-			(void) get_func_signature(aggref->aggfnoid,
-									  &declaredArgTypes, &agg_nargs);
-			Assert(agg_nargs == numArguments);
-			aggtranstype = enforce_generic_type_consistency(inputTypes,
-															declaredArgTypes,
-															agg_nargs,
-															aggtranstype,
-															false);
-			pfree(declaredArgTypes);
-		}
+		aggtranstype = resolve_aggregate_transtype(aggref->aggfnoid,
+												   aggtranstype,
+												   inputTypes,
+												   numArguments);
 
 		/*
 		 * If the transition type is pass-by-value then it doesn't add
@@ -541,22 +542,32 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 		 */
 		if (!get_typbyval(aggtranstype))
 		{
-			int32		aggtranstypmod;
 			int32		avgwidth;
 
-			/*
-			 * If transition state is of same type as first input, assume it's
-			 * the same typmod (same width) as well.  This works for cases
-			 * like MAX/MIN and is probably somewhat reasonable otherwise.
-			 */
-			if (numArguments > 0 && aggtranstype == inputTypes[0])
-				aggtranstypmod = exprTypmod((Node *) linitial(aggref->args));
+			/* Use average width if aggregate definition gave one */
+			if (aggtransspace > 0)
+				avgwidth = aggtransspace;
 			else
-				aggtranstypmod = -1;
+			{
+				/*
+				 * If transition state is of same type as first aggregated
+				 * input, assume it's the same typmod (same width) as well.
+				 * This works for cases like MAX/MIN and is probably somewhat
+				 * reasonable otherwise.
+				 */
+				int			numdirectargs = list_length(aggref->aggdirectargs);
+				int32		aggtranstypmod;
 
-			avgwidth = get_typavgwidth(aggtranstype, aggtranstypmod);
+				if (numArguments > numdirectargs &&
+					aggtranstype == inputTypes[numdirectargs])
+					aggtranstypmod = exprTypmod((Node *) linitial(aggref->args));
+				else
+					aggtranstypmod = -1;
+
+				avgwidth = get_typavgwidth(aggtranstype, aggtranstypmod);
+			}
+
 			avgwidth = MAXALIGN(avgwidth);
-
 			costs->transitionSpace += avgwidth + 2 * sizeof(void *);
 		}
 		else if (aggtranstype == INTERNALOID)
@@ -564,26 +575,24 @@ count_agg_clauses_walker(Node *node, count_agg_clauses_context *context)
 			/*
 			 * INTERNAL transition type is a special case: although INTERNAL
 			 * is pass-by-value, it's almost certainly being used as a pointer
-			 * to some large data structure.  We assume usage of
+			 * to some large data structure.  The aggregate definition can
+			 * provide an estimate of the size.  If it doesn't, then we assume
 			 * ALLOCSET_DEFAULT_INITSIZE, which is a good guess if the data is
 			 * being kept in a private memory context, as is done by
 			 * array_agg() for instance.
 			 */
-			costs->transitionSpace += ALLOCSET_DEFAULT_INITSIZE;
+			if (aggtransspace > 0)
+				costs->transitionSpace += aggtransspace;
+			else
+				costs->transitionSpace += ALLOCSET_DEFAULT_INITSIZE;
 		}
 
 		/*
-		 * Complain if the aggregate's arguments contain any aggregates;
-		 * nested agg functions are semantically nonsensical.  Aggregates in
-		 * the FILTER clause are detected in transformAggregateCall().
-		 */
-		if (contain_agg_clause((Node *) aggref->args))
-			ereport(ERROR,
-					(errcode(ERRCODE_GROUPING_ERROR),
-					 errmsg("aggregate function calls cannot be nested")));
-
-		/*
-		 * Having checked that, we need not recurse into the argument.
+		 * We assume that the parser checked that there are no aggregates (of
+		 * this level anyway) in the aggregated arguments, direct arguments,
+		 * or filter clause.  Hence, we need not recurse into any of them. (If
+		 * either the parser or the planner screws up on this point, the
+		 * executor will still catch it; see ExecInitExpr.)
 		 */
 		return false;
 	}
@@ -648,17 +657,10 @@ find_window_functions_walker(Node *node, WindowFuncLists *lists)
 		lists->numWindowFuncs++;
 
 		/*
-		 * Complain if the window function's arguments contain window
-		 * functions.  Window functions in the FILTER clause are detected in
-		 * transformAggregateCall().
-		 */
-		if (contain_window_function((Node *) wfunc->args))
-			ereport(ERROR,
-					(errcode(ERRCODE_WINDOWING_ERROR),
-					 errmsg("window function calls cannot be nested")));
-
-		/*
-		 * Having checked that, we need not recurse into the argument.
+		 * We assume that the parser checked that there are no window
+		 * functions in the arguments or filter clause.  Hence, we need not
+		 * recurse into them.  (If either the parser or the planner screws up
+		 * on this point, the executor will still catch it; see ExecInitExpr.)
 		 */
 		return false;
 	}
@@ -833,8 +835,8 @@ contain_subplans_walker(Node *node, void *context)
  * mistakenly think that something like "WHERE random() < 0.5" can be treated
  * as a constant qualification.
  *
- * XXX we do not examine sub-selects to see if they contain uses of
- * mutable functions.  It's not real clear if that is correct or not...
+ * We will recursively look into Query nodes (i.e., SubLink sub-selects)
+ * but not into SubPlans.  See comments for contain_volatile_functions().
  */
 bool
 contain_mutable_functions(Node *clause)
@@ -931,6 +933,13 @@ contain_mutable_functions_walker(Node *node, void *context)
 		}
 		/* else fall through to check args */
 	}
+	else if (IsA(node, Query))
+	{
+		/* Recurse into subselects */
+		return query_tree_walker((Query *) node,
+								 contain_mutable_functions_walker,
+								 context, 0);
+	}
 	return expression_tree_walker(node, contain_mutable_functions_walker,
 								  context);
 }
@@ -945,11 +954,18 @@ contain_mutable_functions_walker(Node *node, void *context)
  *	  Recursively search for volatile functions within a clause.
  *
  * Returns true if any volatile function (or operator implemented by a
- * volatile function) is found. This test prevents invalid conversions
- * of volatile expressions into indexscan quals.
+ * volatile function) is found. This test prevents, for example,
+ * invalid conversions of volatile expressions into indexscan quals.
  *
- * XXX we do not examine sub-selects to see if they contain uses of
- * volatile functions.	It's not real clear if that is correct or not...
+ * We will recursively look into Query nodes (i.e., SubLink sub-selects)
+ * but not into SubPlans.  This is a bit odd, but intentional.	If we are
+ * looking at a SubLink, we are probably deciding whether a query tree
+ * transformation is safe, and a contained sub-select should affect that;
+ * for example, duplicating a sub-select containing a volatile function
+ * would be bad.  However, once we've got to the stage of having SubPlans,
+ * subsequent planning need not consider volatility within those, since
+ * the executor won't change its evaluation rules for a SubPlan based on
+ * volatility.
  */
 bool
 contain_volatile_functions(Node *clause)
@@ -957,6 +973,19 @@ contain_volatile_functions(Node *clause)
 	return contain_volatile_functions_walker(clause, NULL);
 }
 
+bool
+contain_volatile_functions_not_nextval(Node *clause)
+{
+	return contain_volatile_functions_not_nextval_walker(clause, NULL);
+}
+
+/*
+ * General purpose code for checking expression volatility.
+ *
+ * Special purpose code for use in COPY is almost identical to this,
+ * so any changes here may also be needed in other contain_volatile...
+ * functions.
+ */
 static bool
 contain_volatile_functions_walker(Node *node, void *context)
 {
@@ -1047,10 +1076,118 @@ contain_volatile_functions_walker(Node *node, void *context)
 		}
 		/* else fall through to check args */
 	}
+	else if (IsA(node, Query))
+	{
+		/* Recurse into subselects */
+		return query_tree_walker((Query *) node,
+								 contain_volatile_functions_walker,
+								 context, 0);
+	}
 	return expression_tree_walker(node, contain_volatile_functions_walker,
 								  context);
 }
 
+/*
+ * Special purpose version of contain_volatile_functions for use in COPY
+ */
+static bool
+contain_volatile_functions_not_nextval_walker(Node *node, void *context)
+{
+	if (node == NULL)
+		return false;
+	if (IsA(node, FuncExpr))
+	{
+		FuncExpr   *expr = (FuncExpr *) node;
+
+		/*
+		 * For this case only, we want to ignore the volatility of the
+		 * nextval() function, since some callers want this.
+		 */
+		if (expr->funcid != F_NEXTVAL_OID &&
+			func_volatile(expr->funcid) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, OpExpr))
+	{
+		OpExpr	   *expr = (OpExpr *) node;
+
+		set_opfuncid(expr);
+		if (func_volatile(expr->opfuncid) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, DistinctExpr))
+	{
+		DistinctExpr *expr = (DistinctExpr *) node;
+
+		set_opfuncid((OpExpr *) expr);	/* rely on struct equivalence */
+		if (func_volatile(expr->opfuncid) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, NullIfExpr))
+	{
+		NullIfExpr *expr = (NullIfExpr *) node;
+
+		set_opfuncid((OpExpr *) expr);	/* rely on struct equivalence */
+		if (func_volatile(expr->opfuncid) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, ScalarArrayOpExpr))
+	{
+		ScalarArrayOpExpr *expr = (ScalarArrayOpExpr *) node;
+
+		set_sa_opfuncid(expr);
+		if (func_volatile(expr->opfuncid) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, CoerceViaIO))
+	{
+		CoerceViaIO *expr = (CoerceViaIO *) node;
+		Oid			iofunc;
+		Oid			typioparam;
+		bool		typisvarlena;
+
+		/* check the result type's input function */
+		getTypeInputInfo(expr->resulttype,
+						 &iofunc, &typioparam);
+		if (func_volatile(iofunc) == PROVOLATILE_VOLATILE)
+			return true;
+		/* check the input type's output function */
+		getTypeOutputInfo(exprType((Node *) expr->arg),
+						  &iofunc, &typisvarlena);
+		if (func_volatile(iofunc) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, ArrayCoerceExpr))
+	{
+		ArrayCoerceExpr *expr = (ArrayCoerceExpr *) node;
+
+		if (OidIsValid(expr->elemfuncid) &&
+			func_volatile(expr->elemfuncid) == PROVOLATILE_VOLATILE)
+			return true;
+		/* else fall through to check args */
+	}
+	else if (IsA(node, RowCompareExpr))
+	{
+		/* RowCompare probably can't have volatile ops, but check anyway */
+		RowCompareExpr *rcexpr = (RowCompareExpr *) node;
+		ListCell   *opid;
+
+		foreach(opid, rcexpr->opnos)
+		{
+			if (op_volatile(lfirst_oid(opid)) == PROVOLATILE_VOLATILE)
+				return true;
+		}
+		/* else fall through to check args */
+	}
+	return expression_tree_walker(node, contain_volatile_functions_not_nextval_walker,
+								  context);
+}
 
 /*****************************************************************************
  *		Check clauses for nonstrict functions
@@ -2250,6 +2387,56 @@ eval_const_expressions_mutator(Node *node,
 				 * recurse)
 				 */
 				return (Node *) copyObject(param);
+			}
+		case T_WindowFunc:
+			{
+				WindowFunc *expr = (WindowFunc *) node;
+				Oid			funcid = expr->winfnoid;
+				List	   *args;
+				Expr	   *aggfilter;
+				HeapTuple	func_tuple;
+				WindowFunc *newexpr;
+
+				/*
+				 * We can't really simplify a WindowFunc node, but we mustn't
+				 * just fall through to the default processing, because we
+				 * have to apply expand_function_arguments to its argument
+				 * list.  That takes care of inserting default arguments and
+				 * expanding named-argument notation.
+				 */
+				func_tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
+				if (!HeapTupleIsValid(func_tuple))
+					elog(ERROR, "cache lookup failed for function %u", funcid);
+
+				args = expand_function_arguments(expr->args, expr->wintype,
+												 func_tuple);
+
+				ReleaseSysCache(func_tuple);
+
+				/* Now, recursively simplify the args (which are a List) */
+				args = (List *)
+					expression_tree_mutator((Node *) args,
+											eval_const_expressions_mutator,
+											(void *) context);
+				/* ... and the filter expression, which isn't */
+				aggfilter = (Expr *)
+					eval_const_expressions_mutator((Node *) expr->aggfilter,
+												   context);
+
+				/* And build the replacement WindowFunc node */
+				newexpr = makeNode(WindowFunc);
+				newexpr->winfnoid = expr->winfnoid;
+				newexpr->wintype = expr->wintype;
+				newexpr->wincollid = expr->wincollid;
+				newexpr->inputcollid = expr->inputcollid;
+				newexpr->args = args;
+				newexpr->aggfilter = aggfilter;
+				newexpr->winref = expr->winref;
+				newexpr->winstar = expr->winstar;
+				newexpr->winagg = expr->winagg;
+				newexpr->location = expr->location;
+
+				return (Node *) newexpr;
 			}
 		case T_FuncExpr:
 			{
@@ -4424,6 +4611,7 @@ evaluate_expr(Expr *expr, Oid result_type, int32 result_typmod,
 Query *
 inline_set_returning_function(PlannerInfo *root, RangeTblEntry *rte)
 {
+	RangeTblFunction *rtfunc;
 	FuncExpr   *fexpr;
 	Oid			func_oid;
 	HeapTuple	func_tuple;
@@ -4452,14 +4640,18 @@ inline_set_returning_function(PlannerInfo *root, RangeTblEntry *rte)
 	 */
 	check_stack_depth();
 
-	/* Fail if the caller wanted ORDINALITY - we don't implement that here. */
+	/* Fail if the RTE has ORDINALITY - we don't implement that here. */
 	if (rte->funcordinality)
 		return NULL;
 
-	/* Fail if FROM item isn't a simple FuncExpr */
-	fexpr = (FuncExpr *) rte->funcexpr;
-	if (fexpr == NULL || !IsA(fexpr, FuncExpr))
+	/* Fail if RTE isn't a single, simple FuncExpr */
+	if (list_length(rte->functions) != 1)
 		return NULL;
+	rtfunc = (RangeTblFunction *) linitial(rte->functions);
+
+	if (!IsA(rtfunc->funcexpr, FuncExpr))
+		return NULL;
+	fexpr = (FuncExpr *) rtfunc->funcexpr;
 
 	func_oid = fexpr->funcid;
 
@@ -4649,7 +4841,8 @@ inline_set_returning_function(PlannerInfo *root, RangeTblEntry *rte)
 	 */
 	if (fexpr->funcresulttype == RECORDOID &&
 		get_func_result_type(func_oid, NULL, NULL) == TYPEFUNC_RECORD &&
-		!tlist_matches_coltypelist(querytree->targetList, rte->funccoltypes))
+		!tlist_matches_coltypelist(querytree->targetList,
+								   rtfunc->funccoltypes))
 		goto fail;
 
 	/*

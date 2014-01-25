@@ -18,7 +18,7 @@
  * everything that should be freed.  See utils/mmgr/README for more info.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/palloc.h
@@ -97,11 +97,17 @@ extern char *MemoryContextStrdup(MemoryContext context, const char *string);
 
 extern char *pstrdup(const char *in);
 extern char *pnstrdup(const char *in, Size len);
+
+/* basic memory allocation functions */
 extern void *palloc(Size size);
 extern void *palloc0(Size size);
 extern void pfree(void *pointer);
 extern void *repalloc(void *pointer, Size size);
-extern char *psprintf(const char *format, ...) __attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
-extern char *pvsprintf(const char *format, va_list ap) __attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 0)));
+
+/* sprintf into a palloc'd buffer --- these are in psprintf.c */
+extern char *psprintf(const char *fmt,...)
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
+extern size_t pvsnprintf(char *buf, size_t len, const char *fmt, va_list args)
+__attribute__((format(PG_PRINTF_ATTRIBUTE, 3, 0)));
 
 #endif   /* PALLOC_H */

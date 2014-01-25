@@ -101,8 +101,11 @@ VACUUM [ FULL ] [ FREEZE ] [ VERBOSE ] ANALYZE [ <replaceable class="PARAMETER">
       Selects aggressive <quote>freezing</quote> of tuples.
       Specifying <literal>FREEZE</literal> is equivalent to performing
       <command>VACUUM</command> with the
-      <xref linkend="guc-vacuum-freeze-min-age"> parameter
-      set to zero.
+      <xref linkend="guc-vacuum-freeze-min-age"> and
+      <xref linkend="guc-vacuum-freeze-table-age"> parameters
+      set to zero.  Aggressive freezing is always performed when the
+      table is rewritten, so this option is redundant when <literal>FULL</>
+      is specified.
      </para>
     </listitem>
    </varlistentry>

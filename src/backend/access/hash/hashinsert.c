@@ -3,7 +3,7 @@
  * hashinsert.c
  *	  Item insertion in hash tables for Postgres.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -65,9 +65,8 @@ _hash_doinsert(Relation rel, IndexTuple itup)
 	if (itemsz > HashMaxItemSize((Page) metap))
 		ereport(ERROR,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-				 errmsg("index row size %lu exceeds hash maximum %lu",
-						(unsigned long) itemsz,
-						(unsigned long) HashMaxItemSize((Page) metap)),
+				 errmsg("index row size %zu exceeds hash maximum %zu",
+						itemsz, HashMaxItemSize((Page) metap)),
 			errhint("Values larger than a buffer page cannot be indexed.")));
 
 	/*

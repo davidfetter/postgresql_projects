@@ -4,7 +4,7 @@
  *
  *	  Routines for opclass (and opfamily) manipulation commands
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -103,11 +103,14 @@ OpFamilyCacheLookup(Oid amID, List *opfamilyname, bool missing_ok)
 		/* Look in specific schema only */
 		Oid			namespaceId;
 
-		namespaceId = LookupExplicitNamespace(schemaname, false);
-		htup = SearchSysCache3(OPFAMILYAMNAMENSP,
-							   ObjectIdGetDatum(amID),
-							   PointerGetDatum(opfname),
-							   ObjectIdGetDatum(namespaceId));
+		namespaceId = LookupExplicitNamespace(schemaname, missing_ok);
+		if (!OidIsValid(namespaceId))
+			htup = NULL;
+		else
+			htup = SearchSysCache3(OPFAMILYAMNAMENSP,
+								   ObjectIdGetDatum(amID),
+								   PointerGetDatum(opfname),
+								   ObjectIdGetDatum(namespaceId));
 	}
 	else
 	{
@@ -179,11 +182,14 @@ OpClassCacheLookup(Oid amID, List *opclassname, bool missing_ok)
 		/* Look in specific schema only */
 		Oid			namespaceId;
 
-		namespaceId = LookupExplicitNamespace(schemaname, false);
-		htup = SearchSysCache3(CLAAMNAMENSP,
-							   ObjectIdGetDatum(amID),
-							   PointerGetDatum(opcname),
-							   ObjectIdGetDatum(namespaceId));
+		namespaceId = LookupExplicitNamespace(schemaname, missing_ok);
+		if (!OidIsValid(namespaceId))
+			htup = NULL;
+		else
+			htup = SearchSysCache3(CLAAMNAMENSP,
+								   ObjectIdGetDatum(amID),
+								   PointerGetDatum(opcname),
+								   ObjectIdGetDatum(namespaceId));
 	}
 	else
 	{

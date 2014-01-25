@@ -196,8 +196,6 @@ SELECT ARRAY[[1,2],[3,4]] || ARRAY[5,6] AS "{{1,2},{3,4},{5,6}}";
 SELECT ARRAY[0,0] || ARRAY[1,1] || ARRAY[2,2] AS "{0,0,1,1,2,2}";
 SELECT 0 || ARRAY[1,2] || 3 AS "{0,1,2,3}";
 
-ANALYZE array_op_test;
-
 SELECT * FROM array_op_test WHERE i @> '{32}' ORDER BY seqno;
 SELECT * FROM array_op_test WHERE i && '{32}' ORDER BY seqno;
 SELECT * FROM array_op_test WHERE i @> '{17}' ORDER BY seqno;
@@ -420,6 +418,14 @@ select array_length(array[[1,2,3], [4,5,6]], 0);
 select array_length(array[[1,2,3], [4,5,6]], 1);
 select array_length(array[[1,2,3], [4,5,6]], 2);
 select array_length(array[[1,2,3], [4,5,6]], 3);
+
+select cardinality(NULL::int[]);
+select cardinality('{}'::int[]);
+select cardinality(array[1,2,3]);
+select cardinality('[2:4]={5,6,7}'::int[]);
+select cardinality('{{1,2}}'::int[]);
+select cardinality('{{1,2},{3,4},{5,6}}'::int[]);
+select cardinality('{{{1}},{{2,3},{3,4}}}'::int[]);
 
 select array_agg(unique1) from (select unique1 from tenk1 where unique1 < 15 order by unique1) ss;
 select array_agg(ten) from (select ten from tenk1 where unique1 < 15 order by unique1) ss;

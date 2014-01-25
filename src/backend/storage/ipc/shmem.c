@@ -3,7 +3,7 @@
  * shmem.c
  *	  create shared memory and initialize shared memory data structures.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -116,9 +116,24 @@ InitShmemAllocation(void)
 	Assert(shmhdr != NULL);
 
 	/*
-	 * Initialize the spinlock used by ShmemAlloc.	We have to do the space
-	 * allocation the hard way, since obviously ShmemAlloc can't be called
-	 * yet.
+	 * If spinlocks are disabled, initialize emulation layer.  We have to do
+	 * the space allocation the hard way, since obviously ShmemAlloc can't be
+	 * called yet.
+	 */
+#ifndef HAVE_SPINLOCKS
+	{
+		PGSemaphore spinsemas;
+
+		spinsemas = (PGSemaphore) (((char *) shmhdr) + shmhdr->freeoffset);
+		shmhdr->freeoffset += MAXALIGN(SpinlockSemaSize());
+		SpinlockSemaInit(spinsemas);
+		Assert(shmhdr->freeoffset <= shmhdr->totalsize);
+	}
+#endif
+
+	/*
+	 * Initialize the spinlock used by ShmemAlloc; we have to do this the hard
+	 * way, too, for the same reasons as above.
 	 */
 	ShmemLock = (slock_t *) (((char *) shmhdr) + shmhdr->freeoffset);
 	shmhdr->freeoffset += MAXALIGN(sizeof(slock_t));
@@ -344,8 +359,8 @@ ShmemInitStruct(const char *name, Size size, bool *foundPtr)
 				ereport(ERROR,
 						(errcode(ERRCODE_OUT_OF_MEMORY),
 						 errmsg("not enough shared memory for data structure"
-								" \"%s\" (%lu bytes requested)",
-								name, (unsigned long) size)));
+								" \"%s\" (%zu bytes requested)",
+								name, size)));
 			shmemseghdr->index = structPtr;
 			*foundPtr = FALSE;
 		}
@@ -378,10 +393,8 @@ ShmemInitStruct(const char *name, Size size, bool *foundPtr)
 			LWLockRelease(ShmemIndexLock);
 			ereport(ERROR,
 				  (errmsg("ShmemIndex entry size is wrong for data structure"
-						  " \"%s\": expected %lu, actual %lu",
-						  name,
-						  (unsigned long) size,
-						  (unsigned long) result->size)));
+						  " \"%s\": expected %zu, actual %zu",
+						  name, size, result->size)));
 		}
 		structPtr = result->location;
 	}
@@ -397,8 +410,8 @@ ShmemInitStruct(const char *name, Size size, bool *foundPtr)
 			ereport(ERROR,
 					(errcode(ERRCODE_OUT_OF_MEMORY),
 					 errmsg("not enough shared memory for data structure"
-							" \"%s\" (%lu bytes requested)",
-							name, (unsigned long) size)));
+							" \"%s\" (%zu bytes requested)",
+							name, size)));
 		}
 		result->size = size;
 		result->location = structPtr;

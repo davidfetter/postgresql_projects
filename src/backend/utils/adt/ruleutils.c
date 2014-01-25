@@ -4,7 +4,7 @@
  *	  Functions to convert stored expressions/querytrees back to
  *	  source text
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -22,6 +22,7 @@
 #include "access/sysattr.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
+#include "catalog/pg_aggregate.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_constraint.h"
@@ -40,6 +41,7 @@
 #include "nodes/nodeFuncs.h"
 #include "optimizer/tlist.h"
 #include "parser/keywords.h"
+#include "parser/parse_agg.h"
 #include "parser/parse_func.h"
 #include "parser/parse_oper.h"
 #include "parser/parser.h"
@@ -365,6 +367,7 @@ static const char *get_simple_binary_op_name(OpExpr *expr);
 static bool isSimpleNode(Node *node, Node *parentNode, int prettyFlags);
 static void appendContextKeyword(deparse_context *context, const char *str,
 					 int indentBefore, int indentAfter, int indentPlus);
+static void removeStringInfoSpaces(StringInfo str);
 static void get_rule_expr(Node *node, deparse_context *context,
 			  bool showimplicit);
 static void get_oper_expr(OpExpr *expr, deparse_context *context);
@@ -386,8 +389,8 @@ static void get_from_clause_item(Node *jtnode, Query *query,
 					 deparse_context *context);
 static void get_column_alias_list(deparse_columns *colinfo,
 					  deparse_context *context);
-static void get_from_clause_coldeflist(deparse_columns *colinfo,
-						   List *types, List *typmods, List *collations,
+static void get_from_clause_coldeflist(RangeTblFunction *rtfunc,
+						   deparse_columns *colinfo,
 						   deparse_context *context);
 static void get_opclass_name(Oid opclass, Oid actual_datatype,
 				 StringInfo buf);
@@ -479,11 +482,11 @@ pg_get_ruledef_worker(Oid ruleoid, int prettyFlags)
 	 */
 	args[0] = ObjectIdGetDatum(ruleoid);
 	nulls[0] = ' ';
-	spirc = SPI_execute_plan(plan_getrulebyoid, args, nulls, true, 1);
+	spirc = SPI_execute_plan(plan_getrulebyoid, args, nulls, true, 0);
 	if (spirc != SPI_OK_SELECT)
 		elog(ERROR, "failed to get pg_rewrite tuple for rule %u", ruleoid);
 	if (SPI_processed != 1)
-		appendStringInfo(&buf, "-");
+		appendStringInfoChar(&buf, '-');
 	else
 	{
 		/*
@@ -631,14 +634,14 @@ pg_get_viewdef_worker(Oid viewoid, int prettyFlags, int wrapColumn)
 	 * Get the pg_rewrite tuple for the view's SELECT rule
 	 */
 	args[0] = ObjectIdGetDatum(viewoid);
-	args[1] = PointerGetDatum(ViewSelectRuleName);
+	args[1] = DirectFunctionCall1(namein, CStringGetDatum(ViewSelectRuleName));
 	nulls[0] = ' ';
 	nulls[1] = ' ';
-	spirc = SPI_execute_plan(plan_getviewrule, args, nulls, true, 2);
+	spirc = SPI_execute_plan(plan_getviewrule, args, nulls, true, 0);
 	if (spirc != SPI_OK_SELECT)
 		elog(ERROR, "failed to get pg_rewrite tuple for view %u", viewoid);
 	if (SPI_processed != 1)
-		appendStringInfo(&buf, "Not a view");
+		appendStringInfoString(&buf, "Not a view");
 	else
 	{
 		/*
@@ -725,33 +728,33 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 					 quote_identifier(tgname));
 
 	if (TRIGGER_FOR_BEFORE(trigrec->tgtype))
-		appendStringInfo(&buf, "BEFORE");
+		appendStringInfoString(&buf, "BEFORE");
 	else if (TRIGGER_FOR_AFTER(trigrec->tgtype))
-		appendStringInfo(&buf, "AFTER");
+		appendStringInfoString(&buf, "AFTER");
 	else if (TRIGGER_FOR_INSTEAD(trigrec->tgtype))
-		appendStringInfo(&buf, "INSTEAD OF");
+		appendStringInfoString(&buf, "INSTEAD OF");
 	else
 		elog(ERROR, "unexpected tgtype value: %d", trigrec->tgtype);
 
 	if (TRIGGER_FOR_INSERT(trigrec->tgtype))
 	{
-		appendStringInfo(&buf, " INSERT");
+		appendStringInfoString(&buf, " INSERT");
 		findx++;
 	}
 	if (TRIGGER_FOR_DELETE(trigrec->tgtype))
 	{
 		if (findx > 0)
-			appendStringInfo(&buf, " OR DELETE");
+			appendStringInfoString(&buf, " OR DELETE");
 		else
-			appendStringInfo(&buf, " DELETE");
+			appendStringInfoString(&buf, " DELETE");
 		findx++;
 	}
 	if (TRIGGER_FOR_UPDATE(trigrec->tgtype))
 	{
 		if (findx > 0)
-			appendStringInfo(&buf, " OR UPDATE");
+			appendStringInfoString(&buf, " OR UPDATE");
 		else
-			appendStringInfo(&buf, " UPDATE");
+			appendStringInfoString(&buf, " UPDATE");
 		findx++;
 		/* tgattr is first var-width field, so OK to access directly */
 		if (trigrec->tgattr.dim1 > 0)
@@ -774,9 +777,9 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 	if (TRIGGER_FOR_TRUNCATE(trigrec->tgtype))
 	{
 		if (findx > 0)
-			appendStringInfo(&buf, " OR TRUNCATE");
+			appendStringInfoString(&buf, " OR TRUNCATE");
 		else
-			appendStringInfo(&buf, " TRUNCATE");
+			appendStringInfoString(&buf, " TRUNCATE");
 		findx++;
 	}
 	appendStringInfo(&buf, " ON %s ",
@@ -788,18 +791,18 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 			appendStringInfo(&buf, "FROM %s ",
 						generate_relation_name(trigrec->tgconstrrelid, NIL));
 		if (!trigrec->tgdeferrable)
-			appendStringInfo(&buf, "NOT ");
-		appendStringInfo(&buf, "DEFERRABLE INITIALLY ");
+			appendStringInfoString(&buf, "NOT ");
+		appendStringInfoString(&buf, "DEFERRABLE INITIALLY ");
 		if (trigrec->tginitdeferred)
-			appendStringInfo(&buf, "DEFERRED ");
+			appendStringInfoString(&buf, "DEFERRED ");
 		else
-			appendStringInfo(&buf, "IMMEDIATE ");
+			appendStringInfoString(&buf, "IMMEDIATE ");
 	}
 
 	if (TRIGGER_FOR_ROW(trigrec->tgtype))
-		appendStringInfo(&buf, "FOR EACH ROW ");
+		appendStringInfoString(&buf, "FOR EACH ROW ");
 	else
-		appendStringInfo(&buf, "FOR EACH STATEMENT ");
+		appendStringInfoString(&buf, "FOR EACH STATEMENT ");
 
 	/* If the trigger has a WHEN qualification, add that */
 	value = fastgetattr(ht_trig, Anum_pg_trigger_tgqual,
@@ -859,7 +862,7 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 
 		get_rule_expr(qual, &context, false);
 
-		appendStringInfo(&buf, ") ");
+		appendStringInfoString(&buf, ") ");
 	}
 
 	appendStringInfo(&buf, "EXECUTE PROCEDURE %s(",
@@ -880,7 +883,7 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 		for (i = 0; i < trigrec->tgnargs; i++)
 		{
 			if (i > 0)
-				appendStringInfo(&buf, ", ");
+				appendStringInfoString(&buf, ", ");
 			simple_quote_literal(&buf, p);
 			/* advance p to next string embedded in tgargs */
 			while (*p)
@@ -890,7 +893,7 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 	}
 
 	/* We deliberately do not put semi-colon at end */
-	appendStringInfo(&buf, ")");
+	appendStringInfoChar(&buf, ')');
 
 	/* Clean up */
 	systable_endscan(tgscan);
@@ -1154,15 +1157,15 @@ pg_get_indexdef_worker(Oid indexrelid, int colno,
 				/* if it supports sort ordering, report DESC and NULLS opts */
 				if (opt & INDOPTION_DESC)
 				{
-					appendStringInfo(&buf, " DESC");
+					appendStringInfoString(&buf, " DESC");
 					/* NULLS FIRST is the default in this case */
 					if (!(opt & INDOPTION_NULLS_FIRST))
-						appendStringInfo(&buf, " NULLS LAST");
+						appendStringInfoString(&buf, " NULLS LAST");
 				}
 				else
 				{
 					if (opt & INDOPTION_NULLS_FIRST)
-						appendStringInfo(&buf, " NULLS FIRST");
+						appendStringInfoString(&buf, " NULLS FIRST");
 				}
 			}
 
@@ -1312,7 +1315,7 @@ pg_get_constraintdef_worker(Oid constraintId, bool fullCommand,
 				const char *string;
 
 				/* Start off the constraint definition */
-				appendStringInfo(&buf, "FOREIGN KEY (");
+				appendStringInfoString(&buf, "FOREIGN KEY (");
 
 				/* Fetch and build referencing-column list */
 				val = SysCacheGetAttr(CONSTROID, tup,
@@ -1337,7 +1340,7 @@ pg_get_constraintdef_worker(Oid constraintId, bool fullCommand,
 
 				decompile_column_index_array(val, conForm->confrelid, &buf);
 
-				appendStringInfo(&buf, ")");
+				appendStringInfoChar(&buf, ')');
 
 				/* Add match type */
 				switch (conForm->confmatchtype)
@@ -1423,9 +1426,9 @@ pg_get_constraintdef_worker(Oid constraintId, bool fullCommand,
 
 				/* Start off the constraint definition */
 				if (conForm->contype == CONSTRAINT_PRIMARY)
-					appendStringInfo(&buf, "PRIMARY KEY (");
+					appendStringInfoString(&buf, "PRIMARY KEY (");
 				else
-					appendStringInfo(&buf, "UNIQUE (");
+					appendStringInfoString(&buf, "UNIQUE (");
 
 				/* Fetch and build target column list */
 				val = SysCacheGetAttr(CONSTROID, tup,
@@ -1436,7 +1439,7 @@ pg_get_constraintdef_worker(Oid constraintId, bool fullCommand,
 
 				decompile_column_index_array(val, conForm->conrelid, &buf);
 
-				appendStringInfo(&buf, ")");
+				appendStringInfoChar(&buf, ')');
 
 				indexId = get_constraint_index(constraintId);
 
@@ -1520,7 +1523,7 @@ pg_get_constraintdef_worker(Oid constraintId, bool fullCommand,
 			 * throw an error; if we throw error then this function couldn't
 			 * safely be applied to all rows of pg_constraint.
 			 */
-			appendStringInfo(&buf, "TRIGGER");
+			appendStringInfoString(&buf, "TRIGGER");
 			break;
 		case CONSTRAINT_EXCLUSION:
 			{
@@ -1565,9 +1568,9 @@ pg_get_constraintdef_worker(Oid constraintId, bool fullCommand,
 	}
 
 	if (conForm->condeferrable)
-		appendStringInfo(&buf, " DEFERRABLE");
+		appendStringInfoString(&buf, " DEFERRABLE");
 	if (conForm->condeferred)
-		appendStringInfo(&buf, " INITIALLY DEFERRED");
+		appendStringInfoString(&buf, " INITIALLY DEFERRED");
 	if (!conForm->convalidated)
 		appendStringInfoString(&buf, " NOT VALID");
 
@@ -2029,7 +2032,7 @@ pg_get_functiondef(PG_FUNCTION_ARGS)
 	appendStringInfoString(&buf, prosrc);
 	appendStringInfoString(&buf, dq.data);
 
-	appendStringInfoString(&buf, "\n");
+	appendStringInfoChar(&buf, '\n');
 
 	ReleaseSysCache(langtup);
 	ReleaseSysCache(proctup);
@@ -2165,6 +2168,7 @@ print_function_arguments(StringInfo buf, HeapTuple proctup,
 	Oid		   *argtypes;
 	char	  **argnames;
 	char	   *argmodes;
+	int			insertorderbyat = -1;
 	int			argsprinted;
 	int			inputargno;
 	int			nlackdefaults;
@@ -2196,6 +2200,23 @@ print_function_arguments(StringInfo buf, HeapTuple proctup,
 			/* nlackdefaults counts only *input* arguments lacking defaults */
 			nlackdefaults = proc->pronargs - list_length(argdefaults);
 		}
+	}
+
+	/* Check for special treatment of ordered-set aggregates */
+	if (proc->proisagg)
+	{
+		HeapTuple	aggtup;
+		Form_pg_aggregate agg;
+
+		aggtup = SearchSysCache1(AGGFNOID,
+								 ObjectIdGetDatum(HeapTupleGetOid(proctup)));
+		if (!HeapTupleIsValid(aggtup))
+			elog(ERROR, "cache lookup failed for aggregate %u",
+				 HeapTupleGetOid(proctup));
+		agg = (Form_pg_aggregate) GETSTRUCT(aggtup);
+		if (AGGKIND_IS_ORDERED_SET(agg->aggkind))
+			insertorderbyat = agg->aggnumdirectargs;
+		ReleaseSysCache(aggtup);
 	}
 
 	argsprinted = 0;
@@ -2242,8 +2263,15 @@ print_function_arguments(StringInfo buf, HeapTuple proctup,
 		if (print_table_args != (argmode == PROARGMODE_TABLE))
 			continue;
 
-		if (argsprinted)
+		if (argsprinted == insertorderbyat)
+		{
+			if (argsprinted)
+				appendStringInfoChar(buf, ' ');
+			appendStringInfoString(buf, "ORDER BY ");
+		}
+		else if (argsprinted)
 			appendStringInfoString(buf, ", ");
+
 		appendStringInfoString(buf, modename);
 		if (argname && argname[0])
 			appendStringInfo(buf, "%s ", quote_identifier(argname));
@@ -2260,9 +2288,101 @@ print_function_arguments(StringInfo buf, HeapTuple proctup,
 							 deparse_expression(expr, NIL, false, false));
 		}
 		argsprinted++;
+
+		/* nasty hack: print the last arg twice for variadic ordered-set agg */
+		if (argsprinted == insertorderbyat && i == numargs - 1)
+		{
+			i--;
+			/* aggs shouldn't have defaults anyway, but just to be sure ... */
+			print_defaults = false;
+		}
 	}
 
 	return argsprinted;
+}
+
+static bool
+is_input_argument(int nth, const char *argmodes)
+{
+	return (!argmodes
+			|| argmodes[nth] == PROARGMODE_IN
+			|| argmodes[nth] == PROARGMODE_INOUT
+			|| argmodes[nth] == PROARGMODE_VARIADIC);
+}
+
+/*
+ * Get textual representation of a function argument's default value.  The
+ * second argument of this function is the argument number among all arguments
+ * (i.e. proallargtypes, *not* proargtypes), starting with 1, because that's
+ * how information_schema.sql uses it.
+ */
+Datum
+pg_get_function_arg_default(PG_FUNCTION_ARGS)
+{
+	Oid			funcid = PG_GETARG_OID(0);
+	int32		nth_arg = PG_GETARG_INT32(1);
+	HeapTuple	proctup;
+	Form_pg_proc proc;
+	int			numargs;
+	Oid		   *argtypes;
+	char	  **argnames;
+	char	   *argmodes;
+	int			i;
+	List	   *argdefaults;
+	Node	   *node;
+	char	   *str;
+	int			nth_inputarg;
+	Datum		proargdefaults;
+	bool		isnull;
+	int			nth_default;
+
+	proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
+	if (!HeapTupleIsValid(proctup))
+		elog(ERROR, "cache lookup failed for function %u", funcid);
+
+	numargs = get_func_arg_info(proctup, &argtypes, &argnames, &argmodes);
+	if (nth_arg < 1 || nth_arg > numargs || !is_input_argument(nth_arg - 1, argmodes))
+	{
+		ReleaseSysCache(proctup);
+		PG_RETURN_NULL();
+	}
+
+	nth_inputarg = 0;
+	for (i = 0; i < nth_arg; i++)
+		if (is_input_argument(i, argmodes))
+			nth_inputarg++;
+
+	proargdefaults = SysCacheGetAttr(PROCOID, proctup,
+									 Anum_pg_proc_proargdefaults,
+									 &isnull);
+	if (isnull)
+	{
+		ReleaseSysCache(proctup);
+		PG_RETURN_NULL();
+	}
+
+	str = TextDatumGetCString(proargdefaults);
+	argdefaults = (List *) stringToNode(str);
+	Assert(IsA(argdefaults, List));
+	pfree(str);
+
+	proc = (Form_pg_proc) GETSTRUCT(proctup);
+
+	/* Calculate index into proargdefaults: proargdefaults corresponds to the
+	 * last N input arguments, where N = pronargdefaults. */
+	nth_default = nth_inputarg - 1 - (proc->pronargs - proc->pronargdefaults);
+
+	if (nth_default < 0 || nth_default >= list_length(argdefaults))
+	{
+		ReleaseSysCache(proctup);
+		PG_RETURN_NULL();
+	}
+	node = list_nth(argdefaults, nth_default);
+	str = deparse_expression(node, NIL, false, false);
+
+	ReleaseSysCache(proctup);
+
+	PG_RETURN_TEXT_P(string_to_text(str));
 }
 
 
@@ -3789,19 +3909,19 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	switch (ev_type)
 	{
 		case '1':
-			appendStringInfo(buf, "SELECT");
+			appendStringInfoString(buf, "SELECT");
 			break;
 
 		case '2':
-			appendStringInfo(buf, "UPDATE");
+			appendStringInfoString(buf, "UPDATE");
 			break;
 
 		case '3':
-			appendStringInfo(buf, "INSERT");
+			appendStringInfoString(buf, "INSERT");
 			break;
 
 		case '4':
-			appendStringInfo(buf, "DELETE");
+			appendStringInfoString(buf, "DELETE");
 			break;
 
 		default:
@@ -3827,7 +3947,7 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 		if (prettyFlags & PRETTYFLAG_INDENT)
 			appendStringInfoString(buf, "\n  ");
-		appendStringInfo(buf, " WHERE ");
+		appendStringInfoString(buf, " WHERE ");
 
 		qual = stringToNode(ev_qual);
 
@@ -3862,11 +3982,11 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		get_rule_expr(qual, &context, false);
 	}
 
-	appendStringInfo(buf, " DO ");
+	appendStringInfoString(buf, " DO ");
 
 	/* The INSTEAD keyword (if so) */
 	if (is_instead)
-		appendStringInfo(buf, "INSTEAD ");
+		appendStringInfoString(buf, "INSTEAD ");
 
 	/* Finally the rules actions */
 	if (list_length(actions) > 1)
@@ -3874,22 +3994,22 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		ListCell   *action;
 		Query	   *query;
 
-		appendStringInfo(buf, "(");
+		appendStringInfoChar(buf, '(');
 		foreach(action, actions)
 		{
 			query = (Query *) lfirst(action);
 			get_query_def(query, buf, NIL, NULL,
 						  prettyFlags, WRAP_COLUMN_DEFAULT, 0);
 			if (prettyFlags)
-				appendStringInfo(buf, ";\n");
+				appendStringInfoString(buf, ";\n");
 			else
-				appendStringInfo(buf, "; ");
+				appendStringInfoString(buf, "; ");
 		}
-		appendStringInfo(buf, ");");
+		appendStringInfoString(buf, ");");
 	}
 	else if (list_length(actions) == 0)
 	{
-		appendStringInfo(buf, "NOTHING;");
+		appendStringInfoString(buf, "NOTHING;");
 	}
 	else
 	{
@@ -3898,7 +4018,7 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		query = (Query *) linitial(actions);
 		get_query_def(query, buf, NIL, NULL,
 					  prettyFlags, WRAP_COLUMN_DEFAULT, 0);
-		appendStringInfo(buf, ";");
+		appendStringInfoChar(buf, ';');
 	}
 }
 
@@ -3945,7 +4065,7 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 	if (list_length(actions) != 1)
 	{
-		appendStringInfo(buf, "Not a view");
+		appendStringInfoString(buf, "Not a view");
 		return;
 	}
 
@@ -3954,7 +4074,7 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	if (ev_type != '1' || !is_instead ||
 		strcmp(ev_qual, "<>") != 0 || query->commandType != CMD_SELECT)
 	{
-		appendStringInfo(buf, "Not a view");
+		appendStringInfoString(buf, "Not a view");
 		return;
 	}
 
@@ -3962,7 +4082,7 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 
 	get_query_def(query, buf, NIL, RelationGetDescr(ev_relation),
 				  prettyFlags, wrapColumn, 0);
-	appendStringInfo(buf, ";");
+	appendStringInfoChar(buf, ';');
 
 	heap_close(ev_relation, AccessShareLock);
 }
@@ -4022,7 +4142,7 @@ get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 			break;
 
 		case CMD_NOTHING:
-			appendStringInfo(buf, "NOTHING");
+			appendStringInfoString(buf, "NOTHING");
 			break;
 
 		case CMD_UTILITY:
@@ -4211,7 +4331,7 @@ get_select_query_def(Query *query, deparse_context *context,
 							 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
 		if (IsA(query->limitCount, Const) &&
 			((Const *) query->limitCount)->constisnull)
-			appendStringInfo(buf, "ALL");
+			appendStringInfoString(buf, "ALL");
 		else
 			get_rule_expr(query->limitCount, context, false);
 	}
@@ -4251,7 +4371,7 @@ get_select_query_def(Query *query, deparse_context *context,
 							 quote_identifier(get_rtable_name(rc->rti,
 															  context)));
 			if (rc->noWait)
-				appendStringInfo(buf, " NOWAIT");
+				appendStringInfoString(buf, " NOWAIT");
 		}
 	}
 
@@ -4325,14 +4445,14 @@ get_basic_select_query(Query *query, deparse_context *context,
 	/*
 	 * Build up the query string - first we say SELECT
 	 */
-	appendStringInfo(buf, "SELECT");
+	appendStringInfoString(buf, "SELECT");
 
 	/* Add the DISTINCT clause if given */
 	if (query->distinctClause != NIL)
 	{
 		if (query->hasDistinctOn)
 		{
-			appendStringInfo(buf, " DISTINCT ON (");
+			appendStringInfoString(buf, " DISTINCT ON (");
 			sep = "";
 			foreach(l, query->distinctClause)
 			{
@@ -4343,10 +4463,10 @@ get_basic_select_query(Query *query, deparse_context *context,
 										 false, context);
 				sep = ", ";
 			}
-			appendStringInfo(buf, ")");
+			appendStringInfoChar(buf, ')');
 		}
 		else
-			appendStringInfo(buf, " DISTINCT");
+			appendStringInfoString(buf, " DISTINCT");
 	}
 
 	/* Then we tell what to select (the targetlist) */
@@ -4479,42 +4599,42 @@ get_target_list(List *targetList, deparse_context *context,
 		/* Consider line-wrapping if enabled */
 		if (PRETTY_INDENT(context) && context->wrapColumn >= 0)
 		{
-			int			leading_nl_pos = -1;
-			char	   *trailing_nl;
-			int			pos;
+			int			leading_nl_pos;
 
-			/* Does the new field start with whitespace plus a new line? */
-			for (pos = 0; pos < targetbuf.len; pos++)
-			{
-				if (targetbuf.data[pos] == '\n')
-				{
-					leading_nl_pos = pos;
-					break;
-				}
-				if (targetbuf.data[pos] != ' ')
-					break;
-			}
-
-			/* Locate the start of the current line in the output buffer */
-			trailing_nl = strrchr(buf->data, '\n');
-			if (trailing_nl == NULL)
-				trailing_nl = buf->data;
+			/* Does the new field start with a new line? */
+			if (targetbuf.len > 0 && targetbuf.data[0] == '\n')
+				leading_nl_pos = 0;
 			else
-				trailing_nl++;
+				leading_nl_pos = -1;
 
-			/*
-			 * If the field we're adding is the first in the list, or it
-			 * already has a leading newline, don't add anything. Otherwise,
-			 * add a newline, plus some indentation, if either the new field
-			 * would cause an overflow or the last field used more than one
-			 * line.
-			 */
-			if (colno > 1 &&
-				leading_nl_pos == -1 &&
-				((strlen(trailing_nl) + strlen(targetbuf.data) > context->wrapColumn) ||
-				 last_was_multiline))
-				appendContextKeyword(context, "", -PRETTYINDENT_STD,
-									 PRETTYINDENT_STD, PRETTYINDENT_VAR);
+			/* If so, we shouldn't add anything */
+			if (leading_nl_pos >= 0)
+			{
+				/* instead, remove any trailing spaces currently in buf */
+				removeStringInfoSpaces(buf);
+			}
+			else
+			{
+				char	   *trailing_nl;
+
+				/* Locate the start of the current line in the output buffer */
+				trailing_nl = strrchr(buf->data, '\n');
+				if (trailing_nl == NULL)
+					trailing_nl = buf->data;
+				else
+					trailing_nl++;
+
+				/*
+				 * Add a newline, plus some indentation, if the new field is
+				 * not the first and either the new field would cause an
+				 * overflow or the last field used more than one line.
+				 */
+				if (colno > 1 &&
+					((strlen(trailing_nl) + targetbuf.len > context->wrapColumn) ||
+					 last_was_multiline))
+					appendContextKeyword(context, "", -PRETTYINDENT_STD,
+										 PRETTYINDENT_STD, PRETTYINDENT_VAR);
+			}
 
 			/* Remember this field's multiline status for next iteration */
 			last_was_multiline =
@@ -4603,7 +4723,7 @@ get_setop_query(Node *setOp, Query *query, deparse_context *context,
 					 (int) op->op);
 		}
 		if (op->all)
-			appendStringInfo(buf, "ALL ");
+			appendStringInfoString(buf, "ALL ");
 
 		if (PRETTY_INDENT(context))
 			appendContextKeyword(context, "", 0, 0, 0);
@@ -4693,14 +4813,14 @@ get_rule_orderby(List *orderList, List *targetList,
 		{
 			/* ASC is default, so emit nothing for it */
 			if (srt->nulls_first)
-				appendStringInfo(buf, " NULLS FIRST");
+				appendStringInfoString(buf, " NULLS FIRST");
 		}
 		else if (srt->sortop == typentry->gt_opr)
 		{
-			appendStringInfo(buf, " DESC");
+			appendStringInfoString(buf, " DESC");
 			/* DESC defaults to NULLS FIRST */
 			if (!srt->nulls_first)
-				appendStringInfo(buf, " NULLS LAST");
+				appendStringInfoString(buf, " NULLS LAST");
 		}
 		else
 		{
@@ -4710,9 +4830,9 @@ get_rule_orderby(List *orderList, List *targetList,
 													sortcoltype));
 			/* be specific to eliminate ambiguity */
 			if (srt->nulls_first)
-				appendStringInfo(buf, " NULLS FIRST");
+				appendStringInfoString(buf, " NULLS FIRST");
 			else
-				appendStringInfo(buf, " NULLS LAST");
+				appendStringInfoString(buf, " NULLS LAST");
 		}
 		sep = ", ";
 	}
@@ -4964,7 +5084,7 @@ get_insert_query_def(Query *query, deparse_context *context)
 		}
 	}
 	if (query->targetList)
-		appendStringInfo(buf, ") ");
+		appendStringInfoString(buf, ") ");
 
 	if (select_rte)
 	{
@@ -4989,7 +5109,7 @@ get_insert_query_def(Query *query, deparse_context *context)
 	else
 	{
 		/* No expressions, so it must be DEFAULT VALUES */
-		appendStringInfo(buf, "DEFAULT VALUES");
+		appendStringInfoString(buf, "DEFAULT VALUES");
 	}
 
 	/* Add RETURNING if present */
@@ -5062,7 +5182,7 @@ get_update_query_def(Query *query, deparse_context *context)
 		 */
 		expr = processIndirection((Node *) tle->expr, context, true);
 
-		appendStringInfo(buf, " = ");
+		appendStringInfoString(buf, " = ");
 
 		get_rule_expr(expr, context, false);
 	}
@@ -6236,22 +6356,41 @@ static void
 appendContextKeyword(deparse_context *context, const char *str,
 					 int indentBefore, int indentAfter, int indentPlus)
 {
+	StringInfo	buf = context->buf;
+
 	if (PRETTY_INDENT(context))
 	{
 		context->indentLevel += indentBefore;
 
-		appendStringInfoChar(context->buf, '\n');
-		appendStringInfoSpaces(context->buf,
+		/* remove any trailing spaces currently in the buffer ... */
+		removeStringInfoSpaces(buf);
+		/* ... then add a newline and some spaces */
+		appendStringInfoChar(buf, '\n');
+		appendStringInfoSpaces(buf,
 							   Max(context->indentLevel, 0) + indentPlus);
-		appendStringInfoString(context->buf, str);
+
+		appendStringInfoString(buf, str);
 
 		context->indentLevel += indentAfter;
 		if (context->indentLevel < 0)
 			context->indentLevel = 0;
 	}
 	else
-		appendStringInfoString(context->buf, str);
+		appendStringInfoString(buf, str);
 }
+
+/*
+ * removeStringInfoSpaces - delete trailing spaces from a buffer.
+ *
+ * Possibly this should move to stringinfo.c at some point.
+ */
+static void
+removeStringInfoSpaces(StringInfo str)
+{
+	while (str->len > 0 && str->data[str->len - 1] == ' ')
+		str->data[--(str->len)] = '\0';
+}
+
 
 /*
  * get_rule_expr_paren	- deparse expr using get_rule_expr,
@@ -6426,7 +6565,7 @@ get_rule_expr(Node *node, deparse_context *context,
 				if (!PRETTY_PAREN(context))
 					appendStringInfoChar(buf, '(');
 				get_rule_expr_paren(arg1, context, true, node);
-				appendStringInfo(buf, " IS DISTINCT FROM ");
+				appendStringInfoString(buf, " IS DISTINCT FROM ");
 				get_rule_expr_paren(arg2, context, true, node);
 				if (!PRETTY_PAREN(context))
 					appendStringInfoChar(buf, ')');
@@ -6437,7 +6576,7 @@ get_rule_expr(Node *node, deparse_context *context,
 			{
 				NullIfExpr *nullifexpr = (NullIfExpr *) node;
 
-				appendStringInfo(buf, "NULLIF(");
+				appendStringInfoString(buf, "NULLIF(");
 				get_rule_expr((Node *) nullifexpr->args, context, true);
 				appendStringInfoChar(buf, ')');
 			}
@@ -6480,7 +6619,7 @@ get_rule_expr(Node *node, deparse_context *context,
 											false, node);
 						while (arg)
 						{
-							appendStringInfo(buf, " AND ");
+							appendStringInfoString(buf, " AND ");
 							get_rule_expr_paren((Node *) lfirst(arg), context,
 												false, node);
 							arg = lnext(arg);
@@ -6496,7 +6635,7 @@ get_rule_expr(Node *node, deparse_context *context,
 											false, node);
 						while (arg)
 						{
-							appendStringInfo(buf, " OR ");
+							appendStringInfoString(buf, " OR ");
 							get_rule_expr_paren((Node *) lfirst(arg), context,
 												false, node);
 							arg = lnext(arg);
@@ -6508,7 +6647,7 @@ get_rule_expr(Node *node, deparse_context *context,
 					case NOT_EXPR:
 						if (!PRETTY_PAREN(context))
 							appendStringInfoChar(buf, '(');
-						appendStringInfo(buf, "NOT ");
+						appendStringInfoString(buf, "NOT ");
 						get_rule_expr_paren(first_arg, context,
 											false, node);
 						if (!PRETTY_PAREN(context))
@@ -6549,7 +6688,7 @@ get_rule_expr(Node *node, deparse_context *context,
 				ListCell   *lc;
 
 				/* As above, this can only happen during EXPLAIN */
-				appendStringInfo(buf, "(alternatives: ");
+				appendStringInfoString(buf, "(alternatives: ");
 				foreach(lc, asplan->subplans)
 				{
 					SubPlan    *splan = (SubPlan *) lfirst(lc);
@@ -6558,11 +6697,11 @@ get_rule_expr(Node *node, deparse_context *context,
 					if (splan->useHashTable)
 						appendStringInfo(buf, "hashed %s", splan->plan_name);
 					else
-						appendStringInfo(buf, "%s", splan->plan_name);
+						appendStringInfoString(buf, splan->plan_name);
 					if (lnext(lc))
-						appendStringInfo(buf, " or ");
+						appendStringInfoString(buf, " or ");
 				}
-				appendStringInfo(buf, ")");
+				appendStringInfoChar(buf, ')');
 			}
 			break;
 
@@ -6774,7 +6913,7 @@ get_rule_expr(Node *node, deparse_context *context,
 					appendContextKeyword(context, "WHEN ",
 										 0, 0, 0);
 					get_rule_expr(w, context, false);
-					appendStringInfo(buf, " THEN ");
+					appendStringInfoString(buf, " THEN ");
 					get_rule_expr((Node *) when->result, context, true);
 				}
 				if (!PRETTY_INDENT(context))
@@ -6798,7 +6937,7 @@ get_rule_expr(Node *node, deparse_context *context,
 				 * be unable to avoid that (see comments for CaseExpr).  If we
 				 * do see one, print it as CASE_TEST_EXPR.
 				 */
-				appendStringInfo(buf, "CASE_TEST_EXPR");
+				appendStringInfoString(buf, "CASE_TEST_EXPR");
 			}
 			break;
 
@@ -6806,7 +6945,7 @@ get_rule_expr(Node *node, deparse_context *context,
 			{
 				ArrayExpr  *arrayexpr = (ArrayExpr *) node;
 
-				appendStringInfo(buf, "ARRAY[");
+				appendStringInfoString(buf, "ARRAY[");
 				get_rule_expr((Node *) arrayexpr->elements, context, true);
 				appendStringInfoChar(buf, ']');
 
@@ -6844,7 +6983,7 @@ get_rule_expr(Node *node, deparse_context *context,
 				 * SQL99 allows "ROW" to be omitted when there is more than
 				 * one column, but for simplicity we always print it.
 				 */
-				appendStringInfo(buf, "ROW(");
+				appendStringInfoString(buf, "ROW(");
 				sep = "";
 				i = 0;
 				foreach(arg, rowexpr->args)
@@ -6867,7 +7006,7 @@ get_rule_expr(Node *node, deparse_context *context,
 						if (!tupdesc->attrs[i]->attisdropped)
 						{
 							appendStringInfoString(buf, sep);
-							appendStringInfo(buf, "NULL");
+							appendStringInfoString(buf, "NULL");
 							sep = ", ";
 						}
 						i++;
@@ -6875,7 +7014,7 @@ get_rule_expr(Node *node, deparse_context *context,
 
 					ReleaseTupleDesc(tupdesc);
 				}
-				appendStringInfo(buf, ")");
+				appendStringInfoChar(buf, ')');
 				if (rowexpr->row_format == COERCE_EXPLICIT_CAST)
 					appendStringInfo(buf, "::%s",
 						  format_type_with_typemod(rowexpr->row_typeid, -1));
@@ -6892,7 +7031,7 @@ get_rule_expr(Node *node, deparse_context *context,
 				 * SQL99 allows "ROW" to be omitted when there is more than
 				 * one column, but for simplicity we always print it.
 				 */
-				appendStringInfo(buf, "(ROW(");
+				appendStringInfoString(buf, "(ROW(");
 				sep = "";
 				foreach(arg, rcexpr->largs)
 				{
@@ -6923,7 +7062,7 @@ get_rule_expr(Node *node, deparse_context *context,
 					get_rule_expr(e, context, true);
 					sep = ", ";
 				}
-				appendStringInfo(buf, "))");
+				appendStringInfoString(buf, "))");
 			}
 			break;
 
@@ -6931,7 +7070,7 @@ get_rule_expr(Node *node, deparse_context *context,
 			{
 				CoalesceExpr *coalesceexpr = (CoalesceExpr *) node;
 
-				appendStringInfo(buf, "COALESCE(");
+				appendStringInfoString(buf, "COALESCE(");
 				get_rule_expr((Node *) coalesceexpr->args, context, true);
 				appendStringInfoChar(buf, ')');
 			}
@@ -6944,10 +7083,10 @@ get_rule_expr(Node *node, deparse_context *context,
 				switch (minmaxexpr->op)
 				{
 					case IS_GREATEST:
-						appendStringInfo(buf, "GREATEST(");
+						appendStringInfoString(buf, "GREATEST(");
 						break;
 					case IS_LEAST:
-						appendStringInfo(buf, "LEAST(");
+						appendStringInfoString(buf, "LEAST(");
 						break;
 				}
 				get_rule_expr((Node *) minmaxexpr->args, context, true);
@@ -7122,10 +7261,10 @@ get_rule_expr(Node *node, deparse_context *context,
 				switch (ntest->nulltesttype)
 				{
 					case IS_NULL:
-						appendStringInfo(buf, " IS NULL");
+						appendStringInfoString(buf, " IS NULL");
 						break;
 					case IS_NOT_NULL:
-						appendStringInfo(buf, " IS NOT NULL");
+						appendStringInfoString(buf, " IS NOT NULL");
 						break;
 					default:
 						elog(ERROR, "unrecognized nulltesttype: %d",
@@ -7146,22 +7285,22 @@ get_rule_expr(Node *node, deparse_context *context,
 				switch (btest->booltesttype)
 				{
 					case IS_TRUE:
-						appendStringInfo(buf, " IS TRUE");
+						appendStringInfoString(buf, " IS TRUE");
 						break;
 					case IS_NOT_TRUE:
-						appendStringInfo(buf, " IS NOT TRUE");
+						appendStringInfoString(buf, " IS NOT TRUE");
 						break;
 					case IS_FALSE:
-						appendStringInfo(buf, " IS FALSE");
+						appendStringInfoString(buf, " IS FALSE");
 						break;
 					case IS_NOT_FALSE:
-						appendStringInfo(buf, " IS NOT FALSE");
+						appendStringInfoString(buf, " IS NOT FALSE");
 						break;
 					case IS_UNKNOWN:
-						appendStringInfo(buf, " IS UNKNOWN");
+						appendStringInfoString(buf, " IS UNKNOWN");
 						break;
 					case IS_NOT_UNKNOWN:
-						appendStringInfo(buf, " IS NOT UNKNOWN");
+						appendStringInfoString(buf, " IS NOT UNKNOWN");
 						break;
 					default:
 						elog(ERROR, "unrecognized booltesttype: %d",
@@ -7194,11 +7333,11 @@ get_rule_expr(Node *node, deparse_context *context,
 			break;
 
 		case T_CoerceToDomainValue:
-			appendStringInfo(buf, "VALUE");
+			appendStringInfoString(buf, "VALUE");
 			break;
 
 		case T_SetToDefault:
-			appendStringInfo(buf, "DEFAULT");
+			appendStringInfoString(buf, "DEFAULT");
 			break;
 
 		case T_CurrentOfExpr:
@@ -7389,31 +7528,13 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 {
 	StringInfo	buf = context->buf;
 	Oid			argtypes[FUNC_MAX_ARGS];
-	List	   *arglist;
 	int			nargs;
 	bool		use_variadic;
-	ListCell   *l;
 
-	/* Extract the regular arguments, ignoring resjunk stuff for the moment */
-	arglist = NIL;
-	nargs = 0;
-	foreach(l, aggref->args)
-	{
-		TargetEntry *tle = (TargetEntry *) lfirst(l);
-		Node	   *arg = (Node *) tle->expr;
+	/* Extract the argument types as seen by the parser */
+	nargs = get_aggregate_argtypes(aggref, argtypes);
 
-		Assert(!IsA(arg, NamedArgExpr));
-		if (tle->resjunk)
-			continue;
-		if (nargs >= FUNC_MAX_ARGS)		/* paranoia */
-			ereport(ERROR,
-					(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
-					 errmsg("too many arguments")));
-		argtypes[nargs] = exprType(arg);
-		arglist = lappend(arglist, arg);
-		nargs++;
-	}
-
+	/* Print the aggregate name, schema-qualified if needed */
 	appendStringInfo(buf, "%s(%s",
 					 generate_function_name(aggref->aggfnoid, nargs,
 											NIL, argtypes,
@@ -7421,26 +7542,51 @@ get_agg_expr(Aggref *aggref, deparse_context *context)
 											&use_variadic),
 					 (aggref->aggdistinct != NIL) ? "DISTINCT " : "");
 
-	/* aggstar can be set only in zero-argument aggregates */
-	if (aggref->aggstar)
-		appendStringInfoChar(buf, '*');
+	if (AGGKIND_IS_ORDERED_SET(aggref->aggkind))
+	{
+		/*
+		 * Ordered-set aggregates do not use "*" syntax.  Also, we needn't
+		 * worry about inserting VARIADIC.	So we can just dump the direct
+		 * args as-is.
+		 */
+		Assert(!aggref->aggvariadic);
+		get_rule_expr((Node *) aggref->aggdirectargs, context, true);
+		Assert(aggref->aggorder != NIL);
+		appendStringInfoString(buf, ") WITHIN GROUP (ORDER BY ");
+		get_rule_orderby(aggref->aggorder, aggref->args, false, context);
+	}
 	else
 	{
-		nargs = 0;
-		foreach(l, arglist)
+		/* aggstar can be set only in zero-argument aggregates */
+		if (aggref->aggstar)
+			appendStringInfoChar(buf, '*');
+		else
 		{
-			if (nargs++ > 0)
-				appendStringInfoString(buf, ", ");
-			if (use_variadic && lnext(l) == NULL)
-				appendStringInfoString(buf, "VARIADIC ");
-			get_rule_expr((Node *) lfirst(l), context, true);
-		}
-	}
+			ListCell   *l;
+			int			i;
 
-	if (aggref->aggorder != NIL)
-	{
-		appendStringInfoString(buf, " ORDER BY ");
-		get_rule_orderby(aggref->aggorder, aggref->args, false, context);
+			i = 0;
+			foreach(l, aggref->args)
+			{
+				TargetEntry *tle = (TargetEntry *) lfirst(l);
+				Node	   *arg = (Node *) tle->expr;
+
+				Assert(!IsA(arg, NamedArgExpr));
+				if (tle->resjunk)
+					continue;
+				if (i++ > 0)
+					appendStringInfoString(buf, ", ");
+				if (use_variadic && i == nargs)
+					appendStringInfoString(buf, "VARIADIC ");
+				get_rule_expr(arg, context, true);
+			}
+		}
+
+		if (aggref->aggorder != NIL)
+		{
+			appendStringInfoString(buf, " ORDER BY ");
+			get_rule_orderby(aggref->aggorder, aggref->args, false, context);
+		}
 	}
 
 	if (aggref->aggfilter != NULL)
@@ -7461,6 +7607,7 @@ get_windowfunc_expr(WindowFunc *wfunc, deparse_context *context)
 	StringInfo	buf = context->buf;
 	Oid			argtypes[FUNC_MAX_ARGS];
 	int			nargs;
+	List	   *argnames;
 	ListCell   *l;
 
 	if (list_length(wfunc->args) > FUNC_MAX_ARGS)
@@ -7468,18 +7615,20 @@ get_windowfunc_expr(WindowFunc *wfunc, deparse_context *context)
 				(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
 				 errmsg("too many arguments")));
 	nargs = 0;
+	argnames = NIL;
 	foreach(l, wfunc->args)
 	{
 		Node	   *arg = (Node *) lfirst(l);
 
-		Assert(!IsA(arg, NamedArgExpr));
+		if (IsA(arg, NamedArgExpr))
+			argnames = lappend(argnames, ((NamedArgExpr *) arg)->name);
 		argtypes[nargs] = exprType(arg);
 		nargs++;
 	}
 
 	appendStringInfo(buf, "%s(",
 					 generate_function_name(wfunc->winfnoid, nargs,
-											NIL, argtypes,
+											argnames, argtypes,
 											false, NULL));
 	/* winstar can be set only in zero-argument aggregates */
 	if (wfunc->winstar)
@@ -7592,7 +7741,7 @@ get_const_expr(Const *constval, deparse_context *context, int showtype)
 		 * Always label the type of a NULL constant to prevent misdecisions
 		 * about type when reparsing.
 		 */
-		appendStringInfo(buf, "NULL");
+		appendStringInfoString(buf, "NULL");
 		if (showtype >= 0)
 		{
 			appendStringInfo(buf, "::%s",
@@ -7654,9 +7803,9 @@ get_const_expr(Const *constval, deparse_context *context, int showtype)
 
 		case BOOLOID:
 			if (strcmp(extval, "t") == 0)
-				appendStringInfo(buf, "true");
+				appendStringInfoString(buf, "true");
 			else
-				appendStringInfo(buf, "false");
+				appendStringInfoString(buf, "false");
 			break;
 
 		default:
@@ -7763,7 +7912,7 @@ get_sublink_expr(SubLink *sublink, deparse_context *context)
 	bool		need_paren;
 
 	if (sublink->subLinkType == ARRAY_SUBLINK)
-		appendStringInfo(buf, "ARRAY(");
+		appendStringInfoString(buf, "ARRAY(");
 	else
 		appendStringInfoChar(buf, '(');
 
@@ -7831,12 +7980,12 @@ get_sublink_expr(SubLink *sublink, deparse_context *context)
 	switch (sublink->subLinkType)
 	{
 		case EXISTS_SUBLINK:
-			appendStringInfo(buf, "EXISTS ");
+			appendStringInfoString(buf, "EXISTS ");
 			break;
 
 		case ANY_SUBLINK:
 			if (strcmp(opname, "=") == 0)		/* Represent = ANY as IN */
-				appendStringInfo(buf, " IN ");
+				appendStringInfoString(buf, " IN ");
 			else
 				appendStringInfo(buf, " %s ANY ", opname);
 			break;
@@ -7869,7 +8018,7 @@ get_sublink_expr(SubLink *sublink, deparse_context *context)
 				  context->indentLevel);
 
 	if (need_paren)
-		appendStringInfo(buf, "))");
+		appendStringInfoString(buf, "))");
 	else
 		appendStringInfoChar(buf, ')');
 }
@@ -7939,22 +8088,33 @@ get_from_clause(Query *query, const char *prefix, deparse_context *context)
 			/* Consider line-wrapping if enabled */
 			if (PRETTY_INDENT(context) && context->wrapColumn >= 0)
 			{
-				char	   *trailing_nl;
-
-				/* Locate the start of the current line in the buffer */
-				trailing_nl = strrchr(buf->data, '\n');
-				if (trailing_nl == NULL)
-					trailing_nl = buf->data;
+				/* Does the new item start with a new line? */
+				if (itembuf.len > 0 && itembuf.data[0] == '\n')
+				{
+					/* If so, we shouldn't add anything */
+					/* instead, remove any trailing spaces currently in buf */
+					removeStringInfoSpaces(buf);
+				}
 				else
-					trailing_nl++;
+				{
+					char	   *trailing_nl;
 
-				/*
-				 * Add a newline, plus some indentation, if the new item would
-				 * cause an overflow.
-				 */
-				if (strlen(trailing_nl) + strlen(itembuf.data) > context->wrapColumn)
-					appendContextKeyword(context, "", -PRETTYINDENT_STD,
-										 PRETTYINDENT_STD, PRETTYINDENT_VAR);
+					/* Locate the start of the current line in the buffer */
+					trailing_nl = strrchr(buf->data, '\n');
+					if (trailing_nl == NULL)
+						trailing_nl = buf->data;
+					else
+						trailing_nl++;
+
+					/*
+					 * Add a newline, plus some indentation, if the new item
+					 * would cause an overflow.
+					 */
+					if (strlen(trailing_nl) + itembuf.len > context->wrapColumn)
+						appendContextKeyword(context, "", -PRETTYINDENT_STD,
+											 PRETTYINDENT_STD,
+											 PRETTYINDENT_VAR);
+				}
 			}
 
 			/* Add the new item */
@@ -7978,6 +8138,7 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 		RangeTblEntry *rte = rt_fetch(varno, query->rtable);
 		char	   *refname = get_rtable_name(varno, context);
 		deparse_columns *colinfo = deparse_columns_fetch(varno, dpns);
+		RangeTblFunction *rtfunc1 = NULL;
 		bool		printalias;
 
 		if (rte->lateral)
@@ -8003,7 +8164,96 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 				break;
 			case RTE_FUNCTION:
 				/* Function RTE */
-				get_rule_expr(rte->funcexpr, context, true);
+				rtfunc1 = (RangeTblFunction *) linitial(rte->functions);
+
+				/*
+				 * Omit ROWS FROM() syntax for just one function, unless it
+				 * has both a coldeflist and WITH ORDINALITY. If it has both,
+				 * we must use ROWS FROM() syntax to avoid ambiguity about
+				 * whether the coldeflist includes the ordinality column.
+				 */
+				if (list_length(rte->functions) == 1 &&
+					(rtfunc1->funccolnames == NIL || !rte->funcordinality))
+				{
+					get_rule_expr(rtfunc1->funcexpr, context, true);
+					/* we'll print the coldeflist below, if it has one */
+				}
+				else
+				{
+					bool		all_unnest;
+					ListCell   *lc;
+
+					/*
+					 * If all the function calls in the list are to unnest,
+					 * and none need a coldeflist, then collapse the list back
+					 * down to UNNEST(args).  (If we had more than one
+					 * built-in unnest function, this would get more
+					 * difficult.)
+					 *
+					 * XXX This is pretty ugly, since it makes not-terribly-
+					 * future-proof assumptions about what the parser would do
+					 * with the output; but the alternative is to emit our
+					 * nonstandard ROWS FROM() notation for what might have
+					 * been a perfectly spec-compliant multi-argument
+					 * UNNEST().
+					 */
+					all_unnest = true;
+					foreach(lc, rte->functions)
+					{
+						RangeTblFunction *rtfunc = (RangeTblFunction *) lfirst(lc);
+
+						if (!IsA(rtfunc->funcexpr, FuncExpr) ||
+							((FuncExpr *) rtfunc->funcexpr)->funcid != F_ARRAY_UNNEST ||
+							rtfunc->funccolnames != NIL)
+						{
+							all_unnest = false;
+							break;
+						}
+					}
+
+					if (all_unnest)
+					{
+						List	   *allargs = NIL;
+
+						foreach(lc, rte->functions)
+						{
+							RangeTblFunction *rtfunc = (RangeTblFunction *) lfirst(lc);
+							List	   *args = ((FuncExpr *) rtfunc->funcexpr)->args;
+
+							allargs = list_concat(allargs, list_copy(args));
+						}
+
+						appendStringInfoString(buf, "UNNEST(");
+						get_rule_expr((Node *) allargs, context, true);
+						appendStringInfoChar(buf, ')');
+					}
+					else
+					{
+						int			funcno = 0;
+
+						appendStringInfoString(buf, "ROWS FROM(");
+						foreach(lc, rte->functions)
+						{
+							RangeTblFunction *rtfunc = (RangeTblFunction *) lfirst(lc);
+
+							if (funcno > 0)
+								appendStringInfoString(buf, ", ");
+							get_rule_expr(rtfunc->funcexpr, context, true);
+							if (rtfunc->funccolnames != NIL)
+							{
+								/* Reconstruct the column definition list */
+								appendStringInfoString(buf, " AS ");
+								get_from_clause_coldeflist(rtfunc,
+														   NULL,
+														   context);
+							}
+							funcno++;
+						}
+						appendStringInfoChar(buf, ')');
+					}
+					/* prevent printing duplicate coldeflist below */
+					rtfunc1 = NULL;
+				}
 				if (rte->funcordinality)
 					appendStringInfoString(buf, " WITH ORDINALITY");
 				break;
@@ -8047,7 +8297,7 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 			 * For a function RTE, always print alias.	This covers possible
 			 * renaming of the function and/or instability of the
 			 * FigureColname rules for things that aren't simple functions.
-			 * Also note we'd need to force it anyway for the RECORD case.
+			 * Note we'd need to force it anyway for the columndef list case.
 			 */
 			printalias = true;
 		}
@@ -8065,14 +8315,10 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 			appendStringInfo(buf, " %s", quote_identifier(refname));
 
 		/* Print the column definitions or aliases, if needed */
-		if (rte->rtekind == RTE_FUNCTION && rte->funccoltypes != NIL)
+		if (rtfunc1 && rtfunc1->funccolnames != NIL)
 		{
-			/* Function returning RECORD, reconstruct the columndefs */
-			get_from_clause_coldeflist(colinfo,
-									   rte->funccoltypes,
-									   rte->funccoltypmods,
-									   rte->funccolcollations,
-									   context);
+			/* Reconstruct the columndef list, which is also the aliases */
+			get_from_clause_coldeflist(rtfunc1, colinfo, context);
 		}
 		else
 		{
@@ -8140,7 +8386,7 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 			ListCell   *lc;
 			bool		first = true;
 
-			appendStringInfo(buf, " USING (");
+			appendStringInfoString(buf, " USING (");
 			/* Use the assigned names, not what's in usingClause */
 			foreach(lc, colinfo->usingNames)
 			{
@@ -8149,14 +8395,14 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 				if (first)
 					first = false;
 				else
-					appendStringInfo(buf, ", ");
+					appendStringInfoString(buf, ", ");
 				appendStringInfoString(buf, quote_identifier(colname));
 			}
 			appendStringInfoChar(buf, ')');
 		}
 		else if (j->quals)
 		{
-			appendStringInfo(buf, " ON ");
+			appendStringInfoString(buf, " ON ");
 			if (!PRETTY_PAREN(context))
 				appendStringInfoChar(buf, '(');
 			get_rule_expr(j->quals, context, false);
@@ -8206,7 +8452,7 @@ get_column_alias_list(deparse_columns *colinfo, deparse_context *context)
 			first = false;
 		}
 		else
-			appendStringInfo(buf, ", ");
+			appendStringInfoString(buf, ", ");
 		appendStringInfoString(buf, quote_identifier(colname));
 	}
 	if (!first)
@@ -8216,34 +8462,50 @@ get_column_alias_list(deparse_columns *colinfo, deparse_context *context)
 /*
  * get_from_clause_coldeflist - reproduce FROM clause coldeflist
  *
+ * When printing a top-level coldeflist (which is syntactically also the
+ * relation's column alias list), use column names from colinfo.  But when
+ * printing a coldeflist embedded inside ROWS FROM(), we prefer to use the
+ * original coldeflist's names, which are available in rtfunc->funccolnames.
+ * Pass NULL for colinfo to select the latter behavior.
+ *
  * The coldeflist is appended immediately (no space) to buf.  Caller is
  * responsible for ensuring that an alias or AS is present before it.
  */
 static void
-get_from_clause_coldeflist(deparse_columns *colinfo,
-						   List *types, List *typmods, List *collations,
+get_from_clause_coldeflist(RangeTblFunction *rtfunc,
+						   deparse_columns *colinfo,
 						   deparse_context *context)
 {
 	StringInfo	buf = context->buf;
 	ListCell   *l1;
 	ListCell   *l2;
 	ListCell   *l3;
+	ListCell   *l4;
 	int			i;
 
 	appendStringInfoChar(buf, '(');
 
+	/* there's no forfour(), so must chase one list the hard way */
 	i = 0;
-	forthree(l1, types, l2, typmods, l3, collations)
+	l4 = list_head(rtfunc->funccolnames);
+	forthree(l1, rtfunc->funccoltypes,
+			 l2, rtfunc->funccoltypmods,
+			 l3, rtfunc->funccolcollations)
 	{
-		char	   *attname = colinfo->colnames[i];
 		Oid			atttypid = lfirst_oid(l1);
 		int32		atttypmod = lfirst_int(l2);
 		Oid			attcollation = lfirst_oid(l3);
+		char	   *attname;
+
+		if (colinfo)
+			attname = colinfo->colnames[i];
+		else
+			attname = strVal(lfirst(l4));
 
 		Assert(attname);		/* shouldn't be any dropped columns here */
 
 		if (i > 0)
-			appendStringInfo(buf, ", ");
+			appendStringInfoString(buf, ", ");
 		appendStringInfo(buf, "%s %s",
 						 quote_identifier(attname),
 						 format_type_with_typemod(atttypid, atttypmod));
@@ -8251,6 +8513,8 @@ get_from_clause_coldeflist(deparse_columns *colinfo,
 			attcollation != get_typcollation(atttypid))
 			appendStringInfo(buf, " COLLATE %s",
 							 generate_collation_name(attcollation));
+
+		l4 = lnext(l4);
 		i++;
 	}
 

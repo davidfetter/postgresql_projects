@@ -3,7 +3,7 @@
  * planner.c
  *	  The query optimizer external interface.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -485,9 +485,9 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 		}
 		else if (rte->rtekind == RTE_FUNCTION)
 		{
-			/* Preprocess the function expression fully */
+			/* Preprocess the function expression(s) fully */
 			kind = rte->lateral ? EXPRKIND_RTFUNC_LATERAL : EXPRKIND_RTFUNC;
-			rte->funcexpr = preprocess_expression(root, rte->funcexpr, kind);
+			rte->functions = (List *) preprocess_expression(root, (Node *) rte->functions, kind);
 		}
 		else if (rte->rtekind == RTE_VALUES)
 		{
@@ -849,6 +849,13 @@ inheritance_planner(PlannerInfo *root)
 		subroot.rowMarks = (List *) copyObject(root->rowMarks);
 
 		/*
+		 * The append_rel_list likewise might contain references to subquery
+		 * RTEs (if any subqueries were flattenable UNION ALLs).  So prepare
+		 * to apply ChangeVarNodes to that, too.
+		 */
+		subroot.append_rel_list = (List *) copyObject(root->append_rel_list);
+
+		/*
 		 * Add placeholders to the child Query's rangetable list to fill the
 		 * RT indexes already reserved for subqueries in previous children.
 		 * These won't be referenced, so there's no need to make them very
@@ -888,6 +895,7 @@ inheritance_planner(PlannerInfo *root)
 					newrti = list_length(subroot.parse->rtable) + 1;
 					ChangeVarNodes((Node *) subroot.parse, rti, newrti, 0);
 					ChangeVarNodes((Node *) subroot.rowMarks, rti, newrti, 0);
+					ChangeVarNodes((Node *) subroot.append_rel_list, rti, newrti, 0);
 					rte = copyObject(rte);
 					subroot.parse->rtable = lappend(subroot.parse->rtable,
 													rte);
@@ -896,7 +904,6 @@ inheritance_planner(PlannerInfo *root)
 			}
 		}
 
-		/* We needn't modify the child's append_rel_list */
 		/* There shouldn't be any OJ or LATERAL info to translate, as yet */
 		Assert(subroot.join_info_list == NIL);
 		Assert(subroot.lateral_info_list == NIL);
@@ -2652,7 +2659,9 @@ choose_hashed_grouping(PlannerInfo *root,
 	 * Executor doesn't support hashed aggregation with DISTINCT or ORDER BY
 	 * aggregates.	(Doing so would imply storing *all* the input values in
 	 * the hash table, and/or running many sorts in parallel, either of which
-	 * seems like a certain loser.)
+	 * seems like a certain loser.)  We similarly don't support ordered-set
+	 * aggregates in hashed aggregation, but that case is included in the
+	 * numOrderedAggs count.
 	 */
 	can_hash = (agg_costs->numOrderedAggs == 0 &&
 				grouping_is_hashable(parse->groupClause));

@@ -2,7 +2,7 @@
  * SQL Information Schema
  * as defined in ISO/IEC 9075-11:2011
  *
- * Copyright (c) 2003-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2003-2014, PostgreSQL Global Development Group
  *
  * src/backend/catalog/information_schema.sql
  */
@@ -1133,10 +1133,15 @@ CREATE VIEW parameters AS
            CAST(null AS sql_identifier) AS scope_schema,
            CAST(null AS sql_identifier) AS scope_name,
            CAST(null AS cardinal_number) AS maximum_cardinality,
-           CAST((ss.x).n AS sql_identifier) AS dtd_identifier
+           CAST((ss.x).n AS sql_identifier) AS dtd_identifier,
+           CAST(
+             CASE WHEN pg_has_role(proowner, 'USAGE')
+                  THEN pg_get_function_arg_default(p_oid, (ss.x).n)
+                  ELSE NULL END
+             AS character_data) AS parameter_default
 
     FROM pg_type t, pg_namespace nt,
-         (SELECT n.nspname AS n_nspname, p.proname, p.oid AS p_oid,
+         (SELECT n.nspname AS n_nspname, p.proname, p.oid AS p_oid, p.proowner,
                  p.proargnames, p.proargmodes,
                  _pg_expandarray(coalesce(p.proallargtypes, p.proargtypes::oid[])) AS x
           FROM pg_namespace n, pg_proc p

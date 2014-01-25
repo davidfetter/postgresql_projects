@@ -3,7 +3,7 @@
  * dfmgr.c
  *	  Dynamic function manager code.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -372,7 +372,7 @@ incompatible_module_error(const char *libname,
 	}
 
 	if (details.len == 0)
-		appendStringInfo(&details,
+		appendStringInfoString(&details,
 			  _("Magic block has unexpected length or padding difference."));
 
 	ereport(ERROR,

@@ -3,7 +3,7 @@
  *
  *	tablespace functions
  *
- *	Copyright (c) 2010-2013, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2014, PostgreSQL Global Development Group
  *	contrib/pg_upgrade/tablespace.c
  */
 
@@ -86,7 +86,8 @@ set_tablespace_directory_suffix(ClusterInfo *cluster)
 		/* This cluster has a version-specific subdirectory */
 
 		/* The leading slash is needed to start a new directory. */
-		pg_asprintf(&cluster->tablespace_suffix, "/PG_%s_%d",
-					cluster->major_version_str,	cluster->controldata.cat_ver);
+		cluster->tablespace_suffix = psprintf("/PG_%s_%d",
+											  cluster->major_version_str,
+											  cluster->controldata.cat_ver);
 	}
 }

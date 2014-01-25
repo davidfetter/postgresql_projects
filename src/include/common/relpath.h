@@ -3,7 +3,7 @@
  * relpath.h
  *		Declarations for relpath() and friends
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/common/relpath.h
@@ -25,7 +25,8 @@
 #define TABLESPACE_VERSION_DIRECTORY	"PG_" PG_MAJORVERSION "_" \
 									CppAsString2(CATALOG_VERSION_NO)
 
-extern const char *forkNames[];
+extern const char *const forkNames[];
+
 extern int	forkname_chars(const char *str, ForkNumber *fork);
 extern char *relpathbackend(RelFileNode rnode, BackendId backend,
 			   ForkNumber forknum);

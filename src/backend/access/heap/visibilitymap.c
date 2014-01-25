@@ -3,7 +3,7 @@
  * visibilitymap.c
  *	  bitmap for tracking visibility of heap tuples
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -287,10 +287,10 @@ visibilitymap_set(Relation rel, BlockNumber heapBlk, Buffer heapBuf,
 										  cutoff_xid);
 
 				/*
-				 * If data checksums are enabled, we need to protect the heap
-				 * page from being torn.
+				 * If data checksums are enabled (or wal_log_hints=on), we
+				 * need to protect the heap page from being torn.
 				 */
-				if (DataChecksumsEnabled())
+				if (XLogHintBitIsNeeded())
 				{
 					Page		heapPage = BufferGetPage(heapBuf);
 

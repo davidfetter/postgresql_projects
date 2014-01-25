@@ -3,7 +3,7 @@
  * ipci.c
  *	  POSTGRES inter-process communication initialization code.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -105,6 +105,7 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		 * need to be so careful during the actual allocation phase.
 		 */
 		size = 100000;
+		size = add_size(size, SpinlockSemaSize());
 		size = add_size(size, hash_estimate_size(SHMEM_INDEX_SIZE,
 												 sizeof(ShmemIndexEnt)));
 		size = add_size(size, BufferShmemSize());
@@ -141,8 +142,7 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		/* might as well round it off to a multiple of a typical page size */
 		size = add_size(size, 8192 - (size % 8192));
 
-		elog(DEBUG3, "invoking IpcMemoryCreate(size=%lu)",
-			 (unsigned long) size);
+		elog(DEBUG3, "invoking IpcMemoryCreate(size=%zu)", size);
 
 		/*
 		 * Create the shmem segment

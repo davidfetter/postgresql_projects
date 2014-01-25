@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2014, PostgreSQL Global Development Group
  *
  * src/bin/psql/common.c
  */
@@ -594,7 +594,7 @@ StoreQueryTuple(const PGresult *result)
 			char	   *value;
 
 			/* concate prefix and column name */
-			pg_asprintf(&varname, "%s%s", pset.gset_prefix, colname);
+			varname = psprintf("%s%s", pset.gset_prefix, colname);
 
 			if (!PQgetisnull(result, 0, i))
 				value = PQgetvalue(result, 0, i);
@@ -1685,7 +1685,7 @@ expand_tilde(char **filename)
 		{
 			char	   *newfn;
 
-			pg_asprintf(&newfn, "%s%s", home, p);
+			newfn = psprintf("%s%s", home, p);
 			free(fn);
 			*filename = newfn;
 		}

@@ -3,7 +3,7 @@
  * subselect.c
  *	  Planning routines for subselects and parameters.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -778,10 +778,7 @@ build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
 		sprintf(splan->plan_name + offset, ")");
 	}
 	else
-	{
-		splan->plan_name = palloc(32);
-		sprintf(splan->plan_name, "SubPlan %d", splan->plan_id);
-	}
+		splan->plan_name = psprintf("SubPlan %d", splan->plan_id);
 
 	/* Lastly, fill in the cost estimates for use later */
 	cost_subplan(root, splan, plan);
@@ -856,11 +853,6 @@ generate_subquery_vars(PlannerInfo *root, List *tlist, Index varno)
  * with Params or Vars representing the results of the sub-select.	The
  * nodes to be substituted are passed in as the List result from
  * generate_subquery_params or generate_subquery_vars.
- *
- * The given testexpr has already been recursively processed by
- * process_sublinks_mutator.  Hence it can no longer contain any
- * PARAM_SUBLINK Params for lower SubLink nodes; we can safely assume that
- * any we find are for our own level of SubLink.
  */
 static Node *
 convert_testexpr(PlannerInfo *root,
@@ -898,6 +890,28 @@ convert_testexpr_mutator(Node *node,
 			return (Node *) copyObject(list_nth(context->subst_nodes,
 												param->paramid - 1));
 		}
+	}
+	if (IsA(node, SubLink))
+	{
+		/*
+		 * If we come across a nested SubLink, it is neither necessary nor
+		 * correct to recurse into it: any PARAM_SUBLINKs we might find inside
+		 * belong to the inner SubLink not the outer. So just return it as-is.
+		 *
+		 * This reasoning depends on the assumption that nothing will pull
+		 * subexpressions into or out of the testexpr field of a SubLink, at
+		 * least not without replacing PARAM_SUBLINKs first.  If we did want
+		 * to do that we'd need to rethink the parser-output representation
+		 * altogether, since currently PARAM_SUBLINKs are only unique per
+		 * SubLink not globally across the query.  The whole point of
+		 * replacing them with Vars or PARAM_EXEC nodes is to make them
+		 * globally unique before they escape from the SubLink's testexpr.
+		 *
+		 * Note: this can't happen when called during SS_process_sublinks,
+		 * because that recursively processes inner SubLinks first.  It can
+		 * happen when called from convert_ANY_sublink_to_join, though.
+		 */
+		return node;
 	}
 	return expression_tree_mutator(node,
 								   convert_testexpr_mutator,
@@ -2135,9 +2149,37 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 			break;
 
 		case T_FunctionScan:
-			finalize_primnode(((FunctionScan *) plan)->funcexpr,
-							  &context);
-			context.paramids = bms_add_members(context.paramids, scan_params);
+			{
+				FunctionScan *fscan = (FunctionScan *) plan;
+				ListCell   *lc;
+
+				/*
+				 * Call finalize_primnode independently on each function
+				 * expression, so that we can record which params are
+				 * referenced in each, in order to decide which need
+				 * re-evaluating during rescan.
+				 */
+				foreach(lc, fscan->functions)
+				{
+					RangeTblFunction *rtfunc = (RangeTblFunction *) lfirst(lc);
+					finalize_primnode_context funccontext;
+
+					funccontext = context;
+					funccontext.paramids = NULL;
+
+					finalize_primnode(rtfunc->funcexpr, &funccontext);
+
+					/* remember results for execution */
+					rtfunc->funcparams = funccontext.paramids;
+
+					/* add the function's params to the overall set */
+					context.paramids = bms_add_members(context.paramids,
+													   funccontext.paramids);
+				}
+
+				context.paramids = bms_add_members(context.paramids,
+												   scan_params);
+			}
 			break;
 
 		case T_ValuesScan:
@@ -2555,8 +2597,7 @@ SS_make_initplan_from_plan(PlannerInfo *root, Plan *plan,
 	node->setParam = list_make1_int(prm->paramid);
 
 	/* Label the subplan for EXPLAIN purposes */
-	node->plan_name = palloc(64);
-	sprintf(node->plan_name, "InitPlan %d (returns $%d)",
+	node->plan_name = psprintf("InitPlan %d (returns $%d)",
 			node->plan_id, prm->paramid);
 
 	return prm;

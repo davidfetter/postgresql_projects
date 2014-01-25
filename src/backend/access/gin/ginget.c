@@ -4,7 +4,7 @@
  *	  fetch tuples from a GIN scan.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -20,6 +20,8 @@
 #include "utils/datum.h"
 #include "utils/memutils.h"
 
+/* GUC parameter */
+int			GinFuzzySearchLimit = 0;
 
 typedef struct pendingPosition
 {
@@ -69,24 +71,20 @@ callConsistentFn(GinState *ginstate, GinScanKey key)
  * Tries to refind previously taken ItemPointer on a posting page.
  */
 static bool
-findItemInPostingPage(Page page, ItemPointer item, OffsetNumber *off)
+needToStepRight(Page page, ItemPointer item)
 {
-	OffsetNumber maxoff = GinPageGetOpaque(page)->maxoff;
-	int			res;
-
 	if (GinPageGetOpaque(page)->flags & GIN_DELETED)
 		/* page was deleted by concurrent vacuum */
-		return false;
+		return true;
 
-	/*
-	 * scan page to find equal or first greater value
-	 */
-	for (*off = FirstOffsetNumber; *off <= maxoff; (*off)++)
+	if (ginCompareItemPointers(item, GinDataPageGetRightBound(page)) > 0
+			&& !GinPageRightMost(page))
 	{
-		res = ginCompareItemPointers(item, GinDataPageGetItemPointer(page, *off));
-
-		if (res <= 0)
-			return true;
+		/*
+		 * the item we're looking is > the right bound of the page, so it
+		 * can't be on this page.
+		 */
+		return true;
 	}
 
 	return false;
@@ -105,16 +103,11 @@ moveRightIfItNeeded(GinBtreeData *btree, GinBtreeStack *stack)
 		/*
 		 * We scanned the whole page, so we should take right page
 		 */
-		stack->blkno = GinPageGetOpaque(page)->rightlink;
-
 		if (GinPageRightMost(page))
 			return false;		/* no more pages */
 
-		LockBuffer(stack->buffer, GIN_UNLOCK);
-		stack->buffer = ReleaseAndReadBuffer(stack->buffer,
-											 btree->index,
-											 stack->blkno);
-		LockBuffer(stack->buffer, GIN_SHARE);
+		stack->buffer = ginStepRight(stack->buffer, btree->index, GIN_SHARE);
+		stack->blkno = BufferGetBlockNumber(stack->buffer);
 		stack->off = FirstOffsetNumber;
 	}
 
@@ -129,19 +122,16 @@ static void
 scanPostingTree(Relation index, GinScanEntry scanEntry,
 				BlockNumber rootPostingTree)
 {
-	GinPostingTreeScan *gdi;
+	GinBtreeStack *stack;
 	Buffer		buffer;
 	Page		page;
-	BlockNumber blkno;
 
 	/* Descend to the leftmost leaf page */
-	gdi = ginPrepareScanPostingTree(index, rootPostingTree, TRUE);
-
-	buffer = ginScanBeginPostingTree(gdi);
+	stack = ginScanBeginPostingTree(index, rootPostingTree);
+	buffer = stack->buffer;
 	IncrBufferRefCount(buffer); /* prevent unpin in freeGinBtreeStack */
 
-	freeGinBtreeStack(gdi->stack);
-	pfree(gdi);
+	freeGinBtreeStack(stack);
 
 	/*
 	 * Loop iterates through all leaf pages of posting tree
@@ -149,23 +139,16 @@ scanPostingTree(Relation index, GinScanEntry scanEntry,
 	for (;;)
 	{
 		page = BufferGetPage(buffer);
-
-		if ((GinPageGetOpaque(page)->flags & GIN_DELETED) == 0 &&
-			GinPageGetOpaque(page)->maxoff >= FirstOffsetNumber)
+		if ((GinPageGetOpaque(page)->flags & GIN_DELETED) == 0)
 		{
-			tbm_add_tuples(scanEntry->matchBitmap,
-						   GinDataPageGetItemPointer(page, FirstOffsetNumber),
-						   GinPageGetOpaque(page)->maxoff, false);
-			scanEntry->predictNumberResult += GinPageGetOpaque(page)->maxoff;
+			int n = GinDataLeafPageGetItemsToTbm(page, scanEntry->matchBitmap);
+			scanEntry->predictNumberResult += n;
 		}
 
 		if (GinPageRightMost(page))
 			break;				/* no more pages */
 
-		blkno = GinPageGetOpaque(page)->rightlink;
-		LockBuffer(buffer, GIN_UNLOCK);
-		buffer = ReleaseAndReadBuffer(buffer, index, blkno);
-		LockBuffer(buffer, GIN_SHARE);
+		buffer = ginStepRight(buffer, index, GIN_SHARE);
 	}
 
 	UnlockReleaseBuffer(buffer);
@@ -344,8 +327,11 @@ collectMatchBitmap(GinBtreeData *btree, GinBtreeStack *stack,
 		}
 		else
 		{
-			tbm_add_tuples(scanEntry->matchBitmap,
-						   GinGetPosting(itup), GinGetNPosting(itup), false);
+			ItemPointer ipd;
+			int			nipd;
+
+			ipd = ginReadTuple(btree->ginstate, scanEntry->attnum, itup, &nipd);
+			tbm_add_tuples(scanEntry->matchBitmap, ipd, nipd, false);
 			scanEntry->predictNumberResult += GinGetNPosting(itup);
 		}
 
@@ -385,8 +371,7 @@ restartScanEntry:
 	ginPrepareEntryScan(&btreeEntry, entry->attnum,
 						entry->queryKey, entry->queryCategory,
 						ginstate);
-	btreeEntry.searchMode = TRUE;
-	stackEntry = ginFindLeafPage(&btreeEntry, NULL);
+	stackEntry = ginFindLeafPage(&btreeEntry, true);
 	page = BufferGetPage(stackEntry->buffer);
 	needUnlock = TRUE;
 
@@ -436,7 +421,7 @@ restartScanEntry:
 		if (GinIsPostingTree(itup))
 		{
 			BlockNumber rootPostingTree = GinGetPostingTree(itup);
-			GinPostingTreeScan *gdi;
+			GinBtreeStack *stack;
 			Page		page;
 
 			/*
@@ -448,9 +433,9 @@ restartScanEntry:
 			 */
 			LockBuffer(stackEntry->buffer, GIN_UNLOCK);
 			needUnlock = FALSE;
-			gdi = ginPrepareScanPostingTree(ginstate->index, rootPostingTree, TRUE);
 
-			entry->buffer = ginScanBeginPostingTree(gdi);
+			stack = ginScanBeginPostingTree(ginstate->index, rootPostingTree);
+			entry->buffer = stack->buffer;
 
 			/*
 			 * We keep buffer pinned because we need to prevent deletion of
@@ -460,27 +445,25 @@ restartScanEntry:
 			IncrBufferRefCount(entry->buffer);
 
 			page = BufferGetPage(entry->buffer);
-			entry->predictNumberResult = gdi->stack->predictNumber * GinPageGetOpaque(page)->maxoff;
 
 			/*
-			 * Keep page content in memory to prevent durable page locking
+			 * Copy page content to memory to avoid keeping it locked for
+			 * a long time.
 			 */
-			entry->list = (ItemPointerData *) palloc(BLCKSZ);
-			entry->nlist = GinPageGetOpaque(page)->maxoff;
-			memcpy(entry->list,
-				   GinDataPageGetItemPointer(page, FirstOffsetNumber),
-				   GinPageGetOpaque(page)->maxoff * sizeof(ItemPointerData));
+			entry->list = GinDataLeafPageGetItems(page, &entry->nlist);
+
+			entry->predictNumberResult = stack->predictNumber * entry->nlist;
 
 			LockBuffer(entry->buffer, GIN_UNLOCK);
-			freeGinBtreeStack(gdi->stack);
-			pfree(gdi);
+			freeGinBtreeStack(stack);
 			entry->isFinished = FALSE;
 		}
 		else if (GinGetNPosting(itup) > 0)
 		{
-			entry->nlist = GinGetNPosting(itup);
-			entry->list = (ItemPointerData *) palloc(sizeof(ItemPointerData) * entry->nlist);
-			memcpy(entry->list, GinGetPosting(itup), sizeof(ItemPointerData) * entry->nlist);
+			entry->list = ginReadTuple(ginstate, entry->attnum, itup,
+				&entry->nlist);
+			entry->predictNumberResult = entry->nlist;
+
 			entry->isFinished = FALSE;
 		}
 	}
@@ -543,7 +526,7 @@ static void
 entryGetNextItem(GinState *ginstate, GinScanEntry entry)
 {
 	Page		page;
-	BlockNumber blkno;
+	int			i;
 
 	for (;;)
 	{
@@ -561,55 +544,62 @@ entryGetNextItem(GinState *ginstate, GinScanEntry entry)
 			 * It's needed to go by right link. During that we should refind
 			 * first ItemPointer greater that stored
 			 */
-
-			blkno = GinPageGetOpaque(page)->rightlink;
-
-			LockBuffer(entry->buffer, GIN_UNLOCK);
-			if (blkno == InvalidBlockNumber)
+			if (GinPageRightMost(page))
 			{
-				ReleaseBuffer(entry->buffer);
+				UnlockReleaseBuffer(entry->buffer);
 				ItemPointerSetInvalid(&entry->curItem);
 				entry->buffer = InvalidBuffer;
 				entry->isFinished = TRUE;
 				return;
 			}
 
-			entry->buffer = ReleaseAndReadBuffer(entry->buffer,
-												 ginstate->index,
-												 blkno);
-			LockBuffer(entry->buffer, GIN_SHARE);
+			entry->buffer = ginStepRight(entry->buffer,
+										 ginstate->index,
+										 GIN_SHARE);
 			page = BufferGetPage(entry->buffer);
 
 			entry->offset = InvalidOffsetNumber;
-			if (!ItemPointerIsValid(&entry->curItem) ||
-				findItemInPostingPage(page, &entry->curItem, &entry->offset))
+			if (entry->list)
 			{
-				/*
-				 * Found position equal to or greater than stored
-				 */
-				entry->nlist = GinPageGetOpaque(page)->maxoff;
-				memcpy(entry->list,
-					   GinDataPageGetItemPointer(page, FirstOffsetNumber),
-					   GinPageGetOpaque(page)->maxoff * sizeof(ItemPointerData));
+				pfree(entry->list);
+				entry->list = NULL;
+			}
 
-				LockBuffer(entry->buffer, GIN_UNLOCK);
+			/*
+			 * If the page was concurrently split, we have to re-find the
+			 * item we were stopped on. If the page was split more than once,
+			 * the item might not be on this page, but somewhere to the right.
+			 * Keep following the right-links until we re-find the correct
+			 * page.
+			 */
+			if (ItemPointerIsValid(&entry->curItem) &&
+				needToStepRight(page, &entry->curItem))
+			{
+				continue;
+			}
 
-				if (!ItemPointerIsValid(&entry->curItem) ||
-					ginCompareItemPointers(&entry->curItem,
-									   entry->list + entry->offset - 1) == 0)
+			entry->list = GinDataLeafPageGetItems(page, &entry->nlist);
+
+			/* re-find the item we were stopped on. */
+			if (ItemPointerIsValid(&entry->curItem))
+			{
+				for (i = 0; i < entry->nlist; i++)
 				{
-					/*
-					 * First pages are deleted or empty, or we found exact
-					 * position, so break inner loop and continue outer one.
-					 */
-					break;
+					if (ginCompareItemPointers(&entry->curItem,
+											   &entry->list[i]) < 0)
+					{
+						LockBuffer(entry->buffer, GIN_UNLOCK);
+						entry->offset = i + 1;
+						entry->curItem = entry->list[entry->offset - 1];
+						return;
+					}
 				}
-
-				/*
-				 * Find greater than entry->curItem position, store it.
-				 */
+			}
+			else
+			{
+				LockBuffer(entry->buffer, GIN_UNLOCK);
+				entry->offset = 1; /* scan all items on the page. */
 				entry->curItem = entry->list[entry->offset - 1];
-
 				return;
 			}
 		}

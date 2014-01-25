@@ -4,7 +4,7 @@
  *	   routines for accessing the system catalogs
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -128,7 +128,7 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 	 * Don't bother with indexes for an inheritance parent, either.
 	 */
 	if (inhparent ||
-		(IgnoreSystemIndexes && IsSystemClass(relation->rd_rel)))
+		(IgnoreSystemIndexes && IsSystemRelation(relation)))
 		hasindex = false;
 	else
 		hasindex = relation->rd_rel->relhasindex;

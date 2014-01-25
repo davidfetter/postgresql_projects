@@ -330,8 +330,6 @@ on (x1 = xx1) where (xx2 is not null);
 -- regression test: check for bug with propagation of implied equality
 -- to outside an IN
 --
-analyze tenk1;		-- ensure we get consistent plans here
-
 select count(*) from tenk1 a where unique1 in
   (select unique1 from tenk1 b join tenk1 c using (unique1)
    where b.unique2 = 42);
@@ -708,6 +706,18 @@ select * from
 where thousand = (q1 + q2);
 
 --
+-- test extraction of restriction OR clauses from join OR clause
+-- (we used to only do this for indexable clauses)
+--
+
+explain (costs off)
+select * from tenk1 a join tenk1 b on
+  (a.unique1 = 1 and b.unique1 = 2) or (a.unique2 = 3 and b.hundred = 4);
+explain (costs off)
+select * from tenk1 a join tenk1 b on
+  (a.unique1 = 1 and b.unique1 = 2) or (a.unique2 = 3 and b.ten = 4);
+
+--
 -- test placement of movable quals in a parameterized join tree
 --
 
@@ -789,6 +799,50 @@ select f1, unique2, case when unique2 is null then f1 else 0 end
 select f1, unique2, case when unique2 is null then f1 else 0 end
   from int4_tbl a left join tenk1 b on f1 = unique2
   where (case when unique2 is null then f1 else 0 end) = 0;
+
+--
+-- another case with equivalence clauses above outer joins (bug #8591)
+--
+
+explain (costs off)
+select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand)
+  from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand)
+  where a.unique2 = 5530 and coalesce(b.twothousand, a.twothousand) = 44;
+
+select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand)
+  from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand)
+  where a.unique2 = 5530 and coalesce(b.twothousand, a.twothousand) = 44;
+
+--
+-- check handling of join aliases when flattening multiple levels of subquery
+--
+
+explain (verbose, costs off)
+select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from
+  (values (0),(1)) foo1(join_key)
+left join
+  (select join_key, bug_field from
+    (select ss1.join_key, ss1.bug_field from
+      (select f1 as join_key, 666 as bug_field from int4_tbl i1) ss1
+    ) foo2
+   left join
+    (select unique2 as join_key from tenk1 i2) ss2
+   using (join_key)
+  ) foo3
+using (join_key);
+
+select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from
+  (values (0),(1)) foo1(join_key)
+left join
+  (select join_key, bug_field from
+    (select ss1.join_key, ss1.bug_field from
+      (select f1 as join_key, 666 as bug_field from int4_tbl i1) ss1
+    ) foo2
+   left join
+    (select unique2 as join_key from tenk1 i2) ss2
+   using (join_key)
+  ) foo3
+using (join_key);
 
 --
 -- test ability to push constants through outer join clauses
@@ -891,6 +945,15 @@ SELECT * FROM
   ON true;
 
 rollback;
+
+-- bug #8444: we've historically allowed duplicate aliases within aliased JOINs
+
+select * from
+  int8_tbl x join (int4_tbl x cross join int4_tbl y) j on q1 = f1; -- error
+select * from
+  int8_tbl x join (int4_tbl x cross join int4_tbl y) j on q1 = y.f1; -- error
+select * from
+  int8_tbl x join (int4_tbl x cross join int4_tbl y(ff)) j on q1 = f1; -- ok
 
 --
 -- Test LATERAL
@@ -1079,5 +1142,25 @@ select f1,g from int4_tbl a cross join (select a.f1 as g) ss;
 -- SQL:2008 says the left table is in scope but illegal to access here
 select f1,g from int4_tbl a right join lateral generate_series(0, a.f1) g on true;
 select f1,g from int4_tbl a full join lateral generate_series(0, a.f1) g on true;
+-- check we complain about ambiguous table references
+select * from
+  int8_tbl x cross join (int4_tbl x cross join lateral (select x.f1) ss);
 -- LATERAL can be used to put an aggregate into the FROM clause of its query
 select 1 from tenk1 a, lateral (select max(a.unique1) from int4_tbl b) ss;
+
+-- check behavior of LATERAL in UPDATE/DELETE
+
+create temp table xx1 as select f1 as x1, -f1 as x2 from int4_tbl;
+
+-- error, can't do this:
+update xx1 set x2 = f1 from (select * from int4_tbl where f1 = x1) ss;
+update xx1 set x2 = f1 from (select * from int4_tbl where f1 = xx1.x1) ss;
+-- can't do it even with LATERAL:
+update xx1 set x2 = f1 from lateral (select * from int4_tbl where f1 = x1) ss;
+-- we might in future allow something like this, but for now it's an error:
+update xx1 set x2 = f1 from xx1, lateral (select * from int4_tbl where f1 = x1) ss;
+
+-- also errors:
+delete from xx1 using (select * from int4_tbl where f1 = x1) ss;
+delete from xx1 using (select * from int4_tbl where f1 = xx1.x1) ss;
+delete from xx1 using lateral (select * from int4_tbl where f1 = x1) ss;

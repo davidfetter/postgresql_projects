@@ -3,7 +3,7 @@
  *
  *	server checks and output routines
  *
- *	Copyright (c) 2010-2013, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2014, PostgreSQL Global Development Group
  *	contrib/pg_upgrade/check.c
  */
 
@@ -351,7 +351,7 @@ set_locale_and_encoding(ClusterInfo *cluster)
 
 		res = executeQueryOrDie(conn,
 								"SELECT datcollate, datctype "
-								"FROM 	pg_catalog.pg_database "
+								"FROM	pg_catalog.pg_database "
 								"WHERE	datname = 'template0' ");
 		assert(PQntuples(res) == 1);
 
@@ -381,7 +381,7 @@ set_locale_and_encoding(ClusterInfo *cluster)
 
 	res = executeQueryOrDie(conn,
 							"SELECT pg_catalog.pg_encoding_to_char(encoding) "
-							"FROM 	pg_catalog.pg_database "
+							"FROM	pg_catalog.pg_database "
 							"WHERE	datname = 'template0' ");
 	assert(PQntuples(res) == 1);
 
@@ -458,10 +458,9 @@ create_script_for_cluster_analyze(char **analyze_script_file_name)
 	prep_status("Creating script to analyze new cluster");
 
 	if (os_info.user_specified)
-		pg_asprintf(&user_specification, "-U \"%s\" ", os_info.user);
+		user_specification = psprintf("-U \"%s\" ", os_info.user);
 
-	pg_asprintf(analyze_script_file_name, "analyze_new_cluster.%s",
-				SCRIPT_EXT);
+	*analyze_script_file_name = psprintf("analyze_new_cluster.%s", SCRIPT_EXT);
 
 	if ((script = fopen_priv(*analyze_script_file_name, "w")) == NULL)
 		pg_fatal("Could not open file \"%s\": %s\n",
@@ -592,8 +591,7 @@ create_script_for_old_cluster_deletion(char **deletion_script_file_name)
 	int			tblnum;
 	char		old_cluster_pgdata[MAXPGPATH];
 
-	pg_asprintf(deletion_script_file_name, "delete_old_cluster.%s",
-				SCRIPT_EXT);
+	*deletion_script_file_name = psprintf("delete_old_cluster.%s", SCRIPT_EXT);
 
 	/*
 	 * Some users (oddly) create tablespaces inside the cluster data

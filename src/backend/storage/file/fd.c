@@ -3,7 +3,7 @@
  * fd.c
  *	  Virtual file descriptor code.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -829,7 +829,7 @@ AllocateVfd(void)
 	Index		i;
 	File		file;
 
-	DO_DB(elog(LOG, "AllocateVfd. Size %lu", (unsigned long) SizeVfdCache));
+	DO_DB(elog(LOG, "AllocateVfd. Size %zu", SizeVfdCache));
 
 	Assert(SizeVfdCache > 0);	/* InitFileAccess not called? */
 

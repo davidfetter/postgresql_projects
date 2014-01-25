@@ -55,7 +55,7 @@
  * This code isn't concerned about the FSM at all. The caller is responsible
  * for initializing that.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -274,7 +274,7 @@ _bt_blwritepage(BTWriteState *wstate, Page page, BlockNumber blkno)
 	if (wstate->btws_use_wal)
 	{
 		/* We use the heap NEWPAGE record type for this */
-		log_newpage(&wstate->index->rd_node, MAIN_FORKNUM, blkno, page);
+		log_newpage(&wstate->index->rd_node, MAIN_FORKNUM, blkno, page, true);
 	}
 
 	/*
@@ -482,9 +482,8 @@ _bt_buildadd(BTWriteState *wstate, BTPageState *state, IndexTuple itup)
 	if (itupsz > BTMaxItemSize(npage))
 		ereport(ERROR,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-			errmsg("index row size %lu exceeds maximum %lu for index \"%s\"",
-				   (unsigned long) itupsz,
-				   (unsigned long) BTMaxItemSize(npage),
+			errmsg("index row size %zu exceeds maximum %zu for index \"%s\"",
+				   itupsz, BTMaxItemSize(npage),
 				   RelationGetRelationName(wstate->index)),
 		errhint("Values larger than 1/3 of a buffer page cannot be indexed.\n"
 				"Consider a function index of an MD5 hash of the value, "

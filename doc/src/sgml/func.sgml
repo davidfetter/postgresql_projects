@@ -831,19 +831,6 @@
       <row>
        <entry>
         <indexterm>
-         <primary>random</primary>
-        </indexterm>
-        <literal><function>random()</function></literal>
-       </entry>
-       <entry><type>dp</type></entry>
-       <entry>random value in the range 0.0 &lt;= x &lt; 1.0</entry>
-       <entry><literal>random()</literal></entry>
-       <entry></entry>
-      </row>
-
-      <row>
-       <entry>
-        <indexterm>
          <primary>round</primary>
         </indexterm>
         <literal><function>round(<type>dp</type> or <type>numeric</type>)</function></literal>
@@ -860,20 +847,6 @@
        <entry>round to <parameter>s</parameter> decimal places</entry>
        <entry><literal>round(42.4382, 2)</literal></entry>
        <entry><literal>42.44</literal></entry>
-      </row>
-
-      <row>
-       <entry>
-        <indexterm>
-         <primary>setseed</primary>
-        </indexterm>
-        <literal><function>setseed(<type>dp</type>)</function></literal>
-       </entry>
-       <entry><type>void</type></entry>
-       <entry>set seed for subsequent <literal>random()</literal> calls (value between -1.0 and
-       1.0, inclusive)</entry>
-       <entry><literal>setseed(0.54823)</literal></entry>
-       <entry></entry>
       </row>
 
       <row>
@@ -950,6 +923,56 @@
      </tbody>
     </tgroup>
    </table>
+
+  <para>
+    <xref linkend="functions-math-random-table"> shows functions for
+    generating random numbers.
+  </para>
+
+   <table id="functions-math-random-table">
+    <title>Random Functions</title>
+
+    <tgroup cols="3">
+     <thead>
+      <row>
+       <entry>Function</entry>
+       <entry>Return Type</entry>
+       <entry>Description</entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry>
+        <indexterm>
+         <primary>random</primary>
+        </indexterm>
+        <literal><function>random()</function></literal>
+       </entry>
+       <entry><type>dp</type></entry>
+       <entry>random value in the range 0.0 &lt;= x &lt; 1.0</entry>
+      </row>
+
+      <row>
+       <entry>
+        <indexterm>
+         <primary>setseed</primary>
+        </indexterm>
+        <literal><function>setseed(<type>dp</type>)</function></literal>
+       </entry>
+       <entry><type>void</type></entry>
+       <entry>set seed for subsequent <literal>random()</literal> calls (value between -1.0 and
+       1.0, inclusive)</entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+
+  <para>
+   The characteristics of the values returned by
+   <literal><function>random()</function></literal> depend
+   on the system implementation. It is not suitable for cryptographic
+   applications; see <xref linkend="pgcrypto"> module for an alternative.
+   </para>
 
   <para>
    Finally, <xref linkend="functions-math-trig-table"> shows the
@@ -3397,7 +3420,8 @@ SELECT format('Testing %3$s, %2$s, %s', 'one', 'two', 'three');
 
   <para>
    See also the aggregate function <function>string_agg</function> in
-   <xref linkend="functions-aggregate">.
+   <xref linkend="functions-aggregate"> and the large object functions
+   in <xref linkend="lo-funcs">.
   </para>
  </sect1>
 
@@ -6544,6 +6568,15 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
        </row>
 
        <row>
+        <entry><literal><function>date_trunc(<type>text</type>, <type>interval</type>)</function></literal></entry>
+        <entry><type>interval</type></entry>
+        <entry>Truncate to specified precision; see also <xref linkend="functions-datetime-trunc">
+        </entry>
+        <entry><literal>date_trunc('hour', interval '2 days 3 hours 40 minutes')</literal></entry>
+        <entry><literal>2 days 03:00:00</literal></entry>
+       </row>
+
+       <row>
         <entry>
          <indexterm>
           <primary>extract</primary>
@@ -6669,6 +6702,48 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
        <row>
         <entry>
          <indexterm>
+          <primary>make_date</primary>
+         </indexterm>
+         <literal>
+            <function>
+             make_date(<parameter>year</parameter> <type>int</type>,
+             <parameter>month</parameter> <type>int</type>,
+             <parameter>day</parameter> <type>int</type>)
+            </function>
+         </literal>
+        </entry>
+        <entry><type>date</type></entry>
+        <entry>
+         Create date from year, month and day fields
+        </entry>
+        <entry><literal>make_date(2013, 7, 15)</literal></entry>
+        <entry><literal>2013-07-15</literal></entry>
+       </row>
+
+       <row>
+        <entry>
+         <indexterm>
+          <primary>make_time</primary>
+         </indexterm>
+         <literal>
+          <function>
+           make_time(<parameter>hour</parameter> <type>int</type>,
+           <parameter>min</parameter> <type>int</type>,
+           <parameter>sec</parameter> <type>double precision</type>)
+          </function>
+         </literal>
+        </entry>
+        <entry><type>time</type></entry>
+        <entry>
+         Create time from hour, minute and seconds fields
+        </entry>
+        <entry><literal>make_time(8, 15, 23.5)</literal></entry>
+        <entry><literal>08:15:23.5</literal></entry>
+       </row>
+
+       <row>
+        <entry>
+         <indexterm>
           <primary>now</primary>
          </indexterm>
          <literal><function>now()</function></literal>
@@ -6731,6 +6806,9 @@ SELECT SUBSTRING('XY1234Z', 'Y*?([0-9]{1,3})');
     </table>
 
    <para>
+    <indexterm>
+      <primary>OVERLAPS</primary>
+    </indexterm>
     In addition to these functions, the SQL <literal>OVERLAPS</> operator is
     supported:
 <synopsis>
@@ -10940,6 +11018,9 @@ SELECT NULLIF(value, '(none)') ...
     <primary>array_upper</primary>
   </indexterm>
   <indexterm>
+    <primary>cardinality</primary>
+  </indexterm>
+  <indexterm>
     <primary>string_to_array</primary>
   </indexterm>
   <indexterm>
@@ -11098,6 +11179,17 @@ SELECT NULLIF(value, '(none)') ...
        <row>
         <entry>
          <literal>
+          <function>cardinality</function>(<type>anyarray</type>)
+         </literal>
+        </entry>
+        <entry><type>int</type></entry>
+        <entry>returns the total number of elements in the array, or 0 if the array is empty</entry>
+        <entry><literal>cardinality(ARRAY[[1,2],[3,4]])</literal></entry>
+        <entry><literal>4</literal></entry>
+       </row>
+       <row>
+        <entry>
+         <literal>
           <function>string_to_array</function>(<type>text</type>, <type>text</type> <optional>, <type>text</type></optional>)
          </literal>
         </entry>
@@ -11118,6 +11210,21 @@ SELECT NULLIF(value, '(none)') ...
         <entry><literal>unnest(ARRAY[1,2])</literal></entry>
         <entry><literallayout class="monospaced">1
 2</literallayout>(2 rows)</entry>
+       </row>
+       <row>
+        <entry>
+         <literal>
+          <function>unnest</function>(<type>anyarray</type>, <type>anyarray</type> [, ...])
+         </literal>
+        </entry>
+        <entry><type>setof anyelement, anyelement [, ...]</type></entry>
+        <entry>expand multiple arrays (possibly of different types) to a set
+         of rows.  This is only allowed in the FROM clause; see
+         <xref linkend="queries-tablefunctions"></entry>
+        <entry><literal>unnest(ARRAY[1,2],ARRAY['foo','bar','baz'])</literal></entry>
+        <entry><literallayout class="monospaced">1    foo
+2    bar
+NULL baz</literallayout>(3 rows)</entry>
        </row>
       </tbody>
      </tgroup>
@@ -11479,10 +11586,13 @@ SELECT NULLIF(value, '(none)') ...
 
   <para>
    <firstterm>Aggregate functions</firstterm> compute a single result
-   from a set of input values.  The built-in aggregate functions
+   from a set of input values.  The built-in normal aggregate functions
    are listed in
    <xref linkend="functions-aggregate-table"> and
    <xref linkend="functions-aggregate-statistics-table">.
+   The built-in ordered-set aggregate functions
+   are listed in <xref linkend="functions-orderedset-table"> and
+   <xref linkend="functions-hypothetical-table">.
    The special syntax considerations for aggregate
    functions are explained in <xref linkend="syntax-aggregates">.
    Consult <xref linkend="tutorial-agg"> for additional introductory
@@ -12226,6 +12336,290 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
    </tgroup>
   </table>
 
+  <para>
+   <xref linkend="functions-orderedset-table"> shows some
+   aggregate functions that use the <firstterm>ordered-set aggregate</>
+   syntax.  These functions are sometimes referred to as <quote>inverse
+   distribution</> functions.
+  </para>
+
+  <indexterm>
+   <primary>ordered-set aggregate</primary>
+   <secondary>built-in</secondary>
+  </indexterm>
+  <indexterm>
+   <primary>inverse distribution</primary>
+  </indexterm>
+
+  <table id="functions-orderedset-table">
+   <title>Ordered-Set Aggregate Functions</title>
+
+   <tgroup cols="5">
+    <thead>
+     <row>
+      <entry>Function</entry>
+      <entry>Direct Argument Type(s)</entry>
+      <entry>Aggregated Argument Type(s)</entry>
+      <entry>Return Type</entry>
+      <entry>Description</entry>
+     </row>
+    </thead>
+
+    <tbody>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>mode</primary>
+        <secondary>statistical</secondary>
+       </indexterm>
+       <function>mode() WITHIN GROUP (ORDER BY <replaceable class="parameter">sort_expression</replaceable>)</function>
+      </entry>
+      <entry>
+      </entry>
+      <entry>
+       any sortable type
+      </entry>
+      <entry>
+       same as sort expression
+      </entry>
+      <entry>
+       returns the most frequent input value (arbitrarily choosing the first
+       one if there are multiple equally-frequent results)
+      </entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>percentile</primary>
+        <secondary>continuous</secondary>
+       </indexterm>
+       <indexterm>
+        <primary>median</primary>
+       </indexterm>
+       <function>percentile_cont(<replaceable class="parameter">fraction</replaceable>) WITHIN GROUP (ORDER BY <replaceable class="parameter">sort_expression</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>double precision</type>
+      </entry>
+      <entry>
+       <type>double precision</type> or <type>interval</type>
+      </entry>
+      <entry>
+       same as sort expression
+      </entry>
+      <entry>
+       continuous percentile: returns a value corresponding to the specified
+       fraction in the ordering, interpolating between adjacent input items if
+       needed
+      </entry>
+     </row>
+
+     <row>
+      <entry>
+       <function>percentile_cont(<replaceable class="parameter">fractions</replaceable>) WITHIN GROUP (ORDER BY <replaceable class="parameter">sort_expression</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>double precision[]</type>
+      </entry>
+      <entry>
+       <type>double precision</type> or <type>interval</type>
+      </entry>
+      <entry>
+       array of sort expression's type
+      </entry>
+      <entry>
+       multiple continuous percentile: returns an array of results matching
+       the shape of the <literal>fractions</literal> parameter, with each
+       non-null element replaced by the value corresponding to that percentile
+      </entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>percentile</primary>
+        <secondary>discrete</secondary>
+       </indexterm>
+       <function>percentile_disc(<replaceable class="parameter">fraction</replaceable>) WITHIN GROUP (ORDER BY <replaceable class="parameter">sort_expression</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>double precision</type>
+      </entry>
+      <entry>
+       any sortable type
+      </entry>
+      <entry>
+       same as sort expression
+      </entry>
+      <entry>
+       discrete percentile: returns the first input value whose position in
+       the ordering equals or exceeds the specified fraction
+      </entry>
+     </row>
+
+     <row>
+      <entry>
+       <function>percentile_disc(<replaceable class="parameter">fractions</replaceable>) WITHIN GROUP (ORDER BY <replaceable class="parameter">sort_expression</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>double precision[]</type>
+      </entry>
+      <entry>
+       any sortable type
+      </entry>
+      <entry>
+       array of sort expression's type
+      </entry>
+      <entry>
+       multiple discrete percentile: returns an array of results matching the
+       shape of the <literal>fractions</literal> parameter, with each non-null
+       element replaced by the input value corresponding to that percentile
+      </entry>
+     </row>
+
+    </tbody>
+   </tgroup>
+  </table>
+
+  <para>
+   All the aggregates listed in <xref linkend="functions-orderedset-table">
+   ignore null values in their sorted input.  For those that take
+   a <replaceable>fraction</replaceable> parameter, the fraction value must be
+   between 0 and 1; an error is thrown if not.  However, a null fraction value
+   simply produces a null result.
+  </para>
+
+  <para>
+   Each of the aggregates listed in
+   <xref linkend="functions-hypothetical-table"> is associated with a
+   window function of the same name defined in
+   <xref linkend="functions-window">.  In each case, the aggregate result
+   is the value that the associated window function would have
+   returned for the <quote>hypothetical</> row constructed from
+   <replaceable>args</replaceable>, if such a row had been added to the sorted
+   group of rows computed from the <replaceable>sorted_args</replaceable>.
+  </para>
+
+  <table id="functions-hypothetical-table">
+   <title>Hypothetical-Set Aggregate Functions</title>
+
+   <tgroup cols="5">
+    <thead>
+     <row>
+      <entry>Function</entry>
+      <entry>Direct Argument Type(s)</entry>
+      <entry>Aggregated Argument Type(s)</entry>
+      <entry>Return Type</entry>
+      <entry>Description</entry>
+     </row>
+    </thead>
+
+    <tbody>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>rank</primary>
+        <secondary>hypothetical</secondary>
+       </indexterm>
+       <function>rank(<replaceable class="parameter">args</replaceable>) WITHIN GROUP (ORDER BY <replaceable class="parameter">sorted_args</replaceable>)</function>
+      </entry>
+      <entry>
+       <literal>VARIADIC</> <type>"any"</type>
+      </entry>
+      <entry>
+       <literal>VARIADIC</> <type>"any"</type>
+      </entry>
+      <entry>
+       <type>bigint</type>
+      </entry>
+      <entry>
+       rank of the hypothetical row, with gaps for duplicate rows
+      </entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>dense_rank</primary>
+        <secondary>hypothetical</secondary>
+       </indexterm>
+       <function>dense_rank(<replaceable class="parameter">args</replaceable>) WITHIN GROUP (ORDER BY <replaceable class="parameter">sorted_args</replaceable>)</function>
+      </entry>
+      <entry>
+       <literal>VARIADIC</> <type>"any"</type>
+      </entry>
+      <entry>
+       <literal>VARIADIC</> <type>"any"</type>
+      </entry>
+      <entry>
+       <type>bigint</type>
+      </entry>
+      <entry>
+       rank of the hypothetical row, without gaps
+      </entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>percent_rank</primary>
+        <secondary>hypothetical</secondary>
+       </indexterm>
+       <function>percent_rank(<replaceable class="parameter">args</replaceable>) WITHIN GROUP (ORDER BY <replaceable class="parameter">sorted_args</replaceable>)</function>
+      </entry>
+      <entry>
+       <literal>VARIADIC</> <type>"any"</type>
+      </entry>
+      <entry>
+       <literal>VARIADIC</> <type>"any"</type>
+      </entry>
+      <entry>
+       <type>double precision</type>
+      </entry>
+      <entry>
+       relative rank of the hypothetical row, ranging from 0 to 1
+      </entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>cume_dist</primary>
+        <secondary>hypothetical</secondary>
+       </indexterm>
+       <function>cume_dist(<replaceable class="parameter">args</replaceable>) WITHIN GROUP (ORDER BY <replaceable class="parameter">sorted_args</replaceable>)</function>
+      </entry>
+      <entry>
+       <literal>VARIADIC</> <type>"any"</type>
+      </entry>
+      <entry>
+       <literal>VARIADIC</> <type>"any"</type>
+      </entry>
+      <entry>
+       <type>double precision</type>
+      </entry>
+      <entry>
+       relative rank of the hypothetical row, ranging from
+       1/<replaceable>N</> to 1
+      </entry>
+     </row>
+
+    </tbody>
+   </tgroup>
+  </table>
+
+  <para>
+   For each of these hypothetical-set aggregates, the list of direct arguments
+   given in <replaceable>args</replaceable> must match the number and types of
+   the aggregated arguments given in <replaceable>sorted_args</replaceable>.
+   Unlike most built-in aggregates, these aggregates are not strict, that is
+   they do not drop input rows containing nulls.  Null values sort according
+   to the rule specified in the <literal>ORDER BY</> clause.
+  </para>
+
  </sect1>
 
  <sect1 id="functions-window">
@@ -12251,9 +12645,10 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
   </para>
 
   <para>
-   In addition to these functions, any built-in or user-defined aggregate
-   function can be used as a window function (see
-   <xref linkend="functions-aggregate"> for a list of the built-in aggregates).
+   In addition to these functions, any built-in or user-defined normal
+   aggregate function (but not ordered-set or hypothetical-set aggregates)
+   can be used as a window function; see
+   <xref linkend="functions-aggregate"> for a list of the built-in aggregates.
    Aggregate functions act as window functions only when an <literal>OVER</>
    clause follows the call; otherwise they act as regular aggregates.
   </para>
@@ -13229,6 +13624,8 @@ AND
    functions, as detailed in <xref linkend="functions-srf-series"> and
    <xref linkend="functions-srf-subscripts">.  Other, more specialized
    set-returning functions are described elsewhere in this manual.
+   See <xref linkend="queries-tablefunctions"> for ways to combine multiple
+   set-returning functions.
   </para>
 
   <table id="functions-srf-series">
@@ -13433,19 +13830,16 @@ SELECT * FROM unnest2(ARRAY[[1,2],[3,4]]);
   </indexterm>
 
   <para>
-  When a function in the <literal>FROM</literal> clause is suffixed by
-  <literal>WITH ORDINALITY</literal>, a <type>bigint</type> column is appended
-  to the output which starts from 1 and increments by 1 for each row of the
-  function's output.  This is most useful in the case of set returning functions
-  such as UNNEST(). This functionality is available for functions returning
-  composite types or using <literal>OUT</literal> parameters, but not when using
-  a function returning <literal>RECORD</literal> with an explicit column
-  definition list.
+   When a function in the <literal>FROM</literal> clause is suffixed
+   by <literal>WITH ORDINALITY</literal>, a <type>bigint</type> column is
+   appended to the output which starts from 1 and increments by 1 for each row
+   of the function's output.  This is most useful in the case of set returning
+   functions such as <function>unnest()</>.
 
 <programlisting>
 -- set returning function WITH ORDINALITY
 SELECT * FROM pg_ls_dir('.') WITH ORDINALITY AS t(ls,n);
-       ls        | n  
+       ls        | n
 -----------------+----
  pg_serial       |  1
  pg_twophase     |  2

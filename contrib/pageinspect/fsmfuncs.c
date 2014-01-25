@@ -9,7 +9,7 @@
  * there's hardly any use case for using these without superuser-rights
  * anyway.
  *
- * Copyright (c) 2007-2013, PostgreSQL Global Development Group
+ * Copyright (c) 2007-2014, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  contrib/pageinspect/fsmfuncs.c
@@ -56,5 +56,5 @@ fsm_page_contents(PG_FUNCTION_ARGS)
 	}
 	appendStringInfo(&sinfo, "fp_next_slot: %d\n", fsmpage->fp_next_slot);
 
-	PG_RETURN_TEXT_P(cstring_to_text(sinfo.data));
+	PG_RETURN_TEXT_P(cstring_to_text_with_len(sinfo.data, sinfo.len));
 }

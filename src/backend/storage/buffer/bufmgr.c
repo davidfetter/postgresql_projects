@@ -3,7 +3,7 @@
  * bufmgr.c
  *	  buffer manager interface routines
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -207,7 +207,8 @@ ReadBuffer(Relation reln, BlockNumber blockNum)
  * Assume when this function is called, that reln has been opened already.
  *
  * In RBM_NORMAL mode, the page is read from disk, and the page header is
- * validated. An error is thrown if the page header is not valid.
+ * validated.  An error is thrown if the page header is not valid.	(But
+ * note that an all-zero page is considered "valid"; see PageIsVerified().)
  *
  * RBM_ZERO_ON_ERROR is like the normal mode, but if the page header is not
  * valid, the page is zeroed instead of throwing an error. This is intended
@@ -220,6 +221,8 @@ ReadBuffer(Relation reln, BlockNumber blockNum)
  * Caution: do not use this mode to read a page that is beyond the relation's
  * current physical EOF; that is likely to cause problems in md.c when
  * the page is modified and written out. P_NEW is OK, though.
+ *
+ * RBM_NORMAL_NO_LOG mode is treated the same as RBM_NORMAL here.
  *
  * If strategy is not NULL, a nondefault buffer access strategy is used.
  * See buffer/README for details.
@@ -2626,16 +2629,15 @@ MarkBufferDirtyHint(Buffer buffer, bool buffer_std)
 		bool		delayChkpt = false;
 
 		/*
-		 * If checksums are enabled, and the buffer is permanent, then a full
-		 * page image may be required even for some hint bit updates to
-		 * protect against torn pages. This full page image is only necessary
+		 * If we need to protect hint bit updates from torn writes, WAL-log a
+		 * full page image of the page. This full page image is only necessary
 		 * if the hint bit update is the first change to the page since the
 		 * last checkpoint.
 		 *
 		 * We don't check full_page_writes here because that logic is included
 		 * when we call XLogInsert() since the value changes dynamically.
 		 */
-		if (DataChecksumsEnabled() && (bufHdr->flags & BM_PERMANENT))
+		if (XLogHintBitIsNeeded() && (bufHdr->flags & BM_PERMANENT))
 		{
 			/*
 			 * If we're in recovery we cannot dirty a page because of a hint.

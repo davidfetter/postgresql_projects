@@ -3,7 +3,7 @@
  * postgres.c
  *	  POSTGRES C Backend Interface
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -526,16 +526,22 @@ prepare_for_client_read(void)
 
 /*
  * client_read_ended -- get out of the client-input state
+ *
+ * This is called just after low-level reads.  It must preserve errno!
  */
 void
 client_read_ended(void)
 {
 	if (DoingCommandRead)
 	{
+		int			save_errno = errno;
+
 		ImmediateInterruptOK = false;
 
 		DisableNotifyInterrupt();
 		DisableCatchupInterrupt();
+
+		errno = save_errno;
 	}
 }
 
@@ -3542,14 +3548,6 @@ PostgresMain(int argc, char *argv[],
 		MyStartTime = time(NULL);
 	}
 
-	/*
-	 * Fire up essential subsystems: error and memory management
-	 *
-	 * If we are running under the postmaster, this is done already.
-	 */
-	if (!IsUnderPostmaster)
-		MemoryContextInit();
-
 	SetProcessingMode(InitProcessing);
 
 	/* Compute paths, if we didn't inherit them from postmaster */
@@ -3797,6 +3795,13 @@ PostgresMain(int argc, char *argv[],
 	 * always active, we have at least some chance of recovering from an error
 	 * during error recovery.  (If we get into an infinite loop thereby, it
 	 * will soon be stopped by overflow of elog.c's internal state stack.)
+	 *
+	 * Note that we use sigsetjmp(..., 1), so that this function's signal mask
+	 * (to wit, UnBlockSig) will be restored when longjmp'ing to here.  This
+	 * is essential in case we longjmp'd out of a signal handler on a platform
+	 * where that leaves the signal blocked.  It's not redundant with the
+	 * unblock in AbortTransaction() because the latter is only called if we
+	 * were inside a transaction.
 	 */
 
 	if (sigsetjmp(local_sigjmp_buf, 1) != 0)
@@ -3817,11 +3822,17 @@ PostgresMain(int argc, char *argv[],
 
 		/*
 		 * Forget any pending QueryCancel request, since we're returning to
-		 * the idle loop anyway, and cancel any active timeout requests.
+		 * the idle loop anyway, and cancel any active timeout requests.  (In
+		 * future we might want to allow some timeout requests to survive, but
+		 * at minimum it'd be necessary to do reschedule_timeouts(), in case
+		 * we got here because of a query cancel interrupting the SIGALRM
+		 * interrupt handler.)	Note in particular that we must clear the
+		 * statement and lock timeout indicators, to prevent any future plain
+		 * query cancels from being misreported as timeouts in case we're
+		 * forgetting a timeout cancel.
 		 */
-		QueryCancelPending = false;
 		disable_all_timeouts(false);
-		QueryCancelPending = false;		/* again in case timeout occurred */
+		QueryCancelPending = false;		/* second to avoid race condition */
 
 		/*
 		 * Turn off these interrupts too.  This is only needed here and not in
@@ -4343,7 +4354,7 @@ ShowUsage(const char *title)
 	 */
 	initStringInfo(&str);
 
-	appendStringInfo(&str, "! system usage stats:\n");
+	appendStringInfoString(&str, "! system usage stats:\n");
 	appendStringInfo(&str,
 				"!\t%ld.%06ld elapsed %ld.%06ld user %ld.%06ld system sec\n",
 					 (long) (elapse_t.tv_sec - Save_t.tv_sec),

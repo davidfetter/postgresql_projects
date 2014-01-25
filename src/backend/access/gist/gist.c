@@ -4,7 +4,7 @@
  *	  interface routines for the postgres GiST index access method.
  *
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -83,7 +83,7 @@ gistbuildempty(PG_FUNCTION_ARGS)
 	START_CRIT_SECTION();
 	GISTInitBuffer(buffer, F_LEAF);
 	MarkBufferDirty(buffer);
-	log_newpage_buffer(buffer);
+	log_newpage_buffer(buffer, true);
 	END_CRIT_SECTION();
 
 	/* Unlock and release the buffer */

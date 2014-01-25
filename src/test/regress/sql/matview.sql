@@ -130,7 +130,7 @@ CREATE INDEX hogeviewidx ON hogeview (i);
 DELETE FROM hoge;
 REFRESH MATERIALIZED VIEW hogeview;
 SELECT * FROM hogeview WHERE i < 10;
-VACUUM ANALYZE;
+VACUUM ANALYZE hogeview;
 SELECT * FROM hogeview WHERE i < 10;
 DROP TABLE hoge CASCADE;
 
@@ -155,6 +155,12 @@ REFRESH MATERIALIZED VIEW mv;
 REFRESH MATERIALIZED VIEW CONCURRENTLY mv;
 DROP TABLE foo CASCADE;
 
+-- allow subquery to reference unpopulated matview if WITH NO DATA is specified
+CREATE MATERIALIZED VIEW mv1 AS SELECT 1 AS col1 WITH NO DATA;
+CREATE MATERIALIZED VIEW mv2 AS SELECT * FROM mv1
+  WHERE col1 = (SELECT LEAST(col1) FROM mv1) WITH NO DATA;
+DROP MATERIALIZED VIEW mv1 CASCADE;
+
 -- make sure that types with unusual equality tests work
 CREATE TABLE boxes (id serial primary key, b box);
 INSERT INTO boxes (b) VALUES
@@ -167,3 +173,16 @@ UPDATE boxes SET b = '(2,2),(1,1)' WHERE id = 2;
 REFRESH MATERIALIZED VIEW CONCURRENTLY boxmv;
 SELECT * FROM boxmv ORDER BY id;
 DROP TABLE boxes CASCADE;
+
+-- make sure that column names are handled correctly
+CREATE TABLE v (i int, j int);
+CREATE MATERIALIZED VIEW mv_v (ii) AS SELECT i, j AS jj FROM v;
+ALTER TABLE v RENAME COLUMN i TO x;
+INSERT INTO v values (1, 2);
+CREATE UNIQUE INDEX mv_v_ii ON mv_v (ii);
+REFRESH MATERIALIZED VIEW mv_v;
+UPDATE v SET j = 3 WHERE x = 1;
+REFRESH MATERIALIZED VIEW CONCURRENTLY mv_v;
+SELECT * FROM v;
+SELECT * FROM mv_v;
+DROP TABLE v CASCADE;

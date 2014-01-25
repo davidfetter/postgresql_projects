@@ -10,7 +10,7 @@
  *	  Index cost functions are registered in the pg_am catalog
  *	  in the "amcostestimate" attribute.
  *
- * Portions Copyright (c) 1996-2013, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -4504,6 +4504,12 @@ examine_simple_variable(PlannerInfo *root, Var *var,
 		Query	   *subquery = rte->subquery;
 		RelOptInfo *rel;
 		TargetEntry *ste;
+
+		/*
+		 * Punt if it's a whole-row var rather than a plain column reference.
+		 */
+		if (var->varattno == InvalidAttrNumber)
+			return;
 
 		/*
 		 * Punt if subquery uses set operations or GROUP BY, as these will
