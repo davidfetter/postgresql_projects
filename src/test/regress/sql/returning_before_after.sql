@@ -49,7 +49,7 @@ CREATE TABLE foo_ret3 (bar1 INTEGER, bar4 FLOAT);
 INSERT INTO foo_ret2_ret VALUES (2, 'asdf', 33);
 INSERT INTO foo_ret3 VALUES (2, 7.77);
 
-CREATE VIEW view_join AS SELECT f2.*, f3.bar1 AS f1bar1, f3.bar4 FROM foo_ret2_ret f2 
+CREATE VIEW view_join AS SELECT f2.*, f3.bar1 AS f1bar1, f3.bar4 FROM foo_ret2_ret f2
 JOIN foo_ret3 f3 ON f2.bar1 = f3.bar1;
 
 UPDATE view_join SET bar1=bar1+5, bar2=bar2||'join', bar=bar1*2, bar4=7 RETURNING before.*, after.*;
@@ -57,7 +57,7 @@ UPDATE view_join SET bar1=bar1+5, bar2=bar2||'join', bar=bar1*2, bar4=7 RETURNIN
 -- check triggers
 CREATE FUNCTION returning_trig() returns trigger as $$
 BEGIN
-NEW.bar1 = NEW.bar1*NEW.bar1; 
+NEW.bar1 = NEW.bar1*NEW.bar1;
 RETURN NEW;
 END; $$ language plpgsql;
 
@@ -75,7 +75,7 @@ CREATE TABLE t2_ret (id serial, x int, y int, z int);
 INSERT INTO t1_ret VALUES (DEFAULT,1,2,3);
 INSERT INTO t1_ret VALUES (DEFAULT,4,5,6);
 
--- check WITH statement 
+-- check WITH statement
 WITH foo_ret AS (UPDATE t1_ret SET x=x*2, y=y+1, z=x+y+z RETURNING BEFORE.x, BEFORE.y, AFTER.z) INSERT INTO t2_ret (x,y,z) SELECT x, y, z FROM foo_ret RETURNING *;
 
 -- check UPDATE ... FROM statement
