@@ -86,9 +86,9 @@ void
 addAliases(ParseState *pstate)
 {
 	const int n_aliases = 2;
-	char	*aliases[] = { "before", "after" };
-	int		i;
-	ListCell   *l;
+	char	 *aliases[] = { "before", "after" };
+	int			i;
+	ListCell	*l;
 	ParseNamespaceItem *nsitem;
 	RangeTblEntry *rte = NULL;
 
@@ -107,9 +107,7 @@ addAliases(ParseState *pstate)
 		for (i=0 ; i < n_aliases; i++)
 		{
 			if (aliases[i] && strcmp(rte->eref->aliasname, aliases[i]) == 0)
-			{
 				aliases[i] = NULL;
-			}
 		}
 	}
 

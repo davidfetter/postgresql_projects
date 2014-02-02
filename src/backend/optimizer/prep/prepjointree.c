@@ -1802,8 +1802,8 @@ pullup_replace_vars_callback(Var *var,
 		/* Make a copy of the tlist item to return */
 		newnode = copyObject(tle->expr);
 
-		if(IsA(newnode,Var) && rcon->root->parse->commandType == CMD_UPDATE &&
-		  var->varno <= list_length(rcon->root->parse->rtable) )
+		if (IsA(newnode,Var) && rcon->root->parse->commandType == CMD_UPDATE &&
+		    var->varno <= list_length(rcon->root->parse->rtable))
 		{
 			RangeTblEntry *rte = rt_fetch(((Var*)var)->varnoold, rcon->root->parse->rtable);
 			if(rte->rtekind == RTE_ALIAS)
