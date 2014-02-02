@@ -107,6 +107,7 @@
 #define READ_LOCATION_FIELD(fldname) \
 	token = pg_strtok(&length);		/* skip :fldname */ \
 	token = pg_strtok(&length);		/* get field value */ \
+	(void) token;				/* in case not used elsewhere */ \
 	local_node->fldname = -1	/* set field to "unknown" */
 
 /* Read a Node field */
@@ -118,6 +119,7 @@
 /* Read a bitmapset field */
 #define READ_BITMAPSET_FIELD(fldname) \
 	token = pg_strtok(&length);		/* skip :fldname */ \
+	(void) token;				/* in case not used elsewhere */ \
 	local_node->fldname = _readBitmapset()
 
 /* Routine exit */
@@ -1438,15 +1440,13 @@ readDatum(bool typbyval)
 
 	token = pg_strtok(&tokenLength);	/* read the '[' */
 	if (token == NULL || token[0] != '[')
-		elog(ERROR, "expected \"[\" to start datum, but got \"%s\"; length = %lu",
-			 token ? (const char *) token : "[NULL]",
-			 (unsigned long) length);
+		elog(ERROR, "expected \"[\" to start datum, but got \"%s\"; length = %zu",
+			 token ? (const char *) token : "[NULL]", length);
 
 	if (typbyval)
 	{
 		if (length > (Size) sizeof(Datum))
-			elog(ERROR, "byval datum but length = %lu",
-				 (unsigned long) length);
+			elog(ERROR, "byval datum but length = %zu", length);
 		res = (Datum) 0;
 		s = (char *) (&res);
 		for (i = 0; i < (Size) sizeof(Datum); i++)
@@ -1470,9 +1470,8 @@ readDatum(bool typbyval)
 
 	token = pg_strtok(&tokenLength);	/* read the ']' */
 	if (token == NULL || token[0] != ']')
-		elog(ERROR, "expected \"]\" to end datum, but got \"%s\"; length = %lu",
-			 token ? (const char *) token : "[NULL]",
-			 (unsigned long) length);
+		elog(ERROR, "expected \"]\" to end datum, but got \"%s\"; length = %zu",
+			 token ? (const char *) token : "[NULL]", length);
 
 	return res;
 }

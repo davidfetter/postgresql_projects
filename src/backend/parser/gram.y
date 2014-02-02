@@ -334,7 +334,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				oper_argtypes RuleActionList RuleActionMulti
 				opt_column_list columnList opt_name_list
 				sort_clause opt_sort_clause sortby_list index_params
-				name_list from_clause from_list opt_array_bounds
+				name_list role_list from_clause from_list opt_array_bounds
 				qualified_name_list any_name any_name_list
 				any_operator expr_list attrs
 				target_list opt_target_list insert_column_list set_target_list
@@ -601,7 +601,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	UNTIL UPDATE USER USING
 
 	VACUUM VALID VALIDATE VALIDATOR VALUE_P VALUES VARCHAR VARIADIC VARYING
-	VERBOSE VERSION_P VIEW VOLATILE
+	VERBOSE VERSION_P VIEW VIEWS VOLATILE
 
 	WHEN WHERE WHITESPACE_P WINDOW WITH WITHIN WITHOUT WORK WRAPPER WRITE
 
@@ -901,7 +901,7 @@ AlterOptRoleElem:
 					$$ = makeDefElem("validUntil", (Node *)makeString($3));
 				}
 		/*	Supported but not documented for roles, for use by ALTER GROUP. */
-			| USER name_list
+			| USER role_list
 				{
 					$$ = makeDefElem("rolemembers", (Node *)$2);
 				}
@@ -965,19 +965,19 @@ CreateOptRoleElem:
 				{
 					$$ = makeDefElem("sysid", (Node *)makeInteger($2));
 				}
-			| ADMIN name_list
+			| ADMIN role_list
 				{
 					$$ = makeDefElem("adminmembers", (Node *)$2);
 				}
-			| ROLE name_list
+			| ROLE role_list
 				{
 					$$ = makeDefElem("rolemembers", (Node *)$2);
 				}
-			| IN_P ROLE name_list
+			| IN_P ROLE role_list
 				{
 					$$ = makeDefElem("addroleto", (Node *)$3);
 				}
-			| IN_P GROUP_P name_list
+			| IN_P GROUP_P role_list
 				{
 					$$ = makeDefElem("addroleto", (Node *)$3);
 				}
@@ -1084,14 +1084,14 @@ AlterUserSetStmt:
  *****************************************************************************/
 
 DropRoleStmt:
-			DROP ROLE name_list
+			DROP ROLE role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = FALSE;
 					n->roles = $3;
 					$$ = (Node *)n;
 				}
-			| DROP ROLE IF_P EXISTS name_list
+			| DROP ROLE IF_P EXISTS role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = TRUE;
@@ -1110,14 +1110,14 @@ DropRoleStmt:
  *****************************************************************************/
 
 DropUserStmt:
-			DROP USER name_list
+			DROP USER role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = FALSE;
 					n->roles = $3;
 					$$ = (Node *)n;
 				}
-			| DROP USER IF_P EXISTS name_list
+			| DROP USER IF_P EXISTS role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->roles = $5;
@@ -1152,7 +1152,7 @@ CreateGroupStmt:
  *****************************************************************************/
 
 AlterGroupStmt:
-			ALTER GROUP_P RoleId add_drop USER name_list
+			ALTER GROUP_P RoleId add_drop USER role_list
 				{
 					AlterRoleStmt *n = makeNode(AlterRoleStmt);
 					n->role = $3;
@@ -1176,14 +1176,14 @@ add_drop:	ADD_P									{ $$ = +1; }
  *****************************************************************************/
 
 DropGroupStmt:
-			DROP GROUP_P name_list
+			DROP GROUP_P role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = FALSE;
 					n->roles = $3;
 					$$ = (Node *)n;
 				}
-			| DROP GROUP_P IF_P EXISTS name_list
+			| DROP GROUP_P IF_P EXISTS role_list
 				{
 					DropRoleStmt *n = makeNode(DropRoleStmt);
 					n->missing_ok = TRUE;
@@ -3588,12 +3588,13 @@ opt_procedural:
  *
  *****************************************************************************/
 
-CreateTableSpaceStmt: CREATE TABLESPACE name OptTableSpaceOwner LOCATION Sconst
+CreateTableSpaceStmt: CREATE TABLESPACE name OptTableSpaceOwner LOCATION Sconst opt_reloptions
 				{
 					CreateTableSpaceStmt *n = makeNode(CreateTableSpaceStmt);
 					n->tablespacename = $3;
 					n->owner = $4;
 					n->location = $6;
+					n->options = $7;
 					$$ = (Node *) n;
 				}
 		;
@@ -5121,7 +5122,7 @@ DropOpFamilyStmt:
  *
  *****************************************************************************/
 DropOwnedStmt:
-			DROP OWNED BY name_list opt_drop_behavior
+			DROP OWNED BY role_list opt_drop_behavior
 				{
 					DropOwnedStmt *n = makeNode(DropOwnedStmt);
 					n->roles = $4;
@@ -5131,7 +5132,7 @@ DropOwnedStmt:
 		;
 
 ReassignOwnedStmt:
-			REASSIGN OWNED BY name_list TO name
+			REASSIGN OWNED BY role_list TO name
 				{
 					ReassignOwnedStmt *n = makeNode(ReassignOwnedStmt);
 					n->roles = $4;
@@ -5997,7 +5998,7 @@ function_with_argtypes:
  *****************************************************************************/
 
 GrantRoleStmt:
-			GRANT privilege_list TO name_list opt_grant_admin_option opt_granted_by
+			GRANT privilege_list TO role_list opt_grant_admin_option opt_granted_by
 				{
 					GrantRoleStmt *n = makeNode(GrantRoleStmt);
 					n->is_grant = true;
@@ -6010,7 +6011,7 @@ GrantRoleStmt:
 		;
 
 RevokeRoleStmt:
-			REVOKE privilege_list FROM name_list opt_granted_by opt_drop_behavior
+			REVOKE privilege_list FROM role_list opt_granted_by opt_drop_behavior
 				{
 					GrantRoleStmt *n = makeNode(GrantRoleStmt);
 					n->is_grant = false;
@@ -6020,7 +6021,7 @@ RevokeRoleStmt:
 					n->behavior = $6;
 					$$ = (Node*)n;
 				}
-			| REVOKE ADMIN OPTION FOR privilege_list FROM name_list opt_granted_by opt_drop_behavior
+			| REVOKE ADMIN OPTION FOR privilege_list FROM role_list opt_granted_by opt_drop_behavior
 				{
 					GrantRoleStmt *n = makeNode(GrantRoleStmt);
 					n->is_grant = false;
@@ -6066,11 +6067,11 @@ DefACLOption:
 				{
 					$$ = makeDefElem("schemas", (Node *)$3);
 				}
-			| FOR ROLE name_list
+			| FOR ROLE role_list
 				{
 					$$ = makeDefElem("roles", (Node *)$3);
 				}
-			| FOR USER name_list
+			| FOR USER role_list
 				{
 					$$ = makeDefElem("roles", (Node *)$3);
 				}
@@ -7317,6 +7318,102 @@ RenameStmt: ALTER AGGREGATE func_name aggr_args RENAME TO name
 					n->subname = $3;
 					n->newname = $6;
 					n->missing_ok = false;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE ALL TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = -1;
+					n->move_all = true;
+					n->roles = NIL;
+					n->new_tablespacename = $7;
+					n->nowait = $8;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE TABLES TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = OBJECT_TABLE;
+					n->move_all = false;
+					n->roles = NIL;
+					n->new_tablespacename = $7;
+					n->nowait = $8;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE INDEXES TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = OBJECT_INDEX;
+					n->move_all = false;
+					n->roles = NIL;
+					n->new_tablespacename = $7;
+					n->nowait = $8;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE MATERIALIZED VIEWS TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = OBJECT_MATVIEW;
+					n->move_all = false;
+					n->roles = NIL;
+					n->new_tablespacename = $8;
+					n->nowait = $9;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE ALL OWNED BY role_list TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = -1;
+					n->move_all = true;
+					n->roles = $8;
+					n->new_tablespacename = $10;
+					n->nowait = $11;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE TABLES OWNED BY role_list TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = OBJECT_TABLE;
+					n->move_all = false;
+					n->roles = $8;
+					n->new_tablespacename = $10;
+					n->nowait = $11;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE INDEXES OWNED BY role_list TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = OBJECT_INDEX;
+					n->move_all = false;
+					n->roles = $8;
+					n->new_tablespacename = $10;
+					n->nowait = $11;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLESPACE name MOVE MATERIALIZED VIEWS OWNED BY role_list TO name opt_nowait
+				{
+					AlterTableSpaceMoveStmt *n =
+						makeNode(AlterTableSpaceMoveStmt);
+					n->orig_tablespacename = $3;
+					n->objtype = OBJECT_MATVIEW;
+					n->move_all = false;
+					n->roles = $9;
+					n->new_tablespacename = $11;
+					n->nowait = $12;
 					$$ = (Node *)n;
 				}
 			| ALTER TABLESPACE name SET reloptions
@@ -11317,10 +11414,10 @@ func_expr: func_application within_group_clause filter_clause over_clause
 		;
 
 /*
- * As func_expr but does not accept WINDOW functions directly (they
- * can still be contained in arguments for functions etc.)
- * Use this when window expressions are not allowed, so to disambiguate
- * the grammar. (e.g. in CREATE INDEX)
+ * As func_expr but does not accept WINDOW functions directly
+ * (but they can still be contained in arguments for functions etc).
+ * Use this when window expressions are not allowed, where needed to
+ * disambiguate the grammar (e.g. in CREATE INDEX).
  */
 func_expr_windowless:
 			func_application						{ $$ = $1; }
@@ -11328,7 +11425,7 @@ func_expr_windowless:
 		;
 
 /*
- * Special expression
+ * Special expressions that are considered to be functions.
  */
 func_expr_common_subexpr:
 			COLLATION FOR '(' a_expr ')'
@@ -11353,10 +11450,15 @@ func_expr_common_subexpr:
 					 * of type-input conversion functions.  (As of PG 7.3
 					 * that is actually possible, but not clear that we want
 					 * to rely on it.)
+					 *
+					 * The token location is attached to the run-time
+					 * typecast, not to the Const, for the convenience of
+					 * pg_stat_statements (which doesn't want these constructs
+					 * to appear to be replaceable constants).
 					 */
 					Node *n;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
-					$$ = makeTypeCast(n, SystemTypeName("date"), -1);
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
+					$$ = makeTypeCast(n, SystemTypeName("date"), @1);
 				}
 			| CURRENT_TIME
 				{
@@ -11365,8 +11467,8 @@ func_expr_common_subexpr:
 					 * See comments for CURRENT_DATE.
 					 */
 					Node *n;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
-					$$ = makeTypeCast(n, SystemTypeName("timetz"), -1);
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
+					$$ = makeTypeCast(n, SystemTypeName("timetz"), @1);
 				}
 			| CURRENT_TIME '(' Iconst ')'
 				{
@@ -11376,10 +11478,10 @@ func_expr_common_subexpr:
 					 */
 					Node *n;
 					TypeName *d;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
 					d = SystemTypeName("timetz");
 					d->typmods = list_make1(makeIntConst($3, @3));
-					$$ = makeTypeCast(n, d, -1);
+					$$ = makeTypeCast(n, d, @1);
 				}
 			| CURRENT_TIMESTAMP
 				{
@@ -11397,10 +11499,10 @@ func_expr_common_subexpr:
 					 */
 					Node *n;
 					TypeName *d;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
 					d = SystemTypeName("timestamptz");
 					d->typmods = list_make1(makeIntConst($3, @3));
-					$$ = makeTypeCast(n, d, -1);
+					$$ = makeTypeCast(n, d, @1);
 				}
 			| LOCALTIME
 				{
@@ -11409,8 +11511,8 @@ func_expr_common_subexpr:
 					 * See comments for CURRENT_DATE.
 					 */
 					Node *n;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
-					$$ = makeTypeCast((Node *)n, SystemTypeName("time"), -1);
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
+					$$ = makeTypeCast((Node *)n, SystemTypeName("time"), @1);
 				}
 			| LOCALTIME '(' Iconst ')'
 				{
@@ -11420,10 +11522,10 @@ func_expr_common_subexpr:
 					 */
 					Node *n;
 					TypeName *d;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
 					d = SystemTypeName("time");
 					d->typmods = list_make1(makeIntConst($3, @3));
-					$$ = makeTypeCast((Node *)n, d, -1);
+					$$ = makeTypeCast((Node *)n, d, @1);
 				}
 			| LOCALTIMESTAMP
 				{
@@ -11432,8 +11534,8 @@ func_expr_common_subexpr:
 					 * See comments for CURRENT_DATE.
 					 */
 					Node *n;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
-					$$ = makeTypeCast(n, SystemTypeName("timestamp"), -1);
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
+					$$ = makeTypeCast(n, SystemTypeName("timestamp"), @1);
 				}
 			| LOCALTIMESTAMP '(' Iconst ')'
 				{
@@ -11443,10 +11545,10 @@ func_expr_common_subexpr:
 					 */
 					Node *n;
 					TypeName *d;
-					n = makeStringConstCast("now", @1, SystemTypeName("text"));
+					n = makeStringConstCast("now", -1, SystemTypeName("text"));
 					d = SystemTypeName("timestamp");
 					d->typmods = list_make1(makeIntConst($3, @3));
-					$$ = makeTypeCast(n, d, -1);
+					$$ = makeTypeCast(n, d, @1);
 				}
 			| CURRENT_ROLE
 				{
@@ -12575,6 +12677,12 @@ Iconst:		ICONST									{ $$ = $1; };
 Sconst:		SCONST									{ $$ = $1; };
 RoleId:		NonReservedWord							{ $$ = $1; };
 
+role_list:	RoleId
+					{ $$ = list_make1(makeString($1)); }
+			| role_list ',' RoleId
+					{ $$ = lappend($1, makeString($3)); }
+		;
+
 SignedIconst: Iconst								{ $$ = $1; }
 			| '+' Iconst							{ $$ = + $2; }
 			| '-' Iconst							{ $$ = - $2; }
@@ -12887,6 +12995,7 @@ unreserved_keyword:
 			| VARYING
 			| VERSION_P
 			| VIEW
+			| VIEWS
 			| VOLATILE
 			| WHITESPACE_P
 			| WITHIN

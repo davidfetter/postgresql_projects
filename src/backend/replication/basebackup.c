@@ -834,7 +834,7 @@ sendDir(char *path, int basepathlen, bool sizeonly, List *tablespaces)
 
 		/* skip auto conf temporary file */
 		if (strncmp(de->d_name,
-					PG_AUTOCONF_FILENAME ".temp",
+					PG_AUTOCONF_FILENAME ".tmp",
 					sizeof(PG_AUTOCONF_FILENAME) + 4) == 0)
 			continue;
 
@@ -845,6 +845,10 @@ sendDir(char *path, int basepathlen, bool sizeonly, List *tablespaces)
 		 * backup, our backup_label is injected into the tar separately.
 		 */
 		if (strcmp(de->d_name, BACKUP_LABEL_FILE) == 0)
+			continue;
+
+		/* Skip pg_replslot, not useful to copy */
+		if (strcmp(de->d_name, "pg_replslot") == 0)
 			continue;
 
 		/*

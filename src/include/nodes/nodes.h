@@ -354,6 +354,7 @@ typedef enum NodeTag
 	T_AlterUserMappingStmt,
 	T_DropUserMappingStmt,
 	T_AlterTableSpaceOptionsStmt,
+	T_AlterTableSpaceMoveStmt,
 	T_SecLabelStmt,
 	T_CreateForeignTableStmt,
 	T_CreateExtensionStmt,
@@ -411,6 +412,8 @@ typedef enum NodeTag
 	 */
 	T_IdentifySystemCmd,
 	T_BaseBackupCmd,
+	T_CreateReplicationSlotCmd,
+	T_DropReplicationSlotCmd,
 	T_StartReplicationCmd,
 	T_TimeLineHistoryCmd,
 

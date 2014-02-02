@@ -1199,12 +1199,13 @@ testdb=&gt;
         <literal>n</>, <literal>t</>, or <literal>w</> to the command.
         If <replaceable
         class="parameter">pattern</replaceable> is specified, only
-        functions whose names match the pattern are shown.  If the
-        form <literal>\df+</literal> is used, additional information
-        about each function, including security, volatility, language, source
-        code and description, is shown.  By default, only user-created
+        functions whose names match the pattern are shown.
+        By default, only user-created
         objects are shown; supply a pattern or the <literal>S</literal>
         modifier to include system objects.
+        If the form <literal>\df+</literal> is used, additional information
+        about each function is shown, including security classification,
+        volatility, owner, language, source code and description.
         </para>
 
         <tip>
@@ -1337,15 +1338,18 @@ testdb=&gt;
 
 
       <varlistentry>
-        <term><literal>\do[S] [ <link linkend="APP-PSQL-patterns"><replaceable class="parameter">pattern</replaceable></link> ]</literal></term>
+        <term><literal>\do[S+] [ <link linkend="APP-PSQL-patterns"><replaceable class="parameter">pattern</replaceable></link> ]</literal></term>
         <listitem>
         <para>
-        Lists operators with their operand and return types.
+        Lists operators with their operand and result types.
         If <replaceable class="parameter">pattern</replaceable> is
         specified, only operators whose names match the pattern are listed.
-        By default, only user-created objects are shown;  supply a
+        By default, only user-created objects are shown; supply a
         pattern or the <literal>S</literal> modifier to include system
         objects.
+        If <literal>+</literal> is appended to the command name,
+        additional information about each operator is shown, currently just
+        the name of the underlying function.
         </para>
         </listitem>
       </varlistentry>
@@ -3513,42 +3517,53 @@ PSQL_EDITOR_LINENUMBER_ARG='--line '
  <refsect1>
   <title>Files</title>
 
-  <itemizedlist>
+ <variablelist>
+  <varlistentry>
+   <term><filename>psqlrc</filename> and <filename>~/.psqlrc</filename></term>
    <listitem>
     <para>
-     Unless it is passed an <option>-X</option>
-     or <option>-c</option> option,
-     <application>psql</application> attempts to
-     read and execute commands from the system-wide
-     <filename>psqlrc</filename> file and the user's
-     <filename>~/.psqlrc</filename> file before starting up.
-     (On Windows, the user's startup file is named
-     <filename>%APPDATA%\postgresql\psqlrc.conf</filename>.)
-     See <filename><replaceable>PREFIX</>/share/psqlrc.sample</>
-     for information on setting up the system-wide file.  It could be used
-     to set up the client or the server to taste (using the <command>\set
-     </command> and <command>SET</command> commands).
+     Unless it is passed an <option>-X</option> or <option>-c</option> option,
+     <application>psql</application> attempts to read and execute commands
+     from the system-wide startup file (<filename>psqlrc</filename>) and then
+     the user's personal startup file (<filename>~/.psqlrc</filename>), after
+     connecting to the database but before accepting normal commands.
+     These files can be used to set up the client and/or the server to taste,
+     typically with <command>\set</command> and <command>SET</command>
+     commands.
     </para>
     <para>
-     The location of the user's <filename>~/.psqlrc</filename> file can
-     also be set explicitly via the <envar>PSQLRC</envar> environment
-     setting.
+     The system-wide startup file is named <filename>psqlrc</filename> and is
+     sought in the installation's <quote>system configuration</> directory,
+     which is most reliably identified by running <literal>pg_config
+     --sysconfdir</>.  By default this directory will be <filename>../etc/</>
+     relative to the directory containing
+     the <productname>PostgreSQL</productname> executables.  The name of this
+     directory can be set explicitly via the <envar>PGSYSCONFDIR</envar>
+     environment variable.
     </para>
-   </listitem>
-
-   <listitem>
     <para>
-     Both the system-wide <filename>psqlrc</filename> file and the user's
-     <filename>~/.psqlrc</filename> file can be made <application>psql</application>-version-specific
+     The user's personal startup file is named <filename>.psqlrc</filename>
+     and is sought in the invoking user's home directory.  On Windows, which
+     lacks such a concept, the personal startup file is named
+     <filename>%APPDATA%\postgresql\psqlrc.conf</filename>.
+     The location of the user's startup file can be set explicitly via
+     the <envar>PSQLRC</envar> environment variable.
+    </para>
+    <para>
+     Both the system-wide startup file and the user's personal startup file
+     can be made <application>psql</application>-version-specific
      by appending a dash and the <productname>PostgreSQL</productname>
-     major or minor <application>psql</application> release number,
+     major or minor release number to the file name,
      for example <filename>~/.psqlrc-9.2</filename> or
      <filename>~/.psqlrc-9.2.5</filename>.  The most specific
      version-matching file will be read in preference to a
      non-version-specific file.
     </para>
    </listitem>
+  </varlistentry>
 
+  <varlistentry>
+   <term><filename>.psql_history</filename></term>
    <listitem>
     <para>
      The command-line history is stored in the file
@@ -3556,12 +3571,12 @@ PSQL_EDITOR_LINENUMBER_ARG='--line '
      <filename>%APPDATA%\postgresql\psql_history</filename> on Windows.
     </para>
     <para>
-     The location of the history file can
-     also be set explicitly via the <envar>PSQL_HISTORY</envar> environment
-     setting.
+     The location of the history file can be set explicitly via
+     the <envar>PSQL_HISTORY</envar> environment variable.
     </para>
    </listitem>
-  </itemizedlist>
+  </varlistentry>
+ </variablelist>
  </refsect1>
 
 

@@ -1367,6 +1367,15 @@ pg_prepared_xacts| SELECT p.transaction,
    FROM ((pg_prepared_xact() p(transaction, gid, prepared, ownerid, dbid)
    LEFT JOIN pg_authid u ON ((p.ownerid = u.oid)))
    LEFT JOIN pg_database d ON ((p.dbid = d.oid)));
+pg_replication_slots| SELECT l.slot_name,
+    l.slot_type,
+    l.datoid,
+    d.datname AS database,
+    l.active,
+    l.xmin,
+    l.restart_lsn
+   FROM (pg_get_replication_slots() l(slot_name, slot_type, datoid, active, xmin, restart_lsn)
+   LEFT JOIN pg_database d ON ((l.datoid = d.oid)));
 pg_roles| SELECT pg_authid.rolname,
     pg_authid.rolsuper,
     pg_authid.rolinherit,
@@ -1640,6 +1649,14 @@ pg_stat_all_tables| SELECT c.oid AS relid,
    LEFT JOIN pg_namespace n ON ((n.oid = c.relnamespace)))
   WHERE (c.relkind = ANY (ARRAY['r'::"char", 't'::"char", 'm'::"char"]))
   GROUP BY c.oid, n.nspname, c.relname;
+pg_stat_archiver| SELECT s.archived_count,
+    s.last_archived_wal,
+    s.last_archived_time,
+    s.failed_count,
+    s.last_failed_wal,
+    s.last_failed_time,
+    s.stats_reset
+   FROM pg_stat_get_archiver() s(archived_count, last_archived_wal, last_archived_time, failed_count, last_failed_wal, last_failed_time, stats_reset);
 pg_stat_bgwriter| SELECT pg_stat_get_bgwriter_timed_checkpoints() AS checkpoints_timed,
     pg_stat_get_bgwriter_requested_checkpoints() AS checkpoints_req,
     pg_stat_get_checkpoint_write_time() AS checkpoint_write_time,

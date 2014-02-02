@@ -39,6 +39,7 @@
 #include "pgstat.h"
 #include "postmaster/bgwriter.h"
 #include "postmaster/startup.h"
+#include "replication/slot.h"
 #include "replication/walreceiver.h"
 #include "replication/walsender.h"
 #include "storage/barrier.h"
@@ -225,6 +226,7 @@ static TimestampTz recoveryDelayUntilTime;
 /* options taken from recovery.conf for XLOG streaming */
 static bool StandbyModeRequested = false;
 static char *PrimaryConnInfo = NULL;
+static char *PrimarySlotName = NULL;
 static char *TriggerFile = NULL;
 
 /* are we currently in standby mode? */
@@ -485,6 +487,8 @@ typedef struct XLogCtlData
 	uint32		ckptXidEpoch;	/* nextXID & epoch of latest checkpoint */
 	TransactionId ckptXid;
 	XLogRecPtr	asyncXactLSN;	/* LSN of newest async commit/abort */
+	XLogRecPtr	replicationSlotMinLSN;	/* oldest LSN needed by any slot */
+
 	XLogSegNo	lastRemovedSegNo;		/* latest removed/recycled XLOG
 										 * segment */
 
@@ -748,6 +752,7 @@ static void LocalSetXLogInsertAllowed(void);
 static void CreateEndOfRecoveryRecord(void);
 static void CheckPointGuts(XLogRecPtr checkPointRedo, int flags);
 static void KeepLogSeg(XLogRecPtr recptr, XLogSegNo *logSegNo);
+static XLogRecPtr XLogGetReplicationSlotMinimumLSN(void);
 
 static bool XLogCheckBuffer(XLogRecData *rdata, bool holdsExclusiveLock,
 				XLogRecPtr *lsn, BkpBlock *bkpb);
@@ -2738,9 +2743,9 @@ XLogWrite(XLogwrtRqst WriteRqst, bool flexible)
 					ereport(PANIC,
 							(errcode_for_file_access(),
 							 errmsg("could not write to log file %s "
-									"at offset %u, length %lu: %m",
+									"at offset %u, length %zu: %m",
 									XLogFileNameP(ThisTimeLineID, openLogSegNo),
-									openLogOff, (unsigned long) nbytes)));
+									openLogOff, nbytes)));
 				}
 				nleft -= written;
 				from += written;
@@ -2906,6 +2911,39 @@ XLogSetAsyncXactLSN(XLogRecPtr asyncXactLSN)
 	 */
 	if (ProcGlobal->walwriterLatch)
 		SetLatch(ProcGlobal->walwriterLatch);
+}
+
+/*
+ * Record the LSN up to which we can remove WAL because it's not required by
+ * any replication slot.
+ */
+void
+XLogSetReplicationSlotMinimumLSN(XLogRecPtr lsn)
+{
+	/* use volatile pointer to prevent code rearrangement */
+	volatile XLogCtlData *xlogctl = XLogCtl;
+
+	SpinLockAcquire(&xlogctl->info_lck);
+	xlogctl->replicationSlotMinLSN = lsn;
+	SpinLockRelease(&xlogctl->info_lck);
+}
+
+
+/*
+ * Return the oldest LSN we must retain to satisfy the needs of some
+ * replication slot.
+ */
+static XLogRecPtr
+XLogGetReplicationSlotMinimumLSN(void)
+{
+	/* use volatile pointer to prevent code rearrangement */
+	volatile XLogCtlData *xlogctl = XLogCtl;
+	XLogRecPtr		retval;
+	SpinLockAcquire(&xlogctl->info_lck);
+	retval = xlogctl->replicationSlotMinLSN;
+	SpinLockRelease(&xlogctl->info_lck);
+
+	return retval;
 }
 
 /*
@@ -5434,6 +5472,19 @@ readRecoveryCommandFile(void)
 					(errmsg_internal("recovery_target_name = '%s'",
 									 recoveryTargetName)));
 		}
+		else if (strcmp(item->name, "recovery_target") == 0)
+		{
+			if (strcmp(item->value, "immediate") == 0)
+				recoveryTarget = RECOVERY_TARGET_IMMEDIATE;
+			else
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid recovery_target parameter"),
+						 errhint("The only allowed value is 'immediate'")));
+			ereport(DEBUG2,
+					(errmsg_internal("recovery_target = '%s'",
+									 item->value)));
+		}
 		else if (strcmp(item->name, "recovery_target_inclusive") == 0)
 		{
 			/*
@@ -5464,6 +5515,14 @@ readRecoveryCommandFile(void)
 			ereport(DEBUG2,
 					(errmsg_internal("primary_conninfo = '%s'",
 									 PrimaryConnInfo)));
+		}
+		else if (strcmp(item->name, "primary_slotname") == 0)
+		{
+			ReplicationSlotValidateName(item->value, ERROR);
+			PrimarySlotName = pstrdup(item->value);
+			ereport(DEBUG2,
+					(errmsg_internal("primary_slotname = '%s'",
+									 PrimarySlotName)));
 		}
 		else if (strcmp(item->name, "trigger_file") == 0)
 		{
@@ -5676,7 +5735,20 @@ recoveryStopsBefore(XLogRecord *record)
 	bool		isCommit;
 	TimestampTz recordXtime = 0;
 
-	/* We only consider stopping before COMMIT or ABORT records. */
+	/* Check if we should stop as soon as reaching consistency */
+	if (recoveryTarget == RECOVERY_TARGET_IMMEDIATE && reachedConsistency)
+	{
+		ereport(LOG,
+				(errmsg("recovery stopping after reaching consistency")));
+
+		recoveryStopAfter = false;
+		recoveryStopXid = InvalidTransactionId;
+		recoveryStopTime = 0;
+		recoveryStopName[0] = '\0';
+		return true;
+	}
+
+	/* Otherwise we only consider stopping before COMMIT or ABORT records. */
 	if (record->xl_rmid != RM_XACT_ID)
 		return false;
 	record_info = record->xl_info & ~XLR_INFO_MASK;
@@ -5823,6 +5895,19 @@ recoveryStopsAfter(XLogRecord *record)
 			}
 			return true;
 		}
+	}
+
+	/* Check if we should stop as soon as reaching consistency */
+	if (recoveryTarget == RECOVERY_TARGET_IMMEDIATE && reachedConsistency)
+	{
+		ereport(LOG,
+				(errmsg("recovery stopping after reaching consistency")));
+
+		recoveryStopAfter = true;
+		recoveryStopXid = InvalidTransactionId;
+		recoveryStopTime = 0;
+		recoveryStopName[0] = '\0';
+		return true;
 	}
 
 	return false;
@@ -6246,6 +6331,9 @@ StartupXLOG(void)
 			ereport(LOG,
 					(errmsg("starting point-in-time recovery to \"%s\"",
 							recoveryTargetName)));
+		else if (recoveryTarget == RECOVERY_TARGET_IMMEDIATE)
+			ereport(LOG,
+					(errmsg("starting point-in-time recovery to earliest consistent point")));
 		else
 			ereport(LOG,
 					(errmsg("starting archive recovery")));
@@ -6462,6 +6550,12 @@ StartupXLOG(void)
 	SetMultiXactIdLimit(checkPoint.oldestMulti, checkPoint.oldestMultiDB);
 	XLogCtl->ckptXidEpoch = checkPoint.nextXidEpoch;
 	XLogCtl->ckptXid = checkPoint.nextXid;
+
+	/*
+	 * Initialize replication slots, before there's a chance to remove
+	 * required resources.
+	 */
+	StartupReplicationSlots(checkPoint.redo);
 
 	/*
 	 * Startup MultiXact.  We need to do this early for two reasons: one
@@ -7125,6 +7219,8 @@ StartupXLOG(void)
 			snprintf(reason, sizeof(reason),
 					 "at restore point \"%s\"",
 					 recoveryStopName);
+		else if (recoveryTarget == RECOVERY_TARGET_IMMEDIATE)
+			snprintf(reason, sizeof(reason), "reached consistency");
 		else
 			snprintf(reason, sizeof(reason), "no recovery target specified");
 
@@ -7562,7 +7658,8 @@ RecoveryInProgress(void)
  * true. Postmaster knows this by way of signal, not via shared memory.
  *
  * Unlike testing standbyState, this works in any process that's connected to
- * shared memory.
+ * shared memory.  (And note that standbyState alone doesn't tell the truth
+ * anyway.)
  */
 bool
 HotStandbyActive(void)
@@ -7586,6 +7683,17 @@ HotStandbyActive(void)
 
 		return LocalHotStandbyActive;
 	}
+}
+
+/*
+ * Like HotStandbyActive(), but to be used only in WAL replay code,
+ * where we don't need to ask any other process what the state is.
+ */
+bool
+HotStandbyActiveInReplay(void)
+{
+	Assert(AmStartupProcess());
+	return LocalHotStandbyActive;
 }
 
 /*
@@ -8564,6 +8672,7 @@ CheckPointGuts(XLogRecPtr checkPointRedo, int flags)
 	CheckPointMultiXact();
 	CheckPointPredicate();
 	CheckPointRelationMap();
+	CheckPointReplicationSlots();
 	CheckPointBuffers(flags);	/* performs all required fsyncs */
 	/* We deliberately delay 2PC checkpointing as long as possible */
 	CheckPointTwoPhase(checkPointRedo);
@@ -8882,24 +8991,43 @@ CreateRestartPoint(int flags)
 
 /*
  * Retreat *logSegNo to the last segment that we need to retain because of
- * wal_keep_segments. This is calculated by subtracting wal_keep_segments
- * from the given xlog location, recptr.
+ * either wal_keep_segments or replication slots.
+ *
+ * This is calculated by subtracting wal_keep_segments from the given xlog
+ * location, recptr and by making sure that that result is below the
+ * requirement of replication slots.
  */
 static void
 KeepLogSeg(XLogRecPtr recptr, XLogSegNo *logSegNo)
 {
 	XLogSegNo	segno;
-
-	if (wal_keep_segments == 0)
-		return;
+	XLogRecPtr	keep;
 
 	XLByteToSeg(recptr, segno);
+	keep = XLogGetReplicationSlotMinimumLSN();
 
-	/* avoid underflow, don't go below 1 */
-	if (segno <= wal_keep_segments)
-		segno = 1;
-	else
-		segno = segno - wal_keep_segments;
+	/* compute limit for wal_keep_segments first */
+	if (wal_keep_segments > 0)
+	{
+		/* avoid underflow, don't go below 1 */
+		if (segno <= wal_keep_segments)
+			segno = 1;
+		else
+			segno = segno - wal_keep_segments;
+	}
+
+	/* then check whether slots limit removal further */
+	if (max_replication_slots > 0 && keep != InvalidXLogRecPtr)
+	{
+		XLogRecPtr slotSegNo;
+
+		XLByteToSeg(keep, slotSegNo);
+
+		if (slotSegNo <= 0)
+			segno = 1;
+		else if (slotSegNo < segno)
+			segno = slotSegNo;
+	}
 
 	/* don't delete WAL segments newer than the calculated segment */
 	if (segno < *logSegNo)
@@ -10970,7 +11098,8 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 									 tli, curFileTLI);
 						}
 						curFileTLI = tli;
-						RequestXLogStreaming(tli, ptr, PrimaryConnInfo);
+						RequestXLogStreaming(tli, ptr, PrimaryConnInfo,
+											 PrimarySlotName);
 						receivedUpto = 0;
 					}
 
