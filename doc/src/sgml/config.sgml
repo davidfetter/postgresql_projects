@@ -248,7 +248,7 @@ include 'filename'
         names that start with the <literal>.</literal> character are also excluded,
         to prevent mistakes as they are hidden on some platforms.  Multiple files
         within an include directory are processed in file name order. The file names
-        are ordered by C locale rules, ie. numbers before letters, and uppercase
+        are ordered by C locale rules, i.e. numbers before letters, and uppercase
         letters before lowercase ones.
      </para>
 
@@ -1104,6 +1104,43 @@ include 'filename'
         is generally from 64MB to 512MB.
        </para>
 
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-huge-tlb-pages" xreflabel="huge_tlb_pages">
+      <term><varname>huge_tlb_pages</varname> (<type>enum</type>)</term>
+      <indexterm>
+       <primary><varname>huge_tlb_pages</> configuration parameter</primary>
+      </indexterm>
+      <listitem>
+       <para>
+        Enables/disables the use of huge TLB pages. Valid values are
+        <literal>try</literal> (the default), <literal>on</literal>,
+        and <literal>off</literal>.
+       </para>
+
+       <para>
+        At present, this feature is supported only on Linux. The setting
+        is ignored on other systems.
+       </para>
+
+       <para>
+        The use of huge TLB pages results in smaller page tables and
+        less CPU time spent on memory management, increasing performance. For
+        more details, see
+        <ulink url="https://wiki.debian.org/Hugepages">the Debian wiki</ulink>.
+        Remember that you will need at least shared_buffers / huge page size +
+        1 huge TLB pages. So for example for a system with 6GB shared buffers
+        and a hugepage size of 2kb of you will need at least 3156 huge pages.
+       </para>
+
+       <para>
+        With <varname>huge_tlb_pages</varname> set to <literal>try</literal>,
+        the server will try to use huge pages, but fall back to using
+        normal allocation if that fails. With <literal>on</literal>, failure
+        to use huge pages will prevent the server from starting up. With
+        <literal>off</literal>, huge pages will not be used.
+       </para>
       </listitem>
      </varlistentry>
 
@@ -2311,6 +2348,25 @@ include 'filename'
        </listitem>
       </varlistentry>
 
+      <varlistentry id="guc-max-replication-slots" xreflabel="max_replication_slots">
+       <term><varname>max_replication_slots</varname> (<type>integer</type>)</term>
+       <indexterm>
+        <primary><varname>max_replication_slots</> configuration parameter</primary>
+       </indexterm>
+       <listitem>
+        <para>
+         Specifies the maximum number of replication slots
+         (see <xref linkend="streaming-replication-slots"> that the server
+         can support. The default is zero.  This parameter can only be set at
+         server start.
+         <varname>wal_level</varname> must be set
+         to <literal>archive</literal> or higher to allow replication slots to
+         be used. Setting it to a lower value than the number of currently
+         existing replication slots will prevent the server from starting.
+        </para>
+       </listitem>
+      </varlistentry>
+
       <varlistentry id="guc-wal-keep-segments" xreflabel="wal_keep_segments">
        <term><varname>wal_keep_segments</varname> (<type>integer</type>)</term>
        <indexterm>
@@ -2974,17 +3030,9 @@ include 'filename'
       <listitem>
        <para>
         Sets the planner's assumption about the effective size of the
-        disk cache that is available to a single query.  The default
-        setting of -1 selects a size equal to four times the size of <xref
-        linkend="guc-shared-buffers">, but not less than the size of one
-        shared buffer page, typically <literal>8kB</literal>.  This value
-        can be set manually if the automatic choice is too large or too
-        small.
-       </para>
-
-       <para>
-        This value is factored into estimates of the cost of using an index;
-        a higher value makes it more likely index scans will be used, a
+        disk cache that is available to a single query.  This is
+        factored into estimates of the cost of using an index; a
+        higher value makes it more likely index scans will be used, a
         lower value makes it more likely sequential scans will be
         used. When setting this parameter you should consider both
         <productname>PostgreSQL</productname>'s shared buffers and the
@@ -2996,10 +3044,16 @@ include 'filename'
         memory allocated by <productname>PostgreSQL</productname>, nor
         does it reserve kernel disk cache; it is used only for estimation
         purposes.  The system also does not assume data remains in
-        the disk cache between queries.  The auto-tuning
-        selected by the default setting of -1 should give reasonable
-        results if this database cluster can utilize most of the memory
-        on this server.
+        the disk cache between queries.
+       </para>
+
+       <para>
+        If <varname>effective_cache_size</> is set to -1, which is the
+        default, the value is replaced by an automatically selected value,
+        currently four times the size of <xref linkend="guc-shared-buffers">.
+        For recommended settings of <varname>shared_buffers</>, this should
+        give reasonable results if this database cluster can use most of the
+        memory on the server.
        </para>
       </listitem>
      </varlistentry>

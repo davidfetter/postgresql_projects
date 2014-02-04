@@ -81,6 +81,12 @@
 #recovery_target_inclusive = true
 #
 #
+# Alternatively, you can request stopping as soon as a consistent state
+# is reached, by uncommenting this option.
+#
+#recovery_target = 'immediate'
+#
+#
 # If you want to recover into a timeline other than the "main line" shown in
 # pg_control, specify the timeline number here, or write 'latest' to get
 # the latest branch for which there's a history file.
@@ -114,6 +120,12 @@
 #
 #primary_conninfo = ''		# e.g. 'host=localhost port=5432'
 #
+# If set, the PostgreSQL server will use the specified replication slot when
+# connecting to the primary via streaming replication to control resource
+# removal on the upstream node. This setting has no effect if primary_conninfo
+# is not set.
+#
+#primary_slotname = ''
 #
 # By default, a standby server keeps restoring XLOG records from the
 # primary indefinitely. If you want to stop the standby mode, finish recovery

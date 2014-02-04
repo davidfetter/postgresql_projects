@@ -128,6 +128,11 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	DWORD		size_high;
 	DWORD		size_low;
 
+	if (huge_tlb_pages == HUGE_TLB_ON)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("huge TLB pages not supported on this platform")));
+
 	/* Room for a header? */
 	Assert(size > MAXALIGN(sizeof(PGShmemHeader)));
 
@@ -166,8 +171,8 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 		if (!hmap)
 			ereport(FATAL,
 					(errmsg("could not create shared memory segment: error code %lu", GetLastError()),
-					 errdetail("Failed system call was CreateFileMapping(size=%lu, name=%s).",
-							   (unsigned long) size, szShareMem)));
+					 errdetail("Failed system call was CreateFileMapping(size=%zu, name=%s).",
+							   size, szShareMem)));
 
 		/*
 		 * If the segment already existed, CreateFileMapping() will return a

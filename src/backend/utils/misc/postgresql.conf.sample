@@ -115,6 +115,8 @@
 
 #shared_buffers = 32MB			# min 128kB
 					# (change requires restart)
+#huge_tlb_pages = try			# on, off, or try
+					# (change requires restart)
 #temp_buffers = 8MB			# min 800kB
 #max_prepared_transactions = 0		# zero disables the feature
 					# (change requires restart)
@@ -224,6 +226,9 @@
 #wal_keep_segments = 0		# in logfile segments, 16MB each; 0 disables
 #wal_sender_timeout = 60s	# in milliseconds; 0 disables
 
+#max_replication_slots = 0	# max number of replication slots.
+				# (change requires restart)
+
 # - Master Server -
 
 # These settings are ignored on a standby server.
@@ -279,7 +284,7 @@
 #cpu_tuple_cost = 0.01			# same scale as above
 #cpu_index_tuple_cost = 0.005		# same scale as above
 #cpu_operator_cost = 0.0025		# same scale as above
-#effective_cache_size = -1
+#effective_cache_size = -1		# -1 selects auto-tuned default
 
 # - Genetic Query Optimizer -
 

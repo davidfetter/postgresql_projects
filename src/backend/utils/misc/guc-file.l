@@ -149,7 +149,7 @@ ProcessConfigFile(GucContext context)
 	}
 
 	/*
-	 * Parse postgresql.auto.conf file after postgresql.conf to replace
+	 * Parse file PG_AUTOCONF_FILENAME after postgresql.conf to replace
 	 * parameters set by ALTER SYSTEM command. This file is present in
 	 * data directory, however when called during initdb data directory is not
 	 * set till this point, so use ConfigFile path which will be same.
@@ -469,18 +469,21 @@ ParseConfigFile(const char *config_file, const char *calling_file, bool strict,
 					(errcode_for_file_access(),
 					 errmsg("could not open configuration file \"%s\": %m",
 							abs_path)));
-			return false;
+			OK = false;
+			goto cleanup;
 		}
 
 		ereport(LOG,
 				(errmsg("skipping missing configuration file \"%s\"",
 						abs_path)));
-		return OK;
+		goto cleanup;
 	}
 
 	OK = ParseConfigFp(fp, abs_path, depth, elevel, head_p, tail_p);
 
-	FreeFile(fp);
+cleanup:
+	if (fp)
+		FreeFile(fp);
 	pfree(abs_path);
 
 	return OK;
@@ -748,7 +751,8 @@ ParseConfigDirectory(const char *includedir,
 				(errcode_for_file_access(),
 				 errmsg("could not open configuration directory \"%s\": %m",
 						directory)));
-		return false;
+		status = false;
+		goto cleanup;
 	}
 
 	/*
@@ -803,7 +807,8 @@ ParseConfigDirectory(const char *includedir,
 					(errcode_for_file_access(),
 					 errmsg("could not stat file \"%s\": %m",
 							filename)));
-			return false;
+			status = false;
+			goto cleanup;
 		}
 	}
 
@@ -824,7 +829,9 @@ ParseConfigDirectory(const char *includedir,
 	status = true;
 
 cleanup:
-	FreeDir(d);
+	if (d)
+		FreeDir(d);
+	pfree(directory);
 	return status;
 }
 
