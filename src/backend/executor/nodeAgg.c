@@ -372,7 +372,7 @@ initialize_aggregates(AggState *aggstate,
 									 peraggstate->sortColIdx,
 									 peraggstate->sortOperators,
 									 peraggstate->sortCollations,
-				 					 peraggstate->sortNullsFirst,
+									 peraggstate->sortNullsFirst,
 									 work_mem, false);
 		}
 	}
@@ -380,7 +380,7 @@ initialize_aggregates(AggState *aggstate,
 	current_aggno = 0;
 
 	elog(WARNING, "value is %d %d",(aggstate->numaggs),(aggstate->numsets));
-		
+
 	for (aggno_groupstate = 0; aggno_groupstate < (aggstate->numaggs * aggstate->numsets); aggno_groupstate++)
 	{
 		elog(WARNING, "current_aggno is %d",current_aggno);
@@ -1670,7 +1670,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	{
 		AggStatePerGroup pergroup;
 
-		//pergroup = (AggStatePerGroup) palloc0(sizeof(AggStatePerGroupData) * numaggs);
+		/* pergroup = (AggStatePerGroup) palloc0(sizeof(AggStatePerGroupData) * numaggs); */
 		aggstate->pergroup = pergroup;
 	}
 
