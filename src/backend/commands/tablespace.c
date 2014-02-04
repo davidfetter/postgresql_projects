@@ -67,6 +67,7 @@
 #include "commands/seclabel.h"
 #include "commands/tablecmds.h"
 #include "commands/tablespace.h"
+#include "commands/user.h"
 #include "common/relpath.h"
 #include "miscadmin.h"
 #include "postmaster/bgwriter.h"
@@ -781,10 +782,14 @@ remove_symlink:
 	else
 	{
 		if (unlink(linkloc) < 0)
-			ereport(redo ? LOG : (errno == ENOENT ? WARNING : ERROR),
+		{
+			int			saved_errno = errno;
+
+			ereport(redo ? LOG : (saved_errno == ENOENT ? WARNING : ERROR),
 					(errcode_for_file_access(),
 					 errmsg("could not remove symbolic link \"%s\": %m",
 							linkloc)));
+		}
 	}
 
 	pfree(linkloc_with_version_dir);
@@ -994,6 +999,7 @@ AlterTableSpaceMove(AlterTableSpaceMoveStmt *stmt)
 	HeapTuple	tuple;
 	Oid			orig_tablespaceoid;
 	Oid			new_tablespaceoid;
+	List	   *role_oids = roleNamesToIds(stmt->roles);
 
 	/* Ensure we were not asked to move something we can't */
 	if (!stmt->move_all && stmt->objtype != OBJECT_TABLE &&
@@ -1075,14 +1081,10 @@ AlterTableSpaceMove(AlterTableSpaceMoveStmt *stmt)
 			relForm->relnamespace == PG_TOAST_NAMESPACE)
 			continue;
 
-		/*
-		 * Only move objects that we are considered an owner of and only
-		 * objects which can actually have a tablespace.
-		 */
-		if (!pg_class_ownercheck(relOid, GetUserId()) ||
-			(relForm->relkind != RELKIND_RELATION &&
-			 relForm->relkind != RELKIND_INDEX &&
-			 relForm->relkind != RELKIND_MATVIEW))
+		/* Only consider objects which live in tablespaces */
+		if (relForm->relkind != RELKIND_RELATION &&
+			relForm->relkind != RELKIND_INDEX &&
+			relForm->relkind != RELKIND_MATVIEW)
 			continue;
 
 		/* Check if we were asked to only move a certain type of object */
@@ -1094,6 +1096,21 @@ AlterTableSpaceMove(AlterTableSpaceMoveStmt *stmt)
 			 (stmt->objtype == OBJECT_MATVIEW &&
 			  relForm->relkind != RELKIND_MATVIEW)))
 			continue;
+
+		/* Check if we are only moving objects owned by certain roles */
+		if (role_oids != NIL && !list_member_oid(role_oids, relForm->relowner))
+			continue;
+
+		/*
+		 * Handle permissions-checking here since we are locking the tables
+		 * and also to avoid doing a bunch of work only to fail part-way.
+		 * Note that permissions will also be checked by AlterTableInternal().
+		 *
+		 * Caller must be considered an owner on the table to move it.
+		 */
+		if (!pg_class_ownercheck(relOid, GetUserId()))
+			aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_CLASS,
+						   NameStr(relForm->relname));
 
 		if (stmt->nowait &&
 			!ConditionalLockRelationOid(relOid, AccessExclusiveLock))

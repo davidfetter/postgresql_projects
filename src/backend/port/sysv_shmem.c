@@ -32,6 +32,7 @@
 #include "portability/mem.h"
 #include "storage/ipc.h"
 #include "storage/pg_shmem.h"
+#include "utils/guc.h"
 
 
 typedef key_t IpcMemoryKey;		/* shared memory key passed to shmget(2) */
@@ -41,7 +42,7 @@ typedef int IpcMemoryId;		/* shared memory ID returned by shmget(2) */
 unsigned long UsedShmemSegID = 0;
 void	   *UsedShmemSegAddr = NULL;
 static Size AnonymousShmemSize;
-static void *AnonymousShmem;
+static void *AnonymousShmem = NULL;
 
 static void *InternalIpcMemoryCreate(IpcMemoryKey memKey, Size size);
 static void IpcMemoryDetach(int status, Datum shmaddr);
@@ -72,15 +73,17 @@ InternalIpcMemoryCreate(IpcMemoryKey memKey, Size size)
 
 	if (shmid < 0)
 	{
+		int			shmget_errno = errno;
+
 		/*
 		 * Fail quietly if error indicates a collision with existing segment.
 		 * One would expect EEXIST, given that we said IPC_EXCL, but perhaps
 		 * we could get a permission violation instead?  Also, EIDRM might
 		 * occur if an old seg is slated for destruction but not gone yet.
 		 */
-		if (errno == EEXIST || errno == EACCES
+		if (shmget_errno == EEXIST || shmget_errno == EACCES
 #ifdef EIDRM
-			|| errno == EIDRM
+			|| shmget_errno == EIDRM
 #endif
 			)
 			return NULL;
@@ -94,10 +97,8 @@ InternalIpcMemoryCreate(IpcMemoryKey memKey, Size size)
 		 * against SHMMIN in the preexisting-segment case, so we will not get
 		 * EINVAL a second time if there is such a segment.
 		 */
-		if (errno == EINVAL)
+		if (shmget_errno == EINVAL)
 		{
-			int			save_errno = errno;
-
 			shmid = shmget(memKey, 0, IPC_CREAT | IPC_EXCL | IPCProtection);
 
 			if (shmid < 0)
@@ -123,8 +124,6 @@ InternalIpcMemoryCreate(IpcMemoryKey memKey, Size size)
 					elog(LOG, "shmctl(%d, %d, 0) failed: %m",
 						 (int) shmid, IPC_RMID);
 			}
-
-			errno = save_errno;
 		}
 
 		/*
@@ -136,25 +135,26 @@ InternalIpcMemoryCreate(IpcMemoryKey memKey, Size size)
 		 * it should be.  SHMMNI violation is ENOSPC, per spec.  Just plain
 		 * not-enough-RAM is ENOMEM.
 		 */
+		errno = shmget_errno;
 		ereport(FATAL,
 				(errmsg("could not create shared memory segment: %m"),
-		  errdetail("Failed system call was shmget(key=%lu, size=%lu, 0%o).",
-					(unsigned long) memKey, (unsigned long) size,
+		  errdetail("Failed system call was shmget(key=%lu, size=%zu, 0%o).",
+					(unsigned long) memKey, size,
 					IPC_CREAT | IPC_EXCL | IPCProtection),
-				 (errno == EINVAL) ?
+				 (shmget_errno == EINVAL) ?
 				 errhint("This error usually means that PostgreSQL's request for a shared memory "
 		 "segment exceeded your kernel's SHMMAX parameter, or possibly that "
 						 "it is less than "
 						 "your kernel's SHMMIN parameter.\n"
 		"The PostgreSQL documentation contains more information about shared "
 						 "memory configuration.") : 0,
-				 (errno == ENOMEM) ?
+				 (shmget_errno == ENOMEM) ?
 				 errhint("This error usually means that PostgreSQL's request for a shared "
 						 "memory segment exceeded your kernel's SHMALL parameter.  You might need "
 						 "to reconfigure the kernel with larger SHMALL.\n"
 		"The PostgreSQL documentation contains more information about shared "
 						 "memory configuration.") : 0,
-				 (errno == ENOSPC) ?
+				 (shmget_errno == ENOSPC) ?
 				 errhint("This error does *not* mean that you have run out of disk space.  "
 						 "It occurs either if all available shared memory IDs have been taken, "
 						 "in which case you need to raise the SHMMNI parameter in your kernel, "
@@ -317,6 +317,90 @@ PGSharedMemoryIsInUse(unsigned long id1, unsigned long id2)
 	return true;
 }
 
+/*
+ * Creates an anonymous mmap()ed shared memory segment.
+ *
+ * Pass the requested size in *size.  This function will modify *size to the
+ * actual size of the allocation, if it ends up allocating a segment that is
+ * larger than requested.
+ */
+#ifndef EXEC_BACKEND
+static void *
+CreateAnonymousSegment(Size *size)
+{
+	Size		allocsize = *size;
+	void	   *ptr = MAP_FAILED;
+	int			mmap_errno = 0;
+
+#ifndef MAP_HUGETLB
+	if (huge_tlb_pages == HUGE_TLB_ON)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("huge TLB pages not supported on this platform")));
+#else
+	if (huge_tlb_pages == HUGE_TLB_ON || huge_tlb_pages == HUGE_TLB_TRY)
+	{
+		/*
+		 * Round up the request size to a suitable large value.
+		 *
+		 * Some Linux kernel versions are known to have a bug, which causes
+		 * mmap() with MAP_HUGETLB to fail if the request size is not a
+		 * multiple of any supported huge page size. To work around that, we
+		 * round up the request size to nearest 2MB. 2MB is the most common
+		 * huge page page size on affected systems.
+		 *
+		 * Aside from that bug, even with a kernel that does the allocation
+		 * correctly, rounding it up ourselves avoids wasting memory. Without
+		 * it, if we for example make an allocation of 2MB + 1 bytes, the
+		 * kernel might decide to use two 2MB huge pages for that, and waste 2
+		 * MB - 1 of memory. When we do the rounding ourselves, we can use
+		 * that space for allocations.
+		 */
+		int			hugepagesize = 2 * 1024 * 1024;
+
+		if (allocsize % hugepagesize != 0)
+			allocsize += hugepagesize - (allocsize % hugepagesize);
+
+		ptr = mmap(NULL, allocsize, PROT_READ | PROT_WRITE,
+				   PG_MMAP_FLAGS | MAP_HUGETLB, -1, 0);
+		mmap_errno = errno;
+		if (huge_tlb_pages == HUGE_TLB_TRY && ptr == MAP_FAILED)
+			elog(DEBUG1, "mmap with MAP_HUGETLB failed, huge pages disabled: %m");
+	}
+#endif
+
+	if (huge_tlb_pages == HUGE_TLB_OFF ||
+		(huge_tlb_pages == HUGE_TLB_TRY && ptr == MAP_FAILED))
+	{
+		/*
+		 * use the original size, not the rounded up value, when falling
+		 * back to non-huge pages.
+		 */
+		allocsize = *size;
+		ptr = mmap(NULL, allocsize, PROT_READ | PROT_WRITE,
+				   PG_MMAP_FLAGS, -1, 0);
+		mmap_errno = errno;
+	}
+
+	if (ptr == MAP_FAILED)
+	{
+		errno = mmap_errno;
+		ereport(FATAL,
+				(errmsg("could not map anonymous shared memory: %m"),
+				 (mmap_errno == ENOMEM) ?
+				 errhint("This error usually means that PostgreSQL's request "
+					"for a shared memory segment exceeded available memory, "
+					  "swap space or huge pages. To reduce the request size "
+						 "(currently  %zu bytes), reduce PostgreSQL's shared "
+					   "memory usage, perhaps by reducing shared_buffers or "
+						 "max_connections.",
+						 *size) : 0));
+	}
+
+	*size = allocsize;
+	return ptr;
+}
+#endif
 
 /*
  * PGSharedMemoryCreate
@@ -344,7 +428,14 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	PGShmemHeader *hdr;
 	IpcMemoryId shmid;
 	struct stat statbuf;
-	Size		sysvsize = size;
+	Size		sysvsize;
+
+#if defined(EXEC_BACKEND) || !defined(MAP_HUGETLB)
+	if (huge_tlb_pages == HUGE_TLB_ON)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("huge TLB pages not supported on this platform")));
+#endif
 
 	/* Room for a header? */
 	Assert(size > MAXALIGN(sizeof(PGShmemHeader)));
@@ -359,6 +450,12 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	 * to run many copies of PostgreSQL without needing to adjust system
 	 * settings.
 	 *
+	 * We assume that no one will attempt to run PostgreSQL 9.3 or later on
+	 * systems that are ancient enough that anonymous shared memory is not
+	 * supported, such as pre-2.4 versions of Linux.  If that turns out to be
+	 * false, we might need to add a run-time test here and do this only if
+	 * the running kernel supports it.
+	 *
 	 * However, we disable this logic in the EXEC_BACKEND case, and fall back
 	 * to the old method of allocating the entire segment using System V
 	 * shared memory, because there's no way to attach an mmap'd segment to a
@@ -366,44 +463,13 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	 * developer use, this shouldn't be a big problem.
 	 */
 #ifndef EXEC_BACKEND
-	{
-		long		pagesize = sysconf(_SC_PAGE_SIZE);
+	AnonymousShmem = CreateAnonymousSegment(&size);
+	AnonymousShmemSize = size;
 
-		/*
-		 * Ensure request size is a multiple of pagesize.
-		 *
-		 * pagesize will, for practical purposes, always be a power of two.
-		 * But just in case it isn't, we do it this way instead of using
-		 * TYPEALIGN().
-		 */
-		if (pagesize > 0 && size % pagesize != 0)
-			size += pagesize - (size % pagesize);
-
-		/*
-		 * We assume that no one will attempt to run PostgreSQL 9.3 or later
-		 * on systems that are ancient enough that anonymous shared memory is
-		 * not supported, such as pre-2.4 versions of Linux.  If that turns
-		 * out to be false, we might need to add a run-time test here and do
-		 * this only if the running kernel supports it.
-		 */
-		AnonymousShmem = mmap(NULL, size, PROT_READ | PROT_WRITE, PG_MMAP_FLAGS,
-							  -1, 0);
-		if (AnonymousShmem == MAP_FAILED)
-			ereport(FATAL,
-					(errmsg("could not map anonymous shared memory: %m"),
-					 (errno == ENOMEM) ?
-				errhint("This error usually means that PostgreSQL's request "
-					 "for a shared memory segment exceeded available memory "
-					  "or swap space. To reduce the request size (currently "
-					  "%lu bytes), reduce PostgreSQL's shared memory usage, "
-						"perhaps by reducing shared_buffers or "
-						"max_connections.",
-						(unsigned long) size) : 0));
-		AnonymousShmemSize = size;
-
-		/* Now we need only allocate a minimal-sized SysV shmem block. */
-		sysvsize = sizeof(PGShmemHeader);
-	}
+	/* Now we need only allocate a minimal-sized SysV shmem block. */
+	sysvsize = sizeof(PGShmemHeader);
+#else
+	sysvsize = size;
 #endif
 
 	/* Make sure PGSharedMemoryAttach doesn't fail without need */

@@ -173,7 +173,8 @@ typedef enum
 	RECOVERY_TARGET_UNSET,
 	RECOVERY_TARGET_XID,
 	RECOVERY_TARGET_TIME,
-	RECOVERY_TARGET_NAME
+	RECOVERY_TARGET_NAME,
+	RECOVERY_TARGET_IMMEDIATE
 } RecoveryTargetType;
 
 extern XLogRecPtr XactLastRecEnd;
@@ -288,6 +289,7 @@ extern XLogRecPtr XLogSaveBufferForHint(Buffer buffer, bool buffer_std);
 
 extern void CheckXLogRemoved(XLogSegNo segno, TimeLineID tli);
 extern void XLogSetAsyncXactLSN(XLogRecPtr record);
+extern void XLogSetReplicationSlotMinimumLSN(XLogRecPtr lsn);
 
 extern Buffer RestoreBackupBlock(XLogRecPtr lsn, XLogRecord *record,
 				   int block_index,

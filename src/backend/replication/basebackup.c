@@ -25,6 +25,7 @@
 #include "libpq/pqformat.h"
 #include "miscadmin.h"
 #include "nodes/pg_list.h"
+#include "pgstat.h"
 #include "replication/basebackup.h"
 #include "replication/walsender.h"
 #include "replication/walsender_private.h"
@@ -62,6 +63,9 @@ static int	compareWalFileNames(const void *a, const void *b);
 
 /* Was the backup currently in-progress initiated in recovery mode? */
 static bool backup_started_in_recovery = false;
+
+/* Relative path of temporary statistics directory */
+static char *statrelpath = NULL;
 
 /*
  * Size of each block sent into the tar stream for larger files.
@@ -110,6 +114,18 @@ perform_base_backup(basebackup_options *opt, DIR *tblspcdir)
 	startptr = do_pg_start_backup(opt->label, opt->fastcheckpoint, &starttli,
 								  &labelfile);
 	SendXlogRecPtrResult(startptr, starttli);
+
+	/*
+	 * Calculate the relative path of temporary statistics directory
+	 * in order to skip the files which are located in that directory later.
+	 */
+	if (is_absolute_path(pgstat_stat_directory) &&
+		strncmp(pgstat_stat_directory, DataDir, datadirpathlen) == 0)
+		statrelpath = psprintf("./%s", pgstat_stat_directory + datadirpathlen + 1);
+	else if (strncmp(pgstat_stat_directory, "./", 2) != 0)
+		statrelpath = psprintf("./%s", pgstat_stat_directory);
+	else
+		statrelpath = pgstat_stat_directory;
 
 	PG_ENSURE_ERROR_CLEANUP(base_backup_cleanup, (Datum) 0);
 	{
@@ -834,10 +850,9 @@ sendDir(char *path, int basepathlen, bool sizeonly, List *tablespaces)
 
 		/* skip auto conf temporary file */
 		if (strncmp(de->d_name,
-					PG_AUTOCONF_FILENAME ".temp",
+					PG_AUTOCONF_FILENAME ".tmp",
 					sizeof(PG_AUTOCONF_FILENAME) + 4) == 0)
 			continue;
-
 
 		/*
 		 * If there's a backup_label file, it belongs to a backup started by
@@ -845,6 +860,10 @@ sendDir(char *path, int basepathlen, bool sizeonly, List *tablespaces)
 		 * backup, our backup_label is injected into the tar separately.
 		 */
 		if (strcmp(de->d_name, BACKUP_LABEL_FILE) == 0)
+			continue;
+
+		/* Skip pg_replslot, not useful to copy */
+		if (strcmp(de->d_name, "pg_replslot") == 0)
 			continue;
 
 		/*
@@ -884,6 +903,20 @@ sendDir(char *path, int basepathlen, bool sizeonly, List *tablespaces)
 								pathbuf)));
 
 			/* If the file went away while scanning, it's no error. */
+			continue;
+		}
+
+		/*
+		 * Skip temporary statistics files. PG_STAT_TMP_DIR must be skipped
+		 * even when stats_temp_directory is set because PGSS_TEXT_FILE is
+		 * always created there.
+		 */
+		if ((statrelpath != NULL && strcmp(pathbuf, statrelpath) == 0) ||
+			strncmp(de->d_name, PG_STAT_TMP_DIR, strlen(PG_STAT_TMP_DIR)) == 0)
+		{
+			if (!sizeonly)
+				_tarWriteHeader(pathbuf + basepathlen + 1, NULL, &statbuf);
+			size += 512;
 			continue;
 		}
 
