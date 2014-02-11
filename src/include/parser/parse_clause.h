@@ -47,5 +47,6 @@ extern List *addTargetToSortList(ParseState *pstate, TargetEntry *tle,
 					bool resolveUnknown);
 extern Index assignSortGroupRef(TargetEntry *tle, List *tlist);
 extern bool targetIsInSortList(TargetEntry *tle, Oid sortop, List *sortList);
+extern void addAliases(ParseState *pstate);
 
 #endif   /* PARSE_CLAUSE_H */

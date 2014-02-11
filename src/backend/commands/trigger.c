@@ -2335,7 +2335,7 @@ ExecASUpdateTriggers(EState *estate, ResultRelInfo *relinfo)
 TupleTableSlot *
 ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 					 ResultRelInfo *relinfo,
-					 ItemPointer tupleid, TupleTableSlot *slot)
+					 ItemPointer tupleid, TupleTableSlot *slot, TupleTableSlot **planSlot)
 {
 	TriggerDesc *trigdesc = relinfo->ri_TrigDesc;
 	HeapTuple	slottuple = ExecMaterializeSlot(slot);
@@ -2378,10 +2378,15 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	 * junkfilter's output slot, so we are clobbering the original value of
 	 * slottuple by doing the filtering.  This is OK since neither we nor our
 	 * caller have any more interest in the prior contents of that slot.
+	 *
+	 * Execution plan is changed so it is reported up by planSlot,
+	 * it is needed to get correct value for BEFORE/AFTER statements
+	 * in RETURNING syntax.
 	 */
 	if (newSlot != NULL)
 	{
 		slot = ExecFilterJunk(relinfo->ri_junkFilter, newSlot);
+		*planSlot = newSlot;
 		slottuple = ExecMaterializeSlot(slot);
 		newtuple = slottuple;
 	}

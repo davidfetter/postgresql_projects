@@ -1806,6 +1806,7 @@ expandRTE(RangeTblEntry *rte, int rtindex, int sublevels_up,
 	switch (rte->rtekind)
 	{
 		case RTE_RELATION:
+		case RTE_ALIAS:
 			/* Ordinary relation RTE */
 			expandRelation(rte->relid, rte->eref,
 						   rtindex, sublevels_up, location,
@@ -2335,6 +2336,7 @@ get_rte_attribute_type(RangeTblEntry *rte, AttrNumber attnum,
 	switch (rte->rtekind)
 	{
 		case RTE_RELATION:
+		case RTE_ALIAS:
 			{
 				/* Plain relation RTE --- get the attribute's type info */
 				HeapTuple	tp;
@@ -2527,6 +2529,7 @@ get_rte_attribute_is_dropped(RangeTblEntry *rte, AttrNumber attnum)
 	switch (rte->rtekind)
 	{
 		case RTE_RELATION:
+		case RTE_ALIAS:
 			{
 				/*
 				 * Plain relation RTE --- get the attribute's catalog entry

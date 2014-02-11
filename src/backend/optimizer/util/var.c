@@ -699,6 +699,21 @@ flatten_join_alias_vars_mutator(Node *node,
 		newvar = copyObject(newvar);
 
 		/*
+		 * We need to preserve more info about position since the BEFORE/AFTER
+		 * refers to the OUTER_VAR and use 'old' to store info about it
+		 */
+		if (IsA(newvar,Var) && context->root->parse->commandType == CMD_UPDATE &&
+			var->varno <= list_length(context->root->parse->rtable))
+		{
+			RangeTblEntry *rt = rt_fetch(var->varno, context->root->parse->rtable);
+			if (rt->rtekind == RTE_ALIAS)
+			{
+				((Var*)newvar)->varoattno = ((Var*)var)->varoattno;
+				((Var*)newvar)->varnoold = ((Var*)var)->varnoold;
+			}
+		}
+
+		/*
 		 * If we are expanding an alias carried down from an upper query, must
 		 * adjust its varlevelsup fields.
 		 */

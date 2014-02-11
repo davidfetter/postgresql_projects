@@ -136,6 +136,8 @@ build_simple_rel(PlannerInfo *root, int relid, RelOptKind reloptkind)
 			/* Table --- retrieve statistics from the system catalogs */
 			get_relation_info(root, rte->relid, rte->inh, rel);
 			break;
+		case RTE_ALIAS:
+			break;
 		case RTE_SUBQUERY:
 		case RTE_FUNCTION:
 		case RTE_VALUES:
@@ -487,6 +489,7 @@ build_joinrel_tlist(PlannerInfo *root, RelOptInfo *joinrel,
 		Var		   *var = (Var *) lfirst(vars);
 		RelOptInfo *baserel;
 		int			ndx;
+		RangeTblEntry *rte;
 
 		/*
 		 * Ignore PlaceHolderVars in the input tlists; we'll make our own
@@ -503,6 +506,14 @@ build_joinrel_tlist(PlannerInfo *root, RelOptInfo *joinrel,
 		if (!IsA(var, Var))
 			elog(ERROR, "unexpected node type in reltargetlist: %d",
 				 (int) nodeTag(var));
+
+		/*
+		 * Variable is related to BEFORE/AFTER in RETURNING
+		 * so is is impossible to find them here (and in fact it is unnecessary)
+		 */
+		rte = ((RangeTblEntry *) list_nth(root->parse->rtable, (var->varno)-1));
+		if(rte->rtekind == RTE_ALIAS)
+			continue;
 
 		/* Get the Var's original base rel */
 		baserel = find_base_rel(root, var->varno);

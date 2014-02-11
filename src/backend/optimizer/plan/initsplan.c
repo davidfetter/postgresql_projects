@@ -184,8 +184,23 @@ add_vars_to_targetlist(PlannerInfo *root, List *vars,
 		if (IsA(node, Var))
 		{
 			Var		   *var = (Var *) node;
-			RelOptInfo *rel = find_base_rel(root, var->varno);
+			RelOptInfo *rel;
+			Index		varno = var->varno;
 			int			attno = var->varattno;
+			RangeTblEntry *rte;
+
+			/* Ignore all variables not attached to real tables
+			 * All vars used by RTE_ALIAS are fetched in fact
+			 * with parent RTE
+			 */
+
+			if (root->parse->commandType == CMD_UPDATE)
+			{
+				rte = ((RangeTblEntry *) list_nth(root->parse->rtable, varno-1));
+				if(rte->rtekind == RTE_ALIAS)
+						continue;
+			}
+			rel = find_base_rel(root, varno);
 
 			if (bms_is_subset(where_needed, rel->relids))
 				continue;

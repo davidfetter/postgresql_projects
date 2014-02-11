@@ -165,6 +165,29 @@ preprocess_targetlist(PlannerInfo *root, List *tlist)
 				var->varno == result_relation)
 				continue;		/* don't need it */
 
+
+			/*
+			 * We need add new target for all BEFORE variables
+			 * in RETURNING syntax because in other cases the old value
+			 * is forgot and not available in OUTER_VAR
+			 *
+			 * For AFTER it is not required since all fields of the parent
+			 * is prepared to return
+			 */
+			if (command_type == CMD_UPDATE)
+			{
+				RangeTblEntry *rte = ((RangeTblEntry *) list_nth(root->parse->rtable, (var->varno)-1));
+
+				if(rte->rtekind == RTE_ALIAS)
+				{
+					var->varno = result_relation;
+					if(strcmp(rte->eref->aliasname,"before") == 0)
+						var->varoattno = list_length(tlist) + 1;
+					else
+						continue;
+				}
+			}
+
 			if (tlist_member((Node *) var, tlist))
 				continue;		/* already got it */
 

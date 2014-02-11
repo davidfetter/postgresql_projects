@@ -604,12 +604,17 @@ ExecUpdate(ItemPointer tupleid,
 	resultRelInfo = estate->es_result_relation_info;
 	resultRelationDesc = resultRelInfo->ri_RelationDesc;
 
-	/* BEFORE ROW UPDATE Triggers */
+	/* BEFORE ROW UPDATE Triggers
+	 *
+	 * Caution: planSlot would change here since the target row
+	 * can be modified after planner but before execution
+	 * (READ COMMITTED and above)
+	 * */
 	if (resultRelInfo->ri_TrigDesc &&
 		resultRelInfo->ri_TrigDesc->trig_update_before_row)
 	{
 		slot = ExecBRUpdateTriggers(estate, epqstate, resultRelInfo,
-									tupleid, slot);
+									tupleid, slot, &planSlot);
 
 		if (slot == NULL)		/* "do nothing" */
 			return NULL;
@@ -749,6 +754,10 @@ lreplace:;
 										   hufd.xmax);
 					if (!TupIsNull(epqslot))
 					{
+						/* We need current planSlot in original form for BEFORE/AFTER
+						 * in RETURNING syntax
+						 */
+						planSlot = epqslot;
 						*tupleid = hufd.ctid;
 						slot = ExecFilterJunk(resultRelInfo->ri_junkFilter, epqslot);
 						tuple = ExecMaterializeSlot(slot);

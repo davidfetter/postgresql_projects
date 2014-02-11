@@ -2164,6 +2164,13 @@ preprocess_rowmarks(PlannerInfo *root)
 		if (rte->relkind == RELKIND_FOREIGN_TABLE)
 			continue;
 
+		/*
+		 * Simirarly, ignore all marks for aliases since they are not real tables
+		 * All the work is done for parent RTE (RTE_ALIAS is never executed alone)
+		 */
+		if (rte->rtekind == RTE_ALIAS)
+			continue;
+
 		rels = bms_del_member(rels, rc->rti);
 
 		newrc = makeNode(PlanRowMark);
@@ -2201,6 +2208,14 @@ preprocess_rowmarks(PlannerInfo *root)
 
 		i++;
 		if (!bms_is_member(i, rels))
+			continue;
+
+		/*
+		 * Ignore all rowmarks for RTE_ALIAS since it is done already
+		 * (all will be done here) for the parent table and isn't needed
+		 * for alias
+		 */
+		if (rte->rtekind == RTE_ALIAS)
 			continue;
 
 		newrc = makeNode(PlanRowMark);

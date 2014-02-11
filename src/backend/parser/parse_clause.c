@@ -82,7 +82,61 @@ static WindowClause *findWindowClause(List *wclist, const char *name);
 static Node *transformFrameOffset(ParseState *pstate, int frameOptions,
 					 Node *clause);
 
+/*
+ * addAliases -
+ * 		add RTEs that are not valid tables,
+ * 		they are always related to parent which is the main
+ * 		table/view in UPDATE statement
+ *
+ * RTE_ALIASes are ignored in most of the cases in planning/execution
+ */
+void
+addAliases(ParseState *pstate)
+{
+	const int n_aliases = 2;
+	char	 *aliases[] = { "before", "after" };
+	int			i;
+	ListCell	*l;
+	ParseNamespaceItem *nsitem;
+	RangeTblEntry *rte = NULL;
 
+	foreach(l, pstate->p_namespace)
+	{
+		nsitem = (ParseNamespaceItem *) lfirst(l);
+		rte = nsitem->p_rte;
+
+		/* Ignore columns-only items */
+		if (!nsitem->p_rel_visible)
+			continue;
+		/* If not inside LATERAL, ignore lateral-only items */
+		if (nsitem->p_lateral_only && !pstate->p_lateral_active)
+			continue;
+
+		for (i=0 ; i < n_aliases; i++)
+		{
+			if (aliases[i] && strcmp(rte->eref->aliasname, aliases[i]) == 0)
+				aliases[i] = NULL;
+		}
+	}
+
+	l = pstate->p_namespace->head;
+	nsitem = (ParseNamespaceItem *) lfirst(l);
+
+	for (i=0 ; i < n_aliases; i++)
+	{
+		if (aliases[i])
+		{
+			rte = makeNode(RangeTblEntry);
+			rte->eref = makeAlias(aliases[i], nsitem->p_rte->eref->colnames);
+			rte->inh = INH_NO;
+			rte->rtekind = RTE_ALIAS;
+			rte->relkind = RELKIND_RELATION;
+			rte->relid = nsitem->p_rte->relid;
+			pstate->p_rtable = lappend(pstate->p_rtable, rte);
+			addRTEtoQuery(pstate, rte, true, true, false);
+		}
+	}
+}
 /*
  * transformFromClause -
  *	  Process the FROM clause and add items to the query's range table,

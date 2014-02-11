@@ -194,12 +194,27 @@ UPDATE [ ONLY ] <replaceable class="PARAMETER">table_name</replaceable> [ * ] [ 
     <term><replaceable class="PARAMETER">output_expression</replaceable></term>
     <listitem>
      <para>
-      An expression to be computed and returned by the <command>UPDATE</>
-      command after each row is updated.  The expression can use any
-      column names of the table named by <replaceable class="PARAMETER">table_name</replaceable>
-      or table(s) listed in <literal>FROM</>.
-      Write <literal>*</> to return all columns.
+      An expression to be computed and returned by the
+      <command>UPDATE</> command either before or after (prefixed with
+      <literal>BEFORE.</literal> and <literal>AFTER.</literal>,
+      respectively) each row is updated.  The expression can use any
+      column names of the table named by <replaceable
+      class="PARAMETER">table_name</replaceable> or table(s) listed in
+      <literal>FROM</>.  Write <literal>AFTER.*</literal> to return all 
+      columns after the update. Write <literal>BEFORE.*</literal> for all
+      columns before the update. Write <literal>*</literal> to return all
+      columns after update and all triggers fired (these values are in table
+      after command). You may combine BEFORE, AFTER and raw columns in the
+      expression.
      </para>
+     <warning><para>
+     Mixing table names or aliases named before or after with the
+     above will result in confusion and suffering.  If you happen to
+     have a table called <literal>before</literal> or
+     <literal>after</literal>, alias it to something else when using
+     RETURNING.
+     </para></warning>
+
     </listitem>
    </varlistentry>
 
@@ -287,12 +302,12 @@ UPDATE weather SET temp_lo = temp_lo+1, temp_hi = temp_lo+15, prcp = DEFAULT
   </para>
 
   <para>
-   Perform the same operation and return the updated entries:
+   Perform the same operation and return information on the changed entries:
 
 <programlisting>
 UPDATE weather SET temp_lo = temp_lo+1, temp_hi = temp_lo+15, prcp = DEFAULT
   WHERE city = 'San Francisco' AND date = '2003-07-03'
-  RETURNING temp_lo, temp_hi, prcp;
+  RETURNING temp_lo AS new_low, temp_hi AS new_high, BEFORE.temp_hi/BEFORE.temp_low AS old_ratio, AFTER.temp_hi/AFTER.temp_low AS new_ratio prcp;
 </programlisting>
   </para>
 

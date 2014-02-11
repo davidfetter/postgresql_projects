@@ -650,6 +650,13 @@ pull_up_subqueries_recurse(PlannerInfo *root, Node *jtnode,
 		RangeTblEntry *rte = rt_fetch(varno, root->parse->rtable);
 
 		/*
+		 * Ignore parsing RTE_ALIAS since it is not real table
+		 * and all related variables are already parsed with parent table
+		 */
+		if (rte->rtekind == RTE_ALIAS)
+			return NULL;
+
+		/*
 		 * Is this a subquery RTE, and if so, is the subquery simple enough to
 		 * pull up?
 		 *
@@ -998,6 +1005,7 @@ pull_up_simple_subquery(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte,
 				case RTE_RELATION:
 				case RTE_JOIN:
 				case RTE_CTE:
+				case RTE_ALIAS:
 					/* these can't contain any lateral references */
 					break;
 			}
@@ -1644,6 +1652,7 @@ replace_vars_in_jointree(Node *jtnode,
 					case RTE_RELATION:
 					case RTE_JOIN:
 					case RTE_CTE:
+					case RTE_ALIAS:
 						/* these shouldn't be marked LATERAL */
 						Assert(false);
 						break;
@@ -1796,6 +1805,23 @@ pullup_replace_vars_callback(Var *var,
 
 		/* Make a copy of the tlist item to return */
 		newnode = copyObject(tle->expr);
+
+		/*
+		 * We need to preserve original position of variable
+		 * because for RTE_ALIAS 'old' position is related to OUTER_VAR and MATTERS
+		 *
+		 * For other statements it is not needed so are ignored
+		 */
+		if (IsA(newnode,Var) && rcon->root->parse->commandType == CMD_UPDATE &&
+			var->varno <= list_length(rcon->root->parse->rtable))
+		{
+			RangeTblEntry *rte = rt_fetch(((Var*)var)->varnoold, rcon->root->parse->rtable);
+			if(rte->rtekind == RTE_ALIAS)
+			{
+				((Var*)newnode)->varoattno = ((Var*)var)->varoattno;
+				((Var*)newnode)->varnoold = ((Var*)var)->varnoold;
+			}
+		}
 
 		/* Insert PlaceHolderVar if needed */
 		if (rcon->need_phvs)

@@ -2040,6 +2040,14 @@ transformReturningList(ParseState *pstate, List *returningList)
 	save_next_resno = pstate->p_next_resno;
 	pstate->p_next_resno = 1;
 
+	/*
+	 * Add aliases for BEFORE/AFTER statements in RETURNING
+	 * They are only valid for UPDATE and only in RETURNING part (so can't
+	 * be added earlier)
+	 */
+	if (pstate->p_is_update)
+		addAliases(pstate);
+
 	/* transform RETURNING identically to a SELECT targetlist */
 	rlist = transformTargetList(pstate, returningList, EXPR_KIND_RETURNING);
 

@@ -138,6 +138,7 @@ test: sequence
 test: polymorphism
 test: rowtypes
 test: returning
+test: returning_before_after
 test: largeobject
 test: with
 test: xml

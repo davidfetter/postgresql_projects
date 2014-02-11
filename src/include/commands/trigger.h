@@ -162,7 +162,8 @@ extern TupleTableSlot *ExecBRUpdateTriggers(EState *estate,
 					 EPQState *epqstate,
 					 ResultRelInfo *relinfo,
 					 ItemPointer tupleid,
-					 TupleTableSlot *slot);
+					 TupleTableSlot *slot,
+					 TupleTableSlot **planSlot);
 extern void ExecARUpdateTriggers(EState *estate,
 					 ResultRelInfo *relinfo,
 					 ItemPointer tupleid,

@@ -1212,6 +1212,7 @@ _readRangeTblEntry(void)
 	switch (local_node->rtekind)
 	{
 		case RTE_RELATION:
+		case RTE_ALIAS:
 			READ_OID_FIELD(relid);
 			READ_CHAR_FIELD(relkind);
 			break;
