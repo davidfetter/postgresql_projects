@@ -63,10 +63,6 @@
 #include "dumputils.h"
 #include "parallel.h"
 
-extern char *optarg;
-extern int	optind,
-			opterr;
-
 
 typedef struct
 {
@@ -3602,7 +3598,7 @@ getConversions(Archive *fout, int *numConversions)
 	PGresult   *res;
 	int			ntups;
 	int			i;
-	PQExpBuffer query = createPQExpBuffer();
+	PQExpBuffer query;
 	ConvInfo   *convinfo;
 	int			i_tableoid;
 	int			i_oid;
@@ -3616,6 +3612,8 @@ getConversions(Archive *fout, int *numConversions)
 		*numConversions = 0;
 		return NULL;
 	}
+
+	query = createPQExpBuffer();
 
 	/*
 	 * find all conversions, including builtin conversions; we filter out
@@ -7143,7 +7141,7 @@ getForeignDataWrappers(Archive *fout, int *numForeignDataWrappers)
 	PGresult   *res;
 	int			ntups;
 	int			i;
-	PQExpBuffer query = createPQExpBuffer();
+	PQExpBuffer query;
 	FdwInfo    *fdwinfo;
 	int			i_tableoid;
 	int			i_oid;
@@ -7160,6 +7158,8 @@ getForeignDataWrappers(Archive *fout, int *numForeignDataWrappers)
 		*numForeignDataWrappers = 0;
 		return NULL;
 	}
+
+	query = createPQExpBuffer();
 
 	/* Make sure we are in proper schema */
 	selectSourceSchema(fout, "pg_catalog");
@@ -7249,7 +7249,7 @@ getForeignServers(Archive *fout, int *numForeignServers)
 	PGresult   *res;
 	int			ntups;
 	int			i;
-	PQExpBuffer query = createPQExpBuffer();
+	PQExpBuffer query;
 	ForeignServerInfo *srvinfo;
 	int			i_tableoid;
 	int			i_oid;
@@ -7267,6 +7267,8 @@ getForeignServers(Archive *fout, int *numForeignServers)
 		*numForeignServers = 0;
 		return NULL;
 	}
+
+	query = createPQExpBuffer();
 
 	/* Make sure we are in proper schema */
 	selectSourceSchema(fout, "pg_catalog");

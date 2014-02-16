@@ -40,6 +40,7 @@
 #include "access/xact.h"
 #include "miscadmin.h"
 #include "postmaster/autovacuum.h"
+#include "replication/slot.h"
 #include "replication/syncrep.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
@@ -189,7 +190,8 @@ InitProcGlobal(void)
 	 */
 	procs = (PGPROC *) ShmemAlloc(TotalProcs * sizeof(PGPROC));
 	ProcGlobal->allProcs = procs;
-	ProcGlobal->allProcCount = TotalProcs;
+	/* XXX allProcCount isn't really all of them; it excludes prepared xacts */
+	ProcGlobal->allProcCount = MaxBackends + NUM_AUXILIARY_PROCS;
 	if (!procs)
 		ereport(FATAL,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
@@ -663,7 +665,7 @@ IsWaitingForLock(void)
 void
 LockErrorCleanup(void)
 {
-	LWLockId	partitionLock;
+	LWLock	   *partitionLock;
 	DisableTimeoutParams timeouts[2];
 
 	AbortStrongLockAcquire();
@@ -772,11 +774,16 @@ ProcKill(int code, Datum arg)
 {
 	/* use volatile pointer to prevent code rearrangement */
 	volatile PROC_HDR *procglobal = ProcGlobal;
+	PGPROC	   *proc;
 
 	Assert(MyProc != NULL);
 
 	/* Make sure we're out of the sync rep lists */
 	SyncRepCleanupAtProcExit();
+
+	/* Make sure active replication slots are released */
+	if (MyReplicationSlot != NULL)
+		ReplicationSlotRelease();
 
 #ifdef USE_ASSERT_CHECKING
 	if (assert_enabled)
@@ -796,30 +803,33 @@ ProcKill(int code, Datum arg)
 	 */
 	LWLockReleaseAll();
 
-	/* Release ownership of the process's latch, too */
-	DisownLatch(&MyProc->procLatch);
+	/*
+	 * Clear MyProc first; then disown the process latch.  This is so that
+	 * signal handlers won't try to clear the process latch after it's no
+	 * longer ours.
+	 */
+	proc = MyProc;
+	MyProc = NULL;
+	DisownLatch(&proc->procLatch);
 
 	SpinLockAcquire(ProcStructLock);
 
 	/* Return PGPROC structure (and semaphore) to appropriate freelist */
 	if (IsAnyAutoVacuumProcess())
 	{
-		MyProc->links.next = (SHM_QUEUE *) procglobal->autovacFreeProcs;
-		procglobal->autovacFreeProcs = MyProc;
+		proc->links.next = (SHM_QUEUE *) procglobal->autovacFreeProcs;
+		procglobal->autovacFreeProcs = proc;
 	}
 	else if (IsBackgroundWorker)
 	{
-		MyProc->links.next = (SHM_QUEUE *) procglobal->bgworkerFreeProcs;
-		procglobal->bgworkerFreeProcs = MyProc;
+		proc->links.next = (SHM_QUEUE *) procglobal->bgworkerFreeProcs;
+		procglobal->bgworkerFreeProcs = proc;
 	}
 	else
 	{
-		MyProc->links.next = (SHM_QUEUE *) procglobal->freeProcs;
-		procglobal->freeProcs = MyProc;
+		proc->links.next = (SHM_QUEUE *) procglobal->freeProcs;
+		procglobal->freeProcs = proc;
 	}
-
-	/* PGPROC struct isn't mine anymore */
-	MyProc = NULL;
 
 	/* Update shared estimate of spins_per_delay */
 	procglobal->spins_per_delay = update_spins_per_delay(procglobal->spins_per_delay);
@@ -849,6 +859,7 @@ AuxiliaryProcKill(int code, Datum arg)
 {
 	int			proctype = DatumGetInt32(arg);
 	PGPROC	   *auxproc PG_USED_FOR_ASSERTS_ONLY;
+	PGPROC	   *proc;
 
 	Assert(proctype >= 0 && proctype < NUM_AUXILIARY_PROCS);
 
@@ -859,16 +870,19 @@ AuxiliaryProcKill(int code, Datum arg)
 	/* Release any LW locks I am holding (see notes above) */
 	LWLockReleaseAll();
 
-	/* Release ownership of the process's latch, too */
-	DisownLatch(&MyProc->procLatch);
+	/*
+	 * Clear MyProc first; then disown the process latch.  This is so that
+	 * signal handlers won't try to clear the process latch after it's no
+	 * longer ours.
+	 */
+	proc = MyProc;
+	MyProc = NULL;
+	DisownLatch(&proc->procLatch);
 
 	SpinLockAcquire(ProcStructLock);
 
 	/* Mark auxiliary proc no longer in use */
-	MyProc->pid = 0;
-
-	/* PGPROC struct isn't mine anymore */
-	MyProc = NULL;
+	proc->pid = 0;
 
 	/* Update shared estimate of spins_per_delay */
 	ProcGlobal->spins_per_delay = update_spins_per_delay(ProcGlobal->spins_per_delay);
@@ -942,7 +956,7 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 	LOCK	   *lock = locallock->lock;
 	PROCLOCK   *proclock = locallock->proclock;
 	uint32		hashcode = locallock->hashcode;
-	LWLockId	partitionLock = LockHashPartitionLock(hashcode);
+	LWLock	   *partitionLock = LockHashPartitionLock(hashcode);
 	PROC_QUEUE *waitQueue = &(lock->waitProcs);
 	LOCKMASK	myHeldLocks = MyProc->heldLocks;
 	bool		early_deadlock = false;
@@ -1440,7 +1454,7 @@ CheckDeadLock(void)
 	 * interrupts.
 	 */
 	for (i = 0; i < NUM_LOCK_PARTITIONS; i++)
-		LWLockAcquire(FirstLockMgrLock + i, LW_EXCLUSIVE);
+		LWLockAcquire(LockHashPartitionLockByIndex(i), LW_EXCLUSIVE);
 
 	/*
 	 * Check to see if we've been awoken by anyone in the interim.
@@ -1522,7 +1536,7 @@ CheckDeadLock(void)
 	 */
 check_done:
 	for (i = NUM_LOCK_PARTITIONS; --i >= 0;)
-		LWLockRelease(FirstLockMgrLock + i);
+		LWLockRelease(LockHashPartitionLockByIndex(i));
 }
 
 

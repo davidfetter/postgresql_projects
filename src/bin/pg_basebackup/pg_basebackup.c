@@ -15,12 +15,14 @@
 #include "libpq-fe.h"
 #include "pqexpbuffer.h"
 #include "pgtar.h"
+#include "pgtime.h"
 
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <time.h>
 
 #ifdef HAVE_LIBZ
@@ -46,6 +48,7 @@ static bool	streamwal = false;
 static bool	fastcheckpoint = false;
 static bool	writerecoveryconf = false;
 static int	standby_message_timeout = 10 * 1000;		/* 10 sec = default */
+static pg_time_t last_progress_report = 0;
 
 /* Progress counters */
 static uint64 totalsize;
@@ -74,8 +77,9 @@ static PQExpBuffer recoveryconfcontents = NULL;
 
 /* Function headers */
 static void usage(void);
+static void disconnect_and_exit(int code);
 static void verify_dir_is_empty_or_create(char *dirname);
-static void progress_report(int tablespacenum, const char *filename);
+static void progress_report(int tablespacenum, const char *filename, bool force);
 
 static void ReceiveTarFile(PGconn *conn, PGresult *res, int rownum);
 static void ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum);
@@ -85,6 +89,26 @@ static void BaseBackup(void);
 
 static bool reached_end_position(XLogRecPtr segendpos, uint32 timeline,
 					 bool segment_finished);
+
+
+static void disconnect_and_exit(int code)
+{
+	if (conn != NULL)
+		PQfinish(conn);
+
+#ifndef WIN32
+	/*
+	 * On windows, our background thread dies along with the process.
+	 * But on Unix, if we have started a subprocess, we want to kill
+	 * it off so it doesn't remain running trying to stream data.
+	 */
+	if (bgchild> 0)
+		kill(bgchild, SIGTERM);
+#endif
+
+	exit(code);
+}
+
 
 #ifdef HAVE_LIBZ
 static const char *
@@ -399,13 +423,27 @@ verify_dir_is_empty_or_create(char *dirname)
 /*
  * Print a progress report based on the global variables. If verbose output
  * is enabled, also print the current file name.
+ *
+ * Progress report is written at maximum once per second, unless the
+ * force parameter is set to true.
  */
 static void
-progress_report(int tablespacenum, const char *filename)
+progress_report(int tablespacenum, const char *filename, bool force)
 {
-	int			percent = (int) ((totaldone / 1024) * 100 / totalsize);
+	int			percent;
 	char		totaldone_str[32];
 	char		totalsize_str[32];
+	pg_time_t	now;
+
+	if (!showprogress)
+		return;
+
+	now = time(NULL);
+	if (now == last_progress_report && !force)
+		return; /* Max once per second */
+
+	last_progress_report = now;
+	percent = totalsize ? (int) ((totaldone / 1024) * 100 / totalsize) : 0;
 
 	/*
 	 * Avoid overflowing past 100% or the full size. This may make the total
@@ -565,6 +603,7 @@ ReceiveTarFile(PGconn *conn, PGresult *res, int rownum)
 			else
 #endif
 				tarfile = stdout;
+			strcpy(filename, "-");
 		}
 		else
 		{
@@ -852,9 +891,9 @@ ReceiveTarFile(PGconn *conn, PGresult *res, int rownum)
 			}
 		}
 		totaldone += r;
-		if (showprogress)
-			progress_report(rownum, filename);
+		progress_report(rownum, filename, false);
 	}							/* while (1) */
+	progress_report(rownum, filename, true);
 
 	if (copybuf != NULL)
 		PQfreemem(copybuf);
@@ -1079,8 +1118,7 @@ ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum)
 				disconnect_and_exit(1);
 			}
 			totaldone += r;
-			if (showprogress)
-				progress_report(rownum, filename);
+			progress_report(rownum, filename, false);
 
 			current_len_left -= r;
 			if (current_len_left == 0 && current_padding == 0)
@@ -1096,6 +1134,7 @@ ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum)
 			}
 		}						/* continuing data in existing file */
 	}							/* loop over all data blocks */
+	progress_report(rownum, filename, true);
 
 	if (file != NULL)
 	{
@@ -1456,8 +1495,7 @@ BaseBackup(void)
 	tablespacecount = PQntuples(res);
 	for (i = 0; i < PQntuples(res); i++)
 	{
-		if (showprogress)
-			totalsize += atol(PQgetvalue(res, i, 2));
+		totalsize += atol(PQgetvalue(res, i, 2));
 
 		/*
 		 * Verify tablespace directories are empty. Don't bother with the
@@ -1504,7 +1542,7 @@ BaseBackup(void)
 
 	if (showprogress)
 	{
-		progress_report(PQntuples(res), NULL);
+		progress_report(PQntuples(res), NULL, true);
 		fprintf(stderr, "\n");	/* Need to move to next line */
 	}
 	PQclear(res);

@@ -613,6 +613,18 @@ CREATE VIEW pg_stat_replication AS
     WHERE S.usesysid = U.oid AND
             S.pid = W.pid;
 
+CREATE VIEW pg_replication_slots AS
+    SELECT
+            L.slot_name,
+            L.slot_type,
+            L.datoid,
+            D.datname AS database,
+            L.active,
+            L.xmin,
+            L.restart_lsn
+    FROM pg_get_replication_slots() AS L
+            LEFT JOIN pg_database D ON (L.datoid = D.oid);
+
 CREATE VIEW pg_stat_database AS
     SELECT
             D.oid AS datid,
@@ -671,6 +683,17 @@ CREATE VIEW pg_stat_xact_user_functions AS
     FROM pg_proc P LEFT JOIN pg_namespace N ON (N.oid = P.pronamespace)
     WHERE P.prolang != 12  -- fast check to eliminate built-in functions
           AND pg_stat_get_xact_function_calls(P.oid) IS NOT NULL;
+
+CREATE VIEW pg_stat_archiver AS
+    SELECT
+        s.archived_count,
+        s.last_archived_wal,
+        s.last_archived_time,
+        s.failed_count,
+        s.last_failed_wal,
+        s.last_failed_time,
+        s.stats_reset
+    FROM pg_stat_get_archiver() s;
 
 CREATE VIEW pg_stat_bgwriter AS
     SELECT

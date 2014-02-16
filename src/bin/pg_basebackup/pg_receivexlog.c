@@ -45,6 +45,13 @@ static void StreamLog();
 static bool stop_streaming(XLogRecPtr segendpos, uint32 timeline,
 			   bool segment_finished);
 
+#define disconnect_and_exit(code)				\
+	{											\
+	if (conn != NULL) PQfinish(conn);			\
+	exit(code);									\
+	}
+
+
 static void
 usage(void)
 {
@@ -67,6 +74,7 @@ usage(void)
 	printf(_("  -U, --username=NAME    connect as specified database user\n"));
 	printf(_("  -w, --no-password      never prompt for password\n"));
 	printf(_("  -W, --password         force password prompt (should happen automatically)\n"));
+	printf(_("      --slot             replication slot to use\n"));
 	printf(_("\nReport bugs to <pgsql-bugs@postgresql.org>.\n"));
 }
 
@@ -343,6 +351,7 @@ main(int argc, char **argv)
 		{"no-password", no_argument, NULL, 'w'},
 		{"password", no_argument, NULL, 'W'},
 		{"status-interval", required_argument, NULL, 's'},
+		{"slot", required_argument, NULL, 'S'},
 		{"verbose", no_argument, NULL, 'v'},
 		{NULL, 0, NULL, 0}
 	};
@@ -408,6 +417,9 @@ main(int argc, char **argv)
 							progname, optarg);
 					exit(1);
 				}
+				break;
+			case 'S':
+				replication_slot = pg_strdup(optarg);
 				break;
 			case 'n':
 				noloop = 1;
