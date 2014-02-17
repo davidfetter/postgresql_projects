@@ -699,6 +699,13 @@ SELECT * FROM ft1;                                              -- ERROR
 ERROR:  foreign-data wrapper "dummy" has no handler
 EXPLAIN SELECT * FROM ft1;                                      -- ERROR
 ERROR:  foreign-data wrapper "dummy" has no handler
+CREATE FOREIGN TABLE foreign_schema.ft_columns (LIKE information_schema.columns)
+    SERVER s0 OPTIONS (delimiter ',', quote '"');
+CREATE FOREIGN TABLE doesnt_exist_ft1 (LIKE doesnt_exist_lt1)   -- ERROR
+    SERVER s0 OPTIONS (delimiter ',', quote '"');
+ERROR:  relation "doesnt_exist_lt1" does not exist
+LINE 1: CREATE FOREIGN TABLE doesnt_exist_ft1 (LIKE doesnt_exist_lt1...
+                                                    ^
 -- ALTER FOREIGN TABLE
 COMMENT ON FOREIGN TABLE ft1 IS 'foreign table';
 COMMENT ON FOREIGN TABLE ft1 IS NULL;
@@ -919,7 +926,8 @@ SELECT * FROM information_schema.foreign_tables ORDER BY 1, 2, 3;
  foreign_table_catalog | foreign_table_schema | foreign_table_name | foreign_server_catalog | foreign_server_name 
 -----------------------+----------------------+--------------------+------------------------+---------------------
  regression            | foreign_schema       | foreign_table_1    | regression             | s0
-(1 row)
+ regression            | foreign_schema       | ft_columns         | regression             | s0
+(2 rows)
 
 SELECT * FROM information_schema.foreign_table_options ORDER BY 1, 2, 3, 4;
  foreign_table_catalog | foreign_table_schema | foreign_table_name | option_name | option_value 
@@ -927,7 +935,9 @@ SELECT * FROM information_schema.foreign_table_options ORDER BY 1, 2, 3, 4;
  regression            | foreign_schema       | foreign_table_1    | be quoted   | value
  regression            | foreign_schema       | foreign_table_1    | escape      | @
  regression            | foreign_schema       | foreign_table_1    | quote       | ~
-(3 rows)
+ regression            | foreign_schema       | ft_columns         | delimiter   | ,
+ regression            | foreign_schema       | ft_columns         | quote       | "
+(5 rows)
 
 SET ROLE regress_test_role;
 SELECT * FROM information_schema.user_mapping_options ORDER BY 1, 2, 3, 4;
@@ -1166,6 +1176,7 @@ NOTICE:  foreign table "no_table" does not exist, skipping
 DROP FOREIGN TABLE foreign_schema.foreign_table_1;
 -- Cleanup
 DROP SCHEMA foreign_schema CASCADE;
+NOTICE:  drop cascades to foreign table foreign_schema.ft_columns
 DROP ROLE regress_test_role;                                -- ERROR
 ERROR:  role "regress_test_role" cannot be dropped because some objects depend on it
 DETAIL:  privileges for server s4

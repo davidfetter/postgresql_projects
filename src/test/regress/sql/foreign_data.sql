@@ -280,6 +280,10 @@ COMMENT ON COLUMN ft1.c1 IS 'ft1.c1';
 CREATE INDEX id_ft1_c2 ON ft1 (c2);                             -- ERROR
 SELECT * FROM ft1;                                              -- ERROR
 EXPLAIN SELECT * FROM ft1;                                      -- ERROR
+CREATE FOREIGN TABLE foreign_schema.ft_columns (LIKE information_schema.columns)
+    SERVER s0 OPTIONS (delimiter ',', quote '"');
+CREATE FOREIGN TABLE doesnt_exist_ft1 (LIKE doesnt_exist_lt1)   -- ERROR
+    SERVER s0 OPTIONS (delimiter ',', quote '"');
 
 -- ALTER FOREIGN TABLE
 COMMENT ON FOREIGN TABLE ft1 IS 'foreign table';

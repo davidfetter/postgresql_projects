@@ -72,6 +72,20 @@ CREATE FOREIGN TABLE ft2 (
 	c8 user_enum
 ) SERVER loopback;
 ALTER FOREIGN TABLE ft2 DROP COLUMN cx;
+CREATE FOREIGN TABLE ft_tables (
+    LIKE information_schema.tables
+) SERVER loopback
+OPTIONS (
+    schema_name 'information_schema',
+    table_name 'tables'
+);
+CREATE FOREIGN TABLE ft_columns (
+    LIKE information_schema.columns
+) SERVER loopback
+OPTIONS (
+    schema_name 'information_schema',
+    table_name 'columns'
+);
 -- ===================================================================
 -- tests for validator
 -- ===================================================================
@@ -113,12 +127,14 @@ ALTER FOREIGN TABLE ft2 OPTIONS (schema_name 'S 1', table_name 'T 1');
 ALTER FOREIGN TABLE ft1 ALTER COLUMN c1 OPTIONS (column_name 'C 1');
 ALTER FOREIGN TABLE ft2 ALTER COLUMN c1 OPTIONS (column_name 'C 1');
 \det+
-                             List of foreign tables
- Schema | Table |  Server  |              FDW Options              | Description 
---------+-------+----------+---------------------------------------+-------------
- public | ft1   | loopback | (schema_name 'S 1', table_name 'T 1') | 
- public | ft2   | loopback | (schema_name 'S 1', table_name 'T 1') | 
-(2 rows)
+                                         List of foreign tables
+ Schema |   Table    |  Server  |                       FDW Options                        | Description 
+--------+------------+----------+----------------------------------------------------------+-------------
+ public | ft1        | loopback | (schema_name 'S 1', table_name 'T 1')                    | 
+ public | ft2        | loopback | (schema_name 'S 1', table_name 'T 1')                    | 
+ public | ft_columns | loopback | (schema_name 'information_schema', table_name 'columns') | 
+ public | ft_tables  | loopback | (schema_name 'information_schema', table_name 'tables')  | 
+(4 rows)
 
 -- Now we should be able to run ANALYZE.
 -- To exercise multiple code paths, we use local stats on ft1
@@ -231,12 +247,24 @@ SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
  101 |  1 | 00101 | Fri Jan 02 00:00:00 1970 PST | Fri Jan 02 00:00:00 1970 | 1  | 1          | foo
 (1 row)
 
--- aggregate
+-- aggregates
 SELECT COUNT(*) FROM ft1 t1;
  count 
 -------
   1000
 (1 row)
+
+SELECT t.table_name, COUNT(*)
+FROM ft_tables t JOIN ft_columns c USING (table_catalog, table_schema, table_name)
+WHERE t.table_type = 'FOREIGN TABLE'
+GROUP BY t.table_name;
+ table_name | count 
+------------+-------
+ ft_columns |    44
+ ft2        |     8
+ ft_tables  |    12
+ ft1        |     8
+(4 rows)
 
 -- join two tables
 SELECT t1.c1 FROM ft1 t1 JOIN ft2 t2 ON (t1.c1 = t2.c1) ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;

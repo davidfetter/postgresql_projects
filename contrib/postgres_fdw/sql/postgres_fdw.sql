@@ -81,6 +81,22 @@ CREATE FOREIGN TABLE ft2 (
 ) SERVER loopback;
 ALTER FOREIGN TABLE ft2 DROP COLUMN cx;
 
+CREATE FOREIGN TABLE ft_tables (
+    LIKE information_schema.tables
+) SERVER loopback
+OPTIONS (
+    schema_name 'information_schema',
+    table_name 'tables'
+);
+
+CREATE FOREIGN TABLE ft_columns (
+    LIKE information_schema.columns
+) SERVER loopback
+OPTIONS (
+    schema_name 'information_schema',
+    table_name 'columns'
+);
+
 -- ===================================================================
 -- tests for validator
 -- ===================================================================
@@ -145,8 +161,12 @@ SELECT * FROM ft1 WHERE false;
 -- with WHERE clause
 EXPLAIN (VERBOSE, COSTS false) SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
 SELECT * FROM ft1 t1 WHERE t1.c1 = 101 AND t1.c6 = '1' AND t1.c7 >= '1';
--- aggregate
+-- aggregates
 SELECT COUNT(*) FROM ft1 t1;
+SELECT t.table_name, COUNT(*)
+FROM ft_tables t JOIN ft_columns c USING (table_catalog, table_schema, table_name)
+WHERE t.table_type = 'FOREIGN TABLE'
+GROUP BY t.table_name;
 -- join two tables
 SELECT t1.c1 FROM ft1 t1 JOIN ft2 t2 ON (t1.c1 = t2.c1) ORDER BY t1.c3, t1.c1 OFFSET 100 LIMIT 10;
 -- subquery
