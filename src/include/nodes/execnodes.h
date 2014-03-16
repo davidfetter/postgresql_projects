@@ -1704,7 +1704,6 @@ typedef struct AggState
 	ScanState	ss;				/* its first field is NodeTag */
 	List	   *aggs;			/* all Aggref nodes in targetlist & quals */
 	int			numaggs;		/* length of list (could be zero!) */
-	int			numsets;	/* number of grouping sets present */
 	FmgrInfo   *eqfunctions;	/* per-grouping-field equality fns */
 	FmgrInfo   *hashfunctions;	/* per-grouping-field hash fns */
 	AggStatePerAgg peragg;		/* per-Aggref information */
@@ -1713,7 +1712,7 @@ typedef struct AggState
 	AggStatePerAgg curperagg;	/* identifies currently active aggregate */
 	bool		agg_done;		/* indicates completion of Agg scan */
 	/* these fields are used in AGG_PLAIN and AGG_SORTED modes: */
-	AggStatePerGroup *pergroup;	/* per-Grouping Set-Per-Aggref-per-group working state */
+	AggStatePerGroup pergroup;	/* per-Aggref-per-group working state */
 	HeapTuple	grp_firstTuple; /* copy of first tuple of current group */
 	/* these fields are used in AGG_HASHED mode: */
 	TupleHashTable hashtable;	/* hash table with one entry per group */

@@ -332,14 +332,9 @@ initialize_aggregates(AggState *aggstate,
 					  AggStatePerGroup pergroup)
 {
 	int			aggno;
-	int			aggno_groupstate;
-	int			current_aggno;
-
-	elog(WARNING, "in initialize_aggregates");
 
 	for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 	{
-		elog(WARNING,"in loop1");
 		AggStatePerAgg peraggstate = &peragg[aggno];
 		AggStatePerGroup pergroupstate = &pergroup[aggno];
 
@@ -375,18 +370,7 @@ initialize_aggregates(AggState *aggstate,
 									 peraggstate->sortNullsFirst,
 									 work_mem, false);
 		}
-	}
 
-	current_aggno = 0;
-
-	elog(WARNING, "value is %d %d",(aggstate->numaggs),(aggstate->numsets));
-
-	for (aggno_groupstate = 0; aggno_groupstate < (aggstate->numaggs * aggstate->numsets); aggno_groupstate++)
-	{
-		elog(WARNING, "current_aggno is %d",current_aggno);
-		elog(WARNING, "aggno_groupstate is %d",aggno_groupstate);
-		AggStatePerAgg peraggstate = &peragg[current_aggno];
-		AggStatePerGroup pergroupstate = &pergroup[aggno];
 		/*
 		 * (Re)set transValue to the initial value.
 		 *
@@ -415,12 +399,6 @@ initialize_aggregates(AggState *aggstate,
 		 * signals that we still need to do this.
 		 */
 		pergroupstate->noTransValue = peraggstate->initValueIsNull;
-
-		/* Check if next aggno needs to be considered for the next iteration */
-		if (aggno_groupstate != 0 && aggno_groupstate % (aggstate->numsets) == 0)
-		{
-			++current_aggno;
-		}
 	}
 }
 
@@ -1532,7 +1510,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	aggstate->aggs = NIL;
 	aggstate->numaggs = 0;
-	aggstate->numsets = node->numCols + 1;
 	aggstate->eqfunctions = NULL;
 	aggstate->hashfunctions = NULL;
 	aggstate->peragg = NULL;
@@ -1670,7 +1647,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	{
 		AggStatePerGroup pergroup;
 
-		/* pergroup = (AggStatePerGroup) palloc0(sizeof(AggStatePerGroupData) * numaggs); */
+
+		pergroup = (AggStatePerGroup) palloc0(sizeof(AggStatePerGroupData) * numaggs);
 		aggstate->pergroup = pergroup;
 	}
 
@@ -2007,9 +1985,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	/* Update numaggs to match number of unique aggregates found */
 	aggstate->numaggs = aggno + 1;
-
-	/* Allocate pergroupingset array in AggState to an array of size (numaggs * 4) */
-	aggstate->pergroup = (AggStatePerGroupData *) palloc(sizeof(AggStatePerGroupData) * (aggstate->numaggs) * 4);
 
 	return aggstate;
 }

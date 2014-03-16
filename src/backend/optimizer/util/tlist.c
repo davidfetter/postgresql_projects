@@ -357,9 +357,9 @@ get_sortgrouplist_exprs(List *sgClauses, List *targetList)
 
 	foreach(l, sgClauses)
 	{
-		if (IsA(linitial(l), List))
+		if (IsA(lfirst(l), List))
 		{
-			foreach(l2, linitial(l))
+			foreach(l2, lfirst(l))
 			{
 				SortGroupClause *sortcl = (SortGroupClause *) lfirst(l2);
 				Node	   *sortexpr;

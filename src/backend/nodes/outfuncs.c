@@ -2087,7 +2087,6 @@ _outFuncCall(StringInfo str, const FuncCall *node)
 	WRITE_NODE_FIELD(agg_order);
 	WRITE_NODE_FIELD(agg_filter);
 	WRITE_BOOL_FIELD(agg_within_group);
-	WRITE_BOOL_FIELD(agg_rollup);
 	WRITE_BOOL_FIELD(agg_star);
 	WRITE_BOOL_FIELD(agg_distinct);
 	WRITE_BOOL_FIELD(func_variadic);

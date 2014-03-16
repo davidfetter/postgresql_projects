@@ -1157,7 +1157,19 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		/* Preprocess GROUP BY clause, if any */
 		if (parse->groupClause)
 			preprocess_groupclause(root);
-		numGroupCols = list_length(parse->groupClause);
+
+		/* If the groupClause is a list-of lists, we need to traverse
+		 * in the top list and then calculate the number of group columns
+		 */
+
+		if ((parse->groupClause) && IsA(parse->groupClause, List))
+		{
+			numGroupCols = list_length(linitial(parse->groupClause));
+		}
+		else
+		{
+			numGroupCols = list_length(parse->groupClause);
+		}
 
 		/* Preprocess targetlist */
 		tlist = preprocess_targetlist(root, tlist);
@@ -1398,13 +1410,23 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		{
 			/*
 			 * If grouping, decide whether to use sorted or hashed grouping.
+			 * If ROLLUP clause is present, we shall use only sorted grouping
 			 */
-			use_hashed_grouping =
-				choose_hashed_grouping(root,
-									   tuple_fraction, limit_tuples,
-									   path_rows, path_width,
-									   cheapest_path, sorted_path,
-									   dNumGroups, &agg_costs);
+
+			if (IsA((parse->groupClause), List))
+			{
+				use_hashed_grouping = false;
+			}
+			else
+			{
+				use_hashed_grouping =
+					choose_hashed_grouping(root,
+										   tuple_fraction, limit_tuples,
+										   path_rows, path_width,
+										   cheapest_path, sorted_path,
+										   dNumGroups, &agg_costs);
+			}
+
 			/* Also convert # groups to long int --- but 'ware overflow! */
 			numGroups = (long) Min(dNumGroups, (double) LONG_MAX);
 		}
@@ -1553,6 +1575,9 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			}
 			else if (parse->hasAggs)
 			{
+				/* Used for holding Agg plan for setting hasRollups attribute */
+				Agg *result_agg;
+
 				/* Plain aggregate plan --- sort if needed */
 				AggStrategy aggstrategy;
 
@@ -1581,7 +1606,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 					current_pathkeys = NIL;
 				}
 
-				result_plan = (Plan *) make_agg(root,
+				result_agg = make_agg(root,
 												tlist,
 												(List *) parse->havingQual,
 												aggstrategy,
@@ -1591,6 +1616,11 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 									extract_grouping_ops(parse->groupClause),
 												numGroups,
 												result_plan);
+
+				if ((parse->groupClause) && IsA((parse->groupClause), List))
+					result_agg->hasRollup = true;
+
+				result_plan = (Plan *) result_agg;
 			}
 			else if (parse->groupClause)
 			{
