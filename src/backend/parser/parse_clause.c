@@ -1681,19 +1681,43 @@ transformGroupClause(ParseState *pstate, List *grouplist,
 {
 	List	   *result = NIL;
 	ListCell   *gl;
+	ListCell   *gl_innerlist;
 
 	foreach(gl, grouplist)
 	{
-		Node	   *gexpr = (Node *) lfirst(gl);
+		Node        *gexpr =  NULL;
 		TargetEntry *tle;
 		bool		found = false;
+		bool        hasRollup = false;
 
-		if (useSQL99)
-			tle = findTargetlistEntrySQL99(pstate, gexpr,
-										   targetlist, exprKind);
-		else
-			tle = findTargetlistEntrySQL92(pstate, gexpr,
-										   targetlist, exprKind);
+		if (IsA(lfirst(gl), List))
+		{	
+			hasRollup = true;
+			foreach(gl_innerlist, lfirst(gl))
+			{
+				gexpr = (Node *) lfirst(gl_innerlist);
+				
+				if (useSQL99)
+					tle = findTargetlistEntrySQL99(pstate, gexpr,
+												   targetlist, exprKind);
+				else
+					tle = findTargetlistEntrySQL92(pstate, gexpr,
+					targetlist, exprKind);
+			}
+		}
+
+		if(!gexpr)
+			gexpr = (Node *) lfirst(gl);
+			
+		if (!hasRollup)
+		{
+			if (useSQL99)
+				tle = findTargetlistEntrySQL99(pstate, gexpr,
+											   targetlist, exprKind);
+			else
+				tle = findTargetlistEntrySQL92(pstate, gexpr,
+											   targetlist, exprKind);
+		}
 
 		/* Eliminate duplicates (GROUP BY x, x) */
 		if (targetIsInSortList(tle, InvalidOid, result))

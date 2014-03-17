@@ -1512,6 +1512,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->numaggs = 0;
 	aggstate->eqfunctions = NULL;
 	aggstate->hashfunctions = NULL;
+	aggstate->curgroup_size = 0;
 	aggstate->peragg = NULL;
 	aggstate->curperagg = NULL;
 	aggstate->agg_done = false;
