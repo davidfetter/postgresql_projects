@@ -331,12 +331,14 @@ initialize_aggregates(AggState *aggstate,
 					  AggStatePerAgg peragg,
 					  AggStatePerGroup pergroup)
 {
+	Agg         *node = (Agg *) aggstate->ss.ps.plan;
 	int			aggno;
+	int         groupno;
+	int         numGroups;
 
 	for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 	{
 		AggStatePerAgg peraggstate = &peragg[aggno];
-		AggStatePerGroup pergroupstate = &pergroup[aggno];
 
 		/*
 		 * Start a fresh sort operation for each DISTINCT/ORDER BY aggregate.
@@ -371,34 +373,49 @@ initialize_aggregates(AggState *aggstate,
 									 work_mem, false);
 		}
 
-		/*
-		 * (Re)set transValue to the initial value.
-		 *
-		 * Note that when the initial value is pass-by-ref, we must copy it
-		 * (into the aggcontext) since we will pfree the transValue later.
+		/* If ROLLUP is present, we need to iterate over all the groups
+		 * that are present with the current aggstate. If ROLLUP is not
+		 * present, we only have one groupstate associated with the
+		 * current aggstate.
 		 */
-		if (peraggstate->initValueIsNull)
-			pergroupstate->transValue = peraggstate->initValue;
+		if (node->hasRollup)
+			numGroups = node->numCols + 1;
 		else
+			numGroups = 1;
+
+		for (groupno = 0;groupno < numGroups;groupno++)
 		{
-			MemoryContext oldContext;
+			AggStatePerGroup pergroupstate = &pergroup[groupno + (aggno * numGroups) ];
 
-			oldContext = MemoryContextSwitchTo(aggstate->aggcontext);
-			pergroupstate->transValue = datumCopy(peraggstate->initValue,
-												  peraggstate->transtypeByVal,
-												  peraggstate->transtypeLen);
-			MemoryContextSwitchTo(oldContext);
+			/*
+			 * (Re)set transValue to the initial value.
+			 *
+			 * Note that when the initial value is pass-by-ref, we must copy it
+			 * (into the aggcontext) since we will pfree the transValue later.
+			 */
+			if (peraggstate->initValueIsNull)
+				pergroupstate->transValue = peraggstate->initValue;
+			else
+			{
+				MemoryContext oldContext;
+
+				oldContext = MemoryContextSwitchTo(aggstate->aggcontext);
+				pergroupstate->transValue = datumCopy(peraggstate->initValue,
+													  peraggstate->transtypeByVal,
+													  peraggstate->transtypeLen);
+				MemoryContextSwitchTo(oldContext);
+			}
+			pergroupstate->transValueIsNull = peraggstate->initValueIsNull;
+
+			/*
+			 * If the initial value for the transition state doesn't exist in the
+			 * pg_aggregate table then we will let the first non-NULL value
+			 * returned from the outer procNode become the initial value. (This is
+			 * useful for aggregates like max() and min().) The noTransValue flag
+			 * signals that we still need to do this.
+			 */
+			pergroupstate->noTransValue = peraggstate->initValueIsNull;
 		}
-		pergroupstate->transValueIsNull = peraggstate->initValueIsNull;
-
-		/*
-		 * If the initial value for the transition state doesn't exist in the
-		 * pg_aggregate table then we will let the first non-NULL value
-		 * returned from the outer procNode become the initial value. (This is
-		 * useful for aggregates like max() and min().) The noTransValue flag
-		 * signals that we still need to do this.
-		 */
-		pergroupstate->noTransValue = peraggstate->initValueIsNull;
 	}
 }
 
@@ -1649,7 +1666,11 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		AggStatePerGroup pergroup;
 
 
-		pergroup = (AggStatePerGroup) palloc0(sizeof(AggStatePerGroupData) * numaggs);
+		if (node->hasRollup)
+			pergroup = (AggStatePerGroup) palloc0(sizeof(AggStatePerGroupData) * numaggs * (node->numCols  + 1));
+		else
+			pergroup = (AggStatePerGroup) palloc0(sizeof(AggStatePerGroupData) * numaggs);
+
 		aggstate->pergroup = pergroup;
 	}
 
