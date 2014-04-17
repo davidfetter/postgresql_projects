@@ -399,7 +399,7 @@ initialize_aggregates(AggState *aggstate,
 			{
 				MemoryContext oldContext;
 
-				oldContext = MemoryContextSwitchTo(aggstate->aggcontext);
+				oldContext = MemoryContextSwitchTo(aggstate->aggcontext[0]);
 				pergroupstate->transValue = datumCopy(peraggstate->initValue,
 													  peraggstate->transtypeByVal,
 													  peraggstate->transtypeLen);
@@ -463,7 +463,7 @@ advance_transition_function(AggState *aggstate,
 			 * We must copy the datum into aggcontext if it is pass-by-ref. We
 			 * do not need to pfree the old transValue, since it's NULL.
 			 */
-			oldContext = MemoryContextSwitchTo(aggstate->aggcontext);
+			oldContext = MemoryContextSwitchTo(aggstate->aggcontext[0]);
 			pergroupstate->transValue = datumCopy(fcinfo->arg[1],
 												  peraggstate->transtypeByVal,
 												  peraggstate->transtypeLen);
@@ -511,7 +511,7 @@ advance_transition_function(AggState *aggstate,
 	{
 		if (!fcinfo->isnull)
 		{
-			MemoryContextSwitchTo(aggstate->aggcontext);
+			MemoryContextSwitchTo(aggstate->aggcontext[0]);
 			newVal = datumCopy(newVal,
 							   peraggstate->transtypeByVal,
 							   peraggstate->transtypeLen);
@@ -965,7 +965,7 @@ build_hash_table(AggState *aggstate)
 											  aggstate->hashfunctions,
 											  node->numGroups,
 											  entrysize,
-											  aggstate->aggcontext,
+											  aggstate->aggcontext[0],
 											  tmpmem);
 }
 
@@ -1210,7 +1210,7 @@ agg_retrieve_direct(AggState *aggstate)
 		 */
 		ReScanExprContext(econtext);
 
-		MemoryContextResetAndDeleteChildren(aggstate->aggcontext);
+		MemoryContextResetAndDeleteChildren(aggstate->aggcontext[0]);
 
 		/*
 		 * Initialize working state for a new input tuple group
@@ -1514,6 +1514,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	int			numaggs,
 				aggno;
 	ListCell   *l;
+	int        i = 0;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
@@ -1553,13 +1554,32 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 * context are driven by a simple decision: we want to reset the
 	 * aggcontext at group boundaries (if not hashing) and in ExecReScanAgg to
 	 * recover no-longer-wanted space.
+	 * If ROLLUP is present, we need a long lived memory context per group.
 	 */
-	aggstate->aggcontext =
-		AllocSetContextCreate(CurrentMemoryContext,
-							  "AggContext",
-							  ALLOCSET_DEFAULT_MINSIZE,
-							  ALLOCSET_DEFAULT_INITSIZE,
-							  ALLOCSET_DEFAULT_MAXSIZE);
+	if (node->hasRollup)
+	{
+		aggstate->aggcontext = (MemoryContext*) palloc (sizeof(MemoryContext) * (node->numCols + 1));
+
+		for (i = 0;i < (node->numCols + 1);i++)
+		{
+			aggstate->aggcontext[i] =
+				AllocSetContextCreate(CurrentMemoryContext,
+									  "AggContext",
+									  ALLOCSET_DEFAULT_MINSIZE,
+									  ALLOCSET_DEFAULT_INITSIZE,
+									  ALLOCSET_DEFAULT_MAXSIZE);
+		}
+	}
+	else
+	{
+		aggstate->aggcontext = (MemoryContext*) palloc (sizeof(MemoryContext));
+		aggstate->aggcontext[0] =
+			AllocSetContextCreate(CurrentMemoryContext,
+								  "AggContext",
+								  ALLOCSET_DEFAULT_MINSIZE,
+								  ALLOCSET_DEFAULT_INITSIZE,
+								  ALLOCSET_DEFAULT_MAXSIZE);
+	}
 
 	/*
 	 * tuple table initialization
@@ -1597,7 +1617,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	/*
 	 * initialize source tuple type.
-	 */
+;	 */
 	ExecAssignScanTypeFromOuterPlan(&aggstate->ss);
 
 	/*
@@ -2055,7 +2075,7 @@ ExecEndAgg(AggState *node)
 	/* clean up tuple table */
 	ExecClearTuple(node->ss.ss_ScanTupleSlot);
 
-	MemoryContextDelete(node->aggcontext);
+	MemoryContextDelete((node->aggcontext[0]));
 
 	outerPlan = outerPlanState(node);
 	ExecEndNode(outerPlan);
@@ -2124,7 +2144,7 @@ ExecReScanAgg(AggState *node)
 	 * MemoryContextResetAndDeleteChildren() to avoid leaking the old hash
 	 * table's memory context header.
 	 */
-	MemoryContextResetAndDeleteChildren(node->aggcontext);
+	MemoryContextResetAndDeleteChildren(node->aggcontext[0]);
 
 	if (((Agg *) node->ss.ps.plan)->aggstrategy == AGG_HASHED)
 	{
@@ -2169,7 +2189,7 @@ AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
 	if (fcinfo->context && IsA(fcinfo->context, AggState))
 	{
 		if (aggcontext)
-			*aggcontext = ((AggState *) fcinfo->context)->aggcontext;
+			*aggcontext = ((AggState *) fcinfo->context)->aggcontext[0];
 		return AGG_CONTEXT_AGGREGATE;
 	}
 	if (fcinfo->context && IsA(fcinfo->context, WindowAggState))
