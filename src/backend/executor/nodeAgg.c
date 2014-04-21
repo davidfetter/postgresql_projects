@@ -268,6 +268,8 @@ typedef struct AggStatePerGroupData
 
 	bool		noTransValue;	/* true if transValue not set yet */
 
+	bool        reInitialize;   /* true if the current instance has to be reinitialized */
+
 	/*
 	 * Note: noTransValue initially has the same value as transValueIsNull,
 	 * and if true both are cleared to false at the same time.	They are not
@@ -387,34 +389,38 @@ initialize_aggregates(AggState *aggstate,
 		{
 			AggStatePerGroup pergroupstate = &pergroup[groupno + (aggno * numGroups) ];
 
-			/*
-			 * (Re)set transValue to the initial value.
-			 *
-			 * Note that when the initial value is pass-by-ref, we must copy it
-			 * (into the aggcontext) since we will pfree the transValue later.
-			 */
-			if (peraggstate->initValueIsNull)
-				pergroupstate->transValue = peraggstate->initValue;
-			else
+			if (pergroupstate->reInitialize = true)
 			{
-				MemoryContext oldContext;
 
-				oldContext = MemoryContextSwitchTo(aggstate->aggcontext[0]);
-				pergroupstate->transValue = datumCopy(peraggstate->initValue,
-													  peraggstate->transtypeByVal,
-													  peraggstate->transtypeLen);
-				MemoryContextSwitchTo(oldContext);
+				/*
+				 * (Re)set transValue to the initial value.
+				 *
+				 * Note that when the initial value is pass-by-ref, we must copy it
+				 * (into the aggcontext) since we will pfree the transValue later.
+				 */
+				if (peraggstate->initValueIsNull)
+					pergroupstate->transValue = peraggstate->initValue;
+				else
+				{
+					MemoryContext oldContext;
+
+					oldContext = MemoryContextSwitchTo(aggstate->aggcontext[0]);
+					pergroupstate->transValue = datumCopy(peraggstate->initValue,
+														  peraggstate->transtypeByVal,
+														  peraggstate->transtypeLen);
+					MemoryContextSwitchTo(oldContext);
+				}
+				pergroupstate->transValueIsNull = peraggstate->initValueIsNull;
+
+				/*
+				 * If the initial value for the transition state doesn't exist in the
+				 * pg_aggregate table then we will let the first non-NULL value
+				 * returned from the outer procNode become the initial value. (This is
+				 * useful for aggregates like max() and min().) The noTransValue flag
+				 * signals that we still need to do this.
+				 */
+				pergroupstate->noTransValue = peraggstate->initValueIsNull;
 			}
-			pergroupstate->transValueIsNull = peraggstate->initValueIsNull;
-
-			/*
-			 * If the initial value for the transition state doesn't exist in the
-			 * pg_aggregate table then we will let the first non-NULL value
-			 * returned from the outer procNode become the initial value. (This is
-			 * useful for aggregates like max() and min().) The noTransValue flag
-			 * signals that we still need to do this.
-			 */
-			pergroupstate->noTransValue = peraggstate->initValueIsNull;
 		}
 	}
 }
@@ -538,11 +544,19 @@ static void
 advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 {
 	int			aggno;
+	int         groupno = 0;
+	int         numGroups = 1;
+	Agg         *node = (Agg *) aggstate->ss.ps.plan;
+	bool        hasRollup = node->hasRollup;
+
+	if (hasRollup == true)
+		numGroups = node->numCols + 1;
+	else
+		numGroups = 1;
 
 	for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 	{
 		AggStatePerAgg peraggstate = &aggstate->peragg[aggno];
-		AggStatePerGroup pergroupstate = &pergroup[aggno];
 		ExprState  *filter = peraggstate->aggrefstate->aggfilter;
 		int			numTransInputs = peraggstate->numTransInputs;
 		int			i;
@@ -596,19 +610,24 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 		}
 		else
 		{
-			/* We can apply the transition function immediately */
-			FunctionCallInfo fcinfo = &peraggstate->transfn_fcinfo;
-
-			/* Load values into fcinfo */
-			/* Start from 1, since the 0th arg will be the transition value */
-			Assert(slot->tts_nvalid >= numTransInputs);
-			for (i = 0; i < numTransInputs; i++)
+			for (groupno = 0;groupno < numGroups;groupno++)
 			{
-				fcinfo->arg[i + 1] = slot->tts_values[i];
-				fcinfo->argnull[i + 1] = slot->tts_isnull[i];
-			}
+				AggStatePerGroup pergroupstate = &pergroup[groupno + (aggno * numGroups)];
 
-			advance_transition_function(aggstate, peraggstate, pergroupstate);
+				/* We can apply the transition function immediately */
+				FunctionCallInfo fcinfo = &peraggstate->transfn_fcinfo;
+
+				/* Load values into fcinfo */
+				/* Start from 1, since the 0th arg will be the transition value */
+				Assert(slot->tts_nvalid >= numTransInputs);
+				for (i = 0; i < numTransInputs; i++)
+				{
+					fcinfo->arg[i + 1] = slot->tts_values[i];
+					fcinfo->argnull[i + 1] = slot->tts_isnull[i];
+				}
+
+				advance_transition_function(aggstate, peraggstate, pergroupstate);
+			}
 		}
 	}
 }
@@ -1150,7 +1169,10 @@ agg_retrieve_direct(AggState *aggstate)
 	AggStatePerGroup pergroup;
 	TupleTableSlot *outerslot;
 	TupleTableSlot *firstSlot;
-	int			aggno;
+	int			   aggno;
+	int            numberOfStates = 0;
+	bool           hasRollup = false;
+	int            stateno = 0;
 
 	/*
 	 * get state info from node
@@ -1165,6 +1187,21 @@ agg_retrieve_direct(AggState *aggstate)
 	peragg = aggstate->peragg;
 	pergroup = aggstate->pergroup;
 	firstSlot = aggstate->ss.ss_ScanTupleSlot;
+
+	hasRollup = node->hasRollup;
+
+	if (hasRollup)
+		numberOfStates = (aggstate->numaggs * (node->numCols + 1));
+	else
+		numberOfStates = aggstate->numaggs;
+
+	if (firstSlot == NULL)
+	{
+		for (stateno = 0;stateno < numberOfStates;stateno++)
+		{
+			pergroup[stateno].reInitialize = true;
+		}
+	}
 
 	/*
 	 * We loop retrieving groups until we find one matching

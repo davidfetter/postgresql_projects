@@ -1691,12 +1691,11 @@ transformGroupClause(ParseState *pstate, List *grouplist,
 		bool        hasRollup = false;
 
 		if (IsA(lfirst(gl), List))
-		{	
+		{
 			hasRollup = true;
 			foreach(gl_innerlist, lfirst(gl))
 			{
 				gexpr = (Node *) lfirst(gl_innerlist);
-				
 				if (useSQL99)
 					tle = findTargetlistEntrySQL99(pstate, gexpr,
 												   targetlist, exprKind);
@@ -1708,7 +1707,7 @@ transformGroupClause(ParseState *pstate, List *grouplist,
 
 		if(!gexpr)
 			gexpr = (Node *) lfirst(gl);
-			
+
 		if (!hasRollup)
 		{
 			if (useSQL99)
