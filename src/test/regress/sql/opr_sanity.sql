@@ -592,7 +592,7 @@ WHERE aggfnoid = 0 OR aggtransfn = 0 OR
     aggkind NOT IN ('n', 'o', 'h') OR
     aggnumdirectargs < 0 OR
     (aggkind = 'n' AND aggnumdirectargs > 0) OR
-    aggtranstype = 0 OR aggtransspace < 0;
+    aggtranstype = 0 OR aggtransspace < 0 OR aggmtransspace < 0;
 
 -- Make sure the matching pg_proc entry is sensible, too.
 
@@ -667,6 +667,107 @@ WHERE a.aggfnoid = p.oid AND
     a.aggtransfn = ptr.oid AND ptr.proisstrict AND
     a.agginitval IS NULL AND
     NOT binary_coercible(p.proargtypes[0], a.aggtranstype);
+
+-- Check for inconsistent specifications of moving-aggregate columns.
+
+SELECT ctid, aggfnoid::oid
+FROM pg_aggregate as p1
+WHERE aggmtranstype != 0 AND
+    (aggmtransfn = 0 OR aggminvtransfn = 0);
+
+SELECT ctid, aggfnoid::oid
+FROM pg_aggregate as p1
+WHERE aggmtranstype = 0 AND
+    (aggmtransfn != 0 OR aggminvtransfn != 0 OR aggmfinalfn != 0 OR
+     aggmtransspace != 0 OR aggminitval IS NOT NULL);
+
+-- If there is no mfinalfn then the output type must be the mtranstype.
+
+SELECT a.aggfnoid::oid, p.proname
+FROM pg_aggregate as a, pg_proc as p
+WHERE a.aggfnoid = p.oid AND
+    a.aggmtransfn != 0 AND
+    a.aggmfinalfn = 0 AND p.prorettype != a.aggmtranstype;
+
+-- Cross-check mtransfn (if present) against its entry in pg_proc.
+SELECT a.aggfnoid::oid, p.proname, ptr.oid, ptr.proname
+FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr
+WHERE a.aggfnoid = p.oid AND
+    a.aggmtransfn = ptr.oid AND
+    (ptr.proretset
+     OR NOT (ptr.pronargs =
+             CASE WHEN a.aggkind = 'n' THEN p.pronargs + 1
+             ELSE greatest(p.pronargs - a.aggnumdirectargs, 1) + 1 END)
+     OR NOT physically_coercible(ptr.prorettype, a.aggmtranstype)
+     OR NOT physically_coercible(a.aggmtranstype, ptr.proargtypes[0])
+     OR (p.pronargs > 0 AND
+         NOT physically_coercible(p.proargtypes[0], ptr.proargtypes[1]))
+     OR (p.pronargs > 1 AND
+         NOT physically_coercible(p.proargtypes[1], ptr.proargtypes[2]))
+     OR (p.pronargs > 2 AND
+         NOT physically_coercible(p.proargtypes[2], ptr.proargtypes[3]))
+     -- we could carry the check further, but 3 args is enough for now
+    );
+
+-- Cross-check minvtransfn (if present) against its entry in pg_proc.
+SELECT a.aggfnoid::oid, p.proname, ptr.oid, ptr.proname
+FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr
+WHERE a.aggfnoid = p.oid AND
+    a.aggminvtransfn = ptr.oid AND
+    (ptr.proretset
+     OR NOT (ptr.pronargs =
+             CASE WHEN a.aggkind = 'n' THEN p.pronargs + 1
+             ELSE greatest(p.pronargs - a.aggnumdirectargs, 1) + 1 END)
+     OR NOT physically_coercible(ptr.prorettype, a.aggmtranstype)
+     OR NOT physically_coercible(a.aggmtranstype, ptr.proargtypes[0])
+     OR (p.pronargs > 0 AND
+         NOT physically_coercible(p.proargtypes[0], ptr.proargtypes[1]))
+     OR (p.pronargs > 1 AND
+         NOT physically_coercible(p.proargtypes[1], ptr.proargtypes[2]))
+     OR (p.pronargs > 2 AND
+         NOT physically_coercible(p.proargtypes[2], ptr.proargtypes[3]))
+     -- we could carry the check further, but 3 args is enough for now
+    );
+
+-- Cross-check mfinalfn (if present) against its entry in pg_proc.
+
+SELECT a.aggfnoid::oid, p.proname, pfn.oid, pfn.proname
+FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS pfn
+WHERE a.aggfnoid = p.oid AND
+    a.aggmfinalfn = pfn.oid AND
+    (pfn.proretset OR
+     NOT binary_coercible(pfn.prorettype, p.prorettype) OR
+     NOT binary_coercible(a.aggmtranstype, pfn.proargtypes[0]) OR
+     CASE WHEN a.aggkind = 'n' THEN pfn.pronargs != 1
+     ELSE pfn.pronargs != p.pronargs + 1
+       OR (p.pronargs > 0 AND
+         NOT binary_coercible(p.proargtypes[0], pfn.proargtypes[1]))
+       OR (p.pronargs > 1 AND
+         NOT binary_coercible(p.proargtypes[1], pfn.proargtypes[2]))
+       OR (p.pronargs > 2 AND
+         NOT binary_coercible(p.proargtypes[2], pfn.proargtypes[3]))
+       -- we could carry the check further, but 3 args is enough for now
+     END);
+
+-- If mtransfn is strict then either minitval should be non-NULL, or
+-- input type should match mtranstype so that the first non-null input
+-- can be assigned as the state value.
+
+SELECT a.aggfnoid::oid, p.proname, ptr.oid, ptr.proname
+FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr
+WHERE a.aggfnoid = p.oid AND
+    a.aggmtransfn = ptr.oid AND ptr.proisstrict AND
+    a.aggminitval IS NULL AND
+    NOT binary_coercible(p.proargtypes[0], a.aggmtranstype);
+
+-- mtransfn and minvtransfn should have same strictness setting.
+
+SELECT a.aggfnoid::oid, p.proname, ptr.oid, ptr.proname, iptr.oid, iptr.proname
+FROM pg_aggregate AS a, pg_proc AS p, pg_proc AS ptr, pg_proc AS iptr
+WHERE a.aggfnoid = p.oid AND
+    a.aggmtransfn = ptr.oid AND
+    a.aggminvtransfn = iptr.oid AND
+    ptr.proisstrict != iptr.proisstrict;
 
 -- Cross-check aggsortop (if present) against pg_operator.
 -- We expect to find entries for bool_and, bool_or, every, max, and min.
@@ -992,40 +1093,46 @@ WHERE p1.amprocfamily = p3.oid AND p3.opfmethod = p2.oid AND
 
 -- Detect missing pg_amproc entries: should have as many support functions
 -- as AM expects for each datatype combination supported by the opfamily.
--- btree/GiST/GIN each allow one optional support function, though.
 
-SELECT p1.amname, p2.opfname, p3.amproclefttype, p3.amprocrighttype
-FROM pg_am AS p1, pg_opfamily AS p2, pg_amproc AS p3
-WHERE p2.opfmethod = p1.oid AND p3.amprocfamily = p2.oid AND
-    (SELECT count(*) FROM pg_amproc AS p4
-     WHERE p4.amprocfamily = p2.oid AND
-           p4.amproclefttype = p3.amproclefttype AND
-           p4.amprocrighttype = p3.amprocrighttype)
-    NOT BETWEEN
-      (CASE WHEN p1.amname IN ('btree', 'gist', 'gin') THEN p1.amsupport - 1
-            ELSE p1.amsupport END)
-      AND p1.amsupport;
+SELECT * FROM (
+  SELECT p1.amname, p2.opfname, p3.amproclefttype, p3.amprocrighttype,
+         array_agg(p3.amprocnum ORDER BY amprocnum) AS procnums
+  FROM pg_am AS p1, pg_opfamily AS p2, pg_amproc AS p3
+  WHERE p2.opfmethod = p1.oid AND p3.amprocfamily = p2.oid
+  GROUP BY p1.amname, p2.opfname, p3.amproclefttype, p3.amprocrighttype
+) AS t
+WHERE NOT (
+  -- btree has one mandatory and one optional support function.
+  -- hash has one support function, which is mandatory.
+  -- GiST has eight support functions, one of which is optional.
+  -- GIN has six support functions. 1-3 are mandatory, 5 is optional, and
+  --   at least one of 4 and 6 must be given.
+  -- SP-GiST has five support functions, all mandatory
+  amname = 'btree' AND procnums @> '{1}' OR
+  amname = 'hash' AND procnums = '{1}' OR
+  amname = 'gist' AND procnums @> '{1, 2, 3, 4, 5, 6, 7}' OR
+  amname = 'gin' AND (procnums @> '{1, 2, 3}' AND (procnums && '{4, 6}')) OR
+  amname = 'spgist' AND procnums = '{1, 2, 3, 4, 5}'
+);
 
 -- Also, check if there are any pg_opclass entries that don't seem to have
--- pg_amproc support.  Again, opclasses with an optional support proc have
--- to be checked specially.
+-- pg_amproc support.
 
-SELECT amname, opcname, count(*)
-FROM pg_am am JOIN pg_opclass op ON opcmethod = am.oid
-     LEFT JOIN pg_amproc p ON amprocfamily = opcfamily AND
-         amproclefttype = amprocrighttype AND amproclefttype = opcintype
-WHERE am.amname <> 'btree' AND am.amname <> 'gist' AND am.amname <> 'gin'
-GROUP BY amname, amsupport, opcname, amprocfamily
-HAVING count(*) != amsupport OR amprocfamily IS NULL;
-
-SELECT amname, opcname, count(*)
-FROM pg_am am JOIN pg_opclass op ON opcmethod = am.oid
-     LEFT JOIN pg_amproc p ON amprocfamily = opcfamily AND
-         amproclefttype = amprocrighttype AND amproclefttype = opcintype
-WHERE am.amname = 'btree' OR am.amname = 'gist' OR am.amname = 'gin'
-GROUP BY amname, amsupport, opcname, amprocfamily
-HAVING (count(*) != amsupport AND count(*) != amsupport - 1)
-    OR amprocfamily IS NULL;
+SELECT * FROM (
+  SELECT amname, opcname, array_agg(amprocnum ORDER BY amprocnum) as procnums
+  FROM pg_am am JOIN pg_opclass op ON opcmethod = am.oid
+       LEFT JOIN pg_amproc p ON amprocfamily = opcfamily AND
+           amproclefttype = amprocrighttype AND amproclefttype = opcintype
+  GROUP BY amname, opcname, amprocfamily
+) AS t
+WHERE NOT (
+  -- same per-AM rules as above
+  amname = 'btree' AND procnums @> '{1}' OR
+  amname = 'hash' AND procnums = '{1}' OR
+  amname = 'gist' AND procnums @> '{1, 2, 3, 4, 5, 6, 7}' OR
+  amname = 'gin' AND (procnums @> '{1, 2, 3}' AND (procnums && '{4, 6}')) OR
+  amname = 'spgist' AND procnums = '{1, 2, 3, 4, 5}'
+);
 
 -- Unfortunately, we can't check the amproc link very well because the
 -- signature of the function may be different for different support routines

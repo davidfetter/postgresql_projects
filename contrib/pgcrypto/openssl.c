@@ -142,7 +142,7 @@ EVP_MD_CTX_init(EVP_MD_CTX *ctx)
 static int
 EVP_MD_CTX_cleanup(EVP_MD_CTX *ctx)
 {
-	memset(ctx, 0, sizeof(*ctx));
+	px_memset(ctx, 0, sizeof(*ctx));
 	return 1;
 }
 
@@ -381,7 +381,7 @@ gen_ossl_free(PX_Cipher *c)
 {
 	ossldata   *od = (ossldata *) c->ptr;
 
-	memset(od, 0, sizeof(*od));
+	px_memset(od, 0, sizeof(*od));
 	px_free(od);
 	px_free(c);
 }
@@ -429,7 +429,7 @@ bf_init(PX_Cipher *c, const uint8 *key, unsigned klen, const uint8 *iv)
 
 	/*
 	 * Test if key len is supported. BF_set_key silently cut large keys and it
-	 * could be be a problem when user transfer crypted data from one server
+	 * could be a problem when user transfer crypted data from one server
 	 * to another.
 	 */
 

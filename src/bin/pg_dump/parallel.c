@@ -558,7 +558,10 @@ ParallelBackupStart(ArchiveHandle *AH, RestoreOptions *ropt)
 		{
 			/* we are the worker */
 			int			j;
-			int			pipefd[2] = {pipeMW[PIPE_READ], pipeWM[PIPE_WRITE]};
+			int			pipefd[2];
+
+			pipefd[0] = pipeMW[PIPE_READ];
+			pipefd[1] = pipeWM[PIPE_WRITE];
 
 			/*
 			 * Store the fds for the reverse communication in pstate. Actually
@@ -1360,7 +1363,7 @@ pgpipe(int handles[2])
 		closesocket(s);
 		return -1;
 	}
-	if ((handles[1] = socket(PF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
+	if ((handles[1] = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
 	{
 		write_msg(modulename, "pgpipe: could not create second socket: error code %d\n",
 				  WSAGetLastError());

@@ -30,6 +30,7 @@
 
 #include "miscadmin.h"
 #include "portability/mem.h"
+#include "storage/dsm.h"
 #include "storage/ipc.h"
 #include "storage/pg_shmem.h"
 #include "utils/guc.h"
@@ -333,12 +334,12 @@ CreateAnonymousSegment(Size *size)
 	int			mmap_errno = 0;
 
 #ifndef MAP_HUGETLB
-	if (huge_tlb_pages == HUGE_TLB_ON)
+	if (huge_pages == HUGE_PAGES_ON)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("huge TLB pages not supported on this platform")));
 #else
-	if (huge_tlb_pages == HUGE_TLB_ON || huge_tlb_pages == HUGE_TLB_TRY)
+	if (huge_pages == HUGE_PAGES_ON || huge_pages == HUGE_PAGES_TRY)
 	{
 		/*
 		 * Round up the request size to a suitable large value.
@@ -364,13 +365,13 @@ CreateAnonymousSegment(Size *size)
 		ptr = mmap(NULL, allocsize, PROT_READ | PROT_WRITE,
 				   PG_MMAP_FLAGS | MAP_HUGETLB, -1, 0);
 		mmap_errno = errno;
-		if (huge_tlb_pages == HUGE_TLB_TRY && ptr == MAP_FAILED)
+		if (huge_pages == HUGE_PAGES_TRY && ptr == MAP_FAILED)
 			elog(DEBUG1, "mmap with MAP_HUGETLB failed, huge pages disabled: %m");
 	}
 #endif
 
-	if (huge_tlb_pages == HUGE_TLB_OFF ||
-		(huge_tlb_pages == HUGE_TLB_TRY && ptr == MAP_FAILED))
+	if (huge_pages == HUGE_PAGES_OFF ||
+		(huge_pages == HUGE_PAGES_TRY && ptr == MAP_FAILED))
 	{
 		/*
 		 * use the original size, not the rounded up value, when falling
@@ -421,7 +422,8 @@ CreateAnonymousSegment(Size *size)
  * zero will be passed.
  */
 PGShmemHeader *
-PGSharedMemoryCreate(Size size, bool makePrivate, int port)
+PGSharedMemoryCreate(Size size, bool makePrivate, int port,
+					 PGShmemHeader **shim)
 {
 	IpcMemoryKey NextShmemSegID;
 	void	   *memAddress;
@@ -431,10 +433,10 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	Size		sysvsize;
 
 #if defined(EXEC_BACKEND) || !defined(MAP_HUGETLB)
-	if (huge_tlb_pages == HUGE_TLB_ON)
+	if (huge_pages == HUGE_PAGES_ON)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("huge TLB pages not supported on this platform")));
+				 errmsg("huge pages not supported on this platform")));
 #endif
 
 	/* Room for a header? */
@@ -509,10 +511,13 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 
 		/*
 		 * The segment appears to be from a dead Postgres process, or from a
-		 * previous cycle of life in this same process.  Zap it, if possible.
+		 * previous cycle of life in this same process.  Zap it, if possible,
+		 * and any associated dynamic shared memory segments, as well.
 		 * This probably shouldn't fail, but if it does, assume the segment
 		 * belongs to someone else after all, and continue quietly.
 		 */
+		if (hdr->dsm_control != 0)
+			dsm_cleanup_using_control_segment(hdr->dsm_control);
 		shmdt(memAddress);
 		if (shmctl(shmid, IPC_RMID, NULL) < 0)
 			continue;
@@ -539,6 +544,7 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	hdr = (PGShmemHeader *) memAddress;
 	hdr->creatorPID = getpid();
 	hdr->magic = PGShmemMagic;
+	hdr->dsm_control = 0;
 
 	/* Fill in the data directory ID info, too */
 	if (stat(DataDir, &statbuf) < 0)
@@ -554,6 +560,7 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	 */
 	hdr->totalsize = size;
 	hdr->freeoffset = MAXALIGN(sizeof(PGShmemHeader));
+	*shim = hdr;
 
 	/* Save info for possible future use */
 	UsedShmemSegAddr = memAddress;
@@ -608,6 +615,7 @@ PGSharedMemoryReAttach(void)
 	if (hdr != origUsedShmemSegAddr)
 		elog(FATAL, "reattaching to shared memory returned unexpected address (got %p, expected %p)",
 			 hdr, origUsedShmemSegAddr);
+	dsm_set_control_handle(((PGShmemHeader *) hdr)->dsm_control);
 
 	UsedShmemSegAddr = hdr;		/* probably redundant */
 }

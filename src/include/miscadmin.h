@@ -74,8 +74,8 @@
 /* in globals.c */
 /* these are marked volatile because they are set by signal handlers: */
 extern PGDLLIMPORT volatile bool InterruptPending;
-extern volatile bool QueryCancelPending;
-extern volatile bool ProcDiePending;
+extern PGDLLIMPORT volatile bool QueryCancelPending;
+extern PGDLLIMPORT volatile bool ProcDiePending;
 
 extern volatile bool ClientConnectionLost;
 
@@ -202,8 +202,8 @@ extern PGDLLIMPORT Oid MyDatabaseTableSpace;
 #define DATEORDER_DMY			1
 #define DATEORDER_MDY			2
 
-extern int	DateStyle;
-extern int	DateOrder;
+extern PGDLLIMPORT int DateStyle;
+extern PGDLLIMPORT int DateOrder;
 
 /*
  * IntervalStyles
@@ -217,7 +217,7 @@ extern int	DateOrder;
 #define INTSTYLE_SQL_STANDARD		2
 #define INTSTYLE_ISO_8601			3
 
-extern int	IntervalStyle;
+extern PGDLLIMPORT int IntervalStyle;
 
 #define MAXTZLEN		10		/* max TZ name len, not counting tr. null */
 
@@ -296,7 +296,6 @@ extern void SetCurrentRoleId(Oid roleid, bool is_superuser);
 
 extern void SetDataDir(const char *dir);
 extern void ChangeToDataDir(void);
-extern char *make_absolute_path(const char *path);
 
 /* in utils/misc/superuser.c */
 extern bool superuser(void);	/* current user is superuser */

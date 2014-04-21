@@ -48,12 +48,15 @@
 #include "postmaster/autovacuum.h"
 #include "postmaster/fork_process.h"
 #include "postmaster/postmaster.h"
+#include "storage/proc.h"
 #include "storage/backendid.h"
+#include "storage/dsm.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/pg_shmem.h"
 #include "storage/procsignal.h"
+#include "storage/sinvaladt.h"
 #include "utils/ascii.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
@@ -213,7 +216,7 @@ typedef struct TwoPhasePgStatRecord
  */
 static MemoryContext pgStatLocalContext = NULL;
 static HTAB *pgStatDBHash = NULL;
-static PgBackendStatus *localBackendStatusTable = NULL;
+static LocalPgBackendStatus *localBackendStatusTable = NULL;
 static int	localNumBackends = 0;
 
 /*
@@ -345,7 +348,7 @@ pgstat_init(void)
 	 * Create the UDP socket for sending and receiving statistic messages
 	 */
 	hints.ai_flags = AI_PASSIVE;
-	hints.ai_family = PF_UNSPEC;
+	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_DGRAM;
 	hints.ai_protocol = 0;
 	hints.ai_addrlen = 0;
@@ -707,6 +710,7 @@ pgstat_start(void)
 			on_exit_reset();
 
 			/* Drop our connection to postmaster's shared memory, as well */
+			dsm_detach_all();
 			PGSharedMemoryDetach();
 
 			PgstatCollectorMain(0, NULL);
@@ -2306,6 +2310,28 @@ pgstat_fetch_stat_beentry(int beid)
 	if (beid < 1 || beid > localNumBackends)
 		return NULL;
 
+	return &localBackendStatusTable[beid - 1].backendStatus;
+}
+
+
+/* ----------
+ * pgstat_fetch_stat_local_beentry() -
+ *
+ *  Like pgstat_fetch_stat_beentry() but with locally computed addtions (like
+ *  xid and xmin values of the backend)
+ *
+ *	NB: caller is responsible for a check if the user is permitted to see
+ *	this info (especially the querystring).
+ * ----------
+ */
+LocalPgBackendStatus *
+pgstat_fetch_stat_local_beentry(int beid)
+{
+	pgstat_read_current_status();
+
+	if (beid < 1 || beid > localNumBackends)
+		return NULL;
+
 	return &localBackendStatusTable[beid - 1];
 }
 
@@ -2555,7 +2581,11 @@ pgstat_bestart(void)
 	beentry->st_databaseid = MyDatabaseId;
 	beentry->st_userid = userid;
 	beentry->st_clientaddr = clientaddr;
-	beentry->st_clienthostname[0] = '\0';
+	if (MyProcPort && MyProcPort->remote_hostname)
+		strlcpy(beentry->st_clienthostname, MyProcPort->remote_hostname,
+				NAMEDATALEN);
+	else
+		beentry->st_clienthostname[0] = '\0';
 	beentry->st_waiting = false;
 	beentry->st_state = STATE_UNDEFINED;
 	beentry->st_appname[0] = '\0';
@@ -2567,9 +2597,6 @@ pgstat_bestart(void)
 
 	beentry->st_changecount++;
 	Assert((beentry->st_changecount & 1) == 0);
-
-	if (MyProcPort && MyProcPort->remote_hostname)
-		strlcpy(beentry->st_clienthostname, MyProcPort->remote_hostname, NAMEDATALEN);
 
 	/* Update app name to current GUC setting */
 	if (application_name)
@@ -2783,8 +2810,8 @@ static void
 pgstat_read_current_status(void)
 {
 	volatile PgBackendStatus *beentry;
-	PgBackendStatus *localtable;
-	PgBackendStatus *localentry;
+	LocalPgBackendStatus *localtable;
+	LocalPgBackendStatus *localentry;
 	char	   *localappname,
 			   *localactivity;
 	int			i;
@@ -2795,9 +2822,9 @@ pgstat_read_current_status(void)
 
 	pgstat_setup_memcxt();
 
-	localtable = (PgBackendStatus *)
+	localtable = (LocalPgBackendStatus *)
 		MemoryContextAlloc(pgStatLocalContext,
-						   sizeof(PgBackendStatus) * MaxBackends);
+						   sizeof(LocalPgBackendStatus) * MaxBackends);
 	localappname = (char *)
 		MemoryContextAlloc(pgStatLocalContext,
 						   NAMEDATALEN * MaxBackends);
@@ -2821,19 +2848,19 @@ pgstat_read_current_status(void)
 		{
 			int			save_changecount = beentry->st_changecount;
 
-			localentry->st_procpid = beentry->st_procpid;
-			if (localentry->st_procpid > 0)
+			localentry->backendStatus.st_procpid = beentry->st_procpid;
+			if (localentry->backendStatus.st_procpid > 0)
 			{
-				memcpy(localentry, (char *) beentry, sizeof(PgBackendStatus));
+				memcpy(&localentry->backendStatus, (char *) beentry, sizeof(PgBackendStatus));
 
 				/*
 				 * strcpy is safe even if the string is modified concurrently,
 				 * because there's always a \0 at the end of the buffer.
 				 */
 				strcpy(localappname, (char *) beentry->st_appname);
-				localentry->st_appname = localappname;
+				localentry->backendStatus.st_appname = localappname;
 				strcpy(localactivity, (char *) beentry->st_activity);
-				localentry->st_activity = localactivity;
+				localentry->backendStatus.st_activity = localactivity;
 			}
 
 			if (save_changecount == beentry->st_changecount &&
@@ -2846,8 +2873,12 @@ pgstat_read_current_status(void)
 
 		beentry++;
 		/* Only valid entries get included into the local array */
-		if (localentry->st_procpid > 0)
+		if (localentry->backendStatus.st_procpid > 0)
 		{
+			BackendIdGetTransactionIds(i,
+									   &localentry->backend_xid,
+									   &localentry->backend_xmin);
+
 			localentry++;
 			localappname += NAMEDATALEN;
 			localactivity += pgstat_track_activity_query_size;
@@ -4744,7 +4775,7 @@ pgstat_recv_dropdb(PgStat_MsgDropdb *msg, int len)
 	{
 		char		statfile[MAXPGPATH];
 
-		get_dbstat_filename(true, false, dbid, statfile, MAXPGPATH);
+		get_dbstat_filename(false, false, dbid, statfile, MAXPGPATH);
 
 		elog(DEBUG2, "removing %s", statfile);
 		unlink(statfile);

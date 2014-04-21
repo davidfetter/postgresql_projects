@@ -56,25 +56,31 @@ make check
    <quote>failure</> represents a serious problem.
   </para>
 
+  <warning>
+   <para>
+    This test method starts a temporary server, which is configured to accept
+    any connection originating on the local machine.  Any local user can gain
+    database superuser privileges when connecting to this server, and could
+    in principle exploit all privileges of the operating-system user running
+    the tests.  Therefore, it is not recommended that you use <literal>make
+    check</> on machines shared with untrusted users.  Instead, run the tests
+    after completing the installation, as described in the next section.
+   </para>
+
+   <para>
+    On Unix-like machines, this danger can be avoided if the temporary
+    server's socket file is made inaccessible to other users, for example
+    by running the tests in a protected chroot.  On Windows, the temporary
+    server opens a locally-accessible TCP socket, so filesystem protections
+    cannot help.
+   </para>
+  </warning>
+
    <para>
     Because this test method runs a temporary server, it will not work
-    when you are the root user (since the server will not start as root).
-    If you already did the build as root, you do not have to start all
-    over.  Instead, make the regression test directory writable by
-    some other user, log in as that user, and restart the tests.
-    For example:
-<screen>
-<prompt>root# </prompt><userinput>chmod -R a+w src/test/regress</userinput>
-<prompt>root# </prompt><userinput>su - joeuser</userinput>
-<prompt>joeuser$ </prompt><userinput>cd <replaceable>top-level build directory</></userinput>
-<prompt>joeuser$ </prompt><userinput>make check</userinput>
-</screen>
-    (The only possible <quote>security risk</quote> here is that other
-    users might be able to alter the regression test results behind
-    your back.  Use common sense when managing user permissions.)
-   </para>
-   <para>
-    Alternatively, run the tests after installation.
+    if you did the build as the root user, since the server will not start as
+    root.  Recommended procedure is not to do the build as root, or else to
+    perform testing after completing the installation.
    </para>
 
    <para>
@@ -196,6 +202,12 @@ make installcheck-world
     <para>
      Tests stressing behavior of concurrent sessions,
      located in <filename>src/test/isolation</>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Tests of client programs under <filename>src/bin</filename>.  See
+     also <xref linkend="regress-tap">.
     </para>
    </listitem>
   </itemizedlist>
@@ -652,6 +664,28 @@ float8:out:i.86-.*-openbsd=float8-small-is-zero.out
     equally valid in all contexts.
    </para>
 
+  </sect1>
+
+  <sect1 id="regress-tap">
+   <title>TAP Tests</title>
+
+   <para>
+    The client program tests under <filename>src/bin</filename> use the Perl
+    TAP tools and are run by <command>prove</command>.  You can pass
+    command-line options to <command>prove</command> by setting
+    the <command>make</command> variable <varname>PROVE_FLAGS</>, for example:
+<programlisting>
+make -C src/bin check PROVE_FLAGS='--reverse'
+</programlisting>
+    The default is <literal>--verbose</literal>.  See the manual page
+    of <command>prove</command> for more information.
+   </para>
+
+   <para>
+    The tests written in Perl require the Perl
+    module <literal>IPC::Run</literal>, otherwise most tests will be skipped.
+    This module is available from CPAN or an operating system package.
+   </para>
   </sect1>
 
   <sect1 id="regress-coverage">

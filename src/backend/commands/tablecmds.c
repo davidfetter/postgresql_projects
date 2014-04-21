@@ -296,7 +296,8 @@ static void validateCheckConstraint(Relation rel, HeapTuple constrtup);
 static void validateForeignKeyConstraint(char *conname,
 							 Relation rel, Relation pkrel,
 							 Oid pkindOid, Oid constraintOid);
-static void createForeignKeyTriggers(Relation rel, Constraint *fkconstraint,
+static void createForeignKeyTriggers(Relation rel, Oid refRelOid,
+						 Constraint *fkconstraint,
 						 Oid constraintOid, Oid indexOid);
 static void ATController(Relation rel, List *cmds, bool recurse, LOCKMODE lockmode);
 static void ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
@@ -373,8 +374,9 @@ static void ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 static void ATExecAlterColumnGenericOptions(Relation rel, const char *colName,
 								List *options, LOCKMODE lockmode);
 static void ATPostAlterTypeCleanup(List **wqueue, AlteredTableInfo *tab, LOCKMODE lockmode);
-static void ATPostAlterTypeParse(Oid oldId, char *cmd,
-					 List **wqueue, LOCKMODE lockmode, bool rewrite);
+static void ATPostAlterTypeParse(Oid oldId, Oid oldRelId, Oid refRelId,
+					 char *cmd, List **wqueue, LOCKMODE lockmode,
+					 bool rewrite);
 static void TryReuseIndex(Oid oldId, IndexStmt *stmt);
 static void TryReuseForeignKey(Oid oldId, Constraint *con);
 static void change_owner_fix_column_acls(Oid relationOid,
@@ -2468,7 +2470,8 @@ RenameConstraint(RenameStmt *stmt)
 }
 
 /*
- * Execute ALTER TABLE/INDEX/SEQUENCE/VIEW/FOREIGN TABLE RENAME
+ * Execute ALTER TABLE/INDEX/SEQUENCE/VIEW/MATERIALIZED VIEW/FOREIGN TABLE
+ * RENAME
  */
 Oid
 RenameRelation(RenameStmt *stmt)
@@ -2476,8 +2479,9 @@ RenameRelation(RenameStmt *stmt)
 	Oid			relid;
 
 	/*
-	 * Grab an exclusive lock on the target table, index, sequence or view,
-	 * which we will NOT release until end of transaction.
+	 * Grab an exclusive lock on the target table, index, sequence, view,
+	 * materialized view, or foreign table, which we will NOT release until
+	 * end of transaction.
 	 *
 	 * Lock level used here should match RenameRelationInternal, to avoid lock
 	 * escalation.
@@ -2520,8 +2524,9 @@ RenameRelationInternal(Oid myrelid, const char *newrelname, bool is_internal)
 	Oid			namespaceId;
 
 	/*
-	 * Grab an exclusive lock on the target table, index, sequence or view,
-	 * which we will NOT release until end of transaction.
+	 * Grab an exclusive lock on the target table, index, sequence, view,
+	 * materialized view, or foreign table, which we will NOT release until
+	 * end of transaction.
 	 */
 	targetrelation = relation_open(myrelid, AccessExclusiveLock);
 	namespaceId = RelationGetNamespace(targetrelation);
@@ -2680,10 +2685,8 @@ AlterTableLookupRelation(AlterTableStmt *stmt, LOCKMODE lockmode)
  * the whole operation; we don't have to do anything special to clean up.
  *
  * The caller must lock the relation, with an appropriate lock level
- * for the subcommands requested. Any subcommand that needs to rewrite
- * tuples in the table forces the whole command to be executed with
- * AccessExclusiveLock (actually, that is currently required always, but
- * we hope to relax it at some point).	We pass the lock level down
+ * for the subcommands requested, using AlterTableGetLockLevel(stmt->cmds)
+ * or higher. We pass the lock level down
  * so that we can apply it recursively to inherited tables. Note that the
  * lock level we want as we recurse might well be higher than required for
  * that specific subcommand. So we pass down the overall lock requirement,
@@ -2745,35 +2748,24 @@ AlterTableInternal(Oid relid, List *cmds, bool recurse)
  * ALTER TABLE RENAME which is treated as a different statement type T_RenameStmt
  * and does not travel through this section of code and cannot be combined with
  * any of the subcommands given here.
+ *
+ * Note that Hot Standby only knows about AccessExclusiveLocks on the master
+ * so any changes that might affect SELECTs running on standbys need to use
+ * AccessExclusiveLocks even if you think a lesser lock would do, unless you
+ * have a solution for that also.
+ *
+ * Also note that pg_dump uses only an AccessShareLock, meaning that anything
+ * that takes a lock less than AccessExclusiveLock can change object definitions
+ * while pg_dump is running. Be careful to check that the appropriate data is
+ * derived by pg_dump using an MVCC snapshot, rather than syscache lookups,
+ * otherwise we might end up with an inconsistent dump that can't restore.
  */
 LOCKMODE
 AlterTableGetLockLevel(List *cmds)
 {
 	/*
-	 * Late in 9.1 dev cycle a number of issues were uncovered with access to
-	 * catalog relations, leading to the decision to re-enforce all DDL at
-	 * AccessExclusiveLock level by default.
-	 *
-	 * The issues are that there is a pervasive assumption in the code that
-	 * the catalogs will not be read unless an AccessExclusiveLock is held. If
-	 * that rule is relaxed, we must protect against a number of potential
-	 * effects - infrequent, but proven possible with test cases where
-	 * multiple DDL operations occur in a stream against frequently accessed
-	 * tables.
-	 *
-	 * 1. Catalog tables were read using SnapshotNow, which has a race bug that
-	 * allows a scan to return no valid rows even when one is present in the
-	 * case of a commit of a concurrent update of the catalog table.
-	 * SnapshotNow also ignores transactions in progress, so takes the latest
-	 * committed version without waiting for the latest changes.
-	 *
-	 * 2. Relcache needs to be internally consistent, so unless we lock the
-	 * definition during reads we have no way to guarantee that.
-	 *
-	 * 3. Catcache access isn't coordinated at all so refreshes can occur at
-	 * any time.
+	 * This only works if we read catalog tables using MVCC snapshots.
 	 */
-#ifdef REDUCED_ALTER_TABLE_LOCK_LEVELS
 	ListCell   *lcmd;
 	LOCKMODE	lockmode = ShareUpdateExclusiveLock;
 
@@ -2785,28 +2777,58 @@ AlterTableGetLockLevel(List *cmds)
 		switch (cmd->subtype)
 		{
 				/*
-				 * Need AccessExclusiveLock for these subcommands because they
-				 * affect or potentially affect both read and write
-				 * operations.
-				 *
-				 * New subcommand types should be added here by default.
+				 * These subcommands rewrite the heap, so require full locks.
 				 */
 			case AT_AddColumn:	/* may rewrite heap, in some cases and visible
 								 * to SELECT */
-			case AT_DropColumn:	/* change visible to SELECT */
-			case AT_AddColumnToView:	/* CREATE VIEW */
+			case AT_SetTableSpace:		/* must rewrite heap */
 			case AT_AlterColumnType:	/* must rewrite heap */
+			case AT_AddOids:			/* must rewrite heap */
+				cmd_lockmode = AccessExclusiveLock;
+				break;
+
+				/*
+				 * These subcommands may require addition of toast tables. If we
+				 * add a toast table to a table currently being scanned, we
+				 * might miss data added to the new toast table by concurrent
+				 * insert transactions.
+				 */
+			case AT_SetStorage:			/* may add toast tables, see ATRewriteCatalogs() */
+				cmd_lockmode = AccessExclusiveLock;
+				break;
+
+				/*
+				 * Removing constraints can affect SELECTs that have been
+				 * optimised assuming the constraint holds true.
+				 */
 			case AT_DropConstraint:		/* as DROP INDEX */
-			case AT_AddOids:	/* must rewrite heap */
-			case AT_DropOids:	/* calls AT_DropColumn */
+			case AT_DropNotNull:		/* may change some SQL plans */
+				cmd_lockmode = AccessExclusiveLock;
+				break;
+
+				/*
+				 * Subcommands that may be visible to concurrent SELECTs
+				 */
+			case AT_DropColumn:			/* change visible to SELECT */
+			case AT_AddColumnToView:	/* CREATE VIEW */
+			case AT_DropOids:			/* calls AT_DropColumn */
 			case AT_EnableAlwaysRule:	/* may change SELECT rules */
 			case AT_EnableReplicaRule:	/* may change SELECT rules */
-			case AT_EnableRule:	/* may change SELECT rules */
+			case AT_EnableRule:			/* may change SELECT rules */
 			case AT_DisableRule:		/* may change SELECT rules */
+				cmd_lockmode = AccessExclusiveLock;
+				break;
+
+				/*
+				 * Changing owner may remove implicit SELECT privileges
+				 */
 			case AT_ChangeOwner:		/* change visible to SELECT */
-			case AT_SetTableSpace:		/* must rewrite heap */
-			case AT_DropNotNull:		/* may change some SQL plans */
-			case AT_SetNotNull:
+				cmd_lockmode = AccessExclusiveLock;
+				break;
+
+				/*
+				 * Changing foreign table options may affect optimisation.
+				 */
 			case AT_GenericOptions:
 			case AT_AlterColumnGenericOptions:
 				cmd_lockmode = AccessExclusiveLock;
@@ -2814,6 +2836,7 @@ AlterTableGetLockLevel(List *cmds)
 
 				/*
 				 * These subcommands affect write operations only.
+				 * XXX Theoretically, these could be ShareRowExclusiveLock.
 				 */
 			case AT_ColumnDefault:
 			case AT_ProcessedConstraint:		/* becomes AT_AddConstraint */
@@ -2827,10 +2850,12 @@ AlterTableGetLockLevel(List *cmds)
 			case AT_DisableTrig:
 			case AT_DisableTrigAll:
 			case AT_DisableTrigUser:
+			case AT_AlterConstraint:
 			case AT_AddIndex:	/* from ADD CONSTRAINT */
 			case AT_AddIndexConstraint:
 			case AT_ReplicaIdentity:
-				cmd_lockmode = ShareRowExclusiveLock;
+			case AT_SetNotNull:
+				cmd_lockmode = AccessExclusiveLock;
 				break;
 
 			case AT_AddConstraint:
@@ -2849,8 +2874,10 @@ AlterTableGetLockLevel(List *cmds)
 							 * could reduce the lock strength to ShareLock if
 							 * we can work out how to allow concurrent catalog
 							 * updates.
+							 * XXX Might be set down to ShareRowExclusiveLock
+							 * but requires further analysis.
 							 */
-							cmd_lockmode = ShareRowExclusiveLock;
+							cmd_lockmode = AccessExclusiveLock;
 							break;
 						case CONSTR_FOREIGN:
 
@@ -2858,12 +2885,15 @@ AlterTableGetLockLevel(List *cmds)
 							 * We add triggers to both tables when we add a
 							 * Foreign Key, so the lock level must be at least
 							 * as strong as CREATE TRIGGER.
+							 * XXX Might be set down to ShareRowExclusiveLock
+							 * though trigger info is accessed by
+							 * pg_get_triggerdef
 							 */
-							cmd_lockmode = ShareRowExclusiveLock;
+							cmd_lockmode = AccessExclusiveLock;
 							break;
 
 						default:
-							cmd_lockmode = ShareRowExclusiveLock;
+							cmd_lockmode = AccessExclusiveLock;
 					}
 				}
 				break;
@@ -2874,22 +2904,31 @@ AlterTableGetLockLevel(List *cmds)
 				 * behaviour, while queries started after we commit will see
 				 * new behaviour. No need to prevent reads or writes to the
 				 * subtable while we hook it up though.
+				 * Changing the TupDesc may be a problem, so keep highest lock.
 				 */
 			case AT_AddInherit:
 			case AT_DropInherit:
-				cmd_lockmode = ShareUpdateExclusiveLock;
+				cmd_lockmode = AccessExclusiveLock;
 				break;
 
 				/*
 				 * These subcommands affect implicit row type conversion. They
-				 * have affects similar to CREATE/DROP CAST on queries.  We
+				 * have affects similar to CREATE/DROP CAST on queries.
 				 * don't provide for invalidating parse trees as a result of
-				 * such changes.  Do avoid concurrent pg_class updates,
-				 * though.
+				 * such changes, so we keep these at AccessExclusiveLock.
 				 */
 			case AT_AddOf:
 			case AT_DropOf:
-				cmd_lockmode = ShareUpdateExclusiveLock;
+				cmd_lockmode = AccessExclusiveLock;
+				break;
+
+				/*
+				 * Only used by CREATE OR REPLACE VIEW which must conflict
+				 * with an SELECTs currently using the view.
+				 */
+			case AT_ReplaceRelOptions:
+				cmd_lockmode = AccessExclusiveLock;
+				break;
 
 				/*
 				 * These subcommands affect general strategies for performance
@@ -2901,18 +2940,31 @@ AlterTableGetLockLevel(List *cmds)
 				 * applies: we don't currently allow concurrent catalog
 				 * updates.
 				 */
-			case AT_SetStatistics:
-			case AT_ClusterOn:
-			case AT_DropCluster:
-			case AT_SetRelOptions:
-			case AT_ResetRelOptions:
-			case AT_ReplaceRelOptions:
-			case AT_SetOptions:
-			case AT_ResetOptions:
-			case AT_SetStorage:
-			case AT_AlterConstraint:
-			case AT_ValidateConstraint:
+			case AT_SetStatistics:		/* Uses MVCC in getTableAttrs() */
+			case AT_ClusterOn:			/* Uses MVCC in getIndexes() */
+			case AT_DropCluster:		/* Uses MVCC in getIndexes() */
+			case AT_SetOptions:			/* Uses MVCC in getTableAttrs() */
+			case AT_ResetOptions:		/* Uses MVCC in getTableAttrs() */
 				cmd_lockmode = ShareUpdateExclusiveLock;
+				break;
+
+			case AT_ValidateConstraint:	/* Uses MVCC in getConstraints() */
+				cmd_lockmode = ShareUpdateExclusiveLock;
+				break;
+
+				/*
+				 * Rel options are more complex than first appears. Options
+				 * are set here for tables, views and indexes; for historical
+				 * reasons these can all be used with ALTER TABLE, so we
+				 * can't decide between them using the basic grammar.
+				 *
+				 * XXX Look in detail at each option to determine lock level,
+				 * e.g.
+				 *   cmd_lockmode = GetRelOptionsLockLevel((List *) cmd->def);
+				 */
+			case AT_SetRelOptions:		/* Uses MVCC in getIndexes() and getTables() */
+			case AT_ResetRelOptions:	/* Uses MVCC in getIndexes() and getTables() */
+				cmd_lockmode = AccessExclusiveLock;
 				break;
 
 			default:			/* oops */
@@ -2927,9 +2979,6 @@ AlterTableGetLockLevel(List *cmds)
 		if (cmd_lockmode > lockmode)
 			lockmode = cmd_lockmode;
 	}
-#else
-	LOCKMODE	lockmode = AccessExclusiveLock;
-#endif
 
 	return lockmode;
 }
@@ -3175,6 +3224,9 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 		case AT_DisableTrig:	/* DISABLE TRIGGER variants */
 		case AT_DisableTrigAll:
 		case AT_DisableTrigUser:
+			ATSimplePermissions(rel, ATT_TABLE | ATT_FOREIGN_TABLE);
+			pass = AT_PASS_MISC;
+			break;
 		case AT_EnableRule:		/* ENABLE/DISABLE RULE variants */
 		case AT_EnableAlwaysRule:
 		case AT_EnableReplicaRule:
@@ -3264,7 +3316,7 @@ ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode)
 
 		if (tab->relkind == RELKIND_RELATION ||
 			tab->relkind == RELKIND_MATVIEW)
-			AlterTableCreateToastTable(tab->relid, (Datum) 0);
+			AlterTableCreateToastTable(tab->relid, (Datum) 0, lockmode);
 	}
 }
 
@@ -3578,7 +3630,7 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 
 			/* Create transient table that will receive the modified data */
 			OIDNewHeap = make_new_heap(tab->relid, NewTableSpace, false,
-									   AccessExclusiveLock);
+									   lockmode);
 
 			/*
 			 * Copy the heap data into the new table with the desired
@@ -5539,7 +5591,8 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 
 	/* The IndexStmt has already been through transformIndexStmt */
 
-	new_index = DefineIndex(stmt,
+	new_index = DefineIndex(RelationGetRelid(rel),
+							stmt,
 							InvalidOid, /* no predefined OID */
 							true,		/* is_alter_table */
 							check_rights,
@@ -5863,7 +5916,10 @@ ATAddForeignKeyConstraint(AlteredTableInfo *tab, Relation rel,
 	 * table; trying to start with a lesser lock will just create a risk of
 	 * deadlock.)
 	 */
-	pkrel = heap_openrv(fkconstraint->pktable, AccessExclusiveLock);
+	if (OidIsValid(fkconstraint->old_pktable_oid))
+		pkrel = heap_open(fkconstraint->old_pktable_oid, AccessExclusiveLock);
+	else
+		pkrel = heap_openrv(fkconstraint->pktable, AccessExclusiveLock);
 
 	/*
 	 * Validity checks (permission checks wait till we have the column
@@ -6202,7 +6258,8 @@ ATAddForeignKeyConstraint(AlteredTableInfo *tab, Relation rel,
 	/*
 	 * Create the triggers that will enforce the constraint.
 	 */
-	createForeignKeyTriggers(rel, fkconstraint, constrOid, indexOid);
+	createForeignKeyTriggers(rel, RelationGetRelid(pkrel), fkconstraint,
+							 constrOid, indexOid);
 
 	/*
 	 * Tell Phase 3 to check that the constraint is satisfied by existing
@@ -7012,7 +7069,7 @@ validateForeignKeyConstraint(char *conname,
 }
 
 static void
-CreateFKCheckTrigger(RangeVar *myRel, Constraint *fkconstraint,
+CreateFKCheckTrigger(Oid myRelOid, Oid refRelOid, Constraint *fkconstraint,
 					 Oid constraintOid, Oid indexOid, bool on_insert)
 {
 	CreateTrigStmt *fk_trigger;
@@ -7028,7 +7085,7 @@ CreateFKCheckTrigger(RangeVar *myRel, Constraint *fkconstraint,
 	 */
 	fk_trigger = makeNode(CreateTrigStmt);
 	fk_trigger->trigname = "RI_ConstraintTrigger_c";
-	fk_trigger->relation = myRel;
+	fk_trigger->relation = NULL;
 	fk_trigger->row = true;
 	fk_trigger->timing = TRIGGER_TYPE_AFTER;
 
@@ -7049,10 +7106,11 @@ CreateFKCheckTrigger(RangeVar *myRel, Constraint *fkconstraint,
 	fk_trigger->isconstraint = true;
 	fk_trigger->deferrable = fkconstraint->deferrable;
 	fk_trigger->initdeferred = fkconstraint->initdeferred;
-	fk_trigger->constrrel = fkconstraint->pktable;
+	fk_trigger->constrrel = NULL;
 	fk_trigger->args = NIL;
 
-	(void) CreateTrigger(fk_trigger, NULL, constraintOid, indexOid, true);
+	(void) CreateTrigger(fk_trigger, NULL, myRelOid, refRelOid, constraintOid,
+						 indexOid, true);
 
 	/* Make changes-so-far visible */
 	CommandCounterIncrement();
@@ -7062,18 +7120,13 @@ CreateFKCheckTrigger(RangeVar *myRel, Constraint *fkconstraint,
  * Create the triggers that implement an FK constraint.
  */
 static void
-createForeignKeyTriggers(Relation rel, Constraint *fkconstraint,
+createForeignKeyTriggers(Relation rel, Oid refRelOid, Constraint *fkconstraint,
 						 Oid constraintOid, Oid indexOid)
 {
-	RangeVar   *myRel;
+	Oid			myRelOid;
 	CreateTrigStmt *fk_trigger;
 
-	/*
-	 * Reconstruct a RangeVar for my relation (not passed in, unfortunately).
-	 */
-	myRel = makeRangeVar(get_namespace_name(RelationGetNamespace(rel)),
-						 pstrdup(RelationGetRelationName(rel)),
-						 -1);
+	myRelOid = RelationGetRelid(rel);
 
 	/* Make changes-so-far visible */
 	CommandCounterIncrement();
@@ -7084,14 +7137,14 @@ createForeignKeyTriggers(Relation rel, Constraint *fkconstraint,
 	 */
 	fk_trigger = makeNode(CreateTrigStmt);
 	fk_trigger->trigname = "RI_ConstraintTrigger_a";
-	fk_trigger->relation = fkconstraint->pktable;
+	fk_trigger->relation = NULL;
 	fk_trigger->row = true;
 	fk_trigger->timing = TRIGGER_TYPE_AFTER;
 	fk_trigger->events = TRIGGER_TYPE_DELETE;
 	fk_trigger->columns = NIL;
 	fk_trigger->whenClause = NULL;
 	fk_trigger->isconstraint = true;
-	fk_trigger->constrrel = myRel;
+	fk_trigger->constrrel = NULL;
 	switch (fkconstraint->fk_del_action)
 	{
 		case FKCONSTR_ACTION_NOACTION:
@@ -7126,7 +7179,8 @@ createForeignKeyTriggers(Relation rel, Constraint *fkconstraint,
 	}
 	fk_trigger->args = NIL;
 
-	(void) CreateTrigger(fk_trigger, NULL, constraintOid, indexOid, true);
+	(void) CreateTrigger(fk_trigger, NULL, refRelOid, myRelOid, constraintOid,
+						 indexOid, true);
 
 	/* Make changes-so-far visible */
 	CommandCounterIncrement();
@@ -7137,14 +7191,14 @@ createForeignKeyTriggers(Relation rel, Constraint *fkconstraint,
 	 */
 	fk_trigger = makeNode(CreateTrigStmt);
 	fk_trigger->trigname = "RI_ConstraintTrigger_a";
-	fk_trigger->relation = fkconstraint->pktable;
+	fk_trigger->relation = NULL;
 	fk_trigger->row = true;
 	fk_trigger->timing = TRIGGER_TYPE_AFTER;
 	fk_trigger->events = TRIGGER_TYPE_UPDATE;
 	fk_trigger->columns = NIL;
 	fk_trigger->whenClause = NULL;
 	fk_trigger->isconstraint = true;
-	fk_trigger->constrrel = myRel;
+	fk_trigger->constrrel = NULL;
 	switch (fkconstraint->fk_upd_action)
 	{
 		case FKCONSTR_ACTION_NOACTION:
@@ -7179,7 +7233,8 @@ createForeignKeyTriggers(Relation rel, Constraint *fkconstraint,
 	}
 	fk_trigger->args = NIL;
 
-	(void) CreateTrigger(fk_trigger, NULL, constraintOid, indexOid, true);
+	(void) CreateTrigger(fk_trigger, NULL, refRelOid, myRelOid, constraintOid,
+						 indexOid, true);
 
 	/* Make changes-so-far visible */
 	CommandCounterIncrement();
@@ -7188,8 +7243,10 @@ createForeignKeyTriggers(Relation rel, Constraint *fkconstraint,
 	 * Build and execute CREATE CONSTRAINT TRIGGER statements for the CHECK
 	 * action for both INSERTs and UPDATEs on the referencing table.
 	 */
-	CreateFKCheckTrigger(myRel, fkconstraint, constraintOid, indexOid, true);
-	CreateFKCheckTrigger(myRel, fkconstraint, constraintOid, indexOid, false);
+	CreateFKCheckTrigger(myRelOid, refRelOid, fkconstraint, constraintOid,
+						 indexOid, true);
+	CreateFKCheckTrigger(myRelOid, refRelOid, fkconstraint, constraintOid,
+						 indexOid, false);
 }
 
 /*
@@ -8093,15 +8150,36 @@ ATPostAlterTypeCleanup(List **wqueue, AlteredTableInfo *tab, LOCKMODE lockmode)
 	 * lock on the table the constraint is attached to, and we need to get
 	 * that before dropping.  It's safe because the parser won't actually look
 	 * at the catalogs to detect the existing entry.
+	 *
+	 * We can't rely on the output of deparsing to tell us which relation
+	 * to operate on, because concurrent activity might have made the name
+	 * resolve differently.  Instead, we've got to use the OID of the
+	 * constraint or index we're processing to figure out which relation
+	 * to operate on.
 	 */
 	forboth(oid_item, tab->changedConstraintOids,
 			def_item, tab->changedConstraintDefs)
-		ATPostAlterTypeParse(lfirst_oid(oid_item), (char *) lfirst(def_item),
+	{
+		Oid		oldId = lfirst_oid(oid_item);
+		Oid		relid;
+		Oid		confrelid;
+
+		get_constraint_relation_oids(oldId, &relid, &confrelid);
+		ATPostAlterTypeParse(oldId, relid, confrelid,
+							 (char *) lfirst(def_item),
 							 wqueue, lockmode, tab->rewrite);
+	}
 	forboth(oid_item, tab->changedIndexOids,
 			def_item, tab->changedIndexDefs)
-		ATPostAlterTypeParse(lfirst_oid(oid_item), (char *) lfirst(def_item),
+	{
+		Oid		oldId = lfirst_oid(oid_item);
+		Oid		relid;
+
+		relid = IndexGetRelation(oldId, false);
+		ATPostAlterTypeParse(oldId, relid, InvalidOid,
+							 (char *) lfirst(def_item),
 							 wqueue, lockmode, tab->rewrite);
+	}
 
 	/*
 	 * Now we can drop the existing constraints and indexes --- constraints
@@ -8134,12 +8212,13 @@ ATPostAlterTypeCleanup(List **wqueue, AlteredTableInfo *tab, LOCKMODE lockmode)
 }
 
 static void
-ATPostAlterTypeParse(Oid oldId, char *cmd,
+ATPostAlterTypeParse(Oid oldId, Oid oldRelId, Oid refRelId, char *cmd,
 					 List **wqueue, LOCKMODE lockmode, bool rewrite)
 {
 	List	   *raw_parsetree_list;
 	List	   *querytree_list;
 	ListCell   *list_item;
+	Relation	rel;
 
 	/*
 	 * We expect that we will get only ALTER TABLE and CREATE INDEX
@@ -8155,15 +8234,20 @@ ATPostAlterTypeParse(Oid oldId, char *cmd,
 
 		if (IsA(stmt, IndexStmt))
 			querytree_list = lappend(querytree_list,
-									 transformIndexStmt((IndexStmt *) stmt,
+									 transformIndexStmt(oldRelId,
+														(IndexStmt *) stmt,
 														cmd));
 		else if (IsA(stmt, AlterTableStmt))
 			querytree_list = list_concat(querytree_list,
-							 transformAlterTableStmt((AlterTableStmt *) stmt,
+							 transformAlterTableStmt(oldRelId,
+													 (AlterTableStmt *) stmt,
 													 cmd));
 		else
 			querytree_list = lappend(querytree_list, stmt);
 	}
+
+	/* Caller should already have acquired whatever lock we need. */
+	rel = relation_open(oldRelId, NoLock);
 
 	/*
 	 * Attach each generated command to the proper place in the work queue.
@@ -8176,7 +8260,6 @@ ATPostAlterTypeParse(Oid oldId, char *cmd,
 	foreach(list_item, querytree_list)
 	{
 		Node	   *stm = (Node *) lfirst(list_item);
-		Relation	rel;
 		AlteredTableInfo *tab;
 
 		switch (nodeTag(stm))
@@ -8189,14 +8272,12 @@ ATPostAlterTypeParse(Oid oldId, char *cmd,
 					if (!rewrite)
 						TryReuseIndex(oldId, stmt);
 
-					rel = relation_openrv(stmt->relation, lockmode);
 					tab = ATGetQueueEntry(wqueue, rel);
 					newcmd = makeNode(AlterTableCmd);
 					newcmd->subtype = AT_ReAddIndex;
 					newcmd->def = (Node *) stmt;
 					tab->subcmds[AT_PASS_OLD_INDEX] =
 						lappend(tab->subcmds[AT_PASS_OLD_INDEX], newcmd);
-					relation_close(rel, NoLock);
 					break;
 				}
 			case T_AlterTableStmt:
@@ -8204,7 +8285,6 @@ ATPostAlterTypeParse(Oid oldId, char *cmd,
 					AlterTableStmt *stmt = (AlterTableStmt *) stm;
 					ListCell   *lcmd;
 
-					rel = relation_openrv(stmt->relation, lockmode);
 					tab = ATGetQueueEntry(wqueue, rel);
 					foreach(lcmd, stmt->cmds)
 					{
@@ -8225,6 +8305,7 @@ ATPostAlterTypeParse(Oid oldId, char *cmd,
 							case AT_AddConstraint:
 								Assert(IsA(cmd->def, Constraint));
 								con = (Constraint *) cmd->def;
+								con->old_pktable_oid = refRelId;
 								/* rewriting neither side of a FK */
 								if (con->contype == CONSTR_FOREIGN &&
 									!rewrite && !tab->rewrite)
@@ -8238,7 +8319,6 @@ ATPostAlterTypeParse(Oid oldId, char *cmd,
 									 (int) cmd->subtype);
 						}
 					}
-					relation_close(rel, NoLock);
 					break;
 				}
 			default:
@@ -8246,6 +8326,8 @@ ATPostAlterTypeParse(Oid oldId, char *cmd,
 					 (int) nodeTag(stm));
 		}
 	}
+
+	relation_close(rel, NoLock);
 }
 
 /*
@@ -8256,7 +8338,6 @@ static void
 TryReuseIndex(Oid oldId, IndexStmt *stmt)
 {
 	if (CheckIndexCompatible(oldId,
-							 stmt->relation,
 							 stmt->accessMethod,
 							 stmt->indexParams,
 							 stmt->excludeOpNames))
@@ -8829,7 +8910,6 @@ ATExecSetRelOptions(Relation rel, List *defList, AlterTableType operation,
 		List	   *view_options = untransformRelOptions(newOptions);
 		ListCell   *cell;
 		bool		check_option = false;
-		bool		security_barrier = false;
 
 		foreach(cell, view_options)
 		{
@@ -8837,8 +8917,6 @@ ATExecSetRelOptions(Relation rel, List *defList, AlterTableType operation,
 
 			if (pg_strcasecmp(defel->defname, "check_option") == 0)
 				check_option = true;
-			if (pg_strcasecmp(defel->defname, "security_barrier") == 0)
-				security_barrier = defGetBoolean(defel);
 		}
 
 		/*
@@ -8848,8 +8926,7 @@ ATExecSetRelOptions(Relation rel, List *defList, AlterTableType operation,
 		if (check_option)
 		{
 			const char *view_updatable_error =
-				view_query_is_auto_updatable(view_query,
-											 security_barrier, true);
+				view_query_is_auto_updatable(view_query, true);
 
 			if (view_updatable_error)
 				ereport(ERROR,
@@ -9044,8 +9121,8 @@ ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmode)
 	FlushRelationBuffers(rel);
 
 	/*
-	 * Relfilenodes are not unique across tablespaces, so we need to allocate
-	 * a new one in the new tablespace.
+	 * Relfilenodes are not unique in databases across tablespaces, so we
+	 * need to allocate a new one in the new tablespace.
 	 */
 	newrelfilenode = GetNewRelFileNode(newTableSpace, NULL,
 									   rel->rd_rel->relpersistence);
@@ -10877,6 +10954,38 @@ RangeVarCallbackOwnsTable(const RangeVar *relation,
 	/* Check permissions */
 	if (!pg_class_ownercheck(relId, GetUserId()))
 		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_CLASS, relation->relname);
+}
+
+/*
+ * Callback to RangeVarGetRelidExtended(), similar to
+ * RangeVarCallbackOwnsTable() but without checks on the type of the relation.
+ */
+void
+RangeVarCallbackOwnsRelation(const RangeVar *relation,
+							 Oid relId, Oid oldRelId, void *arg)
+{
+	HeapTuple	tuple;
+
+	/* Nothing to do if the relation was not found. */
+	if (!OidIsValid(relId))
+		return;
+
+	tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(relId));
+	if (!HeapTupleIsValid(tuple))		/* should not happen */
+		elog(ERROR, "cache lookup failed for relation %u", relId);
+
+	if (!pg_class_ownercheck(relId, GetUserId()))
+		aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_CLASS,
+					   relation->relname);
+
+	if (!allowSystemTableMods &&
+		IsSystemClass(relId, (Form_pg_class) GETSTRUCT(tuple)))
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("permission denied: \"%s\" is a system catalog",
+						relation->relname)));
+
+	ReleaseSysCache(tuple);
 }
 
 /*

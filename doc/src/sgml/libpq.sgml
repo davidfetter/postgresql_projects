@@ -131,15 +131,15 @@ PGconn *PQconnectdbParams(const char * const *keywords,
       <para>
        The passed arrays can be empty to use all default parameters, or can
        contain one or more parameter settings. They should be matched in length.
-       Processing will stop with the last non-<symbol>NULL</symbol> element
-       of the <literal>keywords</literal> array.
+       Processing will stop at the first <symbol>NULL</symbol> element
+       in the <literal>keywords</literal> array.
       </para>
 
       <para>
-       If  any  parameter is unspecified, then the corresponding
-       environment variable (see <xref linkend="libpq-envars">)
-       is checked. If the  environment  variable is not set either,
-       then the indicated built-in defaults are used.
+       If  any  parameter is NULL or an emptry string, the corresponding
+       environment variable (see <xref linkend="libpq-envars">) is checked.
+       If the  environment  variable is not set either, then the indicated
+       built-in defaults are used.
       </para>
 
       <para>
@@ -1611,15 +1611,6 @@ PGTransactionStatusType PQtransactionStatus(const PGconn *conn);
        <literal>PQTRANS_ACTIVE</literal> is reported only when a query
        has been sent to the server and not yet completed.
       </para>
-
-      <caution>
-       <para>
-        <function>PQtransactionStatus</> will give incorrect results when using
-        a <productname>PostgreSQL</> 7.3 server that has the parameter <literal>autocommit</>
-        set to off.  The server-side autocommit feature has been
-        deprecated and does not exist in later server versions.
-       </para>
-      </caution>
      </listitem>
     </varlistentry>
 
@@ -5386,7 +5377,8 @@ int PQclientEncoding(const PGconn *<replaceable>conn</replaceable>);
 </synopsis>
 
       Note that it returns the encoding ID, not a symbolic string
-      such as <literal>EUC_JP</literal>. To convert an encoding ID to an encoding name, you
+      such as <literal>EUC_JP</literal>. If unsuccessful, it returns -1.
+      To convert an encoding ID to an encoding name, you
       can use:
 
 <synopsis>

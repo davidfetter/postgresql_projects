@@ -110,6 +110,7 @@ static void deparseTargetList(StringInfo buf,
 				  List **retrieved_attrs);
 static void deparseReturningList(StringInfo buf, PlannerInfo *root,
 					 Index rtindex, Relation rel,
+					 bool trig_after_row,
 					 List *returningList,
 					 List **retrieved_attrs);
 static void deparseColumnRef(StringInfo buf, int varno, int varattno,
@@ -131,17 +132,22 @@ static void deparseRelabelType(RelabelType *node, deparse_expr_cxt *context);
 static void deparseBoolExpr(BoolExpr *node, deparse_expr_cxt *context);
 static void deparseNullTest(NullTest *node, deparse_expr_cxt *context);
 static void deparseArrayExpr(ArrayExpr *node, deparse_expr_cxt *context);
+static void printRemoteParam(int paramindex, Oid paramtype, int32 paramtypmod,
+				 deparse_expr_cxt *context);
+static void printRemotePlaceholder(Oid paramtype, int32 paramtypmod,
+					   deparse_expr_cxt *context);
 
 
 /*
- * Examine each restriction clause in baserel's baserestrictinfo list,
- * and classify them into two groups, which are returned as two lists:
+ * Examine each qual clause in input_conds, and classify them into two groups,
+ * which are returned as two lists:
  *	- remote_conds contains expressions that can be evaluated remotely
  *	- local_conds contains expressions that can't be evaluated remotely
  */
 void
 classifyConditions(PlannerInfo *root,
 				   RelOptInfo *baserel,
+				   List *input_conds,
 				   List **remote_conds,
 				   List **local_conds)
 {
@@ -150,7 +156,7 @@ classifyConditions(PlannerInfo *root,
 	*remote_conds = NIL;
 	*local_conds = NIL;
 
-	foreach(lc, baserel->baserestrictinfo)
+	foreach(lc, input_conds)
 	{
 		RestrictInfo *ri = (RestrictInfo *) lfirst(lc);
 
@@ -874,11 +880,9 @@ deparseInsertSql(StringInfo buf, PlannerInfo *root,
 	else
 		appendStringInfoString(buf, " DEFAULT VALUES");
 
-	if (returningList)
-		deparseReturningList(buf, root, rtindex, rel, returningList,
-							 retrieved_attrs);
-	else
-		*retrieved_attrs = NIL;
+	deparseReturningList(buf, root, rtindex, rel,
+					   rel->trigdesc && rel->trigdesc->trig_insert_after_row,
+						 returningList, retrieved_attrs);
 }
 
 /*
@@ -918,11 +922,9 @@ deparseUpdateSql(StringInfo buf, PlannerInfo *root,
 	}
 	appendStringInfoString(buf, " WHERE ctid = $1");
 
-	if (returningList)
-		deparseReturningList(buf, root, rtindex, rel, returningList,
-							 retrieved_attrs);
-	else
-		*retrieved_attrs = NIL;
+	deparseReturningList(buf, root, rtindex, rel,
+					   rel->trigdesc && rel->trigdesc->trig_update_after_row,
+						 returningList, retrieved_attrs);
 }
 
 /*
@@ -942,34 +944,48 @@ deparseDeleteSql(StringInfo buf, PlannerInfo *root,
 	deparseRelation(buf, rel);
 	appendStringInfoString(buf, " WHERE ctid = $1");
 
-	if (returningList)
-		deparseReturningList(buf, root, rtindex, rel, returningList,
-							 retrieved_attrs);
-	else
-		*retrieved_attrs = NIL;
+	deparseReturningList(buf, root, rtindex, rel,
+					   rel->trigdesc && rel->trigdesc->trig_delete_after_row,
+						 returningList, retrieved_attrs);
 }
 
 /*
- * deparse RETURNING clause of INSERT/UPDATE/DELETE
+ * Add a RETURNING clause, if needed, to an INSERT/UPDATE/DELETE.
  */
 static void
 deparseReturningList(StringInfo buf, PlannerInfo *root,
 					 Index rtindex, Relation rel,
+					 bool trig_after_row,
 					 List *returningList,
 					 List **retrieved_attrs)
 {
-	Bitmapset  *attrs_used;
+	Bitmapset  *attrs_used = NULL;
 
-	/*
-	 * We need the attrs mentioned in the query's RETURNING list.
-	 */
-	attrs_used = NULL;
-	pull_varattnos((Node *) returningList, rtindex,
-				   &attrs_used);
+	if (trig_after_row)
+	{
+		/* whole-row reference acquires all non-system columns */
+		attrs_used =
+			bms_make_singleton(0 - FirstLowInvalidHeapAttributeNumber);
+	}
 
-	appendStringInfoString(buf, " RETURNING ");
-	deparseTargetList(buf, root, rtindex, rel, attrs_used,
-					  retrieved_attrs);
+	if (returningList != NIL)
+	{
+		/*
+		 * We need the attrs, non-system and system, mentioned in the local
+		 * query's RETURNING list.
+		 */
+		pull_varattnos((Node *) returningList, rtindex,
+					   &attrs_used);
+	}
+
+	if (attrs_used != NULL)
+	{
+		appendStringInfoString(buf, " RETURNING ");
+		deparseTargetList(buf, root, rtindex, rel, attrs_used,
+						  retrieved_attrs);
+	}
+	else
+		*retrieved_attrs = NIL;
 }
 
 /*
@@ -1271,16 +1287,11 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 				*context->params_list = lappend(*context->params_list, node);
 			}
 
-			appendStringInfo(buf, "$%d", pindex);
-			appendStringInfo(buf, "::%s",
-							 format_type_with_typemod(node->vartype,
-													  node->vartypmod));
+			printRemoteParam(pindex, node->vartype, node->vartypmod, context);
 		}
 		else
 		{
-			appendStringInfo(buf, "(SELECT null::%s)",
-							 format_type_with_typemod(node->vartype,
-													  node->vartypmod));
+			printRemotePlaceholder(node->vartype, node->vartypmod, context);
 		}
 	}
 }
@@ -1387,26 +1398,12 @@ deparseConst(Const *node, deparse_expr_cxt *context)
  *
  * If we're generating the query "for real", add the Param to
  * context->params_list if it's not already present, and then use its index
- * in that list as the remote parameter number.
- *
- * If we're just generating the query for EXPLAIN, replace the Param with
- * a dummy expression "(SELECT null::<type>)".	In all extant versions of
- * Postgres, the planner will see that as an unknown constant value, which is
- * what we want.  (If we sent a Param, recent versions might try to use the
- * value supplied for the Param as an estimated or even constant value, which
- * we don't want.)  This might need adjustment if we ever make the planner
- * flatten scalar subqueries.
- *
- * Note: we label the Param's type explicitly rather than relying on
- * transmitting a numeric type OID in PQexecParams().  This allows us to
- * avoid assuming that types have the same OIDs on the remote side as they
- * do locally --- they need only have the same names.
+ * in that list as the remote parameter number.  During EXPLAIN, there's
+ * no need to identify a parameter number.
  */
 static void
 deparseParam(Param *node, deparse_expr_cxt *context)
 {
-	StringInfo	buf = context->buf;
-
 	if (context->params_list)
 	{
 		int			pindex = 0;
@@ -1426,16 +1423,11 @@ deparseParam(Param *node, deparse_expr_cxt *context)
 			*context->params_list = lappend(*context->params_list, node);
 		}
 
-		appendStringInfo(buf, "$%d", pindex);
-		appendStringInfo(buf, "::%s",
-						 format_type_with_typemod(node->paramtype,
-												  node->paramtypmod));
+		printRemoteParam(pindex, node->paramtype, node->paramtypmod, context);
 	}
 	else
 	{
-		appendStringInfo(buf, "(SELECT null::%s)",
-						 format_type_with_typemod(node->paramtype,
-												  node->paramtypmod));
+		printRemotePlaceholder(node->paramtype, node->paramtypmod, context);
 	}
 }
 
@@ -1536,15 +1528,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	procform = (Form_pg_proc) GETSTRUCT(proctup);
 
 	/* Check if need to print VARIADIC (cf. ruleutils.c) */
-	if (OidIsValid(procform->provariadic))
-	{
-		if (procform->provariadic != ANYOID)
-			use_variadic = true;
-		else
-			use_variadic = node->funcvariadic;
-	}
-	else
-		use_variadic = false;
+	use_variadic = node->funcvariadic;
 
 	/* Print schema name only if it's not pg_catalog */
 	if (procform->pronamespace != PG_CATALOG_NAMESPACE)
@@ -1811,4 +1795,48 @@ deparseArrayExpr(ArrayExpr *node, deparse_expr_cxt *context)
 	if (node->elements == NIL)
 		appendStringInfo(buf, "::%s",
 						 format_type_with_typemod(node->array_typeid, -1));
+}
+
+/*
+ * Print the representation of a parameter to be sent to the remote side.
+ *
+ * Note: we always label the Param's type explicitly rather than relying on
+ * transmitting a numeric type OID in PQexecParams().  This allows us to
+ * avoid assuming that types have the same OIDs on the remote side as they
+ * do locally --- they need only have the same names.
+ */
+static void
+printRemoteParam(int paramindex, Oid paramtype, int32 paramtypmod,
+				 deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+	char	   *ptypename = format_type_with_typemod(paramtype, paramtypmod);
+
+	appendStringInfo(buf, "$%d::%s", paramindex, ptypename);
+}
+
+/*
+ * Print the representation of a placeholder for a parameter that will be
+ * sent to the remote side at execution time.
+ *
+ * This is used when we're just trying to EXPLAIN the remote query.
+ * We don't have the actual value of the runtime parameter yet, and we don't
+ * want the remote planner to generate a plan that depends on such a value
+ * anyway.	Thus, we can't do something simple like "$1::paramtype".
+ * Instead, we emit "((SELECT null::paramtype)::paramtype)".
+ * In all extant versions of Postgres, the planner will see that as an unknown
+ * constant value, which is what we want.  This might need adjustment if we
+ * ever make the planner flatten scalar subqueries.  Note: the reason for the
+ * apparently useless outer cast is to ensure that the representation as a
+ * whole will be parsed as an a_expr and not a select_with_parens; the latter
+ * would do the wrong thing in the context "x = ANY(...)".
+ */
+static void
+printRemotePlaceholder(Oid paramtype, int32 paramtypmod,
+					   deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+	char	   *ptypename = format_type_with_typemod(paramtype, paramtypmod);
+
+	appendStringInfo(buf, "((SELECT null::%s)::%s)", ptypename, ptypename);
 }

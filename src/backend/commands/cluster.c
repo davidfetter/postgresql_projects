@@ -408,10 +408,10 @@ cluster_rel(Oid tableOid, Oid indexOid, bool recheck, bool verbose)
 /*
  * Verify that the specified heap and index are valid to cluster on
  *
- * Side effect: obtains exclusive lock on the index.  The caller should
- * already have exclusive lock on the table, so the index lock is likely
- * redundant, but it seems best to grab it anyway to ensure the index
- * definition can't change under us.
+ * Side effect: obtains lock on the index.  The caller may
+ * in some cases already have AccessExclusiveLock on the table, but
+ * not in all cases so we can't rely on the table-level lock for
+ * protection here.
  */
 void
 check_index_is_clusterable(Relation OldHeap, Oid indexOid, bool recheck, LOCKMODE lockmode)
@@ -696,10 +696,10 @@ make_new_heap(Oid OIDOldHeap, Oid NewTableSpace, bool forcetemp,
 	 *
 	 * If the relation doesn't have a TOAST table already, we can't need one
 	 * for the new relation.  The other way around is possible though: if some
-	 * wide columns have been dropped, AlterTableCreateToastTable can decide
+	 * wide columns have been dropped, NewHeapCreateToastTable can decide
 	 * that no TOAST table is needed for the new table.
 	 *
-	 * Note that AlterTableCreateToastTable ends with CommandCounterIncrement,
+	 * Note that NewHeapCreateToastTable ends with CommandCounterIncrement,
 	 * so that the TOAST table will be visible for insertion.
 	 */
 	toastid = OldHeap->rd_rel->reltoastrelid;
@@ -714,7 +714,7 @@ make_new_heap(Oid OIDOldHeap, Oid NewTableSpace, bool forcetemp,
 		if (isNull)
 			reloptions = (Datum) 0;
 
-		AlterTableCreateToastTable(OIDNewHeap, reloptions);
+		NewHeapCreateToastTable(OIDNewHeap, reloptions, lockmode);
 
 		ReleaseSysCache(tuple);
 	}
@@ -850,7 +850,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	 * Since we're going to rewrite the whole table anyway, there's no reason
 	 * not to be aggressive about this.
 	 */
-	vacuum_set_xid_limits(0, 0, 0, 0, OldHeap->rd_rel->relisshared,
+	vacuum_set_xid_limits(OldHeap, 0, 0, 0, 0,
 						  &OldestXmin, &FreezeXid, NULL, &MultiXactCutoff,
 						  NULL);
 
@@ -869,7 +869,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	is_system_catalog = IsSystemRelation(OldHeap);
 
 	/* Initialize the rewrite operation */
-	rwstate = begin_heap_rewrite(NewHeap, OldestXmin, FreezeXid,
+	rwstate = begin_heap_rewrite(OldHeap, NewHeap, OldestXmin, FreezeXid,
 								 MultiXactCutoff, use_wal);
 
 	/*
@@ -1269,7 +1269,8 @@ swap_relation_files(Oid r1, Oid r2, bool target_is_pg_class,
 	 * changes because we'd be updating the old data that we're about to throw
 	 * away.  Because the real work being done here for a mapped relation is
 	 * just to change the relation map settings, it's all right to not update
-	 * the pg_class rows in this case.
+	 * the pg_class rows in this case. The most important changes will instead
+	 * performed later, in finish_heap_swap() itself.
 	 */
 	if (!target_is_pg_class)
 	{
@@ -1503,6 +1504,40 @@ finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap,
 	if (check_constraints)
 		reindex_flags |= REINDEX_REL_CHECK_CONSTRAINTS;
 	reindex_relation(OIDOldHeap, reindex_flags);
+
+	/*
+	 * If the relation being rebuild is pg_class, swap_relation_files()
+	 * couldn't update pg_class's own pg_class entry (check comments in
+	 * swap_relation_files()), thus relfrozenxid was not updated. That's
+	 * annoying because a potential reason for doing a VACUUM FULL is a
+	 * imminent or actual anti-wraparound shutdown.  So, now that we can
+	 * access the new relation using it's indices, update
+	 * relfrozenxid. pg_class doesn't have a toast relation, so we don't need
+	 * to update the corresponding toast relation. Not that there's little
+	 * point moving all relfrozenxid updates here since swap_relation_files()
+	 * needs to write to pg_class for non-mapped relations anyway.
+	 */
+	if (OIDOldHeap == RelationRelationId)
+	{
+		Relation	relRelation;
+		HeapTuple	reltup;
+		Form_pg_class relform;
+
+		relRelation = heap_open(RelationRelationId, RowExclusiveLock);
+
+		reltup = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(OIDOldHeap));
+		if (!HeapTupleIsValid(reltup))
+			elog(ERROR, "cache lookup failed for relation %u", OIDOldHeap);
+		relform = (Form_pg_class) GETSTRUCT(reltup);
+
+		relform->relfrozenxid = frozenXid;
+		relform->relminmxid = cutoffMulti;
+
+		simple_heap_update(relRelation, &reltup->t_self, reltup);
+		CatalogUpdateIndexes(relRelation, reltup);
+
+		heap_close(relRelation, RowExclusiveLock);
+	}
 
 	/* Destroy new heap with old filenode */
 	object.classId = RelationRelationId;

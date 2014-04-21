@@ -203,8 +203,12 @@ su - postgres
       language, you need a <productname>Python</productname>
       installation with the header files and
       the <application>distutils</application> module.  The minimum
-      required version is <productname>Python</productname>
-      2.3.  <productname>Python 3</productname> is supported if it's
+      required version is <productname>Python</productname> 2.3.
+      (To work with function arguments of type <type>numeric</>, a 2.3.x
+      installation must include the separately-available <filename>cdecimal</>
+      module; note the <application>PL/Python</> regression tests
+      will not pass if that is missing.)
+      <productname>Python 3</productname> is supported if it's
       version 3.1 or later; but see
       <![%standalone-include[the <application>PL/Python</> documentation]]>
       <![%standalone-ignore[<xref linkend="plpython-python23">]]>
@@ -329,7 +333,8 @@ su - postgres
       <application>Perl</> 5.8 or later is needed to build from a Git checkout,
       or if you changed the input files for any of the build steps that
       use Perl scripts.  If building on Windows you will need
-      <application>Perl</> in any case.
+      <application>Perl</> in any case.  <application>Perl</application> is
+      also required to run some test suites.
      </para>
     </listitem>
    </itemizedlist>

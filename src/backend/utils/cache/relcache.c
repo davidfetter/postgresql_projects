@@ -73,6 +73,7 @@
 #include "utils/memutils.h"
 #include "utils/relmapper.h"
 #include "utils/resowner_private.h"
+#include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
 
@@ -161,6 +162,14 @@ static bool eoxact_list_overflowed = false;
 			eoxact_list_overflowed = true; \
 	} while (0)
 
+/*
+ * EOXactTupleDescArray stores TupleDescs that (might) need AtEOXact
+ * cleanup work.  The array expands as needed; there is no hashtable because
+ * we don't need to access individual items except at EOXact.
+ */
+static TupleDesc *EOXactTupleDescArray;
+static int NextEOXactTupleDescNum = 0;
+static int EOXactTupleDescArrayLen = 0;
 
 /*
  *		macros to manipulate the lookup hashtables
@@ -219,11 +228,12 @@ static HTAB *OpClassCache = NULL;
 
 /* non-export function prototypes */
 
-static void RelationDestroyRelation(Relation relation);
+static void RelationDestroyRelation(Relation relation, bool remember_tupdesc);
 static void RelationClearRelation(Relation relation, bool rebuild);
 
 static void RelationReloadIndexInfo(Relation relation);
 static void RelationFlushRelation(Relation relation);
+static void RememberToFreeTupleDescAtEOX(TupleDesc td);
 static void AtEOXact_cleanup(Relation relation, bool isCommit);
 static void AtEOSubXact_cleanup(Relation relation, bool isCommit,
 					SubTransactionId mySubid, SubTransactionId parentSubid);
@@ -235,7 +245,7 @@ static void formrdesc(const char *relationName, Oid relationReltype,
 		  bool isshared, bool hasoids,
 		  int natts, const FormData_pg_attribute *attrs);
 
-static HeapTuple ScanPgRelation(Oid targetRelId, bool indexOK);
+static HeapTuple ScanPgRelation(Oid targetRelId, bool indexOK, bool force_non_historic);
 static Relation AllocateRelationDesc(Form_pg_class relp);
 static void RelationParseRelOptions(Relation relation, HeapTuple tuple);
 static void RelationBuildTupleDesc(Relation relation);
@@ -274,12 +284,13 @@ static void unlink_initfile(const char *initfilename);
  *		and must eventually be freed with heap_freetuple.
  */
 static HeapTuple
-ScanPgRelation(Oid targetRelId, bool indexOK)
+ScanPgRelation(Oid targetRelId, bool indexOK, bool force_non_historic)
 {
 	HeapTuple	pg_class_tuple;
 	Relation	pg_class_desc;
 	SysScanDesc pg_class_scan;
 	ScanKeyData key[1];
+	Snapshot	snapshot;
 
 	/*
 	 * If something goes wrong during backend startup, we might find ourselves
@@ -305,9 +316,20 @@ ScanPgRelation(Oid targetRelId, bool indexOK)
 	 * scan by setting indexOK == false.
 	 */
 	pg_class_desc = heap_open(RelationRelationId, AccessShareLock);
+
+	/*
+	 * The caller might need a tuple that's newer than the one the historic
+	 * snapshot; currently the only case requiring to do so is looking up the
+	 * relfilenode of non mapped system relations during decoding.
+	 */
+	if (force_non_historic)
+		snapshot = GetNonHistoricCatalogSnapshot(RelationRelationId);
+	else
+		snapshot = GetCatalogSnapshot(RelationRelationId);
+
 	pg_class_scan = systable_beginscan(pg_class_desc, ClassOidIndexId,
 									   indexOK && criticalRelcachesBuilt,
-									   NULL,
+									   snapshot,
 									   1, key);
 
 	pg_class_tuple = systable_getnext(pg_class_scan);
@@ -836,7 +858,7 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 	/*
 	 * find the tuple in pg_class corresponding to the given relation id
 	 */
-	pg_class_tuple = ScanPgRelation(targetRelId, true);
+	pg_class_tuple = ScanPgRelation(targetRelId, true, false);
 
 	/*
 	 * if no such tuple exists, return NULL
@@ -989,8 +1011,42 @@ RelationInitPhysicalAddr(Relation relation)
 		relation->rd_node.dbNode = InvalidOid;
 	else
 		relation->rd_node.dbNode = MyDatabaseId;
+
 	if (relation->rd_rel->relfilenode)
+	{
+		/*
+		 * Even if we are using a decoding snapshot that doesn't represent
+		 * the current state of the catalog we need to make sure the
+		 * filenode points to the current file since the older file will
+		 * be gone (or truncated). The new file will still contain older
+		 * rows so lookups in them will work correctly. This wouldn't work
+		 * correctly if rewrites were allowed to change the schema in a
+		 * noncompatible way, but those are prevented both on catalog
+		 * tables and on user tables declared as additional catalog
+		 * tables.
+		 */
+		if (HistoricSnapshotActive()
+			&& RelationIsAccessibleInLogicalDecoding(relation)
+			&& IsTransactionState())
+		{
+			HeapTuple		phys_tuple;
+			Form_pg_class	physrel;
+
+			phys_tuple = ScanPgRelation(RelationGetRelid(relation),
+										RelationGetRelid(relation) != ClassOidIndexId,
+										true);
+			if (!HeapTupleIsValid(phys_tuple))
+				elog(ERROR, "could not find pg_class entry for %u",
+					 RelationGetRelid(relation));
+			physrel = (Form_pg_class) GETSTRUCT(phys_tuple);
+
+			relation->rd_rel->reltablespace = physrel->reltablespace;
+			relation->rd_rel->relfilenode = physrel->relfilenode;
+			heap_freetuple(phys_tuple);
+		}
+
 		relation->rd_node.relNode = relation->rd_rel->relfilenode;
+	}
 	else
 	{
 		/* Consult the relation mapper */
@@ -1742,7 +1798,7 @@ RelationReloadIndexInfo(Relation relation)
 	 * for pg_class_oid_index ...
 	 */
 	indexOK = (RelationGetRelid(relation) != ClassOidIndexId);
-	pg_class_tuple = ScanPgRelation(RelationGetRelid(relation), indexOK);
+	pg_class_tuple = ScanPgRelation(RelationGetRelid(relation), indexOK, false);
 	if (!HeapTupleIsValid(pg_class_tuple))
 		elog(ERROR, "could not find pg_class tuple for index %u",
 			 RelationGetRelid(relation));
@@ -1811,7 +1867,7 @@ RelationReloadIndexInfo(Relation relation)
  *	Caller must already have unhooked the entry from the hash table.
  */
 static void
-RelationDestroyRelation(Relation relation)
+RelationDestroyRelation(Relation relation, bool remember_tupdesc)
 {
 	Assert(RelationHasReferenceCountZero(relation));
 
@@ -1831,7 +1887,20 @@ RelationDestroyRelation(Relation relation)
 	/* can't use DecrTupleDescRefCount here */
 	Assert(relation->rd_att->tdrefcount > 0);
 	if (--relation->rd_att->tdrefcount == 0)
-		FreeTupleDesc(relation->rd_att);
+	{
+		/*
+		 * If we Rebuilt a relcache entry during a transaction then its
+		 * possible we did that because the TupDesc changed as the result
+		 * of an ALTER TABLE that ran at less than AccessExclusiveLock.
+		 * It's possible someone copied that TupDesc, in which case the
+		 * copy would point to free'd memory. So if we rebuild an entry
+		 * we keep the TupDesc around until end of transaction, to be safe.
+		 */
+		if (remember_tupdesc)
+			RememberToFreeTupleDescAtEOX(relation->rd_att);
+		else
+			FreeTupleDesc(relation->rd_att);
+	}
 	list_free(relation->rd_indexlist);
 	bms_free(relation->rd_indexattr);
 	FreeTriggerDesc(relation->trigdesc);
@@ -1945,7 +2014,7 @@ RelationClearRelation(Relation relation, bool rebuild)
 		RelationCacheDelete(relation);
 
 		/* And release storage */
-		RelationDestroyRelation(relation);
+		RelationDestroyRelation(relation, false);
 	}
 	else if (!IsTransactionState())
 	{
@@ -2012,7 +2081,7 @@ RelationClearRelation(Relation relation, bool rebuild)
 		{
 			/* Should only get here if relation was deleted */
 			RelationCacheDelete(relation);
-			RelationDestroyRelation(relation);
+			RelationDestroyRelation(relation, false);
 			elog(ERROR, "relation %u deleted while still in use", save_relid);
 		}
 
@@ -2074,7 +2143,7 @@ RelationClearRelation(Relation relation, bool rebuild)
 #undef SWAPFIELD
 
 		/* And now we can throw away the temporary entry */
-		RelationDestroyRelation(newrel);
+		RelationDestroyRelation(newrel, !keep_tupdesc);
 	}
 }
 
@@ -2312,6 +2381,33 @@ RelationCloseSmgrByOid(Oid relationId)
 	RelationCloseSmgr(relation);
 }
 
+void
+RememberToFreeTupleDescAtEOX(TupleDesc td)
+{
+	if (EOXactTupleDescArray == NULL)
+	{
+		MemoryContext	oldcxt;
+		oldcxt = MemoryContextSwitchTo(CacheMemoryContext);
+
+		EOXactTupleDescArray = (TupleDesc *) palloc(16 * sizeof(TupleDesc));
+		EOXactTupleDescArrayLen = 16;
+		NextEOXactTupleDescNum = 0;
+		MemoryContextSwitchTo(oldcxt);
+	}
+	else if (NextEOXactTupleDescNum >= EOXactTupleDescArrayLen)
+	{
+		int32       	newlen = EOXactTupleDescArrayLen * 2;
+
+		Assert(EOXactTupleDescArrayLen > 0);
+
+		EOXactTupleDescArray = (TupleDesc *) repalloc(EOXactTupleDescArray,
+														newlen * sizeof(TupleDesc));
+		EOXactTupleDescArrayLen = newlen;
+	}
+
+	EOXactTupleDescArray[NextEOXactTupleDescNum++] = td;
+}
+
 /*
  * AtEOXact_RelationCache
  *
@@ -2367,9 +2463,20 @@ AtEOXact_RelationCache(bool isCommit)
 		}
 	}
 
-	/* Now we're out of the transaction and can clear the list */
+	if (EOXactTupleDescArrayLen > 0)
+	{
+		Assert(EOXactTupleDescArray != NULL);
+		for (i = 0; i < NextEOXactTupleDescNum; i++)
+			FreeTupleDesc(EOXactTupleDescArray[i]);
+		pfree(EOXactTupleDescArray);
+		EOXactTupleDescArray = NULL;
+	}
+
+	/* Now we're out of the transaction and can clear the lists */
 	eoxact_list_len = 0;
 	eoxact_list_overflowed = false;
+	NextEOXactTupleDescNum = 0;
+	EOXactTupleDescArrayLen = 0;
 }
 
 /*

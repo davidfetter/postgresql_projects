@@ -500,7 +500,7 @@ pqParseInput2(PGconn *conn)
 						if (!conn->result)
 							return;
 					}
-					strncpy(conn->result->cmdStatus, conn->workBuffer.data,
+					strlcpy(conn->result->cmdStatus, conn->workBuffer.data,
 							CMDSTATUS_LEN);
 					checkXactStatus(conn, conn->workBuffer.data);
 					conn->asyncStatus = PGASYNC_READY;
@@ -1211,7 +1211,7 @@ pqGetline2(PGconn *conn, char *s, int maxlen)
 {
 	int			result = 1;		/* return value if buffer overflows */
 
-	if (conn->sock < 0 ||
+	if (conn->sock == PGINVALID_SOCKET ||
 		conn->asyncStatus != PGASYNC_COPY_OUT)
 	{
 		*s = '\0';

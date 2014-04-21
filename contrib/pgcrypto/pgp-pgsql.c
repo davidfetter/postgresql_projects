@@ -41,23 +41,6 @@
 /*
  * public functions
  */
-Datum		pgp_sym_encrypt_text(PG_FUNCTION_ARGS);
-Datum		pgp_sym_encrypt_bytea(PG_FUNCTION_ARGS);
-Datum		pgp_sym_decrypt_text(PG_FUNCTION_ARGS);
-Datum		pgp_sym_decrypt_bytea(PG_FUNCTION_ARGS);
-
-Datum		pgp_pub_encrypt_text(PG_FUNCTION_ARGS);
-Datum		pgp_pub_encrypt_bytea(PG_FUNCTION_ARGS);
-Datum		pgp_pub_decrypt_text(PG_FUNCTION_ARGS);
-Datum		pgp_pub_decrypt_bytea(PG_FUNCTION_ARGS);
-
-Datum		pgp_key_id_w(PG_FUNCTION_ARGS);
-
-Datum		pg_armor(PG_FUNCTION_ARGS);
-Datum		pg_dearmor(PG_FUNCTION_ARGS);
-
-/* function headers */
-
 PG_FUNCTION_INFO_V1(pgp_sym_encrypt_bytea);
 PG_FUNCTION_INFO_V1(pgp_sym_encrypt_text);
 PG_FUNCTION_INFO_V1(pgp_sym_decrypt_bytea);
@@ -87,7 +70,7 @@ add_block_entropy(PX_MD *md, text *data)
 
 	px_add_entropy(sha1, 20);
 
-	memset(sha1, 0, 20);
+	px_memset(sha1, 0, 20);
 }
 
 /*
@@ -129,7 +112,7 @@ add_entropy(text *data1, text *data2, text *data3)
 		add_block_entropy(md, data3);
 
 	px_md_free(md);
-	memset(rnd, 0, sizeof(rnd));
+	px_memset(rnd, 0, sizeof(rnd));
 }
 
 /*
@@ -167,7 +150,7 @@ convert_to_utf8(text *src)
 static void
 clear_and_pfree(text *p)
 {
-	memset(p, 0, VARSIZE(p));
+	px_memset(p, 0, VARSIZE(p));
 	pfree(p);
 }
 

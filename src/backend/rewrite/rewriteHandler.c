@@ -37,7 +37,13 @@ typedef struct rewrite_event
 	CmdType		event;			/* type of rule being fired */
 } rewrite_event;
 
-static bool acquireLocksOnSubLinks(Node *node, void *context);
+typedef struct acquireLocksOnSubLinks_context
+{
+	bool		for_execute;	/* AcquireRewriteLocks' forExecute param */
+} acquireLocksOnSubLinks_context;
+
+static bool acquireLocksOnSubLinks(Node *node,
+					   acquireLocksOnSubLinks_context *context);
 static Query *rewriteRuleAction(Query *parsetree,
 				  Query *rule_action,
 				  Node *rule_qual,
@@ -71,9 +77,19 @@ static Bitmapset *adjust_view_column_set(Bitmapset *cols, List *targetlist);
  *	  These locks will ensure that the relation schemas don't change under us
  *	  while we are rewriting and planning the query.
  *
- * forUpdatePushedDown indicates that a pushed-down FOR [KEY] UPDATE/SHARE applies
- * to the current subquery, requiring all rels to be opened with RowShareLock.
- * This should always be false at the start of the recursion.
+ * forExecute indicates that the query is about to be executed.
+ * If so, we'll acquire RowExclusiveLock on the query's resultRelation,
+ * RowShareLock on any relation accessed FOR [KEY] UPDATE/SHARE, and
+ * AccessShareLock on all other relations mentioned.
+ *
+ * If forExecute is false, AccessShareLock is acquired on all relations.
+ * This case is suitable for ruleutils.c, for example, where we only need
+ * schema stability and we don't intend to actually modify any relations.
+ *
+ * forUpdatePushedDown indicates that a pushed-down FOR [KEY] UPDATE/SHARE
+ * applies to the current subquery, requiring all rels to be opened with at
+ * least RowShareLock.  This should always be false at the top of the
+ * recursion.  This flag is ignored if forExecute is false.
  *
  * A secondary purpose of this routine is to fix up JOIN RTE references to
  * dropped columns (see details below).  Because the RTEs are modified in
@@ -101,10 +117,15 @@ static Bitmapset *adjust_view_column_set(Bitmapset *cols, List *targetlist);
  * construction of a nested join was O(N^2) in the nesting depth.)
  */
 void
-AcquireRewriteLocks(Query *parsetree, bool forUpdatePushedDown)
+AcquireRewriteLocks(Query *parsetree,
+					bool forExecute,
+					bool forUpdatePushedDown)
 {
 	ListCell   *l;
 	int			rt_index;
+	acquireLocksOnSubLinks_context context;
+
+	context.for_execute = forExecute;
 
 	/*
 	 * First, process RTEs of the current query level.
@@ -130,14 +151,12 @@ AcquireRewriteLocks(Query *parsetree, bool forUpdatePushedDown)
 				 * release it until end of transaction. This protects the
 				 * rewriter and planner against schema changes mid-query.
 				 *
-				 * If the relation is the query's result relation, then we
-				 * need RowExclusiveLock.  Otherwise, check to see if the
-				 * relation is accessed FOR [KEY] UPDATE/SHARE or not.	We
-				 * can't just grab AccessShareLock because then the executor
-				 * would be trying to upgrade the lock, leading to possible
-				 * deadlocks.
+				 * Assuming forExecute is true, this logic must match what the
+				 * executor will do, else we risk lock-upgrade deadlocks.
 				 */
-				if (rt_index == parsetree->resultRelation)
+				if (!forExecute)
+					lockmode = AccessShareLock;
+				else if (rt_index == parsetree->resultRelation)
 					lockmode = RowExclusiveLock;
 				else if (forUpdatePushedDown ||
 						 get_parse_rowmark(parsetree, rt_index) != NULL)
@@ -225,6 +244,7 @@ AcquireRewriteLocks(Query *parsetree, bool forUpdatePushedDown)
 				 * recurse to process the represented subquery.
 				 */
 				AcquireRewriteLocks(rte->subquery,
+									forExecute,
 									(forUpdatePushedDown ||
 							get_parse_rowmark(parsetree, rt_index) != NULL));
 				break;
@@ -240,7 +260,7 @@ AcquireRewriteLocks(Query *parsetree, bool forUpdatePushedDown)
 	{
 		CommonTableExpr *cte = (CommonTableExpr *) lfirst(l);
 
-		AcquireRewriteLocks((Query *) cte->ctequery, false);
+		AcquireRewriteLocks((Query *) cte->ctequery, forExecute, false);
 	}
 
 	/*
@@ -248,7 +268,7 @@ AcquireRewriteLocks(Query *parsetree, bool forUpdatePushedDown)
 	 * the rtable and cteList.
 	 */
 	if (parsetree->hasSubLinks)
-		query_tree_walker(parsetree, acquireLocksOnSubLinks, NULL,
+		query_tree_walker(parsetree, acquireLocksOnSubLinks, &context,
 						  QTW_IGNORE_RC_SUBQUERIES);
 }
 
@@ -256,7 +276,7 @@ AcquireRewriteLocks(Query *parsetree, bool forUpdatePushedDown)
  * Walker to find sublink subqueries for AcquireRewriteLocks
  */
 static bool
-acquireLocksOnSubLinks(Node *node, void *context)
+acquireLocksOnSubLinks(Node *node, acquireLocksOnSubLinks_context *context)
 {
 	if (node == NULL)
 		return false;
@@ -265,7 +285,9 @@ acquireLocksOnSubLinks(Node *node, void *context)
 		SubLink    *sub = (SubLink *) node;
 
 		/* Do what we came for */
-		AcquireRewriteLocks((Query *) sub->subselect, false);
+		AcquireRewriteLocks((Query *) sub->subselect,
+							context->for_execute,
+							false);
 		/* Fall through to process lefthand args of SubLink */
 	}
 
@@ -307,6 +329,9 @@ rewriteRuleAction(Query *parsetree,
 	int			rt_length;
 	Query	   *sub_action;
 	Query	  **sub_action_ptr;
+	acquireLocksOnSubLinks_context context;
+
+	context.for_execute = true;
 
 	/*
 	 * Make modifiable copies of rule action and qual (what we're passed are
@@ -318,8 +343,8 @@ rewriteRuleAction(Query *parsetree,
 	/*
 	 * Acquire necessary locks and fix any deleted JOIN RTE entries.
 	 */
-	AcquireRewriteLocks(rule_action, false);
-	(void) acquireLocksOnSubLinks(rule_qual, NULL);
+	AcquireRewriteLocks(rule_action, true, false);
+	(void) acquireLocksOnSubLinks(rule_qual, &context);
 
 	current_varno = rt_index;
 	rt_length = list_length(parsetree->rtable);
@@ -1174,7 +1199,7 @@ static void
 rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 					Relation target_relation)
 {
-	Var		   *var;
+	Var		   *var = NULL;
 	const char *attrname;
 	TargetEntry *tle;
 
@@ -1206,7 +1231,26 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 			fdwroutine->AddForeignUpdateTargets(parsetree, target_rte,
 												target_relation);
 
-		return;
+		/*
+		 * If we have a row-level trigger corresponding to the operation, emit
+		 * a whole-row Var so that executor will have the "old" row to pass to
+		 * the trigger.  Alas, this misses system columns.
+		 */
+		if (target_relation->trigdesc &&
+			((parsetree->commandType == CMD_UPDATE &&
+			  (target_relation->trigdesc->trig_update_after_row ||
+			   target_relation->trigdesc->trig_update_before_row)) ||
+			 (parsetree->commandType == CMD_DELETE &&
+			  (target_relation->trigdesc->trig_delete_after_row ||
+			   target_relation->trigdesc->trig_delete_before_row))))
+		{
+			var = makeWholeRowVar(target_rte,
+								  parsetree->resultRelation,
+								  0,
+								  false);
+
+			attrname = "wholerow";
+		}
 	}
 	else
 	{
@@ -1222,12 +1266,15 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 		attrname = "wholerow";
 	}
 
-	tle = makeTargetEntry((Expr *) var,
-						  list_length(parsetree->targetList) + 1,
-						  pstrdup(attrname),
-						  true);
+	if (var != NULL)
+	{
+		tle = makeTargetEntry((Expr *) var,
+							  list_length(parsetree->targetList) + 1,
+							  pstrdup(attrname),
+							  true);
 
-	parsetree->targetList = lappend(parsetree->targetList, tle);
+		parsetree->targetList = lappend(parsetree->targetList, tle);
+	}
 }
 
 
@@ -1389,7 +1436,7 @@ ApplyRetrieveRule(Query *parsetree,
 	 */
 	rule_action = copyObject(linitial(rule->actions));
 
-	AcquireRewriteLocks(rule_action, forUpdatePushedDown);
+	AcquireRewriteLocks(rule_action, true, forUpdatePushedDown);
 
 	/*
 	 * Recursively expand any view references inside the view.
@@ -1712,6 +1759,9 @@ CopyAndAddInvertedQual(Query *parsetree,
 {
 	/* Don't scribble on the passed qual (it's in the relcache!) */
 	Node	   *new_qual = (Node *) copyObject(rule_qual);
+	acquireLocksOnSubLinks_context context;
+
+	context.for_execute = true;
 
 	/*
 	 * In case there are subqueries in the qual, acquire necessary locks and
@@ -1719,7 +1769,7 @@ CopyAndAddInvertedQual(Query *parsetree,
 	 * rewriteRuleAction, but not entirely ... consider restructuring so that
 	 * we only need to process the qual this way once.)
 	 */
-	(void) acquireLocksOnSubLinks(new_qual, NULL);
+	(void) acquireLocksOnSubLinks(new_qual, &context);
 
 	/* Fix references to OLD */
 	ChangeVarNodes(new_qual, PRS2_OLD_VARNO, rt_index, 0);
@@ -1973,8 +2023,7 @@ view_col_is_auto_updatable(RangeTblRef *rtr, TargetEntry *tle)
  * updatable.
  */
 const char *
-view_query_is_auto_updatable(Query *viewquery, bool security_barrier,
-							 bool check_cols)
+view_query_is_auto_updatable(Query *viewquery, bool check_cols)
 {
 	RangeTblRef *rtr;
 	RangeTblEntry *base_rte;
@@ -2046,14 +2095,6 @@ view_query_is_auto_updatable(Query *viewquery, bool security_barrier,
 
 	if (expression_returns_set((Node *) viewquery->targetList))
 		return gettext_noop("Views that return set-returning functions are not automatically updatable.");
-
-	/*
-	 * For now, we also don't support security-barrier views, because of the
-	 * difficulty of keeping upper-level qual expressions away from
-	 * lower-level data.  This might get relaxed in the future.
-	 */
-	if (security_barrier)
-		return gettext_noop("Security-barrier views are not automatically updatable.");
 
 	/*
 	 * The view query should select from a single base relation, which must be
@@ -2303,9 +2344,7 @@ relation_is_updatable(Oid reloid,
 	{
 		Query	   *viewquery = get_view_query(rel);
 
-		if (view_query_is_auto_updatable(viewquery,
-										 RelationIsSecurityView(rel),
-										 false) == NULL)
+		if (view_query_is_auto_updatable(viewquery, false) == NULL)
 		{
 			Bitmapset  *updatable_cols;
 			int			auto_events;
@@ -2315,7 +2354,7 @@ relation_is_updatable(Oid reloid,
 
 			/*
 			 * Determine which of the view's columns are updatable. If there
-			 * are none within the set of of columns we are looking at, then
+			 * are none within the set of columns we are looking at, then
 			 * the view doesn't support INSERT/UPDATE, but it may still
 			 * support DELETE.
 			 */
@@ -2460,7 +2499,6 @@ rewriteTargetView(Query *parsetree, Relation view)
 
 	auto_update_detail =
 		view_query_is_auto_updatable(viewquery,
-									 RelationIsSecurityView(view),
 									 parsetree->commandType != CMD_DELETE);
 
 	if (auto_update_detail)
@@ -2664,6 +2702,14 @@ rewriteTargetView(Query *parsetree, Relation view)
 												   view_targetlist);
 
 	/*
+	 * Move any security barrier quals from the view RTE onto the new target
+	 * RTE.  Any such quals should now apply to the new target RTE and will not
+	 * reference the original view RTE in the rewritten query.
+	 */
+	new_rte->securityQuals = view_rte->securityQuals;
+	view_rte->securityQuals = NIL;
+
+	/*
 	 * For UPDATE/DELETE, rewriteTargetListUD will have added a wholerow junk
 	 * TLE for the view to the end of the targetlist, which we no longer need.
 	 * Remove it to avoid unnecessary work when we process the targetlist.
@@ -2743,6 +2789,10 @@ rewriteTargetView(Query *parsetree, Relation view)
 	 * only adjust their varnos to reference the new target (just the same as
 	 * we did with the view targetlist).
 	 *
+	 * Note that there is special-case handling for the quals of a security
+	 * barrier view, since they need to be kept separate from any user-supplied
+	 * quals, so these quals are kept on the new target RTE.
+	 *
 	 * For INSERT, the view's quals can be ignored in the main query.
 	 */
 	if (parsetree->commandType != CMD_INSERT &&
@@ -2751,7 +2801,25 @@ rewriteTargetView(Query *parsetree, Relation view)
 		Node	   *viewqual = (Node *) copyObject(viewquery->jointree->quals);
 
 		ChangeVarNodes(viewqual, base_rt_index, new_rt_index, 0);
-		AddQual(parsetree, (Node *) viewqual);
+
+		if (RelationIsSecurityView(view))
+		{
+			/*
+			 * Note: the parsetree has been mutated, so the new_rte pointer is
+			 * stale and needs to be re-computed.
+			 */
+			new_rte = rt_fetch(new_rt_index, parsetree->rtable);
+			new_rte->securityQuals = lcons(viewqual, new_rte->securityQuals);
+
+			/*
+			 * Make sure that the query is marked correctly if the added qual
+			 * has sublinks.
+			 */
+			if (!parsetree->hasSubLinks)
+				parsetree->hasSubLinks = checkExprHasSubLink(viewqual);
+		}
+		else
+			AddQual(parsetree, (Node *) viewqual);
 	}
 
 	/*
@@ -2813,9 +2881,8 @@ rewriteTargetView(Query *parsetree, Relation view)
 				 * Make sure that the query is marked correctly if the added
 				 * qual has sublinks.  We can skip this check if the query is
 				 * already marked, or if the command is an UPDATE, in which
-				 * case the same qual will have already been added to the
-				 * query's WHERE clause, and AddQual will have already done
-				 * this check.
+				 * case the same qual will have already been added, and this
+				 * check will already have been done.
 				 */
 				if (!parsetree->hasSubLinks &&
 					parsetree->commandType != CMD_UPDATE)

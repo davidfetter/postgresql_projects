@@ -348,6 +348,7 @@ typedef const Pg_finfo_record *(*PGFInfoFunction) (void);
  *	doesn't hurt to add PGDLLIMPORT in case they don't.
  */
 #define PG_FUNCTION_INFO_V1(funcname) \
+Datum funcname(PG_FUNCTION_ARGS); \
 extern PGDLLEXPORT const Pg_finfo_record * CppConcat(pg_finfo_,funcname)(void); \
 const Pg_finfo_record * \
 CppConcat(pg_finfo_,funcname) (void) \
@@ -629,6 +630,7 @@ extern Oid	get_call_expr_argtype(fmNodePtr expr, int argnum);
 extern bool get_fn_expr_arg_stable(FmgrInfo *flinfo, int argnum);
 extern bool get_call_expr_arg_stable(fmNodePtr expr, int argnum);
 extern bool get_fn_expr_variadic(FmgrInfo *flinfo);
+extern bool CheckFunctionValidatorAccess(Oid validatorOid, Oid functionOid);
 
 /*
  * Routines in dfmgr.c

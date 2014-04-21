@@ -198,7 +198,10 @@ static const char *subdirs[] = {
 	"pg_replslot",
 	"pg_tblspc",
 	"pg_stat",
-	"pg_stat_tmp"
+	"pg_stat_tmp",
+	"pg_llog",
+	"pg_llog/snapshots",
+	"pg_llog/mappings"
 };
 
 
@@ -561,16 +564,6 @@ walkdir(char *path, void (*action) (char *fname, bool isdir))
 			(*action) (subpath, false);
 	}
 
-#ifdef WIN32
-
-	/*
-	 * This fix is in mingw cvs (runtime/mingwex/dirent.c rev 1.4), but not in
-	 * released version
-	 */
-	if (GetLastError() == ERROR_NO_MORE_FILES)
-		errno = 0;
-#endif
-
 	if (errno)
 	{
 		fprintf(stderr, _("%s: could not read directory \"%s\": %s\n"),
@@ -578,7 +571,12 @@ walkdir(char *path, void (*action) (char *fname, bool isdir))
 		exit_nicely();
 	}
 
-	closedir(dir);
+	if (closedir(dir))
+	{
+		fprintf(stderr, _("%s: could not close directory \"%s\": %s\n"),
+				progname, path, strerror(errno));
+		exit_nicely();
+	}
 
 	/*
 	 * It's important to fsync the destination directory itself as individual
@@ -1293,7 +1291,12 @@ setup_config(void)
 	snprintf(path, sizeof(path), "%s/postgresql.conf", pg_data);
 
 	writefile(path, conflines);
-	chmod(path, S_IRUSR | S_IWUSR);
+	if (chmod(path, S_IRUSR | S_IWUSR) != 0)
+	{
+		fprintf(stderr, _("%s: could not change permissions of \"%s\": %s\n"),
+				progname, path, strerror(errno));
+		exit_nicely();
+	}
 
 	/*
 	 * create the automatic configuration file to store the configuration
@@ -1308,7 +1311,12 @@ setup_config(void)
 	sprintf(path, "%s/%s", pg_data, PG_AUTOCONF_FILENAME);
 
 	writefile(path, autoconflines);
-	chmod(path, S_IRUSR | S_IWUSR);
+	if (chmod(path, S_IRUSR | S_IWUSR) != 0)
+	{
+		fprintf(stderr, _("%s: could not change permissions of \"%s\": %s\n"),
+				progname, path, strerror(errno));
+		exit_nicely();
+	}
 
 	free(conflines);
 
@@ -1346,7 +1354,7 @@ setup_config(void)
 
 		/* for best results, this code should match parse_hba() */
 		hints.ai_flags = AI_NUMERICHOST;
-		hints.ai_family = PF_UNSPEC;
+		hints.ai_family = AF_UNSPEC;
 		hints.ai_socktype = 0;
 		hints.ai_protocol = 0;
 		hints.ai_addrlen = 0;
@@ -1387,7 +1395,12 @@ setup_config(void)
 	snprintf(path, sizeof(path), "%s/pg_hba.conf", pg_data);
 
 	writefile(path, conflines);
-	chmod(path, S_IRUSR | S_IWUSR);
+	if (chmod(path, S_IRUSR | S_IWUSR) != 0)
+	{
+		fprintf(stderr, _("%s: could not change permissions of \"%s\": %s\n"),
+				progname, path, strerror(errno));
+		exit_nicely();
+	}
 
 	free(conflines);
 
@@ -1398,7 +1411,12 @@ setup_config(void)
 	snprintf(path, sizeof(path), "%s/pg_ident.conf", pg_data);
 
 	writefile(path, conflines);
-	chmod(path, S_IRUSR | S_IWUSR);
+	if (chmod(path, S_IRUSR | S_IWUSR) != 0)
+	{
+		fprintf(stderr, _("%s: could not change permissions of \"%s\": %s\n"),
+				progname, path, strerror(errno));
+		exit_nicely();
+	}
 
 	free(conflines);
 
@@ -1957,8 +1975,14 @@ setup_collation(void)
 		 * only, so this doesn't clash with "en_US" for LATIN1, say.
 		 */
 		if (normalize_locale_name(alias, localebuf))
+		{
+			char   *quoted_alias = escape_quotes(alias);
+
 			PG_CMD_PRINTF3("INSERT INTO tmp_pg_collation VALUES (E'%s', E'%s', %d);\n",
-						   escape_quotes(alias), quoted_locale, enc);
+						   quoted_alias, quoted_locale, enc);
+			free(quoted_alias);
+		}
+		free(quoted_locale);
 	}
 
 	/* Add an SQL-standard name */
@@ -2862,7 +2886,6 @@ void
 get_restricted_token(void)
 {
 #ifdef WIN32
-
 	/*
 	 * Before we execute another program, make sure that we are running with a
 	 * restricted token. If not, re-execute ourselves with one.

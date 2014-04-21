@@ -273,10 +273,6 @@ static bool pgss_save;			/* whether to save stats across shutdown */
 void		_PG_init(void);
 void		_PG_fini(void);
 
-Datum		pg_stat_statements_reset(PG_FUNCTION_ARGS);
-Datum		pg_stat_statements_1_2(PG_FUNCTION_ARGS);
-Datum		pg_stat_statements(PG_FUNCTION_ARGS);
-
 PG_FUNCTION_INFO_V1(pg_stat_statements_reset);
 PG_FUNCTION_INFO_V1(pg_stat_statements_1_2);
 PG_FUNCTION_INFO_V1(pg_stat_statements);
@@ -770,6 +766,9 @@ static void
 pgss_post_parse_analyze(ParseState *pstate, Query *query)
 {
 	pgssJumbleState jstate;
+
+	if (prev_post_parse_analyze_hook)
+		prev_post_parse_analyze_hook(pstate, query);
 
 	/* Assert we didn't do this already */
 	Assert(query->queryId == 0);
@@ -1458,11 +1457,9 @@ pg_stat_statements_internal(FunctionCallInfo fcinfo,
 				{
 					char	   *enc;
 
-					enc = (char *)
-						pg_do_encoding_conversion((unsigned char *) qstr,
-												  entry->query_len,
-												  entry->encoding,
-												  GetDatabaseEncoding());
+					enc = pg_any_to_server(qstr,
+										   entry->query_len,
+										   entry->encoding);
 
 					values[i++] = CStringGetTextDatum(enc);
 

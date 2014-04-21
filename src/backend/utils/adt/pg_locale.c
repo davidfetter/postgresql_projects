@@ -418,9 +418,7 @@ db_encoding_strdup(int encoding, const char *str)
 	char	   *mstr;
 
 	/* convert the string to the database encoding */
-	pstr = (char *) pg_do_encoding_conversion(
-										  (unsigned char *) str, strlen(str),
-											encoding, GetDatabaseEncoding());
+	pstr = pg_any_to_server(str, strlen(str), encoding);
 	mstr = strdup(pstr);
 	if (pstr != str)
 		pfree(pstr);
@@ -465,7 +463,6 @@ PGLC_localeconv(void)
 		save_lc_numeric = pstrdup(save_lc_numeric);
 
 #ifdef WIN32
-
 	/*
 	 * Ideally, monetary and numeric local symbols could be returned in any
 	 * server encoding.  Unfortunately, the WIN32 API does not allow
@@ -581,35 +578,32 @@ strftime_win32(char *dst, size_t dstlen, const wchar_t *format, const struct tm 
 {
 	size_t		len;
 	wchar_t		wbuf[MAX_L10N_DATA];
-	int			encoding;
-
-	encoding = GetDatabaseEncoding();
 
 	len = wcsftime(wbuf, MAX_L10N_DATA, format, tm);
 	if (len == 0)
-
+	{
 		/*
 		 * strftime call failed - return 0 with the contents of dst
 		 * unspecified
 		 */
 		return 0;
+	}
 
 	len = WideCharToMultiByte(CP_UTF8, 0, wbuf, len, dst, dstlen, NULL, NULL);
 	if (len == 0)
-		elog(ERROR,
-		"could not convert string to UTF-8: error code %lu", GetLastError());
+		elog(ERROR, "could not convert string to UTF-8: error code %lu",
+			 GetLastError());
 
 	dst[len] = '\0';
-	if (encoding != PG_UTF8)
+	if (GetDatabaseEncoding() != PG_UTF8)
 	{
-		char	   *convstr =
-		(char *) pg_do_encoding_conversion((unsigned char *) dst,
-										   len, PG_UTF8, encoding);
+		char	   *convstr = pg_any_to_server(dst, len, PG_UTF8);
 
-		if (dst != convstr)
+		if (convstr != dst)
 		{
 			strlcpy(dst, convstr, dstlen);
 			len = strlen(dst);
+			pfree(convstr);
 		}
 	}
 
@@ -650,7 +644,6 @@ cache_locale_time(void)
 		save_lc_time = pstrdup(save_lc_time);
 
 #ifdef WIN32
-
 	/*
 	 * On WIN32, there is no way to get locale-specific time values in a
 	 * specified locale, like we do for monetary/numeric.  We can only get
@@ -1177,7 +1170,6 @@ wchar2char(char *to, const wchar_t *from, size_t tolen, pg_locale_t locale)
 		return 0;
 
 #ifdef WIN32
-
 	/*
 	 * On Windows, the "Unicode" locales assume UTF16 not UTF8 encoding, and
 	 * for some reason mbstowcs and wcstombs won't do this for us, so we use

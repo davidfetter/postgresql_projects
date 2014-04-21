@@ -12,7 +12,6 @@
 #include "pg_upgrade.h"
 
 #include <fcntl.h>
-#include <unistd.h>
 #include <sys/types.h>
 
 static void check_data_dir(const char *pg_data);
@@ -102,7 +101,7 @@ static DWORD       mainThreadId = 0;
 
 		for (iter = 0; iter < 4 && log == NULL; iter++)
 		{
-			sleep(1);
+			pg_usleep(1000000);		/* 1 sec */
 			log = fopen(log_file, "a");
 		}
 	}

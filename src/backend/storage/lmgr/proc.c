@@ -781,10 +781,6 @@ ProcKill(int code, Datum arg)
 	/* Make sure we're out of the sync rep lists */
 	SyncRepCleanupAtProcExit();
 
-	/* Make sure active replication slots are released */
-	if (MyReplicationSlot != NULL)
-		ReplicationSlotRelease();
-
 #ifdef USE_ASSERT_CHECKING
 	if (assert_enabled)
 	{
@@ -802,6 +798,10 @@ ProcKill(int code, Datum arg)
 	 * facility by releasing our PGPROC ...
 	 */
 	LWLockReleaseAll();
+
+	/* Make sure active replication slots are released */
+	if (MyReplicationSlot != NULL)
+		ReplicationSlotRelease();
 
 	/*
 	 * Clear MyProc first; then disown the process latch.  This is so that
@@ -1158,8 +1158,7 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 			 * Only do it if the worker is not working to protect against Xid
 			 * wraparound.
 			 */
-			if ((autovac != NULL) &&
-				(autovac_pgxact->vacuumFlags & PROC_IS_AUTOVACUUM) &&
+			if ((autovac_pgxact->vacuumFlags & PROC_IS_AUTOVACUUM) &&
 				!(autovac_pgxact->vacuumFlags & PROC_VACUUM_FOR_WRAPAROUND))
 			{
 				int			pid = autovac->pid;
@@ -1209,13 +1208,23 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 		 */
 		if (log_lock_waits && deadlock_state != DS_NOT_YET_CHECKED)
 		{
-			StringInfoData buf;
+			StringInfoData buf,
+						lock_waiters_sbuf,
+						lock_holders_sbuf;
 			const char *modename;
 			long		secs;
 			int			usecs;
 			long		msecs;
+			SHM_QUEUE  *procLocks;
+			PROCLOCK   *proclock;
+			bool		first_holder = true,
+						first_waiter = true;
+			int			lockHoldersNum = 0;
 
 			initStringInfo(&buf);
+			initStringInfo(&lock_waiters_sbuf);
+			initStringInfo(&lock_holders_sbuf);
+
 			DescribeLockTag(&buf, &locallock->tag.lock);
 			modename = GetLockmodeName(locallock->tag.lock.locktag_lockmethodid,
 									   lockmode);
@@ -1225,10 +1234,67 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 			msecs = secs * 1000 + usecs / 1000;
 			usecs = usecs % 1000;
 
+			/*
+			 * we loop over the lock's procLocks to gather a list of all
+			 * holders and waiters. Thus we will be able to provide more
+			 * detailed information for lock debugging purposes.
+			 *
+			 * lock->procLocks contains all processes which hold or wait for
+			 * this lock.
+			 */
+
+			LWLockAcquire(partitionLock, LW_SHARED);
+
+			procLocks = &(lock->procLocks);
+			proclock = (PROCLOCK *) SHMQueueNext(procLocks, procLocks,
+											   offsetof(PROCLOCK, lockLink));
+
+			while (proclock)
+			{
+				/*
+				 * we are a waiter if myProc->waitProcLock == proclock; we are
+				 * a holder if it is NULL or something different
+				 */
+				if (proclock->tag.myProc->waitProcLock == proclock)
+				{
+					if (first_waiter)
+					{
+						appendStringInfo(&lock_waiters_sbuf, "%d",
+										 proclock->tag.myProc->pid);
+						first_waiter = false;
+					}
+					else
+						appendStringInfo(&lock_waiters_sbuf, ", %d",
+										 proclock->tag.myProc->pid);
+				}
+				else
+				{
+					if (first_holder)
+					{
+						appendStringInfo(&lock_holders_sbuf, "%d",
+										 proclock->tag.myProc->pid);
+						first_holder = false;
+					}
+					else
+						appendStringInfo(&lock_holders_sbuf, ", %d",
+										 proclock->tag.myProc->pid);
+
+					lockHoldersNum++;
+				}
+
+				proclock = (PROCLOCK *) SHMQueueNext(procLocks, &proclock->lockLink,
+											   offsetof(PROCLOCK, lockLink));
+			}
+
+			LWLockRelease(partitionLock);
+
 			if (deadlock_state == DS_SOFT_DEADLOCK)
 				ereport(LOG,
 						(errmsg("process %d avoided deadlock for %s on %s by rearranging queue order after %ld.%03d ms",
-							  MyProcPid, modename, buf.data, msecs, usecs)));
+								MyProcPid, modename, buf.data, msecs, usecs),
+						 (errdetail_log_plural("Process holding the lock: %s. Wait queue: %s.",
+						   "Processes holding the lock: %s. Wait queue: %s.",
+											   lockHoldersNum, lock_holders_sbuf.data, lock_waiters_sbuf.data))));
 			else if (deadlock_state == DS_HARD_DEADLOCK)
 			{
 				/*
@@ -1240,13 +1306,19 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 				 */
 				ereport(LOG,
 						(errmsg("process %d detected deadlock while waiting for %s on %s after %ld.%03d ms",
-							  MyProcPid, modename, buf.data, msecs, usecs)));
+								MyProcPid, modename, buf.data, msecs, usecs),
+						 (errdetail_log_plural("Process holding the lock: %s. Wait queue: %s.",
+						   "Processes holding the lock: %s. Wait queue: %s.",
+											   lockHoldersNum, lock_holders_sbuf.data, lock_waiters_sbuf.data))));
 			}
 
 			if (myWaitStatus == STATUS_WAITING)
 				ereport(LOG,
 						(errmsg("process %d still waiting for %s on %s after %ld.%03d ms",
-							  MyProcPid, modename, buf.data, msecs, usecs)));
+								MyProcPid, modename, buf.data, msecs, usecs),
+						 (errdetail_log_plural("Process holding the lock: %s. Wait queue: %s.",
+						   "Processes holding the lock: %s. Wait queue: %s.",
+											   lockHoldersNum, lock_holders_sbuf.data, lock_waiters_sbuf.data))));
 			else if (myWaitStatus == STATUS_OK)
 				ereport(LOG,
 					(errmsg("process %d acquired %s on %s after %ld.%03d ms",
@@ -1266,7 +1338,10 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 				if (deadlock_state != DS_HARD_DEADLOCK)
 					ereport(LOG,
 							(errmsg("process %d failed to acquire %s on %s after %ld.%03d ms",
-							  MyProcPid, modename, buf.data, msecs, usecs)));
+								MyProcPid, modename, buf.data, msecs, usecs),
+							 (errdetail_log_plural("Process holding the lock: %s. Wait queue: %s.",
+						   "Processes holding the lock: %s. Wait queue: %s.",
+												   lockHoldersNum, lock_holders_sbuf.data, lock_waiters_sbuf.data))));
 			}
 
 			/*
@@ -1276,6 +1351,8 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 			deadlock_state = DS_NO_DEADLOCK;
 
 			pfree(buf.data);
+			pfree(lock_holders_sbuf.data);
+			pfree(lock_waiters_sbuf.data);
 		}
 	} while (myWaitStatus == STATUS_WAITING);
 

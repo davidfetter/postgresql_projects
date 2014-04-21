@@ -130,7 +130,7 @@ typedef struct GinMetaPageData
 #define GinPageRightMost(page) ( GinPageGetOpaque(page)->rightlink == InvalidBlockNumber)
 
 /*
- * We use our own ItemPointerGet(BlockNumber|GetOffsetNumber)
+ * We use our own ItemPointerGet(BlockNumber|OffsetNumber)
  * to avoid Asserts, since sometimes the ip_posid isn't "valid"
  */
 #define GinItemPointerGetBlockNumber(pointer) \
@@ -257,11 +257,6 @@ typedef signed char GinNullCategory;
 	(GinPostingList *) ((PageGetContents(page) + MAXALIGN(sizeof(ItemPointerData))))
 #define GinDataLeafPageGetPostingListSize(page) \
 	(((PageHeader) page)->pd_lower - MAXALIGN(SizeOfPageHeaderData) - MAXALIGN(sizeof(ItemPointerData)))
-#define GinDataLeafPageSetPostingListSize(page, size) \
-	{ \
-		Assert(size <= GinDataLeafMaxContentSize); \
-		((PageHeader) page)->pd_lower = (size) + MAXALIGN(SizeOfPageHeaderData) + MAXALIGN(sizeof(ItemPointerData)); \
-	}
 
 #define GinDataLeafPageIsEmpty(page) \
 	(GinPageIsCompressed(page) ? (GinDataLeafPageGetPostingListSize(page) == 0) : (GinPageGetOpaque(page)->maxoff < FirstOffsetNumber))
@@ -281,13 +276,25 @@ typedef signed char GinNullCategory;
 #define GinDataPageGetPostingItem(page, i)	\
 	((PostingItem *) (GinDataPageGetData(page) + ((i)-1) * sizeof(PostingItem)))
 
-#define GinNonLeafDataPageGetFreeSpace(page)	\
-	(BLCKSZ - MAXALIGN(SizeOfPageHeaderData) \
-	 - MAXALIGN(sizeof(ItemPointerData)) \
-	 - GinPageGetOpaque(page)->maxoff * sizeof(PostingItem)	\
-	 - MAXALIGN(sizeof(GinPageOpaqueData)))
+/*
+ * Note: there is no GinDataPageGetDataSize macro, because before version
+ * 9.4, we didn't set pd_lower on data pages. There can be pages in the index
+ * that were binary-upgraded from earlier versions and still have an invalid
+ * pd_lower, so we cannot trust it in general. Compressed posting tree leaf
+ * pages are new in 9.4, however, so we can trust them; see
+ * GinDataLeafPageGetPostingListSize.
+ */
+#define GinDataPageSetDataSize(page, size) \
+	{ \
+		Assert(size <= GinDataPageMaxDataSize); \
+		((PageHeader) page)->pd_lower = (size) + MAXALIGN(SizeOfPageHeaderData) + MAXALIGN(sizeof(ItemPointerData)); \
+	}
 
-#define GinDataLeafMaxContentSize	\
+#define GinNonLeafDataPageGetFreeSpace(page)	\
+	(GinDataPageMaxDataSize - \
+	 GinPageGetOpaque(page)->maxoff * sizeof(PostingItem))
+
+#define GinDataPageMaxDataSize	\
 	(BLCKSZ - MAXALIGN(SizeOfPageHeaderData) \
 	 - MAXALIGN(sizeof(ItemPointerData)) \
 	 - MAXALIGN(sizeof(GinPageOpaqueData)))
@@ -348,6 +355,7 @@ typedef struct GinState
 	FmgrInfo	extractValueFn[INDEX_MAX_KEYS];
 	FmgrInfo	extractQueryFn[INDEX_MAX_KEYS];
 	FmgrInfo	consistentFn[INDEX_MAX_KEYS];
+	FmgrInfo	triConsistentFn[INDEX_MAX_KEYS];
 	FmgrInfo	comparePartialFn[INDEX_MAX_KEYS];		/* optional method */
 	/* canPartialMatch[i] is true if comparePartialFn[i] is valid */
 	bool		canPartialMatch[INDEX_MAX_KEYS];
@@ -405,7 +413,8 @@ typedef struct
 	 * whose split this insertion finishes. As BlockIdData[2] (beware of adding
 	 * fields before this that would make them not 16-bit aligned)
 	 *
-	 * 2. one of the following structs, depending on tree type.
+	 * 2. an ginxlogInsertEntry or ginxlogRecompressDataLeaf struct, depending
+	 * on tree type.
 	 *
 	 * NB: the below structs are only 16-bit aligned when appended to a
 	 * ginxlogInsert struct! Beware of adding fields to them that require
@@ -420,14 +429,38 @@ typedef struct
 	IndexTupleData tuple;	/* variable length */
 } ginxlogInsertEntry;
 
+
 typedef struct
 {
-	uint16		length;
-	uint16		unmodifiedsize;
+	uint16		nactions;
 
-	/* compressed segments, variable length */
-	char		newdata[1];
+	/* Variable number of 'actions' follow */
 } ginxlogRecompressDataLeaf;
+
+/*
+ * Note: this struct is currently not used in code, and only acts as
+ * documentation. The WAL record format is as specified here, but the code
+ * uses straight access through a Pointer and memcpy to read/write these.
+ */
+typedef struct
+{
+	uint8		segno;		/* segment this action applies to */
+	char		type;		/* action type (see below) */
+
+	/*
+	 * Action-specific data follows. For INSERT and REPLACE actions that is a
+	 * GinPostingList struct. For ADDITEMS, a uint16 for the number of items
+	 * added, followed by the items themselves as ItemPointers. DELETE actions
+	 * have no further data.
+	 */
+} ginxlogSegmentAction;
+
+/* Action types */
+#define GIN_SEGMENT_UNMODIFIED	0	/* no action (not used in WAL records) */
+#define GIN_SEGMENT_DELETE		1	/* a whole segment is removed */
+#define GIN_SEGMENT_INSERT		2	/* a whole segment is added */
+#define GIN_SEGMENT_REPLACE		3	/* a segment is replaced */
+#define GIN_SEGMENT_ADDITEMS	4	/* items are added to existing segment */
 
 typedef struct
 {
@@ -762,8 +795,9 @@ typedef struct GinScanKeyData
 	/* array of check flags, reported to consistentFn */
 	bool	   *entryRes;
 	bool		(*boolConsistentFn) (GinScanKey key);
-	bool		(*triConsistentFn) (GinScanKey key);
+	GinTernaryValue (*triConsistentFn) (GinScanKey key);
 	FmgrInfo   *consistentFmgrInfo;
+	FmgrInfo   *triConsistentFmgrInfo;
 	Oid			collation;
 
 	/* other data needed for calling consistentFn */
@@ -850,17 +884,6 @@ extern void ginNewScanKey(IndexScanDesc scan);
 extern Datum gingetbitmap(PG_FUNCTION_ARGS);
 
 /* ginlogic.c */
-
-enum
-{
-	GIN_FALSE = 0,			/* item is present / matches */
-	GIN_TRUE = 1,			/* item is not present / does not match */
-	GIN_MAYBE = 2			/* don't know if item is present / don't know if
-							 * matches */
-} GinLogicValueEnum;
-
-typedef char GinLogicValue;
-
 extern void ginInitConsistentFunction(GinState *ginstate, GinScanKey key);
 
 /* ginvacuum.c */
@@ -928,9 +951,9 @@ extern int ginPostingListDecodeAllSegmentsToTbm(GinPostingList *ptr, int totalsi
 
 extern ItemPointer ginPostingListDecodeAllSegments(GinPostingList *ptr, int len, int *ndecoded);
 extern ItemPointer ginPostingListDecode(GinPostingList *ptr, int *ndecoded);
-extern int ginMergeItemPointers(ItemPointerData *dst,
-					 ItemPointerData *a, uint32 na,
-					 ItemPointerData *b, uint32 nb);
+extern ItemPointer ginMergeItemPointers(ItemPointerData *a, uint32 na,
+					 ItemPointerData *b, uint32 nb,
+					 int *nmerged);
 
 /*
  * Merging the results of several gin scans compares item pointers a lot,

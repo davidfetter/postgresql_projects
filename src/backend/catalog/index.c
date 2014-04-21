@@ -1215,18 +1215,13 @@ index_constraint_create(Relation heapRelation,
 	 */
 	if (deferrable)
 	{
-		RangeVar   *heapRel;
 		CreateTrigStmt *trigger;
-
-		heapRel = makeRangeVar(get_namespace_name(namespaceId),
-							   pstrdup(RelationGetRelationName(heapRelation)),
-							   -1);
 
 		trigger = makeNode(CreateTrigStmt);
 		trigger->trigname = (constraintType == CONSTRAINT_PRIMARY) ?
 			"PK_ConstraintTrigger" :
 			"Unique_ConstraintTrigger";
-		trigger->relation = heapRel;
+		trigger->relation = NULL;
 		trigger->funcname = SystemFuncName("unique_key_recheck");
 		trigger->args = NIL;
 		trigger->row = true;
@@ -1239,7 +1234,8 @@ index_constraint_create(Relation heapRelation,
 		trigger->initdeferred = initdeferred;
 		trigger->constrrel = NULL;
 
-		(void) CreateTrigger(trigger, NULL, conOid, indexRelationId, true);
+		(void) CreateTrigger(trigger, NULL, RelationGetRelid(heapRelation),
+							 InvalidOid, conOid, indexRelationId, true);
 	}
 
 	/*
@@ -2160,7 +2156,7 @@ IndexBuildHeapScan(Relation heapRelation,
 	{
 		snapshot = SnapshotAny;
 		/* okay to ignore lazy VACUUMs here */
-		OldestXmin = GetOldestXmin(heapRelation->rd_rel->relisshared, true);
+		OldestXmin = GetOldestXmin(heapRelation, true);
 	}
 
 	scan = heap_beginscan_strat(heapRelation,	/* relation */
@@ -2299,7 +2295,9 @@ IndexBuildHeapScan(Relation heapRelation,
 							 * Must drop the lock on the buffer before we wait
 							 */
 							LockBuffer(scan->rs_cbuf, BUFFER_LOCK_UNLOCK);
-							XactLockTableWait(xwait);
+							XactLockTableWait(xwait, heapRelation,
+											  &heapTuple->t_data->t_ctid,
+											  XLTW_InsertIndexUnique);
 							goto recheck;
 						}
 					}
@@ -2345,7 +2343,9 @@ IndexBuildHeapScan(Relation heapRelation,
 							 * Must drop the lock on the buffer before we wait
 							 */
 							LockBuffer(scan->rs_cbuf, BUFFER_LOCK_UNLOCK);
-							XactLockTableWait(xwait);
+							XactLockTableWait(xwait, heapRelation,
+											  &heapTuple->t_data->t_ctid,
+											  XLTW_InsertIndexUnique);
 							goto recheck;
 						}
 
@@ -2442,7 +2442,10 @@ IndexBuildHeapScan(Relation heapRelation,
 			rootTuple = *heapTuple;
 			offnum = ItemPointerGetOffsetNumber(&heapTuple->t_self);
 
-			Assert(OffsetNumberIsValid(root_offsets[offnum - 1]));
+			if (!OffsetNumberIsValid(root_offsets[offnum - 1]))
+				elog(ERROR, "failed to find parent tuple for heap-only tuple at (%u,%u) in table \"%s\"",
+					 ItemPointerGetBlockNumber(&heapTuple->t_self),
+					 offnum, RelationGetRelationName(heapRelation));
 
 			ItemPointerSetOffsetNumber(&rootTuple.t_self,
 									   root_offsets[offnum - 1]);
@@ -2860,7 +2863,11 @@ validate_index_heapscan(Relation heapRelation,
 		if (HeapTupleIsHeapOnly(heapTuple))
 		{
 			root_offnum = root_offsets[root_offnum - 1];
-			Assert(OffsetNumberIsValid(root_offnum));
+			if (!OffsetNumberIsValid(root_offnum))
+				elog(ERROR, "failed to find parent tuple for heap-only tuple at (%u,%u) in table \"%s\"",
+					 ItemPointerGetBlockNumber(heapcursor),
+					 ItemPointerGetOffsetNumber(heapcursor),
+					 RelationGetRelationName(heapRelation));
 			ItemPointerSetOffsetNumber(&rootTuple, root_offnum);
 		}
 
