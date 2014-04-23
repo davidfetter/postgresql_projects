@@ -19,5 +19,6 @@ extern ModifyTableState *ExecInitModifyTable(ModifyTable *node, EState *estate, 
 extern TupleTableSlot *ExecModifyTable(ModifyTableState *node);
 extern void ExecEndModifyTable(ModifyTableState *node);
 extern void ExecReScanModifyTable(ModifyTableState *node);
+extern void SimpleInsertTuple(Relation relation, HeapTuple tuple);
 
 #endif   /* NODEMODIFYTABLE_H */
