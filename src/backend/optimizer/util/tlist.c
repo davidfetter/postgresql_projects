@@ -400,16 +400,32 @@ extract_grouping_ops(List *groupClause)
 	int			colno = 0;
 	Oid		   *groupOperators;
 	ListCell   *glitem;
+	ListCell   *glitem_inner;
 
 	groupOperators = (Oid *) palloc(sizeof(Oid) * numCols);
 
 	foreach(glitem, groupClause)
 	{
-		SortGroupClause *groupcl = (SortGroupClause *) lfirst(glitem);
+		/* If ROLLUP is present, iterate into the nested sublists */
+		if (IsA(lfirst(glitem), List))
+		{
+			foreach(glitem_inner, lfirst(glitem))
+			{
+				SortGroupClause *groupcl = (SortGroupClause *) lfirst(glitem_inner);
 
-		groupOperators[colno] = groupcl->eqop;
-		Assert(OidIsValid(groupOperators[colno]));
-		colno++;
+				groupOperators[colno] = groupcl->eqop;
+				Assert(OidIsValid(groupOperators[colno]));
+				colno++;
+			}
+		}
+		else
+		{
+			SortGroupClause *groupcl = (SortGroupClause *) lfirst(glitem);
+
+			groupOperators[colno] = groupcl->eqop;
+			Assert(OidIsValid(groupOperators[colno]));
+			colno++;
+		}
 	}
 
 	return groupOperators;

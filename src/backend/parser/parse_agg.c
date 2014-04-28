@@ -778,6 +778,8 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	bool		hasSelfRefRTEs;
 	PlannerInfo *root;
 	Node	   *clause;
+	ListCell   *l_inner;
+	bool       hasRollup = false;
 
 	/* This should only be called if we found aggregates or grouping */
 	Assert(pstate->p_hasAggs || qry->groupClause || qry->havingQual);
@@ -803,13 +805,36 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	 */
 	foreach(l, qry->groupClause)
 	{
-		SortGroupClause *grpcl = (SortGroupClause *) lfirst(l);
-		Node	   *expr;
+		/* If ROLLUP is present, iterate into the nested sublist */
+		if (IsA(lfirst(l), List))
+		{
+			hasRollup = true;
+			foreach(l_inner, lfirst(l))
+			{
+				    List *current_sublist_groupclauses = NIL;
+					SortGroupClause *grpcl = (SortGroupClause *) lfirst(l_inner);
+					Node	   *expr;
 
-		expr = get_sortgroupclause_expr(grpcl, qry->targetList);
-		if (expr == NULL)
-			continue;			/* probably cannot happen */
-		groupClauses = lcons(expr, groupClauses);
+					expr = get_sortgroupclause_expr(grpcl, qry->targetList);
+					if (expr == NULL)
+						continue;			/* probably cannot happen */
+
+					current_sublist_groupclauses = lcons(expr, current_sublist_groupclauses);
+					groupClauses = lappend(groupClauses, current_sublist_groupclauses);
+			}
+		}
+		else
+		{
+			SortGroupClause *grpcl = (SortGroupClause *) lfirst(l);
+			Node	   *expr;
+
+			expr = get_sortgroupclause_expr(grpcl, qry->targetList);
+			if (expr == NULL)
+				continue;			/* probably cannot happen */
+
+			groupClauses = lcons(expr, groupClauses);
+		}
+		
 	}
 
 	/*
@@ -843,8 +868,11 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	{
 		if (!IsA((Node *) lfirst(l), Var))
 		{
+			if (!hasRollup)
+			{
 			have_non_var_grouping = true;
 			break;
+			}
 		}
 	}
 
@@ -924,6 +952,7 @@ check_ungrouped_columns_walker(Node *node,
 							   check_ungrouped_columns_context *context)
 {
 	ListCell   *gl;
+	ListCell   *gl_iter;
 
 	if (node == NULL)
 		return false;
@@ -976,8 +1005,21 @@ check_ungrouped_columns_walker(Node *node,
 	{
 		foreach(gl, context->groupClauses)
 		{
-			if (equal(node, lfirst(gl)))
-				return false;	/* acceptable, do not descend more */
+			/* If ROLLUP is present, iterate into the nested sublist */
+			if (IsA(lfirst(gl), List))
+			{
+				foreach(gl_iter, lfirst(gl))
+				{		
+					if (equal(node, lfirst(gl_iter)))
+						return false;	/* acceptable, do not descend more */
+				}
+			}
+			else
+			{
+				if (equal(node, lfirst(gl)))
+						return false;	/* acceptable, do not descend more */
+			}
+				
 		}
 	}
 
@@ -1004,12 +1046,39 @@ check_ungrouped_columns_walker(Node *node,
 			foreach(gl, context->groupClauses)
 			{
 				Var		   *gvar = (Var *) lfirst(gl);
+				//elog(WARNING,"main loop %d, %d",gvar->varattno, var->varattno);
+				if (IsA(lfirst(gl), List))
+				{
+					//elog(WARNING,"In condition1");
+					foreach(gl_iter, lfirst(gl))
+					{
+						//elog(WARNING,"In loop1");
+						Var		   *gvar = (Var *) lfirst(gl_iter);
 
-				if (IsA(gvar, Var) &&
-					gvar->varno == var->varno &&
-					gvar->varattno == var->varattno &&
-					gvar->varlevelsup == 0)
-					return false;		/* acceptable, we're okay */
+						if (IsA(gvar, Var) &&
+							gvar->varno == var->varno &&
+							gvar->varattno == var->varattno &&
+							gvar->varlevelsup == 0)
+							return false;		/* acceptable, we're okay */
+					}
+				}
+				else
+				{
+					//elog(WARNING,"In condition2");
+					//elog(WARNING,"value is %d",gvar->varattno);
+
+						if (IsA(gvar, Var) &&
+							gvar->varno == var->varno &&
+							gvar->varattno == var->varattno &&
+							gvar->varlevelsup == 0)
+						{
+							//elog(WARNING,"var matched %d %d",(gvar->varattno),(var->varattno));
+							return false;		/* acceptable, we're okay */
+						}
+						//else
+							//elog(WARNING,"Not matching %d %d",(gvar->varattno),(var->varattno));
+				}
+				
 			}
 		}
 

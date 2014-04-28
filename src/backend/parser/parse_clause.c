@@ -1690,11 +1690,13 @@ transformGroupClause(ParseState *pstate, List *grouplist,
 		bool		found = false;
 		bool        hasRollup = false;
 
+		/* If ROLLUP is present, iterate into the nested sublist */
 		if (IsA(lfirst(gl), List))
 		{
 			hasRollup = true;
 			foreach(gl_innerlist, lfirst(gl))
 			{
+				List *current_sublist_result = NIL;
 				gexpr = (Node *) lfirst(gl_innerlist);
 				if (useSQL99)
 					tle = findTargetlistEntrySQL99(pstate, gexpr,
@@ -1702,14 +1704,57 @@ transformGroupClause(ParseState *pstate, List *grouplist,
 				else
 					tle = findTargetlistEntrySQL92(pstate, gexpr,
 					targetlist, exprKind);
+
+					/* Eliminate duplicates (GROUP BY x, x) */
+				if (targetIsInSortList(tle, InvalidOid, result))
+					continue;
+
+				/*
+				 * If the GROUP BY tlist entry also appears in ORDER BY, copy operator
+				 * info from the (first) matching ORDER BY item.  This means that if
+				 * you write something like "GROUP BY foo ORDER BY foo USING <<<", the
+				 * GROUP BY operation silently takes on the equality semantics implied
+				 * by the ORDER BY.  There are two reasons to do this: it improves the
+				 * odds that we can implement both GROUP BY and ORDER BY with a single
+				 * sort step, and it allows the user to choose the equality semantics
+				 * used by GROUP BY, should she be working with a datatype that has
+				 * more than one equality operator.
+				 */
+				if (tle->ressortgroupref > 0)
+				{
+					ListCell   *sl;
+
+					foreach(sl, sortClause)
+					{
+						SortGroupClause *sc = (SortGroupClause *) lfirst(sl);
+
+						if (sc->tleSortGroupRef == tle->ressortgroupref)
+						{
+							current_sublist_result = lappend(current_sublist_result, copyObject(sc));
+							found = true;
+							break;
+						}
+					}
+				}
+
+		/*
+		 * If no match in ORDER BY, just add it to the result using default
+		 * sort/group semantics.
+		 */
+		if (!found)
+			current_sublist_result = addTargetToGroupList(pstate, tle,
+														  current_sublist_result, *targetlist,
+														  exprLocation(gexpr),
+														  true);
+
+		result = lappend(result, current_sublist_result);
+
+				
 			}
 		}
-
-		if(!gexpr)
-			gexpr = (Node *) lfirst(gl);
-
-		if (!hasRollup)
+		else
 		{
+			gexpr = (Node *) lfirst(gl);
 			if (useSQL99)
 				tle = findTargetlistEntrySQL99(pstate, gexpr,
 											   targetlist, exprKind);
@@ -1718,47 +1763,50 @@ transformGroupClause(ParseState *pstate, List *grouplist,
 											   targetlist, exprKind);
 		}
 
-		/* Eliminate duplicates (GROUP BY x, x) */
-		if (targetIsInSortList(tle, InvalidOid, result))
-			continue;
-
-		/*
-		 * If the GROUP BY tlist entry also appears in ORDER BY, copy operator
-		 * info from the (first) matching ORDER BY item.  This means that if
-		 * you write something like "GROUP BY foo ORDER BY foo USING <<<", the
-		 * GROUP BY operation silently takes on the equality semantics implied
-		 * by the ORDER BY.  There are two reasons to do this: it improves the
-		 * odds that we can implement both GROUP BY and ORDER BY with a single
-		 * sort step, and it allows the user to choose the equality semantics
-		 * used by GROUP BY, should she be working with a datatype that has
-		 * more than one equality operator.
-		 */
-		if (tle->ressortgroupref > 0)
+		if (!hasRollup)
 		{
-			ListCell   *sl;
+			/* Eliminate duplicates (GROUP BY x, x) */
+			if (targetIsInSortList(tle, InvalidOid, result))
+				continue;
 
-			foreach(sl, sortClause)
+			/*
+			 * If the GROUP BY tlist entry also appears in ORDER BY, copy operator
+			 * info from the (first) matching ORDER BY item.  This means that if
+			 * you write something like "GROUP BY foo ORDER BY foo USING <<<", the
+			 * GROUP BY operation silently takes on the equality semantics implied
+			 * by the ORDER BY.  There are two reasons to do this: it improves the
+			 * odds that we can implement both GROUP BY and ORDER BY with a single
+			 * sort step, and it allows the user to choose the equality semantics
+			 * used by GROUP BY, should she be working with a datatype that has
+			 * more than one equality operator.
+			 */
+			if (tle->ressortgroupref > 0)
 			{
-				SortGroupClause *sc = (SortGroupClause *) lfirst(sl);
+				ListCell   *sl;
 
-				if (sc->tleSortGroupRef == tle->ressortgroupref)
+				foreach(sl, sortClause)
 				{
-					result = lappend(result, copyObject(sc));
-					found = true;
-					break;
+					SortGroupClause *sc = (SortGroupClause *) lfirst(sl);
+
+					if (sc->tleSortGroupRef == tle->ressortgroupref)
+					{
+						result = lappend(result, copyObject(sc));
+						found = true;
+						break;
+					}
 				}
 			}
-		}
 
-		/*
-		 * If no match in ORDER BY, just add it to the result using default
-		 * sort/group semantics.
-		 */
-		if (!found)
-			result = addTargetToGroupList(pstate, tle,
-										  result, *targetlist,
-										  exprLocation(gexpr),
-										  true);
+			/*
+			 * If no match in ORDER BY, just add it to the result using default
+			 * sort/group semantics.
+			 */
+			if (!found)
+				result = addTargetToGroupList(pstate, tle,
+											  result, *targetlist,
+											  exprLocation(gexpr),
+											  true);
+		}
 	}
 
 	return result;
