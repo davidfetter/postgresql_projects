@@ -27,6 +27,8 @@ UPDATE tmp
    FROM onek
    WHERE onek.stringu1 = 'JBAAAA' and
 	  onek.stringu1 = tmp.stringu1;
+WARNING:  function "reverse_name" uses deprecated V0 calling convention
+DETAIL:  link symbol "reverse_name" in module "@libdir@/regress@DLSUFFIX@"
 UPDATE tmp
    SET stringu1 = reverse_name(onek2.stringu1)
    FROM onek2
@@ -816,6 +818,8 @@ insert into oldstyle_test values(0,'12');
 insert into oldstyle_test values(1000,'12');
 insert into oldstyle_test values(0, repeat('x', 50000));
 select i, length(t), octet_length(t), oldstyle_length(i,t) from oldstyle_test;
+WARNING:  function "oldstyle_length" uses deprecated V0 calling convention
+DETAIL:  link symbol "oldstyle_length" in module "@libdir@/regress@DLSUFFIX@"
   i   | length | octet_length | oldstyle_length 
 ------+--------+--------------+-----------------
       |        |              |                

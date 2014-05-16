@@ -357,6 +357,13 @@ fmgr_info_C_lang(Oid functionId, FmgrInfo *finfo, HeapTuple procedureTuple)
 		/* Cache the addresses for later calls */
 		record_C_func(procedureTuple, user_fn, inforec);
 
+		if (inforec->api_version == 0)
+			ereport(WARNING,
+					(errmsg("function \"%s\" uses deprecated V0 calling convention",
+							NameStr(procedureStruct->proname)),
+					 errdetail("link symbol \"%s\" in module \"%s\"",
+							   prosrcstring, probinstring)));
+
 		pfree(prosrcstring);
 		pfree(probinstring);
 	}
