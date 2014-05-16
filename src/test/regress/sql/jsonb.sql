@@ -334,6 +334,7 @@ SELECT count(*) FROM testjsonb WHERE j @> '{"wait":"CC", "public":true}';
 SELECT count(*) FROM testjsonb WHERE j @> '{"age":25}';
 SELECT count(*) FROM testjsonb WHERE j @> '{"age":25.0}';
 SELECT count(*) FROM testjsonb WHERE j ? 'public';
+SELECT count(*) FROM testjsonb WHERE j ? 'bar';
 SELECT count(*) FROM testjsonb WHERE j ?| ARRAY['public','disabled'];
 SELECT count(*) FROM testjsonb WHERE j ?& ARRAY['public','disabled'];
 
@@ -350,6 +351,7 @@ SELECT count(*) FROM testjsonb WHERE j @> '{"array":["bar"]}';
 -- excercise GIN_SEARCH_MODE_ALL
 SELECT count(*) FROM testjsonb WHERE j @> '{}';
 SELECT count(*) FROM testjsonb WHERE j ? 'public';
+SELECT count(*) FROM testjsonb WHERE j ? 'bar';
 SELECT count(*) FROM testjsonb WHERE j ?| ARRAY['public','disabled'];
 SELECT count(*) FROM testjsonb WHERE j ?& ARRAY['public','disabled'];
 
@@ -389,9 +391,9 @@ SET enable_seqscan = off;
 SELECT count(*) FROM testjsonb WHERE j > '{"p":1}';
 SELECT count(*) FROM testjsonb WHERE j = '{"pos":98, "line":371, "node":"CBA", "indexed":true}';
 
---gin hash
+--gin path opclass
 DROP INDEX jidx;
-CREATE INDEX jidx ON testjsonb USING gin (j jsonb_hash_ops);
+CREATE INDEX jidx ON testjsonb USING gin (j jsonb_path_ops);
 SET enable_seqscan = off;
 
 SELECT count(*) FROM testjsonb WHERE j @> '{"wait":null}';

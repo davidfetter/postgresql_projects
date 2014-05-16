@@ -4,6 +4,10 @@ PostgreSQL documentation
 -->
 
 <refentry id="app-pgrecvlogical">
+ <indexterm zone="app-pgrecvlogical">
+  <primary>pg_recvlogical</primary>
+ </indexterm>
+
  <refmeta>
   <refentrytitle><application>pg_recvlogical</application></refentrytitle>
   <manvolnum>1</manvolnum>
@@ -15,10 +19,6 @@ PostgreSQL documentation
   <refpurpose>Control logical decoding (see <xref linkend="logicaldecoding">)
    streams over a walsender connection.</refpurpose>
  </refnamediv>
-
- <indexterm zone="app-pgrecvlogical">
-  <primary>pg_recvlogical</primary>
- </indexterm>
 
  <refsynopsisdiv>
   <cmdsynopsis>
@@ -226,13 +226,12 @@ PostgreSQL documentation
       <term><option>--fsync-interval=<replaceable>interval_seconds</replaceable></option></term>
       <listitem>
        <para>
-        How often should
-        <link linkend="app-pgreceivexlog"><application>pg_receivexlog</application></link>
-        issue sync commands to ensure the <parameter>--outputfile</parameter>
-        is safely flushed to disk without being asked by the server to do
-        so. Specifying an interval of <literal>0</literal> disables issuing
-        fsyncs altogether, while still reporting progress the server.
-        In this case, data may be lost in the event of a crash.
+        How often should <application>pg_recvlogical</application> issue sync
+        commands to ensure the <parameter>--outputfile</parameter> is safely
+        flushed to disk without being asked by the server to do so. Specifying
+        an interval of <literal>0</literal> disables issuing fsyncs altogether,
+        while still reporting progress the server.  In this case, data may be
+        lost in the event of a crash.
        </para>
       </listitem>
      </varlistentry>

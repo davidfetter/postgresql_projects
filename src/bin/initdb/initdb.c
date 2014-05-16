@@ -18,7 +18,7 @@
  * to produce a new database.
  *
  * For largely-historical reasons, the template1 database is the one built
- * by the basic bootstrap process.	After it is complete, template0 and
+ * by the basic bootstrap process.  After it is complete, template0 and
  * the default database, postgres, are made just by copying template1.
  *
  * To create template1, we run the postgres (backend) program in bootstrap
@@ -252,7 +252,7 @@ static void trapsig(int signum);
 static void check_ok(void);
 static char *escape_quotes(const char *src);
 static int	locale_date_order(const char *locale);
-static bool check_locale_name(int category, const char *locale,
+static void check_locale_name(int category, const char *locale,
 				  char **canonname);
 static bool check_locale_encoding(const char *locale, int encoding);
 static void setlocales(void);
@@ -581,7 +581,7 @@ walkdir(char *path, void (*action) (char *fname, bool isdir))
 	/*
 	 * It's important to fsync the destination directory itself as individual
 	 * file fsyncs don't guarantee that the directory entry for the file is
-	 * synced.	Recent versions of ext4 have made the window much wider but
+	 * synced.  Recent versions of ext4 have made the window much wider but
 	 * it's been an issue for ext3 and other filesystems in the past.
 	 */
 	(*action) (path, true);
@@ -614,7 +614,7 @@ pre_sync_fname(char *fname, bool isdir)
 	}
 
 	/*
-	 * Prefer sync_file_range, else use posix_fadvise.	We ignore any error
+	 * Prefer sync_file_range, else use posix_fadvise.  We ignore any error
 	 * here since this operation is only a hint anyway.
 	 */
 #if defined(HAVE_SYNC_FILE_RANGE)
@@ -772,7 +772,7 @@ exit_nicely(void)
 static char *
 get_id(void)
 {
-	const char	   *username;
+	const char *username;
 
 #ifndef WIN32
 	if (geteuid() == 0)			/* 0 is root's uid */
@@ -1057,13 +1057,13 @@ static char *
 choose_dsm_implementation(void)
 {
 #ifdef HAVE_SHM_OPEN
-	int		ntries = 10;
+	int			ntries = 10;
 
 	while (ntries > 0)
 	{
-		uint32	handle;
-		char 	name[64];
-		int		fd;
+		uint32		handle;
+		char		name[64];
+		int			fd;
 
 		handle = random();
 		snprintf(name, 64, "/PostgreSQL.%u", handle);
@@ -1130,11 +1130,11 @@ test_config_settings(void)
 		test_buffs = MIN_BUFS_FOR_CONNS(test_conns);
 
 		snprintf(cmd, sizeof(cmd),
-				 SYSTEMQUOTE "\"%s\" --boot -x0 %s "
+				 "\"%s\" --boot -x0 %s "
 				 "-c max_connections=%d "
 				 "-c shared_buffers=%d "
 				 "-c dynamic_shared_memory_type=none "
-				 "< \"%s\" > \"%s\" 2>&1" SYSTEMQUOTE,
+				 "< \"%s\" > \"%s\" 2>&1",
 				 backend_exec, boot_options,
 				 test_conns, test_buffs,
 				 DEVNULL, DEVNULL);
@@ -1165,11 +1165,11 @@ test_config_settings(void)
 		}
 
 		snprintf(cmd, sizeof(cmd),
-				 SYSTEMQUOTE "\"%s\" --boot -x0 %s "
+				 "\"%s\" --boot -x0 %s "
 				 "-c max_connections=%d "
 				 "-c shared_buffers=%d "
 				 "-c dynamic_shared_memory_type=none "
-				 "< \"%s\" > \"%s\" 2>&1" SYSTEMQUOTE,
+				 "< \"%s\" > \"%s\" 2>&1",
 				 backend_exec, boot_options,
 				 n_connections, test_buffs,
 				 DEVNULL, DEVNULL);
@@ -1503,7 +1503,7 @@ bootstrap_template1(void)
 	unsetenv("PGCLIENTENCODING");
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" --boot -x1 %s %s %s" SYSTEMQUOTE,
+			 "\"%s\" --boot -x1 %s %s %s",
 			 backend_exec,
 			 data_checksums ? "-k" : "",
 			 boot_options, talkargs);
@@ -1544,7 +1544,7 @@ setup_auth(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1622,7 +1622,7 @@ get_set_pwd(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1722,7 +1722,7 @@ setup_depend(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1755,7 +1755,7 @@ setup_sysviews(void)
 	 * We use -j here to avoid backslashing stuff in system_views.sql
 	 */
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s -j template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s -j template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1786,7 +1786,7 @@ setup_description(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1893,7 +1893,7 @@ setup_collation(void)
 
 #if defined(HAVE_LOCALE_T) && !defined(WIN32)
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -1976,7 +1976,7 @@ setup_collation(void)
 		 */
 		if (normalize_locale_name(alias, localebuf))
 		{
-			char   *quoted_alias = escape_quotes(alias);
+			char	   *quoted_alias = escape_quotes(alias);
 
 			PG_CMD_PRINTF3("INSERT INTO tmp_pg_collation VALUES (E'%s', E'%s', %d);\n",
 						   quoted_alias, quoted_locale, enc);
@@ -1992,7 +1992,7 @@ setup_collation(void)
 	 * When copying collations to the final location, eliminate aliases that
 	 * conflict with an existing locale name for the same encoding.  For
 	 * example, "br_FR.iso88591" is normalized to "br_FR", both for encoding
-	 * LATIN1.	But the unnormalized locale "br_FR" already exists for LATIN1.
+	 * LATIN1.  But the unnormalized locale "br_FR" already exists for LATIN1.
 	 * Prefer the alias that matches the OS locale name, else the first locale
 	 * name by sort order (arbitrary choice to be deterministic).
 	 *
@@ -2038,7 +2038,7 @@ setup_conversion(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2076,7 +2076,7 @@ setup_dictionary(void)
 	 * We use -j here to avoid backslashing stuff
 	 */
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s -j template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s -j template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2099,7 +2099,7 @@ setup_dictionary(void)
 /*
  * Set up privileges
  *
- * We mark most system catalogs as world-readable.	We don't currently have
+ * We mark most system catalogs as world-readable.  We don't currently have
  * to touch functions, languages, or databases, because their default
  * permissions are OK.
  *
@@ -2127,7 +2127,7 @@ setup_privileges(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2190,7 +2190,7 @@ setup_schema(void)
 	 * We use -j here to avoid backslashing stuff in information_schema.sql
 	 */
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s -j template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s -j template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2207,7 +2207,7 @@ setup_schema(void)
 	PG_CMD_CLOSE;
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2241,7 +2241,7 @@ load_plpgsql(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2266,7 +2266,7 @@ vacuum_db(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2322,7 +2322,7 @@ make_template0(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2354,7 +2354,7 @@ make_postgres(void)
 	fflush(stdout);
 
 	snprintf(cmd, sizeof(cmd),
-			 SYSTEMQUOTE "\"%s\" %s template1 >%s" SYSTEMQUOTE,
+			 "\"%s\" %s template1 >%s",
 			 backend_exec, backend_options,
 			 DEVNULL);
 
@@ -2529,10 +2529,10 @@ locale_date_order(const char *locale)
 }
 
 /*
- * Is the locale name valid for the locale category?
+ * Verify that locale name is valid for the locale category.
  *
  * If successful, and canonname isn't NULL, a malloc'd copy of the locale's
- * canonical name is stored there.	This is especially useful for figuring out
+ * canonical name is stored there.  This is especially useful for figuring out
  * what locale name "" means (ie, the environment value).  (Actually,
  * it seems that on most implementations that's the only thing it's good for;
  * we could wish that setlocale gave back a canonically spelled version of
@@ -2540,7 +2540,7 @@ locale_date_order(const char *locale)
  *
  * this should match the backend's check_locale() function
  */
-static bool
+static void
 check_locale_name(int category, const char *locale, char **canonname)
 {
 	char	   *save;
@@ -2551,7 +2551,11 @@ check_locale_name(int category, const char *locale, char **canonname)
 
 	save = setlocale(category, NULL);
 	if (!save)
-		return false;			/* won't happen, we hope */
+	{
+		fprintf(stderr, _("%s: setlocale failed\n"),
+				progname);
+		exit(1);
+	}
 
 	/* save may be pointing at a modifiable scratch variable, so copy it. */
 	save = pg_strdup(save);
@@ -2565,16 +2569,34 @@ check_locale_name(int category, const char *locale, char **canonname)
 
 	/* restore old value. */
 	if (!setlocale(category, save))
+	{
 		fprintf(stderr, _("%s: failed to restore old locale \"%s\"\n"),
 				progname, save);
+		exit(1);
+	}
 	free(save);
 
-	/* should we exit here? */
+	/* complain if locale wasn't valid */
 	if (res == NULL)
-		fprintf(stderr, _("%s: invalid locale name \"%s\"\n"),
-				progname, locale);
-
-	return (res != NULL);
+	{
+		if (*locale)
+			fprintf(stderr, _("%s: invalid locale name \"%s\"\n"),
+					progname, locale);
+		else
+		{
+			/*
+			 * If no relevant switch was given on command line, locale is an
+			 * empty string, which is not too helpful to report.  Presumably
+			 * setlocale() found something it did not like in the environment.
+			 * Ideally we'd report the bad environment variable, but since
+			 * setlocale's behavior is implementation-specific, it's hard to
+			 * be sure what it didn't like.  Print a safe generic message.
+			 */
+			fprintf(stderr, _("%s: invalid locale settings; check LANG and LC_* environment variables\n"),
+					progname);
+		}
+		exit(1);
+	}
 }
 
 /*
@@ -2642,41 +2664,27 @@ setlocales(void)
 	}
 
 	/*
-	 * canonicalize locale names, and override any missing/invalid values from
-	 * our current environment
+	 * canonicalize locale names, and obtain any missing values from our
+	 * current environment
 	 */
 
-	if (check_locale_name(LC_CTYPE, lc_ctype, &canonname))
-		lc_ctype = canonname;
-	else
-		lc_ctype = pg_strdup(setlocale(LC_CTYPE, NULL));
-	if (check_locale_name(LC_COLLATE, lc_collate, &canonname))
-		lc_collate = canonname;
-	else
-		lc_collate = pg_strdup(setlocale(LC_COLLATE, NULL));
-	if (check_locale_name(LC_NUMERIC, lc_numeric, &canonname))
-		lc_numeric = canonname;
-	else
-		lc_numeric = pg_strdup(setlocale(LC_NUMERIC, NULL));
-	if (check_locale_name(LC_TIME, lc_time, &canonname))
-		lc_time = canonname;
-	else
-		lc_time = pg_strdup(setlocale(LC_TIME, NULL));
-	if (check_locale_name(LC_MONETARY, lc_monetary, &canonname))
-		lc_monetary = canonname;
-	else
-		lc_monetary = pg_strdup(setlocale(LC_MONETARY, NULL));
+	check_locale_name(LC_CTYPE, lc_ctype, &canonname);
+	lc_ctype = canonname;
+	check_locale_name(LC_COLLATE, lc_collate, &canonname);
+	lc_collate = canonname;
+	check_locale_name(LC_NUMERIC, lc_numeric, &canonname);
+	lc_numeric = canonname;
+	check_locale_name(LC_TIME, lc_time, &canonname);
+	lc_time = canonname;
+	check_locale_name(LC_MONETARY, lc_monetary, &canonname);
+	lc_monetary = canonname;
 #if defined(LC_MESSAGES) && !defined(WIN32)
-	if (check_locale_name(LC_MESSAGES, lc_messages, &canonname))
-		lc_messages = canonname;
-	else
-		lc_messages = pg_strdup(setlocale(LC_MESSAGES, NULL));
+	check_locale_name(LC_MESSAGES, lc_messages, &canonname);
+	lc_messages = canonname;
 #else
 	/* when LC_MESSAGES is not available, use the LC_CTYPE setting */
-	if (check_locale_name(LC_CTYPE, lc_messages, &canonname))
-		lc_messages = canonname;
-	else
-		lc_messages = pg_strdup(setlocale(LC_CTYPE, NULL));
+	check_locale_name(LC_CTYPE, lc_messages, &canonname);
+	lc_messages = canonname;
 #endif
 }
 
@@ -2886,6 +2894,7 @@ void
 get_restricted_token(void)
 {
 #ifdef WIN32
+
 	/*
 	 * Before we execute another program, make sure that we are running with a
 	 * restricted token. If not, re-execute ourselves with one.
@@ -3513,6 +3522,15 @@ main(int argc, char *argv[])
 	int			option_index;
 	char	   *effective_user;
 	char		bin_dir[MAXPGPATH];
+
+	/*
+	 * Ensure that buffering behavior of stdout and stderr matches what it is
+	 * in interactive usage (at least on most platforms).  This prevents
+	 * unexpected output ordering when, eg, output is redirected to a file.
+	 * POSIX says we must do this before any other usage of these files.
+	 */
+	setvbuf(stdout, NULL, PG_IOLBF, 0);
+	setvbuf(stderr, NULL, _IONBF, 0);
 
 	progname = get_progname(argv[0]);
 	set_pglocale_pgservice(argv[0], PG_TEXTDOMAIN("initdb"));

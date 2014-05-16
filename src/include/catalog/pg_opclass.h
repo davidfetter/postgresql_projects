@@ -17,10 +17,10 @@
  * don't support partial indexes on system catalogs.)
  *
  * Normally opckeytype = InvalidOid (zero), indicating that the data stored
- * in the index is the same as the data in the indexed column.	If opckeytype
+ * in the index is the same as the data in the indexed column.  If opckeytype
  * is nonzero then it indicates that a conversion step is needed to produce
  * the stored index data, which will be of type opckeytype (which might be
- * the same or different from the input datatype).	Performing such a
+ * the same or different from the input datatype).  Performing such a
  * conversion is the responsibility of the index access method --- not all
  * AMs support this.
  *
@@ -42,7 +42,7 @@
 #include "catalog/genbki.h"
 
 /* ----------------
- *		pg_opclass definition.	cpp turns this into
+ *		pg_opclass definition.  cpp turns this into
  *		typedef struct FormData_pg_opclass
  * ----------------
  */
@@ -232,6 +232,6 @@ DATA(insert (	4000	text_ops			PGNSP PGUID 4017  25 t 0 ));
 DATA(insert (	403		jsonb_ops			PGNSP PGUID 4033  3802 t 0 ));
 DATA(insert (	405		jsonb_ops			PGNSP PGUID 4034  3802 t 0 ));
 DATA(insert (	2742	jsonb_ops			PGNSP PGUID 4036  3802 t 25 ));
-DATA(insert (	2742	jsonb_hash_ops		PGNSP PGUID 4037  3802 f 23 ));
+DATA(insert (	2742	jsonb_path_ops		PGNSP PGUID 4037  3802 f 23 ));
 
 #endif   /* PG_OPCLASS_H */

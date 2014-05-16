@@ -133,7 +133,7 @@ ginRedoInsertEntry(Buffer buffer, bool isLeaf, BlockNumber rightblkno, void *rda
 	if (PageAddItem(page, (Item) itup, IndexTupleSize(itup), offset, false, false) == InvalidOffsetNumber)
 	{
 		RelFileNode node;
-		ForkNumber forknum;
+		ForkNumber	forknum;
 		BlockNumber blknum;
 
 		BufferGetTag(buffer, &node, &forknum, &blknum);
@@ -341,8 +341,8 @@ ginRedoInsert(XLogRecPtr lsn, XLogRecord *record)
 	payload = XLogRecGetData(record) + sizeof(ginxlogInsert);
 
 	/*
-	 * First clear incomplete-split flag on child page if this finishes
-	 * a split.
+	 * First clear incomplete-split flag on child page if this finishes a
+	 * split.
 	 */
 	if (!isLeaf)
 	{
@@ -472,8 +472,8 @@ ginRedoSplit(XLogRecPtr lsn, XLogRecord *record)
 	payload = XLogRecGetData(record) + sizeof(ginxlogSplit);
 
 	/*
-	 * First clear incomplete-split flag on child page if this finishes
-	 * a split
+	 * First clear incomplete-split flag on child page if this finishes a
+	 * split
 	 */
 	if (!isLeaf)
 	{
@@ -522,7 +522,7 @@ ginRedoSplit(XLogRecPtr lsn, XLogRecord *record)
 
 	if (isRoot)
 	{
-		BlockNumber	rootBlkno = data->rrlink;
+		BlockNumber rootBlkno = data->rrlink;
 		Buffer		rootBuf = XLogReadBuffer(data->node, rootBlkno, true);
 		Page		rootPage = BufferGetPage(rootBuf);
 
@@ -711,9 +711,9 @@ ginRedoUpdateMetapage(XLogRecPtr lsn, XLogRecord *record)
 	Buffer		buffer;
 
 	/*
-	 * Restore the metapage. This is essentially the same as a full-page image,
-	 * so restore the metapage unconditionally without looking at the LSN, to
-	 * avoid torn page hazards.
+	 * Restore the metapage. This is essentially the same as a full-page
+	 * image, so restore the metapage unconditionally without looking at the
+	 * LSN, to avoid torn page hazards.
 	 */
 	metabuffer = XLogReadBuffer(data->node, GIN_METAPAGE_BLKNO, false);
 	if (!BufferIsValid(metabuffer))
@@ -877,32 +877,32 @@ ginRedoDeleteListPages(XLogRecPtr lsn, XLogRecord *record)
 
 	/*
 	 * In normal operation, shiftList() takes exclusive lock on all the
-	 * pages-to-be-deleted simultaneously.	During replay, however, it should
+	 * pages-to-be-deleted simultaneously.  During replay, however, it should
 	 * be all right to lock them one at a time.  This is dependent on the fact
 	 * that we are deleting pages from the head of the list, and that readers
 	 * share-lock the next page before releasing the one they are on. So we
 	 * cannot get past a reader that is on, or due to visit, any page we are
 	 * going to delete.  New incoming readers will block behind our metapage
 	 * lock and then see a fully updated page list.
+	 *
+	 * No full-page images are taken of the deleted pages. Instead, they are
+	 * re-initialized as empty, deleted pages. Their right-links don't need to
+	 * be preserved, because no new readers can see the pages, as explained
+	 * above.
 	 */
 	for (i = 0; i < data->ndeleted; i++)
 	{
-		Buffer		buffer = XLogReadBuffer(data->node, data->toDelete[i], false);
+		Buffer		buffer;
+		Page		page;
 
-		if (BufferIsValid(buffer))
-		{
-			Page		page = BufferGetPage(buffer);
+		buffer = XLogReadBuffer(data->node, data->toDelete[i], true);
+		page = BufferGetPage(buffer);
+		GinInitBuffer(buffer, GIN_DELETED);
 
-			if (lsn > PageGetLSN(page))
-			{
-				GinPageGetOpaque(page)->flags = GIN_DELETED;
+		PageSetLSN(page, lsn);
+		MarkBufferDirty(buffer);
 
-				PageSetLSN(page, lsn);
-				MarkBufferDirty(buffer);
-			}
-
-			UnlockReleaseBuffer(buffer);
-		}
+		UnlockReleaseBuffer(buffer);
 	}
 	UnlockReleaseBuffer(metabuffer);
 }

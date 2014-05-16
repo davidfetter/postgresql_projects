@@ -50,7 +50,7 @@ static void libpqrcv_connect(char *conninfo);
 static void libpqrcv_identify_system(TimeLineID *primary_tli);
 static void libpqrcv_readtimelinehistoryfile(TimeLineID tli, char **filename, char **content, int *len);
 static bool libpqrcv_startstreaming(TimeLineID tli, XLogRecPtr startpoint,
-									char *slotname);
+						char *slotname);
 static void libpqrcv_endstreaming(TimeLineID *next_tli);
 static int	libpqrcv_receive(int timeout, char **buffer);
 static void libpqrcv_send(const char *buffer, int nbytes);
@@ -139,7 +139,7 @@ libpqrcv_identify_system(TimeLineID *primary_tli)
 		PQclear(res);
 		ereport(ERROR,
 				(errmsg("invalid response from primary server"),
-				 errdetail("Could not identify system: Got %d rows and %d fields, expected %d rows and %d or more fields.",
+				 errdetail("Could not identify system: got %d rows and %d fields, expected %d rows and %d or more fields.",
 						   ntuples, nfields, 3, 1)));
 	}
 	primary_sysid = PQgetvalue(res, 0, 0);
@@ -152,6 +152,7 @@ libpqrcv_identify_system(TimeLineID *primary_tli)
 			 GetSystemIdentifier());
 	if (strcmp(primary_sysid, standby_sysid) != 0)
 	{
+		primary_sysid = pstrdup(primary_sysid);
 		PQclear(res);
 		ereport(ERROR,
 				(errmsg("database system identifier differs between the primary and standby"),
