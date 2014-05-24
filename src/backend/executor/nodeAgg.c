@@ -1227,7 +1227,7 @@ agg_retrieve_direct(AggState *aggstate)
 		 */
 		if (aggstate->grp_firstTuple == NULL)
 		{
-			
+			outerslot = ExecProcNode(outerPlan);
 			if (!TupIsNull(outerslot))
 			{
 				/*
