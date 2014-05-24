@@ -1173,6 +1173,7 @@ agg_retrieve_direct(AggState *aggstate)
 	int            numberOfStates = 0;
 	bool           hasRollup = false;
 	int            stateno = 0;
+	int            numGroupingCols = node->numCols;
 
 	/*
 	 * get state info from node
@@ -1203,19 +1204,30 @@ agg_retrieve_direct(AggState *aggstate)
 		}
 	}
 
-	/*
-	 * We loop retrieving groups until we find one matching
-	 * aggstate->ss.ps.qual
-	 */
-	while (!aggstate->agg_done)
-	{
+	/* If a subgroup for ROLLUP for current group is present, project it */
+	if (node->aggstrategy == AGG_SORTED && aggstate->curgroup_size != -1 && !execTuplesMatch(econtext->ecxt_outertuple,
+																							 tmpcontext->ecxt_outertuple,
+																							 aggstate->curgroup_size , node->grpColIdx,
+																							 aggstate->eqfunctions,
+																							 tmpcontext->ecxt_per_tuple_memory))
+	  {
+		--aggstate->curgroup_size;
+	  }
+	  else
+	  {
+	    /*
+	     * We loop retrieving groups until we find one matching
+	     * aggstate->ss.ps.qual
+	     */
+	    while (!aggstate->agg_done)
+	    {
 		/*
 		 * If we don't already have the first tuple of the new group, fetch it
 		 * from the outer plan.
 		 */
 		if (aggstate->grp_firstTuple == NULL)
 		{
-			outerslot = ExecProcNode(outerPlan);
+			
 			if (!TupIsNull(outerslot))
 			{
 				/*
@@ -1299,15 +1311,13 @@ agg_retrieve_direct(AggState *aggstate)
 				{
 					if (!execTuplesMatch(firstSlot,
 										 outerslot,
-										 node->numCols, node->grpColIdx,
+										 node->numCols , node->grpColIdx,
 										 aggstate->eqfunctions,
 										 tmpcontext->ecxt_per_tuple_memory))
 					{
-						/*
-						 * Save the first input tuple of the next group.
-						 */
-						aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
-						break;
+							aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
+							aggstate->curgroup_size = node->numCols;
+							break;
 					}
 				}
 			}
@@ -1347,6 +1357,7 @@ agg_retrieve_direct(AggState *aggstate)
 			finalize_aggregate(aggstate, peraggstate, pergroupstate,
 							   &aggvalues[aggno], &aggnulls[aggno]);
 		}
+	    }
 
 		/*
 		 * Check the qual (HAVING clause); if the group does not match, ignore
