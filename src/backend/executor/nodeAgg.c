@@ -1204,23 +1204,12 @@ agg_retrieve_direct(AggState *aggstate)
 		}
 	}
 
-	/* If a subgroup for ROLLUP for current group is present, project it */
-	if (node->aggstrategy == AGG_SORTED && aggstate->curgroup_size != -1 && !execTuplesMatch(econtext->ecxt_outertuple,
-																							 tmpcontext->ecxt_outertuple,
-																							 aggstate->curgroup_size , node->grpColIdx,
-																							 aggstate->eqfunctions,
-																							 tmpcontext->ecxt_per_tuple_memory))
-	  {
-		--aggstate->curgroup_size;
-	  }
-	  else
-	  {
-	    /*
-	     * We loop retrieving groups until we find one matching
-	     * aggstate->ss.ps.qual
-	     */
-	    while (!aggstate->agg_done)
-	    {
+	/*
+	 * We loop retrieving groups until we find one matching
+	 * aggstate->ss.ps.qual
+	 */
+	while (!aggstate->agg_done)
+	{
 		/*
 		 * If we don't already have the first tuple of the new group, fetch it
 		 * from the outer plan.
@@ -1311,13 +1300,15 @@ agg_retrieve_direct(AggState *aggstate)
 				{
 					if (!execTuplesMatch(firstSlot,
 										 outerslot,
-										 node->numCols , node->grpColIdx,
+										 node->numCols, node->grpColIdx,
 										 aggstate->eqfunctions,
 										 tmpcontext->ecxt_per_tuple_memory))
 					{
-							aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
-							aggstate->curgroup_size = node->numCols;
-							break;
+						/*
+						 * Save the first input tuple of the next group.
+						 */
+						aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
+						break;
 					}
 				}
 			}
@@ -1357,7 +1348,6 @@ agg_retrieve_direct(AggState *aggstate)
 			finalize_aggregate(aggstate, peraggstate, pergroupstate,
 							   &aggvalues[aggno], &aggnulls[aggno]);
 		}
-	    }
 
 		/*
 		 * Check the qual (HAVING clause); if the group does not match, ignore
@@ -1373,6 +1363,7 @@ agg_retrieve_direct(AggState *aggstate)
 			ExprDoneCond isDone;
 
 			result = ExecProject(aggstate->ss.ps.ps_ProjInfo, &isDone);
+			slot_getallattrs(result);
 
 			if (isDone != ExprEndResult)
 			{

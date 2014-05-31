@@ -1051,6 +1051,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 	bool		use_hashed_distinct = false;
 	bool		tested_hashed_distinct = false;
 
+
 	/* Tweak caller-supplied tuple_fraction if have LIMIT/OFFSET */
 	if (parse->limitCount || parse->limitOffset)
 	{
@@ -1617,7 +1618,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												numGroups,
 												result_plan);
 
-				if ((parse->groupClause) && IsA((parse->groupClause), List))
+				if ((parse->groupClause) && IsA(linitial((parse->groupClause)), List))
 					result_agg->hasRollup = true;
 
 				result_plan = (Plan *) result_agg;
