@@ -1163,7 +1163,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		 * in the top list and then calculate the number of group columns
 		 */
 
-		if ((parse->groupClause) && IsA(parse->groupClause, List))
+		if ((parse->groupClause) && IsA(linitial(parse->groupClause), List))
 		{
 			numGroupCols = list_length(linitial(parse->groupClause));
 		}
@@ -1414,7 +1414,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			 * If ROLLUP clause is present, we shall use only sorted grouping
 			 */
 
-			if (IsA((parse->groupClause), List))
+			if (IsA(linitial(parse->groupClause), List))
 			{
 				use_hashed_grouping = false;
 			}
