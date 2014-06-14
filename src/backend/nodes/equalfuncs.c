@@ -863,6 +863,7 @@ _equalQuery(const Query *a, const Query *b)
 	COMPARE_NODE_FIELD(withCheckOptions);
 	COMPARE_NODE_FIELD(returningList);
 	COMPARE_NODE_FIELD(groupClause);
+	COMPARE_NODE_FIELD(groupingSets);
 	COMPARE_NODE_FIELD(havingQual);
 	COMPARE_NODE_FIELD(windowClause);
 	COMPARE_NODE_FIELD(distinctClause);

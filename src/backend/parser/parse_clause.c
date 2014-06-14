@@ -1675,28 +1675,35 @@ findTargetlistEntrySQL99(ParseState *pstate, Node *node, List **tlist,
  * same, but are always interpreted per SQL99 rules).
  */
 List *
-transformGroupClause(ParseState *pstate, List *grouplist,
+transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
 					 List **targetlist, List *sortClause,
 					 ParseExprKind exprKind, bool useSQL99)
 {
 	List	   *result = NIL;
 	ListCell   *gl;
 	ListCell   *gl_innerlist;
+	bool        hasRollup = false;
+	int         numAdditions = 0;
+	int         i = 0;
 
 	foreach(gl, grouplist)
 	{
 		Node        *gexpr =  NULL;
 		TargetEntry *tle;
 		bool		found = false;
-		bool        hasRollup = false;
 
 		/* If ROLLUP is present, iterate into the nested sublist */
 		if (IsA(lfirst(gl), List))
 		{
+			int i = 0;
+
+			if (groupingSets == NULL)
+				elog(ERROR, "ROLLUP not allowed in current context");
+
 			hasRollup = true;
+
 			foreach(gl_innerlist, lfirst(gl))
 			{
-				List *current_sublist_result = NIL;
 				gexpr = (Node *) lfirst(gl_innerlist);
 				if (useSQL99)
 					tle = findTargetlistEntrySQL99(pstate, gexpr,
@@ -1730,7 +1737,8 @@ transformGroupClause(ParseState *pstate, List *grouplist,
 
 						if (sc->tleSortGroupRef == tle->ressortgroupref)
 						{
-							current_sublist_result = lappend(current_sublist_result, copyObject(sc));
+							result = lappend(result, copyObject(sc));
+							++numAdditions;
 							found = true;
 							break;
 						}
@@ -1742,14 +1750,11 @@ transformGroupClause(ParseState *pstate, List *grouplist,
 		 * sort/group semantics.
 		 */
 		if (!found)
-			current_sublist_result = addTargetToGroupList(pstate, tle,
-														  current_sublist_result, *targetlist,
-														  exprLocation(gexpr),
-														  true);
-
-		result = lappend(result, current_sublist_result);
-
-				
+			result = addTargetToGroupList(pstate, tle,
+													    result, *targetlist,
+													    exprLocation(gexpr),
+													    true);
+		    ++numAdditions;
 			}
 		}
 		else
@@ -1806,6 +1811,14 @@ transformGroupClause(ParseState *pstate, List *grouplist,
 											  result, *targetlist,
 											  exprLocation(gexpr),
 											  true);
+		}
+	}
+
+	if (hasRollup)
+	{
+		for (i = 1;i <= numAdditions;i++)
+		{
+			*groupingSets = lappend_int(*groupingSets, i);
 		}
 	}
 
@@ -1913,6 +1926,7 @@ transformWindowDefinitions(ParseState *pstate,
 										  true /* force SQL99 rules */ );
 		partitionClause = transformGroupClause(pstate,
 											   windef->partitionClause,
+											   NULL,
 											   targetlist,
 											   orderClause,
 											   EXPR_KIND_WINDOW_PARTITION,
