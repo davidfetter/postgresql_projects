@@ -48,6 +48,8 @@ CATALOG(pg_trigger,2620)
 	Oid			tgconstraint;	/* associated pg_constraint entry, if any */
 	bool		tgdeferrable;	/* constraint trigger is deferrable */
 	bool		tginitdeferred; /* constraint trigger is deferred initially */
+	NameData	tgoldtable;		/* Name to use for old delta table for stmt */
+	NameData	tgnewtable;		/* Name to use for new delta table for stmt */
 	int16		tgnargs;		/* # of extra arguments in tgargs */
 
 	/*
@@ -73,7 +75,7 @@ typedef FormData_pg_trigger *Form_pg_trigger;
  *		compiler constants for pg_trigger
  * ----------------
  */
-#define Natts_pg_trigger				15
+#define Natts_pg_trigger				17
 #define Anum_pg_trigger_tgrelid			1
 #define Anum_pg_trigger_tgname			2
 #define Anum_pg_trigger_tgfoid			3
@@ -85,10 +87,12 @@ typedef FormData_pg_trigger *Form_pg_trigger;
 #define Anum_pg_trigger_tgconstraint	9
 #define Anum_pg_trigger_tgdeferrable	10
 #define Anum_pg_trigger_tginitdeferred	11
-#define Anum_pg_trigger_tgnargs			12
-#define Anum_pg_trigger_tgattr			13
-#define Anum_pg_trigger_tgargs			14
-#define Anum_pg_trigger_tgqual			15
+#define Anum_pg_trigger_tgoldtable		12
+#define Anum_pg_trigger_tgnewtable		13
+#define Anum_pg_trigger_tgnargs			14
+#define Anum_pg_trigger_tgattr			15
+#define Anum_pg_trigger_tgargs			16
+#define Anum_pg_trigger_tgqual			17
 
 /* Bits within tgtype */
 #define TRIGGER_TYPE_ROW				(1 << 0)
@@ -141,5 +145,16 @@ typedef FormData_pg_trigger *Form_pg_trigger;
  */
 #define TRIGGER_TYPE_MATCHES(type, level, timing, event) \
 	(((type) & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | (event))) == ((level) | (timing) | (event)))
+
+/*
+ * Macro to determine whether tgnewtable or tgoldtable has been specified for
+ * a trigger.
+ *
+ * TODO: Once the dust settles on development, this can probably be
+ * simplified to test for either a NULL pointer or a zero-length cstring, but
+ * for now we'll do both.
+ */
+#define TRIGGER_USES_TRANSITION_TABLE(namepointer) \
+	((namepointer) != (char *) NULL && (*(namepointer)) != '\0')
 
 #endif   /* PG_TRIGGER_H */

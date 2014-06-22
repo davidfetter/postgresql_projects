@@ -36,6 +36,8 @@ typedef struct TriggerData
 	Trigger    *tg_trigger;
 	Buffer		tg_trigtuplebuf;
 	Buffer		tg_newtuplebuf;
+	Tuplestorestate *tg_olddelta;
+	Tuplestorestate *tg_newdelta;
 } TriggerData;
 
 /*

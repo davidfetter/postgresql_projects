@@ -1018,6 +1018,22 @@ typedef struct CommonTableExpr
 	List	   *ctecolcollations;		/* OID list of column collation OIDs */
 } CommonTableExpr;
 
+/*
+ * TriggerTransition -
+ *	   representation of transition row or table naming clause
+ *
+ * Only tables are initially supported, and only for AFTER EACH STATEMENT
+ * triggers, but other permutations are accepted by the parser so we can give
+ * a meaningful message from C code.
+ */
+typedef struct TriggerTransition
+{
+	NodeTag		type;
+	char	   *name;
+	bool		isNew;
+	bool		isTable;
+} TriggerTransition;
+
 /* Convenience macro to get the output tlist of a CTE's query */
 #define GetCTETargetList(cte) \
 	(AssertMacro(IsA((cte)->ctequery, Query)), \
@@ -1850,6 +1866,8 @@ typedef struct CreateTrigStmt
 	List	   *columns;		/* column names, or NIL for all columns */
 	Node	   *whenClause;		/* qual expression, or NULL if none */
 	bool		isconstraint;	/* This is a constraint trigger */
+	/* explicitly named transition data */
+	List	   *transitionRels; /* TriggerTransition nodes, or NIL if none */
 	/* The remaining fields are only used for constraint triggers */
 	bool		deferrable;		/* [NOT] DEFERRABLE */
 	bool		initdeferred;	/* INITIALLY {DEFERRED|IMMEDIATE} */

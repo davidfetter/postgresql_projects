@@ -2470,6 +2470,18 @@ _copyXmlSerialize(const XmlSerialize *from)
 	return newnode;
 }
 
+static TriggerTransition *
+_copyTriggerTransition(const TriggerTransition *from)
+{
+	TriggerTransition *newnode = makeNode(TriggerTransition);
+
+	COPY_STRING_FIELD(name);
+	COPY_SCALAR_FIELD(isNew);
+	COPY_SCALAR_FIELD(isTable);
+
+	return newnode;
+}
+
 static Query *
 _copyQuery(const Query *from)
 {
@@ -3582,6 +3594,7 @@ _copyCreateTrigStmt(const CreateTrigStmt *from)
 	COPY_NODE_FIELD(columns);
 	COPY_NODE_FIELD(whenClause);
 	COPY_SCALAR_FIELD(isconstraint);
+	COPY_NODE_FIELD(transitionRels);
 	COPY_SCALAR_FIELD(deferrable);
 	COPY_SCALAR_FIELD(initdeferred);
 	COPY_NODE_FIELD(constrrel);
@@ -4648,6 +4661,9 @@ copyObject(const void *from)
 			break;
 		case T_XmlSerialize:
 			retval = _copyXmlSerialize(from);
+			break;
+		case T_TriggerTransition:
+			retval = _copyTriggerTransition(from);
 			break;
 
 		default:

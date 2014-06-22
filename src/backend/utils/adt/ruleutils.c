@@ -809,6 +809,16 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 			appendStringInfoString(&buf, "IMMEDIATE ");
 	}
 
+	if (TRIGGER_USES_TRANSITION_TABLE(NameStr(trigrec->tgoldtable)) ||
+		TRIGGER_USES_TRANSITION_TABLE(NameStr(trigrec->tgnewtable)))
+	{
+		appendStringInfoString(&buf, "REFERENCING ");
+		if (TRIGGER_USES_TRANSITION_TABLE(NameStr(trigrec->tgoldtable)))
+			appendStringInfo(&buf, "OLD TABLE AS %s ", NameStr(trigrec->tgoldtable));
+		if (TRIGGER_USES_TRANSITION_TABLE(NameStr(trigrec->tgnewtable)))
+			appendStringInfo(&buf, "NEW TABLE AS %s ", NameStr(trigrec->tgnewtable));
+	}
+
 	if (TRIGGER_FOR_ROW(trigrec->tgtype))
 		appendStringInfoString(&buf, "FOR EACH ROW ");
 	else

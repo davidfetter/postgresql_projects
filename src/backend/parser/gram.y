@@ -293,6 +293,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <list>	TriggerEvents TriggerOneEvent
 %type <value>	TriggerFuncArg
 %type <node>	TriggerWhen
+%type <str>		TransitionRelName
+%type <boolean>	TransitionRowOrTable TransitionOldOrNew
+%type <node>	TriggerTransition
 
 %type <list>	event_trigger_when_list event_trigger_value_list
 %type <defelt>	event_trigger_when_item
@@ -350,6 +353,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				opt_enum_val_list enum_val_list table_func_column_list
 				create_generic_options alter_generic_options
 				relation_expr_list dostmt_opt_list
+				TriggerTransitions TriggerReferencing
 
 %type <list>	opt_fdw_options fdw_options
 %type <defelt>	fdw_option
@@ -570,11 +574,11 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 	MAPPING MATCH MATERIALIZED MAXVALUE MINUTE_P MINVALUE MODE MONTH_P MOVE
 
-	NAME_P NAMES NATIONAL NATURAL NCHAR NEXT NO NONE
+	NAME_P NAMES NATIONAL NATURAL NCHAR NEW NEXT NO NONE
 	NOT NOTHING NOTIFY NOTNULL NOWAIT NULL_P NULLIF
 	NULLS_P NUMERIC
 
-	OBJECT_P OF OFF OFFSET OIDS ON ONLY OPERATOR OPTION OPTIONS OR
+	OBJECT_P OF OFF OFFSET OIDS OLD ON ONLY OPERATOR OPTION OPTIONS OR
 	ORDER ORDINALITY OUT_P OUTER_P OVER OVERLAPS OVERLAY OWNED OWNER
 
 	PARSER PARTIAL PARTITION PASSING PASSWORD PLACING PLANS POSITION
@@ -583,8 +587,8 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 	QUOTE
 
-	RANGE READ REAL REASSIGN RECHECK RECURSIVE REF REFERENCES REFRESH REINDEX
-	RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA
+	RANGE READ REAL REASSIGN RECHECK RECURSIVE REF REFERENCES REFERENCING
+	REFRESH REINDEX RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA
 	RESET RESTART RESTRICT RETURNING RETURNS REVOKE RIGHT ROLE ROLLBACK
 	ROW ROWS RULE
 
@@ -4347,19 +4351,20 @@ AlterUserMappingStmt: ALTER USER MAPPING FOR auth_ident SERVER name alter_generi
 
 CreateTrigStmt:
 			CREATE TRIGGER name TriggerActionTime TriggerEvents ON
-			qualified_name TriggerForSpec TriggerWhen
+			qualified_name TriggerReferencing TriggerForSpec TriggerWhen
 			EXECUTE PROCEDURE func_name '(' TriggerFuncArgs ')'
 				{
 					CreateTrigStmt *n = makeNode(CreateTrigStmt);
 					n->trigname = $3;
 					n->relation = $7;
-					n->funcname = $12;
-					n->args = $14;
-					n->row = $8;
+					n->funcname = $13;
+					n->args = $15;
+					n->row = $9;
 					n->timing = $4;
 					n->events = intVal(linitial($5));
 					n->columns = (List *) lsecond($5);
-					n->whenClause = $9;
+					n->whenClause = $10;
+					n->transitionRels = $8;
 					n->isconstraint  = FALSE;
 					n->deferrable	 = FALSE;
 					n->initdeferred  = FALSE;
@@ -4381,6 +4386,7 @@ CreateTrigStmt:
 					n->events = intVal(linitial($6));
 					n->columns = (List *) lsecond($6);
 					n->whenClause = $14;
+					n->transitionRels = NIL;
 					n->isconstraint  = TRUE;
 					processCASbits($10, @10, "TRIGGER",
 								   &n->deferrable, &n->initdeferred, NULL,
@@ -4431,6 +4437,46 @@ TriggerOneEvent:
 				{ $$ = list_make2(makeInteger(TRIGGER_TYPE_UPDATE), $3); }
 			| TRUNCATE
 				{ $$ = list_make2(makeInteger(TRIGGER_TYPE_TRUNCATE), NIL); }
+		;
+
+TriggerReferencing:
+			REFERENCING TriggerTransitions			{ $$ = $2; }
+			| /*EMPTY*/								{ $$ = NIL; }
+		;
+
+TriggerTransitions:
+			TriggerTransition						{ $$ = list_make1($1); }
+			| TriggerTransitions TriggerTransition	{ $$ = lappend($1, $2); }
+		;
+
+TriggerTransition:
+			TransitionOldOrNew TransitionRowOrTable opt_as TransitionRelName
+				{
+					TriggerTransition *n = makeNode(TriggerTransition);
+					n->name = $4;
+					n->isNew = $1;
+					n->isTable = $2;
+					$$ = (Node *)n;
+				}
+		;
+
+TransitionOldOrNew:
+			NEW										{ $$ = TRUE; }
+			| OLD									{ $$ = FALSE; }
+		;
+
+TransitionRowOrTable:
+			TABLE									{ $$ = TRUE; }
+			/*
+			 * Explicit ROW specification is not supported to avoid fully
+			 * reserving the keyword ROW.  According to the standard, lack of
+			 * a keyword here means ROW anyway.
+			 */
+			| /*EMPTY*/								{ $$ = FALSE; }
+		;
+
+TransitionRelName:
+			ColId									{ $$ = $1; }
 		;
 
 TriggerForSpec:
@@ -12978,6 +13024,7 @@ unreserved_keyword:
 			| MOVE
 			| NAME_P
 			| NAMES
+			| NEW
 			| NEXT
 			| NO
 			| NOTHING
@@ -12988,6 +13035,7 @@ unreserved_keyword:
 			| OF
 			| OFF
 			| OIDS
+			| OLD
 			| OPERATOR
 			| OPTION
 			| OPTIONS
@@ -13017,6 +13065,7 @@ unreserved_keyword:
 			| RECHECK
 			| RECURSIVE
 			| REF
+			| REFERENCING
 			| REFRESH
 			| REINDEX
 			| RELATIVE_P
