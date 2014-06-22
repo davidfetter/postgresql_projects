@@ -1174,6 +1174,7 @@ agg_retrieve_direct(AggState *aggstate)
 	bool           hasRollup = false;
 	int            stateno = 0;
 	int            numGroupingCols = node->numCols;
+	int            numGroups = 0;
 
 	/*
 	 * get state info from node
@@ -1204,119 +1205,155 @@ agg_retrieve_direct(AggState *aggstate)
 		}
 	}
 
-	/*
-	 * We loop retrieving groups until we find one matching
-	 * aggstate->ss.ps.qual
-	 */
-	while (!aggstate->agg_done)
-	{
-		/*
-		 * If we don't already have the first tuple of the new group, fetch it
-		 * from the outer plan.
-		 */
-		if (aggstate->grp_firstTuple == NULL)
-		{
-			outerslot = ExecProcNode(outerPlan);
-			if (!TupIsNull(outerslot))
-			{
-				/*
-				 * Make a copy of the first input tuple; we will use this for
-				 * comparisons (in group mode) and for projection.
-				 */
-				aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
+	if (hasRollup)
+		numGroups = node->numCols + 1;
+	else
+		numGroups = 1;
+
+	 /*
+	  * We loop retrieving groups until we find one matching
+	  * aggstate->ss.ps.qual
+	  */
+	  while (!aggstate->agg_done)
+	  {
+		  /* Check if input is complete and there are no more groups to project. */
+		  if (aggstate->agg_done != true && aggstate->input_done == true && aggstate->curgroup_size == 0)
+		  {
+			  aggstate->agg_done = true;
+		  }
+		  /* If a subgroup for ROLLUP for current group is present, project it */
+		  else if (aggstate->input_done == false && node->aggstrategy == AGG_SORTED && aggstate->curgroup_size != -1 && !execTuplesMatch(econtext->ecxt_outertuple,
+		   																						   tmpcontext->ecxt_outertuple,
+	   																							   aggstate->curgroup_size , node->grpColIdx,
+  																								   aggstate->eqfunctions,
+																								   tmpcontext->ecxt_per_tuple_memory))
+		  {
+				  --aggstate->curgroup_size;
+				  numGroupingCols = aggstate->curgroup_size;
+   
+		  }
+		  else
+		  {
+			  /*
+			   * If we don't already have the first tuple of the new group, fetch it
+			   * from the outer plan.
+			   */
+			  if (aggstate->grp_firstTuple == NULL)
+			  {
+				  outerslot = ExecProcNode(outerPlan);
+				  if (!TupIsNull(outerslot))
+				  {
+					  /*
+					   * Make a copy of the first input tuple; we will use this for
+					   * comparisons (in group mode) and for projection.
+					   */
+					  aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
+				  }
+				  else
+				  {
+					  /* outer plan produced no tuples at all */
+					  if (hasRollup)
+						  aggstate->input_done = true;
+					  else
+					  {
+						  aggstate->agg_done = true;
+						  /* If we are grouping, we should produce no tuples too */
+						  if (node->aggstrategy != AGG_PLAIN)
+							  return NULL;
+					  }
+				  }
+			  }
+
+			  /*
+			   * Clear the per-output-tuple context for each group, as well as
+			   * aggcontext (which contains any pass-by-ref transvalues of the old
+			   * group).	We also clear any child contexts of the aggcontext; some
+			   * aggregate functions store working state in such contexts.
+			   *
+			   * We use ReScanExprContext not just ResetExprContext because we want
+			   * any registered shutdown callbacks to be called.	That allows
+			   * aggregate functions to ensure they've cleaned up any non-memory
+			   * resources.
+			   */
+			  ReScanExprContext(econtext);
+
+			  MemoryContextResetAndDeleteChildren(aggstate->aggcontext[0]);
+
+			  /*
+			   * Initialize working state for a new input tuple group
+			   */
+			  initialize_aggregates(aggstate, peragg, pergroup);
+
+			  if (aggstate->grp_firstTuple != NULL)
+			  {
+				  /*
+				   * Store the copied first input tuple in the tuple table slot
+				   * reserved for it.  The tuple will be deleted when it is cleared
+				   * from the slot.
+				   */
+				  ExecStoreTuple(aggstate->grp_firstTuple,
+								 firstSlot,
+								 InvalidBuffer,
+								 true);
+				  aggstate->grp_firstTuple = NULL;	/* don't keep two pointers */
+
+				  /* set up for first advance_aggregates call */
+				  tmpcontext->ecxt_outertuple = firstSlot;
+
+				  /*
+				   * Process each outer-plan tuple, and then fetch the next one,
+				   * until we exhaust the outer plan or cross a group boundary.
+				   */
+				  for (;;)
+				  {
+					  advance_aggregates(aggstate, pergroup);
+
+					  /* Reset per-input-tuple context after each tuple */
+					  ResetExprContext(tmpcontext);
+
+					  outerslot = ExecProcNode(outerPlan);
+					  if (TupIsNull(outerslot))
+					  {
+						  /* no more outer-plan tuples available */
+						  if (hasRollup)
+						  {
+							  aggstate->input_done = true;
+						      break;
+						  }
+						  else
+						  {
+							  aggstate->agg_done = true;
+						      break;
+						  }
+					  }
+					  /* set up for next advance_aggregates call */
+					  tmpcontext->ecxt_outertuple = outerslot;
+
+					  /*
+					   * If we are grouping, check whether we've crossed a group
+					   * boundary.
+					   */
+					  if (node->aggstrategy == AGG_SORTED)
+					  {
+						  if (!execTuplesMatch(firstSlot,
+											   outerslot,
+											   numGroupingCols , node->grpColIdx,
+											   aggstate->eqfunctions,
+											   tmpcontext->ecxt_per_tuple_memory) && aggstate->curgroup_size != 0)
+						  {
+							  aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
+
+							  if (hasRollup)
+								  aggstate->curgroup_size = node->numCols - 1;
+							  break;
+						  }
+					  }
+				  }
 			}
-			else
-			{
-				/* outer plan produced no tuples at all */
-				aggstate->agg_done = true;
-				/* If we are grouping, we should produce no tuples too */
-				if (node->aggstrategy != AGG_PLAIN)
-					return NULL;
-			}
-		}
 
-		/*
-		 * Clear the per-output-tuple context for each group, as well as
-		 * aggcontext (which contains any pass-by-ref transvalues of the old
-		 * group).	We also clear any child contexts of the aggcontext; some
-		 * aggregate functions store working state in such contexts.
-		 *
-		 * We use ReScanExprContext not just ResetExprContext because we want
-		 * any registered shutdown callbacks to be called.	That allows
-		 * aggregate functions to ensure they've cleaned up any non-memory
-		 * resources.
-		 */
-		ReScanExprContext(econtext);
-
-		MemoryContextResetAndDeleteChildren(aggstate->aggcontext[0]);
-
-		/*
-		 * Initialize working state for a new input tuple group
-		 */
-		initialize_aggregates(aggstate, peragg, pergroup);
-
-		if (aggstate->grp_firstTuple != NULL)
-		{
-			/*
-			 * Store the copied first input tuple in the tuple table slot
-			 * reserved for it.  The tuple will be deleted when it is cleared
-			 * from the slot.
-			 */
-			ExecStoreTuple(aggstate->grp_firstTuple,
-						   firstSlot,
-						   InvalidBuffer,
-						   true);
-			aggstate->grp_firstTuple = NULL;	/* don't keep two pointers */
-
-			/* set up for first advance_aggregates call */
-			tmpcontext->ecxt_outertuple = firstSlot;
-
-			/*
-			 * Process each outer-plan tuple, and then fetch the next one,
-			 * until we exhaust the outer plan or cross a group boundary.
-			 */
-			for (;;)
-			{
-				advance_aggregates(aggstate, pergroup);
-
-				/* Reset per-input-tuple context after each tuple */
-				ResetExprContext(tmpcontext);
-
-				outerslot = ExecProcNode(outerPlan);
-				if (TupIsNull(outerslot))
-				{
-					/* no more outer-plan tuples available */
-					aggstate->agg_done = true;
-					break;
-				}
-				/* set up for next advance_aggregates call */
-				tmpcontext->ecxt_outertuple = outerslot;
-
-				/*
-				 * If we are grouping, check whether we've crossed a group
-				 * boundary.
-				 */
-				if (node->aggstrategy == AGG_SORTED)
-				{
-					if (!execTuplesMatch(firstSlot,
-										 outerslot,
-										 node->numCols, node->grpColIdx,
-										 aggstate->eqfunctions,
-										 tmpcontext->ecxt_per_tuple_memory))
-					{
-						/*
-						 * Save the first input tuple of the next group.
-						 */
-						aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
-						break;
-					}
-				}
-			}
-		}
-
-		/*
-		 * Use the representative input tuple for any references to
-		 * non-aggregated input columns in aggregate direct args, the node
+			  /*
+			   * Use the representative input tuple for any references to
+			   * non-aggregated input columns in aggregate direct args, the node
 		 * qual, and the tlist.  (If we are not grouping, and there are no
 		 * input rows at all, we will come here with an empty firstSlot ...
 		 * but if not grouping, there can't be any references to
@@ -1331,24 +1368,37 @@ agg_retrieve_direct(AggState *aggstate)
 		for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 		{
 			AggStatePerAgg peraggstate = &peragg[aggno];
-			AggStatePerGroup pergroupstate = &pergroup[aggno];
+			AggStatePerGroup *pergroupstate_pointer = aggstate->pointerRollup[aggno];
+			AggStatePerGroup pergroupstate;
+			int i = 0;
 
-			if (peraggstate->numSortCols > 0)
+			while (i < numGroups)
 			{
-				if (peraggstate->numInputs == 1)
-					process_ordered_aggregate_single(aggstate,
-													 peraggstate,
-													 pergroupstate);
+				if (!hasRollup)
+					pergroupstate = &pergroup[aggno];
 				else
-					process_ordered_aggregate_multi(aggstate,
-													peraggstate,
-													pergroupstate);
+					pergroupstate = (pergroupstate_pointer[0] + i);
+
+				if (peraggstate->numSortCols > 0)
+				{
+					if (peraggstate->numInputs == 1)
+						process_ordered_aggregate_single(aggstate,
+														 peraggstate,
+														 pergroupstate);
+					else
+						process_ordered_aggregate_multi(aggstate,
+														peraggstate,
+														pergroupstate);
+				}
+
+					finalize_aggregate(aggstate, peraggstate, pergroupstate,
+									   &aggvalues[aggno], &aggnulls[aggno]);
+
+					++i;
 			}
-
-			finalize_aggregate(aggstate, peraggstate, pergroupstate,
-							   &aggvalues[aggno], &aggnulls[aggno]);
 		}
-
+	 }
+	
 		/*
 		 * Check the qual (HAVING clause); if the group does not match, ignore
 		 * it and loop back to try to process another group.
@@ -1375,6 +1425,7 @@ agg_retrieve_direct(AggState *aggstate)
 		else
 			InstrCountFiltered1(aggstate, 1);
 	}
+		  //}
 
 	/* No more groups */
 	return NULL;
@@ -1531,6 +1582,7 @@ agg_retrieve_hash_table(AggState *aggstate)
 		else
 			InstrCountFiltered1(aggstate, 1);
 	}
+		  //}
 
 	/* No more groups */
 	return NULL;
@@ -1548,12 +1600,15 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 {
 	AggState   *aggstate;
 	AggStatePerAgg peragg;
+	AggStatePerGroup **pointerArray;
 	Plan	   *outerPlan;
 	ExprContext *econtext;
 	int			numaggs,
 				aggno;
 	ListCell   *l;
+	int        numGroups = 0;
 	int        i = 0;
+	int        j = 0;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
@@ -1573,6 +1628,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->peragg = NULL;
 	aggstate->curperagg = NULL;
 	aggstate->agg_done = false;
+	aggstate->input_done = false;
 	aggstate->pergroup = NULL;
 	aggstate->grp_firstTuple = NULL;
 	aggstate->hashtable = NULL;
@@ -1585,6 +1641,11 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	ExecAssignExprContext(estate, &aggstate->ss.ps);
 	aggstate->tmpcontext = aggstate->ss.ps.ps_ExprContext;
 	ExecAssignExprContext(estate, &aggstate->ss.ps);
+
+	if (node->hasRollup)
+		numGroups = (node->numCols) + 1;
+	else
+		numGroups = 1;
 
 	/*
 	 * We also need a long-lived memory context for holding hashtable data
@@ -1729,9 +1790,29 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			pergroup = (AggStatePerGroup) palloc0(sizeof(AggStatePerGroupData) * numaggs * (node->numCols  + 1));
 		else
 			pergroup = (AggStatePerGroup) palloc0(sizeof(AggStatePerGroupData) * numaggs);
-
+			
 		aggstate->pergroup = pergroup;
 	}
+
+	pointerArray = (AggStatePerGroup**) palloc0(sizeof(AggStatePerGroupData**) * numGroups);
+
+	pointerArray[0] =  &(aggstate->pergroup);
+
+	if (node->hasRollup)
+	{
+		for (j = 1;j < numGroups;j++)
+		{
+			pointerArray[j] = &(aggstate->pergroup) + (j * (aggstate->numaggs));
+		}
+	}
+		
+
+	aggstate->pointerRollup = pointerArray;
+
+	if (node->hasRollup)
+		numGroups = (node->numCols) + 1;
+	else
+		numGroups = 1;
 
 	/*
 	 * Perform lookups of aggregate function info, and initialize the

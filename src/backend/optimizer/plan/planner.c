@@ -1414,7 +1414,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			 * If ROLLUP clause is present, we shall use only sorted grouping
 			 */
 
-			if (IsA(linitial(parse->groupClause), List))
+			if (parse->groupingSets)
 			{
 				use_hashed_grouping = false;
 			}
@@ -1618,7 +1618,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												numGroups,
 												result_plan);
 
-				if ((parse->groupClause) && IsA(linitial((parse->groupClause)), List))
+				if ((parse->groupClause) && (parse->groupingSets))
 					result_agg->hasRollup = true;
 
 				result_plan = (Plan *) result_agg;
@@ -2525,7 +2525,7 @@ preprocess_groupclause(PlannerInfo *root)
 		return;
 
 	/* If ROLLUP is present, rearrangement cannot be done */
-	if (IsA(linitial(parse->groupClause), List))
+	if (parse->groupingSets)
 		return;
 
 	/*

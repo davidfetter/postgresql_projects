@@ -1707,9 +1707,11 @@ typedef struct AggState
 	FmgrInfo   *eqfunctions;	/* per-grouping-field equality fns */
 	FmgrInfo   *hashfunctions;	/* per-grouping-field hash fns */
 	AggStatePerAgg peragg;		/* per-Aggref information */
+	AggStatePerGroup **pointerRollup; /* pointers into pergroup for ROLLUP groups */
 	MemoryContext *aggcontext;	/* memory context for long-lived data */
 	ExprContext *tmpcontext;	/* econtext for input expressions */
 	AggStatePerAgg curperagg;	/* identifies currently active aggregate */
+	bool        input_done;     /* indicates end of input */
 	bool		agg_done;		/* indicates completion of Agg scan */
 	int curgroup_size;		/* The current group size. Used for ROLLUP */
 	/* these fields are used in AGG_PLAIN and AGG_SORTED modes: */
