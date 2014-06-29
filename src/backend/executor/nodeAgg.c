@@ -1450,8 +1450,6 @@ agg_retrieve_direct(AggState *aggstate)
 			result = ExecProject(aggstate->ss.ps.ps_ProjInfo, &isDone);
 			slot_getallattrs(result);
 
-			elog(WARNING,"%d %d %d %d %d", currentGroup, (aggstate->curgroup_size), result->tts_values[0], result->tts_values[1], result->tts_values[2]);
-
 			if (isDone != ExprEndResult)
 			{
 				aggstate->ss.ps.ps_TupFromTlist =
