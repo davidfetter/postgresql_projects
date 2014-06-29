@@ -45,6 +45,11 @@ exprType(const Node *expr)
 		case T_Var:
 			type = ((const Var *) expr)->vartype;
 			break;
+	case T_Grouping:
+			type = INT4OID;
+		case T_GroupedVar:
+			type = ((const GroupedVar *) expr)->vartype;
+			break;
 		case T_Const:
 			type = ((const Const *) expr)->consttype;
 			break;
@@ -251,6 +256,10 @@ exprTypmod(const Node *expr)
 	{
 		case T_Var:
 			return ((const Var *) expr)->vartypmod;
+	    case T_Grouping:
+			return -1;
+	    case T_GroupedVar:
+			return ((const GroupedVar *) expr)->vartypmod;
 		case T_Const:
 			return ((const Const *) expr)->consttypmod;
 		case T_Param:
@@ -727,6 +736,12 @@ exprCollation(const Node *expr)
 		case T_Var:
 			coll = ((const Var *) expr)->varcollid;
 			break;
+	    case T_Grouping:
+			coll = InvalidOid;
+			break;
+	    case T_GroupedVar:
+			coll = ((const GroupedVar *) expr)->varcollid;
+			break;
 		case T_Const:
 			coll = ((const Const *) expr)->constcollid;
 			break;
@@ -960,6 +975,9 @@ exprSetCollation(Node *expr, Oid collation)
 		case T_Var:
 			((Var *) expr)->varcollid = collation;
 			break;
+	    case T_GroupedVar:
+			((GroupedVar *) expr)->varcollid = collation;
+			break;
 		case T_Const:
 			((Const *) expr)->constcollid = collation;
 			break;
@@ -1174,6 +1192,12 @@ exprLocation(const Node *expr)
 			break;
 		case T_Var:
 			loc = ((const Var *) expr)->location;
+			break;
+	    case T_Grouping:
+			loc = ((const Grouping *) expr)->location;
+			break;
+		case T_GroupedVar:
+			loc = ((const GroupedVar *) expr)->location;
 			break;
 		case T_Const:
 			loc = ((const Const *) expr)->location;
@@ -1612,6 +1636,8 @@ expression_tree_walker(Node *node,
 	switch (nodeTag(node))
 	{
 		case T_Var:
+	    case T_Grouping:
+	    case T_GroupedVar:
 		case T_Const:
 		case T_Param:
 		case T_CoerceToDomainValue:
@@ -2128,6 +2154,24 @@ expression_tree_mutator(Node *node,
 				Var		   *newnode;
 
 				FLATCOPY(newnode, var, Var);
+				return (Node *) newnode;
+			}
+			break;
+	    case T_Grouping:
+			{
+				Grouping		   *grouping = (Grouping *) node;
+				Grouping		   *newnode;
+
+				FLATCOPY(newnode, grouping, Grouping);
+				return (Node *) newnode;
+			}
+			break;
+	    case T_GroupedVar:
+			{
+				GroupedVar         *groupedvar = (GroupedVar *) node;
+				GroupedVar		   *newnode;
+
+				FLATCOPY(newnode, groupedvar, GroupedVar);
 				return (Node *) newnode;
 			}
 			break;

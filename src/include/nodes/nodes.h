@@ -171,6 +171,8 @@ typedef enum NodeTag
 	T_JoinExpr,
 	T_FromExpr,
 	T_IntoClause,
+	T_GroupedVar,
+	T_Grouping,
 
 	/*
 	 * TAGS FOR EXPRESSION STATE NODES (execnodes.h)

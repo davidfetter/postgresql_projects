@@ -914,6 +914,31 @@ _outVar(StringInfo str, const Var *node)
 }
 
 static void
+_outGrouping(StringInfo str, const Grouping *node)
+{
+	WRITE_NODE_TYPE("GROUPING");
+
+	WRITE_NODE_FIELD(vars);
+	WRITE_LOCATION_FIELD(location);
+}
+
+static void
+_outGroupedVar(StringInfo str, const GroupedVar *node)
+{
+	WRITE_NODE_TYPE("GROUPEDVAR");
+
+	WRITE_UINT_FIELD(varno);
+	WRITE_INT_FIELD(varattno);
+	WRITE_OID_FIELD(vartype);
+	WRITE_INT_FIELD(vartypmod);
+	WRITE_OID_FIELD(varcollid);
+	WRITE_UINT_FIELD(varlevelsup);
+	WRITE_UINT_FIELD(varnoold);
+	WRITE_INT_FIELD(varoattno);
+	WRITE_LOCATION_FIELD(location);
+}
+
+static void
 _outConst(StringInfo str, const Const *node)
 {
 	WRITE_NODE_TYPE("CONST");
@@ -2892,6 +2917,12 @@ _outNode(StringInfo str, const void *obj)
 				break;
 			case T_Var:
 				_outVar(str, obj);
+				break;
+		    case T_GroupedVar:
+				_outGroupedVar(str, obj);
+				break;
+            case T_Grouping:
+				_outGrouping(str, obj);
 				break;
 			case T_Const:
 				_outConst(str, obj);

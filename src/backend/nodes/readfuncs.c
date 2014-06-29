@@ -440,6 +440,38 @@ _readVar(void)
 	READ_DONE();
 }
 
+static Grouping *
+_readGrouping(void)
+{
+	READ_LOCALS(Grouping);
+
+	READ_NODE_FIELD(vars);
+	READ_LOCATION_FIELD(location);
+
+	READ_DONE();
+}
+
+/*
+ * _readGroupedVar
+ */
+static GroupedVar *
+_readGroupedVar(void)
+{
+	READ_LOCALS(GroupedVar);
+
+	READ_UINT_FIELD(varno);
+	READ_INT_FIELD(varattno);
+	READ_OID_FIELD(vartype);
+	READ_INT_FIELD(vartypmod);
+	READ_OID_FIELD(varcollid);
+	READ_UINT_FIELD(varlevelsup);
+	READ_UINT_FIELD(varnoold);
+	READ_INT_FIELD(varoattno);
+	READ_LOCATION_FIELD(location);
+
+	READ_DONE();
+}
+
 /*
  * _readConst
  */
@@ -1319,6 +1351,10 @@ parseNodeString(void)
 		return_value = _readIntoClause();
 	else if (MATCH("VAR", 3))
 		return_value = _readVar();
+	else if (MATCH("GROUPEDVAR", 10))
+		return_value = _readGroupedVar();
+	else if (MATCH("GROUPING", 8))
+		return_value = _readGrouping();
 	else if (MATCH("CONST", 5))
 		return_value = _readConst();
 	else if (MATCH("PARAM", 5))

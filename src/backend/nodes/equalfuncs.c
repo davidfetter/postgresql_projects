@@ -153,6 +153,31 @@ _equalVar(const Var *a, const Var *b)
 }
 
 static bool
+_equalGrouping(const Grouping *a, const Grouping *b)
+{
+	COMPARE_NODE_FIELD(vars);
+	COMPARE_LOCATION_FIELD(location);
+
+	return true;
+}
+
+static bool
+_equalGroupedVar(const GroupedVar *a, const GroupedVar *b)
+{
+	COMPARE_SCALAR_FIELD(varno);
+	COMPARE_SCALAR_FIELD(varattno);
+	COMPARE_SCALAR_FIELD(vartype);
+	COMPARE_SCALAR_FIELD(vartypmod);
+	COMPARE_SCALAR_FIELD(varcollid);
+	COMPARE_SCALAR_FIELD(varlevelsup);
+	COMPARE_SCALAR_FIELD(varnoold);
+	COMPARE_SCALAR_FIELD(varoattno);
+	COMPARE_LOCATION_FIELD(location);
+
+	return true;
+}
+
+static bool
 _equalConst(const Const *a, const Const *b)
 {
 	COMPARE_SCALAR_FIELD(consttype);
@@ -2528,6 +2553,12 @@ equal(const void *a, const void *b)
 			break;
 		case T_Var:
 			retval = _equalVar(a, b);
+			break;
+	    case T_GroupedVar:
+			retval = _equalGroupedVar(a, b);
+			break;
+        case T_Grouping:
+			retval = _equalGrouping(a, b);
 			break;
 		case T_Const:
 			retval = _equalConst(a, b);

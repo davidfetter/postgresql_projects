@@ -159,6 +159,24 @@ typedef struct Var
 	int			location;		/* token location, or -1 if unknown */
 } Var;
 
+/* GroupedVar - expression node representing a grouping set variable.
+ * This is identical to Var node. It is a logical representation of
+ * a grouping set column and is also used during projection of rows
+ * in execution of a query having grouping sets.
+ */
+
+typedef Var GroupedVar;
+
+/*
+ * Grouping
+ */
+typedef struct Grouping
+{
+	Expr xpr;
+	List *vars;
+	int location;
+} Grouping;
+	
 /*
  * Const
  */
