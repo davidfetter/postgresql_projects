@@ -1714,6 +1714,7 @@ typedef struct AggState
 	bool        input_done;     /* indicates end of input */
 	bool		agg_done;		/* indicates completion of Agg scan */
 	int curgroup_size;		/* The current group size. Used for ROLLUP */
+	int curgroup;           /* The current group number being processed */
 	/* these fields are used in AGG_PLAIN and AGG_SORTED modes: */
 	AggStatePerGroup pergroup;	/* per-Aggref-per-group working state */
 	HeapTuple	grp_firstTuple; /* copy of first tuple of current group */

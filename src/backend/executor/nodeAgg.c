@@ -301,7 +301,8 @@ static void initialize_aggregates(AggState *aggstate,
 	                  int numReinitialize);
 static void advance_transition_function(AggState *aggstate,
 							AggStatePerAgg peraggstate,
-							AggStatePerGroup pergroupstate);
+							AggStatePerGroup pergroupstate,
+							int groupno);
 static void advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup);
 static void process_ordered_aggregate_single(AggState *aggstate,
 								 AggStatePerAgg peraggstate,
@@ -400,7 +401,7 @@ initialize_aggregates(AggState *aggstate,
 				{
 					MemoryContext oldContext;
 
-					oldContext = MemoryContextSwitchTo(aggstate->aggcontext[0]);
+					oldContext = MemoryContextSwitchTo(aggstate->aggcontext[numReinitialize]);
 					pergroupstate->transValue = datumCopy(peraggstate->initValue,
 														  peraggstate->transtypeByVal,
 														  peraggstate->transtypeLen);
@@ -439,7 +440,7 @@ initialize_aggregates(AggState *aggstate,
 					{
 						MemoryContext oldContext;
 
-						oldContext = MemoryContextSwitchTo(aggstate->aggcontext[0]);
+						oldContext = MemoryContextSwitchTo(aggstate->aggcontext[groupno]);
 						pergroupstate->transValue = datumCopy(peraggstate->initValue,
 															  peraggstate->transtypeByVal,
 															  peraggstate->transtypeLen);
@@ -474,7 +475,8 @@ initialize_aggregates(AggState *aggstate,
 static void
 advance_transition_function(AggState *aggstate,
 							AggStatePerAgg peraggstate,
-							AggStatePerGroup pergroupstate)
+							AggStatePerGroup pergroupstate,
+	                        int              groupno)
 {
 	FunctionCallInfo fcinfo = &peraggstate->transfn_fcinfo;
 	MemoryContext oldContext;
@@ -505,7 +507,7 @@ advance_transition_function(AggState *aggstate,
 			 * We must copy the datum into aggcontext if it is pass-by-ref. We
 			 * do not need to pfree the old transValue, since it's NULL.
 			 */
-			oldContext = MemoryContextSwitchTo(aggstate->aggcontext[0]);
+			oldContext = MemoryContextSwitchTo(aggstate->aggcontext[groupno]);
 			pergroupstate->transValue = datumCopy(fcinfo->arg[1],
 												  peraggstate->transtypeByVal,
 												  peraggstate->transtypeLen);
@@ -650,6 +652,8 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 			{
 				AggStatePerGroup pergroupstate = &pergroup[groupno + (aggno * numGroups)];
 
+				aggstate->curgroup = groupno;
+
 				/* We can apply the transition function immediately */
 				FunctionCallInfo fcinfo = &peraggstate->transfn_fcinfo;
 
@@ -662,7 +666,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 					fcinfo->argnull[i + 1] = slot->tts_isnull[i];
 				}
 
-				advance_transition_function(aggstate, peraggstate, pergroupstate);
+				advance_transition_function(aggstate, peraggstate, pergroupstate, groupno);
 			}
 		}
 	}
@@ -745,7 +749,7 @@ process_ordered_aggregate_single(AggState *aggstate,
 		}
 		else
 		{
-			advance_transition_function(aggstate, peraggstate, pergroupstate);
+			advance_transition_function(aggstate, peraggstate, pergroupstate, 0);
 			/* forget the old value, if any */
 			if (!oldIsNull && !peraggstate->inputtypeByVal)
 				pfree(DatumGetPointer(oldVal));
@@ -819,7 +823,7 @@ process_ordered_aggregate_multi(AggState *aggstate,
 				fcinfo->argnull[i + 1] = slot1->tts_isnull[i];
 			}
 
-			advance_transition_function(aggstate, peraggstate, pergroupstate);
+			advance_transition_function(aggstate, peraggstate, pergroupstate, 0);
 
 			if (numDistinctCols > 0)
 			{
@@ -1211,6 +1215,8 @@ agg_retrieve_direct(AggState *aggstate)
 	int            stateno = 0;
 	int            numGroups = 0;
 	int            currentGroup = 0;
+	int            numReset = 1;
+	int            currentreset = 0;
 
 	/*
 	 * get state info from node
@@ -1313,13 +1319,17 @@ agg_retrieve_direct(AggState *aggstate)
 			   */
 			  ReScanExprContext(econtext);
 
-			  MemoryContextResetAndDeleteChildren(aggstate->aggcontext[0]);
+			  if (hasRollup && (aggstate->curgroup_size != -1))
+				  numReset = numGroups - (aggstate->curgroup_size);
+
+			  for (currentreset = 0; currentreset < numReset; currentreset++)
+				  MemoryContextResetAndDeleteChildren(aggstate->aggcontext[currentreset]);
 
 			  /*
 			   * Initialize working state for a new input tuple group
 			   */
 			  if (aggstate->curgroup_size != -1)
-				  initialize_aggregates(aggstate, peragg, pergroup, (numGroups - (aggstate->curgroup_size)));
+				  initialize_aggregates(aggstate, peragg, pergroup, numReset);
 			  else
 				  initialize_aggregates(aggstate, peragg, pergroup, 0);
 
@@ -1429,6 +1439,8 @@ agg_retrieve_direct(AggState *aggstate)
 													peraggstate,
 													pergroupstate);
 			}
+
+		    aggstate->curgroup = currentGroup;
 
 			finalize_aggregate(aggstate, peraggstate, pergroupstate,
 							   &aggvalues[aggno], &aggnulls[aggno]);
@@ -1659,6 +1671,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->eqfunctions = NULL;
 	aggstate->hashfunctions = NULL;
 	aggstate->curgroup_size = -1;
+	aggstate->curgroup = 0;
 	aggstate->peragg = NULL;
 	aggstate->curperagg = NULL;
 	aggstate->agg_done = false;
@@ -2204,8 +2217,14 @@ GetAggInitVal(Datum textInitVal, Oid transtype)
 void
 ExecEndAgg(AggState *node)
 {
+	Agg		   *aggnode = (Agg *) node->ss.ps.plan;
 	PlanState  *outerPlan;
 	int			aggno;
+	int        numfree = 1;
+	int        i = 0;
+
+	if (aggnode->hasRollup)
+		numfree = aggnode->numCols + 1;
 
 	/* Make sure we have closed any open tuplesorts */
 	for (aggno = 0; aggno < node->numaggs; aggno++)
@@ -2229,7 +2248,10 @@ ExecEndAgg(AggState *node)
 	/* clean up tuple table */
 	ExecClearTuple(node->ss.ss_ScanTupleSlot);
 
-	MemoryContextDelete((node->aggcontext[0]));
+	for (i = 0;i < numfree; i++)
+	{
+		MemoryContextDelete((node->aggcontext[i]));
+	}
 
 	outerPlan = outerPlanState(node);
 	ExecEndNode(outerPlan);
@@ -2242,16 +2264,24 @@ ExecReScanAgg(AggState *node)
 	Agg		   *AggNode = (Agg *) node->ss.ps.plan;
 	int			aggno;
 	int         numGroups;
+	int         numReset = 0;
 	int         groupno;
+	int         currentresetno;
 
 	node->agg_done = false;
 
 	node->ss.ps.ps_TupFromTlist = false;
 
 	if (AggNode->hasRollup)
+	{
 		numGroups = (AggNode->numCols) + 1;
+		numReset = (AggNode->numCols) + 1;
+	}
 	else
+	{   
 		numGroups = 0;
+		numReset = 1;
+	}
 		
 
 	if (((Agg *) node->ss.ps.plan)->aggstrategy == AGG_HASHED)
@@ -2310,7 +2340,9 @@ ExecReScanAgg(AggState *node)
 	 * MemoryContextResetAndDeleteChildren() to avoid leaking the old hash
 	 * table's memory context header.
 	 */
-	MemoryContextResetAndDeleteChildren(node->aggcontext[0]);
+
+	for (currentresetno = 0; currentresetno < numReset; currentresetno++)
+		MemoryContextResetAndDeleteChildren(node->aggcontext[currentresetno]);
 
 	if (((Agg *) node->ss.ps.plan)->aggstrategy == AGG_HASHED)
 	{
@@ -2355,7 +2387,7 @@ AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
 	if (fcinfo->context && IsA(fcinfo->context, AggState))
 	{
 		if (aggcontext)
-			*aggcontext = ((AggState *) fcinfo->context)->aggcontext[0];
+			*aggcontext = ((AggState *) fcinfo->context)->aggcontext[((AggState *) fcinfo->context)->curgroup];
 		return AGG_CONTEXT_AGGREGATE;
 	}
 	if (fcinfo->context && IsA(fcinfo->context, WindowAggState))
