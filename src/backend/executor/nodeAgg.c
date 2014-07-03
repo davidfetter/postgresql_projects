@@ -160,8 +160,8 @@ typedef struct AggStatePerAggData
 	 * corresponding oid is not InvalidOid.  Note in particular that fn_strict
 	 * flags are kept here.
 	 */
-	FmgrInfo	transfn;
-	FmgrInfo	finalfn;
+	FmgrInfo	*transfn;
+	FmgrInfo	*finalfn;
 
 	/* Input collation derived for aggregate */
 	Oid			aggCollation;
@@ -234,7 +234,7 @@ typedef struct AggStatePerAggData
 	 * rest.
 	 */
 
-	Tuplesortstate *sortstate;	/* sort object, if DISTINCT or ORDER BY */
+	Tuplesortstate **sortstate;	/* sort object, if DISTINCT or ORDER BY */
 
 	/*
 	 * This field is a pre-initialized FunctionCallInfo struct used for
@@ -339,6 +339,8 @@ initialize_aggregates(AggState *aggstate,
 	Agg         *node = (Agg *) aggstate->ss.ps.plan;
 	int			aggno;
 	int         groupno;
+	int         numSortStates = 1;
+	int         currentsortstate = 0;
 	int         numGroups;
 	int         i = 0;
 
@@ -351,32 +353,42 @@ initialize_aggregates(AggState *aggstate,
 		 */
 		if (peraggstate->numSortCols > 0)
 		{
-			/*
-			 * In case of rescan, maybe there could be an uncompleted sort
-			 * operation?  Clean it up if so.
-			 */
-			if (peraggstate->sortstate)
-				tuplesort_end(peraggstate->sortstate);
+			
+			/* For ROLLUP, sortstate will be allocated for all the groups */
+			if (node->hasRollup && numReinitialize > 0)
+				numSortStates = numReinitialize;
+			else if (node->hasRollup)
+				numSortStates = (node->numCols) + 1;
 
-			/*
-			 * We use a plain Datum sorter when there's a single input column;
-			 * otherwise sort the full tuple.  (See comments for
-			 * process_ordered_aggregate_single.)
-			 */
-			peraggstate->sortstate =
-				(peraggstate->numInputs == 1) ?
-				tuplesort_begin_datum(peraggstate->evaldesc->attrs[0]->atttypid,
-									  peraggstate->sortOperators[0],
-									  peraggstate->sortCollations[0],
-									  peraggstate->sortNullsFirst[0],
-									  work_mem, false) :
-				tuplesort_begin_heap(peraggstate->evaldesc,
-									 peraggstate->numSortCols,
-									 peraggstate->sortColIdx,
-									 peraggstate->sortOperators,
-									 peraggstate->sortCollations,
-									 peraggstate->sortNullsFirst,
-									 work_mem, false);
+			for (currentsortstate = 0;currentsortstate < numSortStates; currentsortstate++)
+			{
+				/*
+				 * In case of rescan, maybe there could be an uncompleted sort
+				 * operation?  Clean it up if so.
+				 */
+				if (peraggstate->sortstate[currentsortstate])
+					tuplesort_end(peraggstate->sortstate[currentsortstate]);
+
+				/*
+				 * We use a plain Datum sorter when there's a single input column;
+				 * otherwise sort the full tuple.  (See comments for
+				 * process_ordered_aggregate_single.)
+				 */
+				peraggstate->sortstate[currentsortstate] =
+					(peraggstate->numInputs == 1) ?
+					tuplesort_begin_datum(peraggstate->evaldesc->attrs[0]->atttypid,
+										  peraggstate->sortOperators[0],
+										  peraggstate->sortCollations[0],
+										  peraggstate->sortNullsFirst[0],
+										  work_mem, false) :
+					tuplesort_begin_heap(peraggstate->evaldesc,
+										 peraggstate->numSortCols,
+										 peraggstate->sortColIdx,
+										 peraggstate->sortOperators,
+										 peraggstate->sortCollations,
+										 peraggstate->sortNullsFirst,
+										 work_mem, false);
+			}
 		}
 
 		/* If ROLLUP is present, we need to iterate over all the groups
@@ -425,38 +437,35 @@ initialize_aggregates(AggState *aggstate,
 			{
 				AggStatePerGroup pergroupstate = &pergroup[aggno + (groupno * (aggstate->numaggs))];
 
-				if (pergroupstate->reInitialize = true)
-				{
+				/*
+				 * (Re)set transValue to the initial value.
+				 *
+				 * Note that when the initial value is pass-by-ref, we must copy it
+				 * (into the aggcontext) since we will pfree the transValue later.
+				 */
+				 if (peraggstate->initValueIsNull)
+					 pergroupstate->transValue = peraggstate->initValue;
+				 else
+				 {
+					 MemoryContext oldContext;
 
-					/*
-					 * (Re)set transValue to the initial value.
-					 *
-					 * Note that when the initial value is pass-by-ref, we must copy it
-					 * (into the aggcontext) since we will pfree the transValue later.
-					 */
-					if (peraggstate->initValueIsNull)
-						pergroupstate->transValue = peraggstate->initValue;
-					else
-					{
-						MemoryContext oldContext;
+					 oldContext = MemoryContextSwitchTo(aggstate->aggcontext[groupno]);
+					 pergroupstate->transValue = datumCopy(peraggstate->initValue,
+														   peraggstate->transtypeByVal,
+														   peraggstate->transtypeLen);
+					 MemoryContextSwitchTo(oldContext);
+				 }
+				 pergroupstate->transValueIsNull = peraggstate->initValueIsNull;
 
-						oldContext = MemoryContextSwitchTo(aggstate->aggcontext[groupno]);
-						pergroupstate->transValue = datumCopy(peraggstate->initValue,
-															  peraggstate->transtypeByVal,
-															  peraggstate->transtypeLen);
-						MemoryContextSwitchTo(oldContext);
-					}
-					pergroupstate->transValueIsNull = peraggstate->initValueIsNull;
+				 /*
+				  * If the initial value for the transition state doesn't exist in the
+				  * pg_aggregate table then we will let the first non-NULL value
+				  * returned from the outer procNode become the initial value. (This is
+				  * useful for aggregates like max() and min().) The noTransValue flag
+				  * signals that we still need to do this.
+				  */
+				 pergroupstate->noTransValue = peraggstate->initValueIsNull;
 
-					/*
-					 * If the initial value for the transition state doesn't exist in the
-					 * pg_aggregate table then we will let the first non-NULL value
-					 * returned from the outer procNode become the initial value. (This is
-					 * useful for aggregates like max() and min().) The noTransValue flag
-					 * signals that we still need to do this.
-					 */
-					pergroupstate->noTransValue = peraggstate->initValueIsNull;
-				}
 			}
 		}
 	}
@@ -482,7 +491,7 @@ advance_transition_function(AggState *aggstate,
 	MemoryContext oldContext;
 	Datum		newVal;
 
-	if (peraggstate->transfn.fn_strict)
+	if (peraggstate->transfn[groupno].fn_strict)
 	{
 		/*
 		 * For a strict transfn, nothing happens when there's a NULL input; we
@@ -540,6 +549,7 @@ advance_transition_function(AggState *aggstate,
 	fcinfo->arg[0] = pergroupstate->transValue;
 	fcinfo->argnull[0] = pergroupstate->transValueIsNull;
 	fcinfo->isnull = false;		/* just in case transfn doesn't set it */
+	fcinfo->flinfo = &(peraggstate->transfn[groupno]);
 
 	newVal = FunctionCallInvoke(fcinfo);
 
@@ -584,13 +594,16 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 	int			aggno;
 	int         groupno = 0;
 	int         numGroups = 1;
+	int         numSortStates = 1;
+	int         currentsortno = 0;
 	Agg         *node = (Agg *) aggstate->ss.ps.plan;
 	bool        hasRollup = node->hasRollup;
 
 	if (hasRollup == true)
-		numGroups = node->numCols + 1;
-	else
-		numGroups = 1;
+	{
+		numGroups = (node->numCols) + 1;
+		numSortStates = (node->numCols) + 1;
+    }
 
 	for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 	{
@@ -627,7 +640,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 			 * not numInputs, since nullity in columns used only for sorting
 			 * is not relevant here.
 			 */
-			if (peraggstate->transfn.fn_strict)
+			if (peraggstate->transfn[(aggstate->curgroup)].fn_strict)
 			{
 				for (i = 0; i < numTransInputs; i++)
 				{
@@ -638,13 +651,16 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 					continue;
 			}
 
-			/* OK, put the tuple into the tuplesort object */
-			if (peraggstate->numInputs == 1)
-				tuplesort_putdatum(peraggstate->sortstate,
-								   slot->tts_values[0],
-								   slot->tts_isnull[0]);
-			else
-				tuplesort_puttupleslot(peraggstate->sortstate, slot);
+			for (currentsortno = 0; currentsortno < numSortStates; currentsortno++)
+			{
+				/* OK, put the tuple into the tuplesort object */
+				if (peraggstate->numInputs == 1)
+					tuplesort_putdatum(peraggstate->sortstate[currentsortno],
+									   slot->tts_values[0],
+									   slot->tts_isnull[0]);
+				else
+					tuplesort_puttupleslot(peraggstate->sortstate[currentsortno], slot);
+			}
 		}
 		else
 		{
@@ -652,10 +668,12 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 			{
 				AggStatePerGroup pergroupstate = &pergroup[groupno + (aggno * numGroups)];
 
-				aggstate->curgroup = groupno;
-
 				/* We can apply the transition function immediately */
 				FunctionCallInfo fcinfo = &peraggstate->transfn_fcinfo;
+
+				fcinfo->flinfo = &(peraggstate->transfn[(aggstate->curgroup)]);
+
+				aggstate->curgroup = groupno;
 
 				/* Load values into fcinfo */
 				/* Start from 1, since the 0th arg will be the transition value */
@@ -709,7 +727,7 @@ process_ordered_aggregate_single(AggState *aggstate,
 
 	Assert(peraggstate->numDistinctCols < 2);
 
-	tuplesort_performsort(peraggstate->sortstate);
+	tuplesort_performsort(peraggstate->sortstate[(aggstate->curgroup)]);
 
 	/* Load the column into argument 1 (arg 0 will be transition value) */
 	newVal = fcinfo->arg + 1;
@@ -721,7 +739,7 @@ process_ordered_aggregate_single(AggState *aggstate,
 	 * pfree them when they are no longer needed.
 	 */
 
-	while (tuplesort_getdatum(peraggstate->sortstate, true,
+	while (tuplesort_getdatum(peraggstate->sortstate[(aggstate->curgroup)], true,
 							  newVal, isNull))
 	{
 		/*
@@ -765,8 +783,8 @@ process_ordered_aggregate_single(AggState *aggstate,
 	if (!oldIsNull && !peraggstate->inputtypeByVal)
 		pfree(DatumGetPointer(oldVal));
 
-	tuplesort_end(peraggstate->sortstate);
-	peraggstate->sortstate = NULL;
+	tuplesort_end(peraggstate->sortstate[(aggstate->curgroup)]);
+	peraggstate->sortstate[(aggstate->curgroup)] = NULL;
 }
 
 /*
@@ -792,13 +810,13 @@ process_ordered_aggregate_multi(AggState *aggstate,
 	bool		haveOldValue = false;
 	int			i;
 
-	tuplesort_performsort(peraggstate->sortstate);
+	tuplesort_performsort(peraggstate->sortstate[(aggstate->curgroup)]);
 
 	ExecClearTuple(slot1);
 	if (slot2)
 		ExecClearTuple(slot2);
 
-	while (tuplesort_gettupleslot(peraggstate->sortstate, true, slot1))
+	while (tuplesort_gettupleslot(peraggstate->sortstate[(aggstate->curgroup)], true, slot1))
 	{
 		/*
 		 * Extract the first numTransInputs columns as datums to pass to the
@@ -846,8 +864,8 @@ process_ordered_aggregate_multi(AggState *aggstate,
 	if (slot2)
 		ExecClearTuple(slot2);
 
-	tuplesort_end(peraggstate->sortstate);
-	peraggstate->sortstate = NULL;
+	tuplesort_end(peraggstate->sortstate[(aggstate->curgroup)]);
+	peraggstate->sortstate[(aggstate->curgroup)] = NULL;
 }
 
 /*
@@ -909,7 +927,7 @@ finalize_aggregate(AggState *aggstate,
 		/* set up aggstate->curperagg for AggGetAggref() */
 		aggstate->curperagg = peraggstate;
 
-		InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn),
+		InitFunctionCallInfoData(fcinfo, &(peraggstate->finalfn[(aggstate->curgroup)]),
 								 numFinalArgs,
 								 peraggstate->aggCollation,
 								 (void *) aggstate, NULL);
@@ -1428,6 +1446,8 @@ agg_retrieve_direct(AggState *aggstate)
 
 		 pergroupstate = &pergroup[aggno + (currentGroup * (aggstate->numaggs))];
 
+		 aggstate->curgroup = currentGroup;
+
 		 if (peraggstate->numSortCols > 0)
 		 {
 			 if (peraggstate->numInputs == 1)
@@ -1439,8 +1459,6 @@ agg_retrieve_direct(AggState *aggstate)
 													peraggstate,
 													pergroupstate);
 			}
-
-		    aggstate->curgroup = currentGroup;
 
 			finalize_aggregate(aggstate, peraggstate, pergroupstate,
 							   &aggvalues[aggno], &aggnulls[aggno]);
@@ -1652,7 +1670,9 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	int			numaggs,
 				aggno;
 	ListCell   *l;
-	int        numGroups = 0;
+	int        numGroups = 1;
+	int        numSortStates = 1;
+	int        currentsortno = 0;
 	int        i = 0;
 	int        j = 0;
 
@@ -1690,9 +1710,10 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	ExecAssignExprContext(estate, &aggstate->ss.ps);
 
 	if (node->hasRollup)
+	{
 		numGroups = (node->numCols) + 1;
-	else
-		numGroups = 1;
+		numSortStates = (node->numCols) + 1;
+	}
 
 	/*
 	 * We also need a long-lived memory context for holding hashtable data
@@ -1892,6 +1913,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				   *finalfnexpr;
 		Datum		textInitVal;
 		int			i;
+		int         numInitialize = 1;
+		int         currentinitializeno = 0;
 		ListCell   *lc;
 
 		/* Planner should have assigned aggregate to correct level */
@@ -1920,7 +1943,10 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		/* Begin filling in the peraggstate data */
 		peraggstate->aggrefstate = aggrefstate;
 		peraggstate->aggref = aggref;
-		peraggstate->sortstate = NULL;
+		peraggstate->sortstate = (Tuplesortstate**) palloc0(sizeof(Tuplesortstate*) * numSortStates);
+
+		for (currentsortno = 0; currentsortno < numSortStates; currentsortno++)
+			peraggstate->sortstate[currentsortno] = NULL;
 
 		/* Fetch the pg_aggregate row */
 		aggTuple = SearchSysCache1(AGGFNOID,
@@ -2012,20 +2038,44 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 								&transfnexpr,
 								&finalfnexpr);
 
+		if (node->hasRollup)
+		{
+			peraggstate->transfn = (FmgrInfo*) palloc0(sizeof(FmgrInfo) * numGroups);
+			if (OidIsValid(finalfn_oid))
+				peraggstate->finalfn = (FmgrInfo*) palloc0(sizeof(FmgrInfo) * numGroups);
+
+			numInitialize = numGroups;
+		}
+		else
+		{
+			peraggstate->transfn = (FmgrInfo*) palloc0(sizeof(FmgrInfo));
+			if (OidIsValid(finalfn_oid))
+				peraggstate->finalfn = (FmgrInfo*) palloc0(sizeof(FmgrInfo));
+		}
+
 		/* set up infrastructure for calling the transfn and finalfn */
-		fmgr_info(transfn_oid, &peraggstate->transfn);
-		fmgr_info_set_expr((Node *) transfnexpr, &peraggstate->transfn);
+		fmgr_info(transfn_oid, &(peraggstate->transfn[0]));
+		fmgr_info_set_expr((Node *) transfnexpr, &(peraggstate->transfn[0]));
 
 		if (OidIsValid(finalfn_oid))
 		{
-			fmgr_info(finalfn_oid, &peraggstate->finalfn);
-			fmgr_info_set_expr((Node *) finalfnexpr, &peraggstate->finalfn);
+			fmgr_info(finalfn_oid, &(peraggstate->finalfn[0]));
+			fmgr_info_set_expr((Node *) finalfnexpr, &(peraggstate->finalfn[0]));
+		}
+
+		for (i = 1; i < numInitialize; i++)
+		{
+			fmgr_info_copy((&peraggstate->transfn[i]),(&peraggstate->transfn[0]),CurrentMemoryContext);
+			peraggstate->transfn[i] = peraggstate->transfn[0];
+
+			if (OidIsValid(finalfn_oid))
+				fmgr_info_copy((&peraggstate->finalfn[i]),(&peraggstate->finalfn[0]),CurrentMemoryContext);
 		}
 
 		peraggstate->aggCollation = aggref->inputcollid;
 
 		InitFunctionCallInfoData(peraggstate->transfn_fcinfo,
-								 &peraggstate->transfn,
+								 &(peraggstate->transfn[0]),
 								 peraggstate->numTransInputs + 1,
 								 peraggstate->aggCollation,
 								 (void *) aggstate, NULL);
@@ -2059,7 +2109,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		 * transValue.	This should have been checked at agg definition time,
 		 * but just in case...
 		 */
-		if (peraggstate->transfn.fn_strict && peraggstate->initValueIsNull)
+		if (peraggstate->transfn[(aggstate->curgroup)].fn_strict && peraggstate->initValueIsNull)
 		{
 			if (numArguments <= numDirectArgs ||
 				!IsBinaryCoercible(inputTypes[numDirectArgs], aggtranstype))
@@ -2221,18 +2271,26 @@ ExecEndAgg(AggState *node)
 	PlanState  *outerPlan;
 	int			aggno;
 	int        numfree = 1;
+	int        numsortstates = 1;
+	int        currentsortno = 0;
 	int        i = 0;
 
 	if (aggnode->hasRollup)
+	{
 		numfree = aggnode->numCols + 1;
+		numsortstates = aggnode->numCols + 1;
+	}
 
 	/* Make sure we have closed any open tuplesorts */
 	for (aggno = 0; aggno < node->numaggs; aggno++)
 	{
 		AggStatePerAgg peraggstate = &node->peragg[aggno];
 
-		if (peraggstate->sortstate)
-			tuplesort_end(peraggstate->sortstate);
+		for (currentsortno = 0; currentsortno < numsortstates; currentsortno++)
+		{
+			if (peraggstate->sortstate[currentsortno])
+				tuplesort_end(peraggstate->sortstate[currentsortno]);
+		}
 	}
 
 	/* And ensure any agg shutdown callbacks have been called */
@@ -2314,9 +2372,11 @@ ExecReScanAgg(AggState *node)
 		{
 			AggStatePerAgg peraggstate = &node->peragg[aggno + (groupno * (node->numaggs))];
 
-			if (peraggstate->sortstate)
-				tuplesort_end(peraggstate->sortstate);
-			peraggstate->sortstate = NULL;
+			if (peraggstate->sortstate[groupno])
+			{
+				tuplesort_end(peraggstate->sortstate[groupno]);
+				peraggstate->sortstate[groupno] = NULL;
+			}
 		}
 	}
 
