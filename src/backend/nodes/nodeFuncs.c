@@ -121,6 +121,11 @@ exprType(const Node *expr)
 							format_type_be(exprType((Node *) tent->expr)))));
 					}
 				}
+				else if (sublink->subLinkType == MULTIEXPR_SUBLINK)
+				{
+					/* MULTIEXPR is always considered to return RECORD */
+					type = RECORDOID;
+				}
 				else
 				{
 					/* for all other sublink types, result is boolean */
@@ -146,6 +151,11 @@ exprType(const Node *expr)
 									 errmsg("could not find array type for data type %s",
 									format_type_be(subplan->firstColType))));
 					}
+				}
+				else if (subplan->subLinkType == MULTIEXPR_SUBLINK)
+				{
+					/* MULTIEXPR is always considered to return RECORD */
+					type = RECORDOID;
 				}
 				else
 				{
@@ -244,7 +254,7 @@ exprType(const Node *expr)
 /*
  *	exprTypmod -
  *	  returns the type-specific modifier of the expression's result type,
- *	  if it can be determined.	In many cases, it can't and we return -1.
+ *	  if it can be determined.  In many cases, it can't and we return -1.
  */
 int32
 exprTypmod(const Node *expr)
@@ -308,6 +318,7 @@ exprTypmod(const Node *expr)
 					return exprTypmod((Node *) tent->expr);
 					/* note we don't need to care if it's an array */
 				}
+				/* otherwise, result is RECORD or BOOLEAN, typmod is -1 */
 			}
 			break;
 		case T_SubPlan:
@@ -321,11 +332,7 @@ exprTypmod(const Node *expr)
 					/* note we don't need to care if it's an array */
 					return subplan->firstColTypmod;
 				}
-				else
-				{
-					/* for all other subplan types, result is boolean */
-					return -1;
-				}
+				/* otherwise, result is RECORD or BOOLEAN, typmod is -1 */
 			}
 			break;
 		case T_AlternativeSubPlan:
@@ -799,7 +806,7 @@ exprCollation(const Node *expr)
 				}
 				else
 				{
-					/* for all other sublink types, result is boolean */
+					/* otherwise, result is RECORD or BOOLEAN */
 					coll = InvalidOid;
 				}
 			}
@@ -817,7 +824,7 @@ exprCollation(const Node *expr)
 				}
 				else
 				{
-					/* for all other subplan types, result is boolean */
+					/* otherwise, result is RECORD or BOOLEAN */
 					coll = InvalidOid;
 				}
 			}
@@ -1035,7 +1042,7 @@ exprSetCollation(Node *expr, Oid collation)
 				}
 				else
 				{
-					/* for all other sublink types, result is boolean */
+					/* otherwise, result is RECORD or BOOLEAN */
 					Assert(!OidIsValid(collation));
 				}
 			}
@@ -1444,6 +1451,9 @@ exprLocation(const Node *expr)
 			/* we need not examine the contained expression (if any) */
 			loc = ((const ResTarget *) expr)->location;
 			break;
+		case T_MultiAssignRef:
+			loc = exprLocation(((const MultiAssignRef *) expr)->source);
+			break;
 		case T_TypeCast:
 			{
 				const TypeCast *tc = (const TypeCast *) expr;
@@ -1567,8 +1577,8 @@ leftmostLoc(int loc1, int loc2)
  *
  * The walker routine should return "false" to continue the tree walk, or
  * "true" to abort the walk and immediately return "true" to the top-level
- * caller.	This can be used to short-circuit the traversal if the walker
- * has found what it came for.	"false" is returned to the top-level caller
+ * caller.  This can be used to short-circuit the traversal if the walker
+ * has found what it came for.  "false" is returned to the top-level caller
  * iff no invocation of the walker returned "true".
  *
  * The node types handled by expression_tree_walker include all those
@@ -1606,7 +1616,7 @@ leftmostLoc(int loc1, int loc2)
  *
  * expression_tree_walker will handle SubPlan nodes by recursing normally
  * into the "testexpr" and the "args" list (which are expressions belonging to
- * the outer plan).  It will not touch the completed subplan, however.	Since
+ * the outer plan).  It will not touch the completed subplan, however.  Since
  * there is no link to the original Query, it is not possible to recurse into
  * subselects of an already-planned expression tree.  This is OK for current
  * uses, but may need to be revisited in future.
@@ -2046,6 +2056,9 @@ range_table_walker(List *rtable,
 					return true;
 				break;
 		}
+
+		if (walker(rte->securityQuals, context))
+			return true;
 	}
 	return false;
 }
@@ -2195,8 +2208,8 @@ expression_tree_mutator(Node *node,
 			return (Node *) copyObject(node);
 		case T_WithCheckOption:
 			{
-				WithCheckOption	   *wco = (WithCheckOption *) node;
-				WithCheckOption	   *newnode;
+				WithCheckOption *wco = (WithCheckOption *) node;
+				WithCheckOption *newnode;
 
 				FLATCOPY(newnode, wco, WithCheckOption);
 				MUTATE(newnode->qual, wco->qual, Node *);
@@ -2699,7 +2712,7 @@ expression_tree_mutator(Node *node,
  * This routine exists just to reduce the number of places that need to know
  * where all the expression subtrees of a Query are.  Note it can be used
  * for starting a walk at top level of a Query regardless of whether the
- * mutator intends to descend into subqueries.	It is also useful for
+ * mutator intends to descend into subqueries.  It is also useful for
  * descending into subqueries within a mutator.
  *
  * Some callers want to suppress mutating of certain items in the Query,
@@ -2709,7 +2722,7 @@ expression_tree_mutator(Node *node,
  * indicated items.  (More flag bits may be added as needed.)
  *
  * Normally the Query node itself is copied, but some callers want it to be
- * modified in-place; they must pass QTW_DONT_COPY_QUERY in flags.	All
+ * modified in-place; they must pass QTW_DONT_COPY_QUERY in flags.  All
  * modified substructure is safely copied in any case.
  */
 Query *
@@ -2799,6 +2812,7 @@ range_table_mutator(List *rtable,
 				MUTATE(newrte->values_lists, rte->values_lists, List *);
 				break;
 		}
+		MUTATE(newrte->securityQuals, rte->securityQuals, List *);
 		newrt = lappend(newrt, newrte);
 	}
 	return newrt;
@@ -3087,6 +3101,14 @@ raw_expression_tree_walker(Node *node,
 				/* operator name is deemed uninteresting */
 			}
 			break;
+		case T_BoolExpr:
+			{
+				BoolExpr   *expr = (BoolExpr *) node;
+
+				if (walker(expr->args, context))
+					return true;
+			}
+			break;
 		case T_ColumnRef:
 			/* we assume the fields contain nothing interesting */
 			break;
@@ -3139,6 +3161,8 @@ raw_expression_tree_walker(Node *node,
 					return true;
 			}
 			break;
+		case T_MultiAssignRef:
+			return walker(((MultiAssignRef *) node)->source, context);
 		case T_TypeCast:
 			{
 				TypeCast   *tc = (TypeCast *) node;

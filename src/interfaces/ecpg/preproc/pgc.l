@@ -56,7 +56,7 @@ static bool isdefine(void);
 static bool isinformixdefine(void);
 
 char *token_start;
-int state_before;
+static int state_before;
 
 struct _yy_buffer
 {
@@ -1334,7 +1334,7 @@ parse_include(void)
 		yytext[i] = '\0';
 		memmove(yytext, yytext+1, strlen(yytext));
 
-		strncpy(inc_file, yytext, sizeof(inc_file));
+		strlcpy(inc_file, yytext, sizeof(inc_file));
 		yyin = fopen(inc_file, "r");
 		if (!yyin)
 		{

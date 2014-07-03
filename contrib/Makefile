@@ -50,6 +50,7 @@ SUBDIRS = \
 		spi		\
 		tablefunc	\
 		tcn		\
+		test_decoding	\
 		test_parser	\
 		test_shm_mq	\
 		tsearch2	\
@@ -63,7 +64,7 @@ else
 ALWAYS_SUBDIRS += sslinfo
 endif
 
-ifeq ($(with_ossp_uuid),yes)
+ifneq ($(with_uuid),no)
 SUBDIRS += uuid-ossp
 else
 ALWAYS_SUBDIRS += uuid-ossp

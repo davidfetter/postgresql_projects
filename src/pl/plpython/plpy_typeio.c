@@ -377,7 +377,7 @@ PLy_output_datum_func2(PLyObToDatum *arg, HeapTuple typeTup)
 
 	/*
 	 * Select a conversion function to convert Python objects to PostgreSQL
-	 * datums.	Most data types can go through the generic function.
+	 * datums.  Most data types can go through the generic function.
 	 */
 	switch (getBaseType(element_type ? element_type : arg->typoid))
 	{
@@ -404,11 +404,7 @@ PLy_output_datum_func2(PLyObToDatum *arg, HeapTuple typeTup)
 		Oid			funcid;
 
 		if (type_is_rowtype(element_type))
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("PL/Python functions cannot return type %s",
-							format_type_be(arg->typoid)),
-					 errdetail("PL/Python does not support conversion to arrays of row types.")));
+			arg->func = PLyObject_ToComposite;
 
 		arg->elm = PLy_malloc0(sizeof(*arg->elm));
 		arg->elm->func = arg->func;
@@ -427,6 +423,7 @@ static void
 PLy_input_datum_func2(PLyDatumToOb *arg, Oid typeOid, HeapTuple typeTup)
 {
 	Form_pg_type typeStruct = (Form_pg_type) GETSTRUCT(typeTup);
+
 	/* It's safe to handle domains of array types as its base array type. */
 	Oid			element_type = get_base_element_type(typeOid);
 
@@ -647,7 +644,7 @@ PLyList_FromArray(PLyDatumToOb *arg, Datum d)
 }
 
 /*
- * Convert a Python object to a PostgreSQL bool datum.	This can't go
+ * Convert a Python object to a PostgreSQL bool datum.  This can't go
  * through the generic conversion function, because Python attaches a
  * Boolean value to everything, more things than the PostgreSQL bool
  * type can parse.
@@ -741,6 +738,8 @@ PLyObject_ToComposite(PLyObToDatum *arg, int32 typmod, PyObject *plrv)
 	 */
 	rv = PLyObject_ToCompositeDatum(&info, desc, plrv);
 
+	ReleaseTupleDesc(desc);
+
 	PLy_typeinfo_dealloc(&info);
 
 	return rv;
@@ -809,7 +808,7 @@ static Datum
 PLySequence_ToArray(PLyObToDatum *arg, int32 typmod, PyObject *plrv)
 {
 	ArrayType  *array;
-	Datum       rv;
+	Datum		rv;
 	int			i;
 	Datum	   *elems;
 	bool	   *nulls;
@@ -834,11 +833,6 @@ PLySequence_ToArray(PLyObToDatum *arg, int32 typmod, PyObject *plrv)
 		else
 		{
 			nulls[i] = false;
-
-			/*
-			 * We don't support arrays of row types yet, so the first argument
-			 * can be NULL.
-			 */
 			elems[i] = arg->elm->func(arg->elm, -1, obj);
 		}
 		Py_XDECREF(obj);
@@ -847,6 +841,7 @@ PLySequence_ToArray(PLyObToDatum *arg, int32 typmod, PyObject *plrv)
 	lbs = 1;
 	array = construct_md_array(elems, nulls, 1, &len, &lbs,
 							   get_base_element_type(arg->typoid), arg->elm->typlen, arg->elm->typbyval, arg->elm->typalign);
+
 	/*
 	 * If the result type is a domain of array, the resulting array must be
 	 * checked.
@@ -870,7 +865,6 @@ PLyString_ToComposite(PLyTypeInfo *info, TupleDesc desc, PyObject *string)
 	PLy_output_datum_func2(&info->out.d, typeTup);
 
 	ReleaseSysCache(typeTup);
-	ReleaseTupleDesc(desc);
 
 	return PLyObject_ToDatum(&info->out.d, info->out.d.typmod, string);
 }
@@ -879,6 +873,7 @@ PLyString_ToComposite(PLyTypeInfo *info, TupleDesc desc, PyObject *string)
 static Datum
 PLyMapping_ToComposite(PLyTypeInfo *info, TupleDesc desc, PyObject *mapping)
 {
+	Datum		result;
 	HeapTuple	tuple;
 	Datum	   *values;
 	bool	   *nulls;
@@ -941,17 +936,20 @@ PLyMapping_ToComposite(PLyTypeInfo *info, TupleDesc desc, PyObject *mapping)
 	}
 
 	tuple = heap_form_tuple(desc, values, nulls);
-	ReleaseTupleDesc(desc);
+	result = heap_copy_tuple_as_datum(tuple, desc);
+	heap_freetuple(tuple);
+
 	pfree(values);
 	pfree(nulls);
 
-	return HeapTupleGetDatum(tuple);
+	return result;
 }
 
 
 static Datum
 PLySequence_ToComposite(PLyTypeInfo *info, TupleDesc desc, PyObject *sequence)
 {
+	Datum		result;
 	HeapTuple	tuple;
 	Datum	   *values;
 	bool	   *nulls;
@@ -1027,17 +1025,20 @@ PLySequence_ToComposite(PLyTypeInfo *info, TupleDesc desc, PyObject *sequence)
 	}
 
 	tuple = heap_form_tuple(desc, values, nulls);
-	ReleaseTupleDesc(desc);
+	result = heap_copy_tuple_as_datum(tuple, desc);
+	heap_freetuple(tuple);
+
 	pfree(values);
 	pfree(nulls);
 
-	return HeapTupleGetDatum(tuple);
+	return result;
 }
 
 
 static Datum
 PLyGenericObject_ToComposite(PLyTypeInfo *info, TupleDesc desc, PyObject *object)
 {
+	Datum		result;
 	HeapTuple	tuple;
 	Datum	   *values;
 	bool	   *nulls;
@@ -1099,11 +1100,13 @@ PLyGenericObject_ToComposite(PLyTypeInfo *info, TupleDesc desc, PyObject *object
 	}
 
 	tuple = heap_form_tuple(desc, values, nulls);
-	ReleaseTupleDesc(desc);
+	result = heap_copy_tuple_as_datum(tuple, desc);
+	heap_freetuple(tuple);
+
 	pfree(values);
 	pfree(nulls);
 
-	return HeapTupleGetDatum(tuple);
+	return result;
 }
 
 /*

@@ -26,9 +26,10 @@ out_target(StringInfo buf, xl_btreetid *target)
 }
 
 void
-btree_desc(StringInfo buf, uint8 xl_info, char *rec)
+btree_desc(StringInfo buf, XLogRecord *record)
 {
-	uint8		info = xl_info & ~XLR_INFO_MASK;
+	char	   *rec = XLogRecGetData(record);
+	uint8		info = record->xl_info & ~XLR_INFO_MASK;
 
 	switch (info)
 	{
@@ -124,16 +125,27 @@ btree_desc(StringInfo buf, uint8 xl_info, char *rec)
 								 xlrec->hnode.spcNode, xlrec->hnode.dbNode, xlrec->hnode.relNode);
 				break;
 			}
-		case XLOG_BTREE_DELETE_PAGE:
-		case XLOG_BTREE_DELETE_PAGE_META:
-		case XLOG_BTREE_DELETE_PAGE_HALF:
+		case XLOG_BTREE_MARK_PAGE_HALFDEAD:
 			{
-				xl_btree_delete_page *xlrec = (xl_btree_delete_page *) rec;
+				xl_btree_mark_page_halfdead *xlrec = (xl_btree_mark_page_halfdead *) rec;
 
-				appendStringInfoString(buf, "delete_page: ");
+				appendStringInfoString(buf, "mark_page_halfdead: ");
 				out_target(buf, &(xlrec->target));
-				appendStringInfo(buf, "; dead %u; left %u; right %u",
-							xlrec->deadblk, xlrec->leftblk, xlrec->rightblk);
+				appendStringInfo(buf, "; topparent %u; leaf %u; left %u; right %u",
+								 xlrec->topparent, xlrec->leafblk, xlrec->leftblk, xlrec->rightblk);
+				break;
+			}
+		case XLOG_BTREE_UNLINK_PAGE_META:
+		case XLOG_BTREE_UNLINK_PAGE:
+			{
+				xl_btree_unlink_page *xlrec = (xl_btree_unlink_page *) rec;
+
+				appendStringInfo(buf, "unlink_page: rel %u/%u/%u; ",
+				xlrec->node.spcNode, xlrec->node.dbNode, xlrec->node.relNode);
+				appendStringInfo(buf, "dead %u; left %u; right %u; btpo_xact %u; ",
+								 xlrec->deadblk, xlrec->leftsib, xlrec->rightsib, xlrec->btpo_xact);
+				appendStringInfo(buf, "leaf %u; leafleft %u; leafright %u; topparent %u",
+								 xlrec->leafblk, xlrec->leafleftsib, xlrec->leafrightsib, xlrec->topparent);
 				break;
 			}
 		case XLOG_BTREE_NEWROOT:

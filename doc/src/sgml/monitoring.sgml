@@ -92,6 +92,22 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
   </para>
 
   <para>
+   If <xref linkend="guc-cluster-name"> has been configured the
+   cluster name will also be shown in <command>ps</> output:
+<screen>
+$ psql -c 'SHOW cluster_name'
+ cluster_name
+--------------
+ server1
+(1 row)
+
+$ ps aux|grep server1
+postgres   27093  0.0  0.0  30096  2752 ?        Ss   11:34   0:00 postgres: server1: writer process
+...
+</screen>
+  </para>
+
+  <para>
    If you have turned off <xref linkend="guc-update-process-title"> then the
    activity indicator is not updated; the process title is set only once
    when a new process is launched.  On some platforms this saves a measurable
@@ -186,7 +202,7 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
    For better performance, <varname>stats_temp_directory</> can be
    pointed at a RAM-based file system, decreasing physical I/O requirements.
    When the server shuts down cleanly, a permanent copy of the statistics
-   data is stored in the <filename>global</filename> subdirectory, so that
+   data is stored in the <filename>pg_stat</filename> subdirectory, so that
    statistics can be retained across server restarts.  When recovery is
    performed at server start (e.g. after immediate shutdown, server crash,
    and point-in-time recovery), all statistics counters are reset.
@@ -627,6 +643,16 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
          </listitem>
        </itemizedlist>
      </entry>
+    </row>
+    <row>
+     <entry><structfield>backend_xid</structfield></entry>
+     <entry><type>xid</type></entry>
+     <entry>Toplevel transaction identifier of this backend, if any.</entry>
+    </row>
+    <row>
+     <entry><structfield>backend_xmin</structfield></entry>
+     <entry><type>xid</type></entry>
+     <entry>The current backend's <literal>xmin</> horizon.</entry>
     </row>
     <row>
      <entry><structfield>query</></entry>
@@ -1484,30 +1510,36 @@ postgres: <replaceable>user</> <replaceable>database</> <replaceable>host</> <re
      </entry>
     </row>
     <row>
+     <entry><structfield>backend_xmin</structfield></entry>
+     <entry><type>xid</type></entry>
+     <entry>This standby's <literal>xmin</> horizon reported
+     by <xref linkend="guc-hot-standby-feedback">.</entry>
+    </row>
+    <row>
      <entry><structfield>state</></entry>
      <entry><type>text</></entry>
      <entry>Current WAL sender state</entry>
     </row>
     <row>
      <entry><structfield>sent_location</></entry>
-     <entry><type>text</></entry>
+     <entry><type>pg_lsn</></entry>
      <entry>Last transaction log position sent on this connection</entry>
     </row>
     <row>
      <entry><structfield>write_location</></entry>
-     <entry><type>text</></entry>
+     <entry><type>pg_lsn</></entry>
      <entry>Last transaction log position written to disk by this standby
       server</entry>
     </row>
     <row>
      <entry><structfield>flush_location</></entry>
-     <entry><type>text</></entry>
+     <entry><type>pg_lsn</></entry>
      <entry>Last transaction log position flushed to disk by this standby
       server</entry>
     </row>
     <row>
      <entry><structfield>replay_location</></entry>
-     <entry><type>text</></entry>
+     <entry><type>pg_lsn</></entry>
      <entry>Last transaction log position replayed into the database on this
       standby server</entry>
     </row>
@@ -2284,7 +2316,7 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS pid,
      <entry>(char *, int, LWLockMode)</entry>
      <entry>Probe that fires when an LWLock has been acquired.
       arg0 is the LWLock's tranche.
-      arg1 is the LWLock's offset within its trance.
+      arg1 is the LWLock's offset within its tranche.
       arg2 is the requested lock mode, either exclusive or shared.</entry>
     </row>
     <row>
@@ -2293,7 +2325,7 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS pid,
      <entry>Probe that fires when an LWLock has been released (but note
       that any released waiters have not yet been awakened).
       arg0 is the LWLock's tranche.
-      arg1 is the LWLock's offset within its trance.</entry>
+      arg1 is the LWLock's offset within its tranche.</entry>
     </row>
     <row>
      <entry>lwlock-wait-start</entry>
@@ -2301,7 +2333,7 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS pid,
      <entry>Probe that fires when an LWLock was not immediately available and
       a server process has begun to wait for the lock to become available.
       arg0 is the LWLock's tranche.
-      arg1 is the LWLock's offset within its trance.
+      arg1 is the LWLock's offset within its tranche.
       arg2 is the requested lock mode, either exclusive or shared.</entry>
     </row>
     <row>
@@ -2310,7 +2342,7 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS pid,
      <entry>Probe that fires when a server process has been released from its
       wait for an LWLock (it does not actually have the lock yet).
       arg0 is the LWLock's tranche.
-      arg1 is the LWLock's offset within its trance.
+      arg1 is the LWLock's offset within its tranche.
       arg2 is the requested lock mode, either exclusive or shared.</entry>
     </row>
     <row>
@@ -2319,7 +2351,7 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS pid,
      <entry>Probe that fires when an LWLock was successfully acquired when the
       caller specified no waiting.
       arg0 is the LWLock's tranche.
-      arg1 is the LWLock's offset within its trance.
+      arg1 is the LWLock's offset within its tranche.
       arg2 is the requested lock mode, either exclusive or shared.</entry>
     </row>
     <row>
@@ -2328,7 +2360,7 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS pid,
      <entry>Probe that fires when an LWLock was not successfully acquired when
       the caller specified no waiting.
       arg0 is the LWLock's tranche.
-      arg1 is the LWLock's offset within its trance.
+      arg1 is the LWLock's offset within its tranche.
       arg2 is the requested lock mode, either exclusive or shared.</entry>
     </row>
     <row>

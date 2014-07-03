@@ -18,15 +18,12 @@
 
 #include "test_shm_mq.h"
 
-PG_MODULE_MAGIC;
-PG_FUNCTION_INFO_V1(test_shm_mq);
+PG_MODULE_MAGIC; PG_FUNCTION_INFO_V1(test_shm_mq);
 PG_FUNCTION_INFO_V1(test_shm_mq_pipelined);
 
 void		_PG_init(void);
-Datum		test_shm_mq(PG_FUNCTION_ARGS);
-Datum		test_shm_mq_pipelined(PG_FUNCTION_ARGS);
 
-static void verify_message(uint64 origlen, char *origdata, uint64 newlen,
+static void verify_message(Size origlen, char *origdata, Size newlen,
 			   char *newdata);
 
 /*
@@ -49,8 +46,8 @@ test_shm_mq(PG_FUNCTION_ARGS)
 	dsm_segment *seg;
 	shm_mq_handle *outqh;
 	shm_mq_handle *inqh;
-	shm_mq_result	res;
-	uint64		len;
+	shm_mq_result res;
+	Size		len;
 	void	   *data;
 
 	/* A negative loopcount is nonsensical. */
@@ -61,8 +58,8 @@ test_shm_mq(PG_FUNCTION_ARGS)
 
 	/*
 	 * Since this test sends data using the blocking interfaces, it cannot
-	 * send data to itself.  Therefore, a minimum of 1 worker is required.
-	 * Of course, a negative worker count is nonsensical.
+	 * send data to itself.  Therefore, a minimum of 1 worker is required. Of
+	 * course, a negative worker count is nonsensical.
 	 */
 	if (nworkers < 1)
 		ereport(ERROR,
@@ -141,8 +138,8 @@ test_shm_mq_pipelined(PG_FUNCTION_ARGS)
 	dsm_segment *seg;
 	shm_mq_handle *outqh;
 	shm_mq_handle *inqh;
-	shm_mq_result	res;
-	uint64		len;
+	shm_mq_result res;
+	Size		len;
 	void	   *data;
 
 	/* A negative loopcount is nonsensical. */
@@ -206,8 +203,8 @@ test_shm_mq_pipelined(PG_FUNCTION_ARGS)
 			}
 			else if (res == SHM_MQ_DETACHED)
 				ereport(ERROR,
-					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					 errmsg("could not receive message")));
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						 errmsg("could not receive message")));
 		}
 		else
 		{
@@ -218,18 +215,18 @@ test_shm_mq_pipelined(PG_FUNCTION_ARGS)
 			if (send_count != receive_count)
 				ereport(ERROR,
 						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("message sent %d times, but received %d times",
-							send_count, receive_count)));
+					   errmsg("message sent %d times, but received %d times",
+							  send_count, receive_count)));
 			break;
 		}
 
 		if (wait)
 		{
 			/*
-			 * If we made no progress, wait for one of the other processes
-			 * to which we are connected to set our latch, indicating that
-			 * they have read or written data and therefore there may now be
-			 * work for us to do.
+			 * If we made no progress, wait for one of the other processes to
+			 * which we are connected to set our latch, indicating that they
+			 * have read or written data and therefore there may now be work
+			 * for us to do.
 			 */
 			WaitLatch(&MyProc->procLatch, WL_LATCH_SET, 0);
 			CHECK_FOR_INTERRUPTS();
@@ -247,19 +244,19 @@ test_shm_mq_pipelined(PG_FUNCTION_ARGS)
  * Verify that two messages are the same.
  */
 static void
-verify_message(uint64 origlen, char *origdata, uint64 newlen, char *newdata)
+verify_message(Size origlen, char *origdata, Size newlen, char *newdata)
 {
-	uint64	i;
+	Size		i;
 
 	if (origlen != newlen)
 		ereport(ERROR,
 				(errmsg("message corrupted"),
-				 errdetail("The original message was " UINT64_FORMAT " bytes but the final message is " UINT64_FORMAT " bytes.",
-					 origlen, newlen)));
+				 errdetail("The original message was %zu bytes but the final message is %zu bytes.",
+						   origlen, newlen)));
 
 	for (i = 0; i < origlen; ++i)
 		if (origdata[i] != newdata[i])
 			ereport(ERROR,
 					(errmsg("message corrupted"),
-					 errdetail("The new and original messages differ at byte " UINT64_FORMAT " of " UINT64_FORMAT ".", i, origlen)));
+					 errdetail("The new and original messages differ at byte %zu of %zu.", i, origlen)));
 }

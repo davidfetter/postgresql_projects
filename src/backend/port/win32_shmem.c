@@ -13,6 +13,7 @@
 #include "postgres.h"
 
 #include "miscadmin.h"
+#include "storage/dsm.h"
 #include "storage/ipc.h"
 #include "storage/pg_shmem.h"
 
@@ -78,7 +79,7 @@ GetSharedMemName(void)
  * Is a previously-existing shmem segment still existing and in use?
  *
  * The point of this exercise is to detect the case where a prior postmaster
- * crashed, but it left child backends that are still running.	Therefore
+ * crashed, but it left child backends that are still running.  Therefore
  * we only care about shmem segments that are associated with the intended
  * DataDir.  This is an important consideration since accidental matches of
  * shmem segment IDs are reasonably common.
@@ -117,7 +118,8 @@ PGSharedMemoryIsInUse(unsigned long id1, unsigned long id2)
  *
  */
 PGShmemHeader *
-PGSharedMemoryCreate(Size size, bool makePrivate, int port)
+PGSharedMemoryCreate(Size size, bool makePrivate, int port,
+					 PGShmemHeader **shim)
 {
 	void	   *memAddress;
 	PGShmemHeader *hdr;
@@ -128,10 +130,10 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	DWORD		size_high;
 	DWORD		size_low;
 
-	if (huge_tlb_pages == HUGE_TLB_ON)
+	if (huge_pages == HUGE_PAGES_ON)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("huge TLB pages not supported on this platform")));
+				 errmsg("huge pages not supported on this platform")));
 
 	/* Room for a header? */
 	Assert(size > MAXALIGN(sizeof(PGShmemHeader)));
@@ -245,12 +247,14 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	 */
 	hdr->totalsize = size;
 	hdr->freeoffset = MAXALIGN(sizeof(PGShmemHeader));
+	hdr->dsm_control = 0;
 
 	/* Save info for possible future use */
 	UsedShmemSegAddr = memAddress;
 	UsedShmemSegSize = size;
 	UsedShmemSegID = hmap2;
 
+	*shim = hdr;
 	return hdr;
 }
 
@@ -289,6 +293,7 @@ PGSharedMemoryReAttach(void)
 			 hdr, origUsedShmemSegAddr);
 	if (hdr->magic != PGShmemMagic)
 		elog(FATAL, "reattaching to shared memory returned non-PostgreSQL memory");
+	dsm_set_control_handle(hdr->dsm_control);
 
 	UsedShmemSegAddr = hdr;		/* probably redundant */
 }

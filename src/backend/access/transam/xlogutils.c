@@ -20,7 +20,6 @@
 #include "access/xlog.h"
 #include "access/xlogutils.h"
 #include "catalog/catalog.h"
-#include "common/relpath.h"
 #include "storage/smgr.h"
 #include "utils/guc.h"
 #include "utils/hsearch.h"
@@ -338,15 +337,21 @@ XLogReadBufferExtended(RelFileNode rnode, ForkNumber forknum,
 		/* we do this in recovery only - no rel-extension lock needed */
 		Assert(InRecovery);
 		buffer = InvalidBuffer;
-		while (blkno >= lastblock)
+		do
 		{
 			if (buffer != InvalidBuffer)
 				ReleaseBuffer(buffer);
 			buffer = ReadBufferWithoutRelcache(rnode, forknum,
 											   P_NEW, mode, NULL);
-			lastblock++;
 		}
-		Assert(BufferGetBlockNumber(buffer) == blkno);
+		while (BufferGetBlockNumber(buffer) < blkno);
+		/* Handle the corner case that P_NEW returns non-consecutive pages */
+		if (BufferGetBlockNumber(buffer) != blkno)
+		{
+			ReleaseBuffer(buffer);
+			buffer = ReadBufferWithoutRelcache(rnode, forknum, blkno,
+											   mode, NULL);
+		}
 	}
 
 	if (mode == RBM_NORMAL)
@@ -439,6 +444,9 @@ CreateFakeRelcacheEntry(RelFileNode rnode)
 void
 FreeFakeRelcacheEntry(Relation fakerel)
 {
+	/* make sure the fakerel is not referenced by the SmgrRelation anymore */
+	if (fakerel->rd_smgr != NULL)
+		smgrclearowner(&fakerel->rd_smgr, fakerel->rd_smgr);
 	pfree(fakerel);
 }
 

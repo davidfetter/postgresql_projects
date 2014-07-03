@@ -240,9 +240,9 @@ ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
 	owner = matviewRel->rd_rel->relowner;
 
 	/*
-	 * Create the transient table that will receive the regenerated data.
-	 * Lock it against access by any other process until commit (by which time
-	 * it will be gone).
+	 * Create the transient table that will receive the regenerated data. Lock
+	 * it against access by any other process until commit (by which time it
+	 * will be gone).
 	 */
 	OIDNewHeap = make_new_heap(matviewOid, tableSpace, concurrent,
 							   ExclusiveLock);
@@ -303,7 +303,7 @@ refresh_matview_datafill(DestReceiver *dest, Query *query,
 
 	/* Lock and rewrite, using a copy to preserve the original query. */
 	copied_query = copyObject(query);
-	AcquireRewriteLocks(copied_query, false);
+	AcquireRewriteLocks(copied_query, true, false);
 	rewritten = QueryRewrite(copied_query);
 
 	/* SELECT should never rewrite to more or less than one SELECT query */
@@ -319,7 +319,7 @@ refresh_matview_datafill(DestReceiver *dest, Query *query,
 
 	/*
 	 * Use a snapshot with an updated command ID to ensure this query sees
-	 * results of any previously executed queries.	(This could only matter if
+	 * results of any previously executed queries.  (This could only matter if
 	 * the planner executed an allegedly-stable function that changed the
 	 * database contents, but let's do it anyway to be safe.)
 	 */
@@ -495,9 +495,9 @@ mv_GenerateOper(StringInfo buf, Oid opoid)
  *
  * This is called after a new version of the data has been created in a
  * temporary table.  It performs a full outer join against the old version of
- * the data, producing "diff" results.	This join cannot work if there are any
+ * the data, producing "diff" results.  This join cannot work if there are any
  * duplicated rows in either the old or new versions, in the sense that every
- * column would compare as equal between the two rows.	It does work correctly
+ * column would compare as equal between the two rows.  It does work correctly
  * in the face of rows which have at least one NULL value, with all non-NULL
  * columns equal.  The behavior of NULLs on equality tests and on UNIQUE
  * indexes turns out to be quite convenient here; the tests we need to make
@@ -561,7 +561,7 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid)
 
 	/*
 	 * We need to ensure that there are not duplicate rows without NULLs in
-	 * the new data set before we can count on the "diff" results.	Check for
+	 * the new data set before we can count on the "diff" results.  Check for
 	 * that in a way that allows showing the first duplicated row found.  Even
 	 * after we pass this test, a unique index on the materialized view may
 	 * find a duplicate key problem.
@@ -609,39 +609,22 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid)
 	{
 		Oid			indexoid = lfirst_oid(indexoidscan);
 		Relation	indexRel;
-		HeapTuple	indexTuple;
 		Form_pg_index indexStruct;
 
 		indexRel = index_open(indexoid, RowExclusiveLock);
-		indexTuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(indexoid));
-		if (!HeapTupleIsValid(indexTuple))		/* should not happen */
-			elog(ERROR, "cache lookup failed for index %u", indexoid);
-		indexStruct = (Form_pg_index) GETSTRUCT(indexTuple);
+		indexStruct = indexRel->rd_index;
 
-		/* We're only interested if it is unique and valid. */
-		if (indexStruct->indisunique && IndexIsValid(indexStruct))
+		/*
+		 * We're only interested if it is unique, valid, contains no
+		 * expressions, and is not partial.
+		 */
+		if (indexStruct->indisunique &&
+			IndexIsValid(indexStruct) &&
+			RelationGetIndexExpressions(indexRel) == NIL &&
+			RelationGetIndexPredicate(indexRel) == NIL)
 		{
 			int			numatts = indexStruct->indnatts;
 			int			i;
-
-			/* Skip any index on an expression. */
-			if (RelationGetIndexExpressions(indexRel) != NIL)
-			{
-				index_close(indexRel, NoLock);
-				ReleaseSysCache(indexTuple);
-				continue;
-			}
-
-			/* Skip partial indexes. */
-			if (RelationGetIndexPredicate(indexRel) != NIL)
-			{
-				index_close(indexRel, NoLock);
-				ReleaseSysCache(indexTuple);
-				continue;
-			}
-
-			/* Hold the locks, since we're about to run DML which needs them. */
-			index_close(indexRel, NoLock);
 
 			/* Add quals for all columns from this index. */
 			for (i = 0; i < numatts; i++)
@@ -675,7 +658,9 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid)
 				foundUniqueIndex = true;
 			}
 		}
-		ReleaseSysCache(indexTuple);
+
+		/* Keep the locks, since we're about to run DML which needs them. */
+		index_close(indexRel, NoLock);
 	}
 
 	list_free(indexoidlist);
@@ -722,7 +707,7 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid)
 	/* Deletes must come before inserts; do them first. */
 	resetStringInfo(&querybuf);
 	appendStringInfo(&querybuf,
-					 "DELETE FROM %s mv WHERE ctid OPERATOR(pg_catalog.=) ANY "
+				   "DELETE FROM %s mv WHERE ctid OPERATOR(pg_catalog.=) ANY "
 					 "(SELECT diff.tid FROM %s diff "
 					 "WHERE diff.tid IS NOT NULL "
 					 "AND diff.newdata IS NULL)",

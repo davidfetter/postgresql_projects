@@ -39,12 +39,14 @@
 #include "catalog/pg_tablespace.h"
 #include "commands/comment.h"
 #include "commands/dbcommands.h"
+#include "commands/defrem.h"
 #include "commands/seclabel.h"
 #include "commands/tablespace.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/bgwriter.h"
+#include "replication/slot.h"
 #include "storage/copydir.h"
 #include "storage/fd.h"
 #include "storage/lmgr.h"
@@ -121,6 +123,8 @@ createdb(const CreatedbStmt *stmt)
 	DefElem    *dencoding = NULL;
 	DefElem    *dcollate = NULL;
 	DefElem    *dctype = NULL;
+	DefElem    *distemplate = NULL;
+	DefElem    *dallowconnections = NULL;
 	DefElem    *dconnlimit = NULL;
 	char	   *dbname = stmt->dbname;
 	char	   *dbowner = NULL;
@@ -129,6 +133,8 @@ createdb(const CreatedbStmt *stmt)
 	char	   *dbctype = NULL;
 	char	   *canonname;
 	int			encoding = -1;
+	bool		dbistemplate = false;
+	bool		dballowconnections = true;
 	int			dbconnlimit = -1;
 	int			notherbackends;
 	int			npreparedxacts;
@@ -187,7 +193,23 @@ createdb(const CreatedbStmt *stmt)
 						 errmsg("conflicting or redundant options")));
 			dctype = defel;
 		}
-		else if (strcmp(defel->defname, "connectionlimit") == 0)
+		else if (strcmp(defel->defname, "is_template") == 0)
+		{
+			if (distemplate)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+			distemplate = defel;
+		}
+		else if (strcmp(defel->defname, "allow_connections") == 0)
+		{
+			if (dallowconnections)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+			dallowconnections = defel;
+		}
+		else if (strcmp(defel->defname, "connection_limit") == 0)
 		{
 			if (dconnlimit)
 				ereport(ERROR,
@@ -203,21 +225,22 @@ createdb(const CreatedbStmt *stmt)
 					 errhint("Consider using tablespaces instead.")));
 		}
 		else
-			elog(ERROR, "option \"%s\" not recognized",
-				 defel->defname);
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("option \"%s\" not recognized", defel->defname)));
 	}
 
 	if (downer && downer->arg)
-		dbowner = strVal(downer->arg);
+		dbowner = defGetString(downer);
 	if (dtemplate && dtemplate->arg)
-		dbtemplate = strVal(dtemplate->arg);
+		dbtemplate = defGetString(dtemplate);
 	if (dencoding && dencoding->arg)
 	{
 		const char *encoding_name;
 
 		if (IsA(dencoding->arg, Integer))
 		{
-			encoding = intVal(dencoding->arg);
+			encoding = defGetInt32(dencoding);
 			encoding_name = pg_encoding_to_char(encoding);
 			if (strcmp(encoding_name, "") == 0 ||
 				pg_valid_server_encoding(encoding_name) < 0)
@@ -226,9 +249,9 @@ createdb(const CreatedbStmt *stmt)
 						 errmsg("%d is not a valid encoding code",
 								encoding)));
 		}
-		else if (IsA(dencoding->arg, String))
+		else
 		{
-			encoding_name = strVal(dencoding->arg);
+			encoding_name = defGetString(dencoding);
 			encoding = pg_valid_server_encoding(encoding_name);
 			if (encoding < 0)
 				ereport(ERROR,
@@ -236,18 +259,18 @@ createdb(const CreatedbStmt *stmt)
 						 errmsg("%s is not a valid encoding name",
 								encoding_name)));
 		}
-		else
-			elog(ERROR, "unrecognized node type: %d",
-				 nodeTag(dencoding->arg));
 	}
 	if (dcollate && dcollate->arg)
-		dbcollate = strVal(dcollate->arg);
+		dbcollate = defGetString(dcollate);
 	if (dctype && dctype->arg)
-		dbctype = strVal(dctype->arg);
-
+		dbctype = defGetString(dctype);
+	if (distemplate && distemplate->arg)
+		dbistemplate = defGetBoolean(distemplate);
+	if (dallowconnections && dallowconnections->arg)
+		dballowconnections = defGetBoolean(dallowconnections);
 	if (dconnlimit && dconnlimit->arg)
 	{
-		dbconnlimit = intVal(dconnlimit->arg);
+		dbconnlimit = defGetInt32(dconnlimit);
 		if (dbconnlimit < -1)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -264,7 +287,7 @@ createdb(const CreatedbStmt *stmt)
 	 * To create a database, must have createdb privilege and must be able to
 	 * become the target role (this does not imply that the target role itself
 	 * must have createdb privilege).  The latter provision guards against
-	 * "giveaway" attacks.	Note that a superuser will always have both of
+	 * "giveaway" attacks.  Note that a superuser will always have both of
 	 * these privileges a fortiori.
 	 */
 	if (!have_createdb_privilege())
@@ -378,7 +401,7 @@ createdb(const CreatedbStmt *stmt)
 		char	   *tablespacename;
 		AclResult	aclresult;
 
-		tablespacename = strVal(dtablespacename->arg);
+		tablespacename = defGetString(dtablespacename);
 		dst_deftablespace = get_tablespace_oid(tablespacename, false);
 		/* check permissions */
 		aclresult = pg_tablespace_aclcheck(dst_deftablespace, GetUserId(),
@@ -396,7 +419,7 @@ createdb(const CreatedbStmt *stmt)
 		/*
 		 * If we are trying to change the default tablespace of the template,
 		 * we require that the template not have any files in the new default
-		 * tablespace.	This is necessary because otherwise the copied
+		 * tablespace.  This is necessary because otherwise the copied
 		 * database would contain pg_class rows that refer to its default
 		 * tablespace both explicitly (by OID) and implicitly (as zero), which
 		 * would cause problems.  For example another CREATE DATABASE using
@@ -432,7 +455,7 @@ createdb(const CreatedbStmt *stmt)
 	}
 
 	/*
-	 * Check for db name conflict.	This is just to give a more friendly error
+	 * Check for db name conflict.  This is just to give a more friendly error
 	 * message than "unique index violation".  There's a race condition but
 	 * we're willing to accept the less friendly message in that case.
 	 */
@@ -487,8 +510,8 @@ createdb(const CreatedbStmt *stmt)
 		DirectFunctionCall1(namein, CStringGetDatum(dbcollate));
 	new_record[Anum_pg_database_datctype - 1] =
 		DirectFunctionCall1(namein, CStringGetDatum(dbctype));
-	new_record[Anum_pg_database_datistemplate - 1] = BoolGetDatum(false);
-	new_record[Anum_pg_database_datallowconn - 1] = BoolGetDatum(true);
+	new_record[Anum_pg_database_datistemplate - 1] = BoolGetDatum(dbistemplate);
+	new_record[Anum_pg_database_datallowconn - 1] = BoolGetDatum(dballowconnections);
 	new_record[Anum_pg_database_datconnlimit - 1] = Int32GetDatum(dbconnlimit);
 	new_record[Anum_pg_database_datlastsysoid - 1] = ObjectIdGetDatum(src_lastsysoid);
 	new_record[Anum_pg_database_datfrozenxid - 1] = TransactionIdGetDatum(src_frozenxid);
@@ -497,7 +520,7 @@ createdb(const CreatedbStmt *stmt)
 
 	/*
 	 * We deliberately set datacl to default (NULL), rather than copying it
-	 * from the template database.	Copying it would be a bad idea when the
+	 * from the template database.  Copying it would be a bad idea when the
 	 * owner is not the same as the template's owner.
 	 */
 	new_record_nulls[Anum_pg_database_datacl - 1] = true;
@@ -750,6 +773,8 @@ dropdb(const char *dbname, bool missing_ok)
 	HeapTuple	tup;
 	int			notherbackends;
 	int			npreparedxacts;
+	int			nslots,
+				nslots_active;
 
 	/*
 	 * Look up the target database's OID, and get exclusive lock on it. We
@@ -805,6 +830,19 @@ dropdb(const char *dbname, bool missing_ok)
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_IN_USE),
 				 errmsg("cannot drop the currently open database")));
+
+	/*
+	 * Check whether there are, possibly unconnected, logical slots that refer
+	 * to the to-be-dropped database. The database lock we are holding
+	 * prevents the creation of new slots using the database.
+	 */
+	if (ReplicationSlotsCountDBSlots(db_id, &nslots, &nslots_active))
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_IN_USE),
+				 errmsg("database \"%s\" is used by a logical decoding slot",
+						dbname),
+				 errdetail("There are %d slot(s), %d of them active",
+						   nslots, nslots_active)));
 
 	/*
 	 * Check for other backends in the target database.  (Because we hold the
@@ -1145,7 +1183,7 @@ movedb(const char *dbname, const char *tblspcname)
 
 	/*
 	 * Use an ENSURE block to make sure we remove the debris if the copy fails
-	 * (eg, due to out-of-disk-space).	This is not a 100% solution, because
+	 * (eg, due to out-of-disk-space).  This is not a 100% solution, because
 	 * of the possibility of failure during transaction commit, but it should
 	 * handle most scenarios.
 	 */
@@ -1313,7 +1351,11 @@ AlterDatabase(AlterDatabaseStmt *stmt, bool isTopLevel)
 	ScanKeyData scankey;
 	SysScanDesc scan;
 	ListCell   *option;
-	int			connlimit = -1;
+	bool		dbistemplate = false;
+	bool		dballowconnections = true;
+	int			dbconnlimit = -1;
+	DefElem    *distemplate = NULL;
+	DefElem    *dallowconnections = NULL;
 	DefElem    *dconnlimit = NULL;
 	DefElem    *dtablespace = NULL;
 	Datum		new_record[Natts_pg_database];
@@ -1325,7 +1367,23 @@ AlterDatabase(AlterDatabaseStmt *stmt, bool isTopLevel)
 	{
 		DefElem    *defel = (DefElem *) lfirst(option);
 
-		if (strcmp(defel->defname, "connectionlimit") == 0)
+		if (strcmp(defel->defname, "is_template") == 0)
+		{
+			if (distemplate)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+			distemplate = defel;
+		}
+		else if (strcmp(defel->defname, "allow_connections") == 0)
+		{
+			if (dallowconnections)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+			dallowconnections = defel;
+		}
+		else if (strcmp(defel->defname, "connection_limit") == 0)
 		{
 			if (dconnlimit)
 				ereport(ERROR,
@@ -1342,27 +1400,40 @@ AlterDatabase(AlterDatabaseStmt *stmt, bool isTopLevel)
 			dtablespace = defel;
 		}
 		else
-			elog(ERROR, "option \"%s\" not recognized",
-				 defel->defname);
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("option \"%s\" not recognized", defel->defname)));
 	}
 
 	if (dtablespace)
 	{
-		/* currently, can't be specified along with any other options */
-		Assert(!dconnlimit);
+		/*
+		 * While the SET TABLESPACE syntax doesn't allow any other options,
+		 * somebody could write "WITH TABLESPACE ...".  Forbid any other
+		 * options from being specified in that case.
+		 */
+		if (list_length(stmt->options) != 1)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			   errmsg("option \"%s\" cannot be specified with other options",
+					  dtablespace->defname)));
 		/* this case isn't allowed within a transaction block */
 		PreventTransactionChain(isTopLevel, "ALTER DATABASE SET TABLESPACE");
-		movedb(stmt->dbname, strVal(dtablespace->arg));
+		movedb(stmt->dbname, defGetString(dtablespace));
 		return InvalidOid;
 	}
 
-	if (dconnlimit)
+	if (distemplate && distemplate->arg)
+		dbistemplate = defGetBoolean(distemplate);
+	if (dallowconnections && dallowconnections->arg)
+		dballowconnections = defGetBoolean(dallowconnections);
+	if (dconnlimit && dconnlimit->arg)
 	{
-		connlimit = intVal(dconnlimit->arg);
-		if (connlimit < -1)
+		dbconnlimit = defGetInt32(dconnlimit);
+		if (dbconnlimit < -1)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("invalid connection limit: %d", connlimit)));
+					 errmsg("invalid connection limit: %d", dbconnlimit)));
 	}
 
 	/*
@@ -1390,15 +1461,36 @@ AlterDatabase(AlterDatabaseStmt *stmt, bool isTopLevel)
 					   stmt->dbname);
 
 	/*
+	 * In order to avoid getting locked out and having to go through
+	 * standalone mode, we refuse to disallow connections to the database
+	 * we're currently connected to.  Lockout can still happen with concurrent
+	 * sessions but the likeliness of that is not high enough to worry about.
+	 */
+	if (!dballowconnections && dboid == MyDatabaseId)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("cannot disallow connections for current database")));
+
+	/*
 	 * Build an updated tuple, perusing the information just obtained
 	 */
 	MemSet(new_record, 0, sizeof(new_record));
 	MemSet(new_record_nulls, false, sizeof(new_record_nulls));
 	MemSet(new_record_repl, false, sizeof(new_record_repl));
 
+	if (distemplate)
+	{
+		new_record[Anum_pg_database_datistemplate - 1] = BoolGetDatum(dbistemplate);
+		new_record_repl[Anum_pg_database_datistemplate - 1] = true;
+	}
+	if (dallowconnections)
+	{
+		new_record[Anum_pg_database_datallowconn - 1] = BoolGetDatum(dballowconnections);
+		new_record_repl[Anum_pg_database_datallowconn - 1] = true;
+	}
 	if (dconnlimit)
 	{
-		new_record[Anum_pg_database_datconnlimit - 1] = Int32GetDatum(connlimit);
+		new_record[Anum_pg_database_datconnlimit - 1] = Int32GetDatum(dbconnlimit);
 		new_record_repl[Anum_pg_database_datconnlimit - 1] = true;
 	}
 
@@ -1632,7 +1724,7 @@ get_db_info(const char *name, LOCKMODE lockmode,
 			LockSharedObject(DatabaseRelationId, dbOid, 0, lockmode);
 
 		/*
-		 * And now, re-fetch the tuple by OID.	If it's still there and still
+		 * And now, re-fetch the tuple by OID.  If it's still there and still
 		 * the same name, we win; else, drop the lock and loop back to try
 		 * again.
 		 */

@@ -5,7 +5,7 @@
  *
  * NOTE: it is critical that this plan type only be used with MVCC-compliant
  * snapshots (ie, regular snapshots, not SnapshotAny or one of the other
- * special snapshots).	The reason is that since index and heap scans are
+ * special snapshots).  The reason is that since index and heap scans are
  * decoupled, there can be no assurance that the index tuple prompting a
  * visit to a particular heap TID still exists when the visit is made.
  * Therefore the tuple might not exist anymore either (which is OK because
@@ -336,12 +336,11 @@ bitgetpage(HeapScanDesc scan, TBMIterateResult *tbmres)
 	/*
 	 * Prune and repair fragmentation for the whole page, if possible.
 	 */
-	Assert(TransactionIdIsValid(RecentGlobalXmin));
-	heap_page_prune_opt(scan->rs_rd, buffer, RecentGlobalXmin);
+	heap_page_prune_opt(scan->rs_rd, buffer);
 
 	/*
 	 * We must hold share lock on the buffer content while examining tuple
-	 * visibility.	Afterwards, however, the tuples we have found to be
+	 * visibility.  Afterwards, however, the tuples we have found to be
 	 * visible are guaranteed good as long as we hold the buffer pin.
 	 */
 	LockBuffer(buffer, BUFFER_LOCK_SHARE);

@@ -33,7 +33,7 @@
  *	in the backend environment, but are of no interest outside the backend.
  *
  *	Simple type definitions live in c.h, where they are shared with
- *	postgres_fe.h.	We do that since those type definitions are needed by
+ *	postgres_fe.h.  We do that since those type definitions are needed by
  *	frontend modules that want to deal with binary data transmission to or
  *	from the backend.  Type definitions in this file should be for
  *	representations that never escape the backend, such as Datum or
@@ -71,7 +71,7 @@ typedef struct varatt_external
 	int32		va_extsize;		/* External saved size (doesn't) */
 	Oid			va_valueid;		/* Unique ID of value within TOAST table */
 	Oid			va_toastrelid;	/* RelID of TOAST table containing it */
-} varatt_external;
+}	varatt_external;
 
 /*
  * Out-of-line Datum thats stored in memory in contrast to varatt_external
@@ -83,7 +83,7 @@ typedef struct varatt_external
 typedef struct varatt_indirect
 {
 	struct varlena *pointer;	/* Pointer to in-memory varlena */
-} varatt_indirect;
+}	varatt_indirect;
 
 
 /*
@@ -158,7 +158,7 @@ typedef struct
  * The "xxx" bits are the length field (which includes itself in all cases).
  * In the big-endian case we mask to extract the length, in the little-endian
  * case we shift.  Note that in both cases the flag bits are in the physically
- * first byte.	Also, it is not possible for a 1-byte length word to be zero;
+ * first byte.  Also, it is not possible for a 1-byte length word to be zero;
  * this lets us disambiguate alignment padding bytes from the start of an
  * unaligned datum.  (We now *require* pad bytes to be filled with zero!)
  *
@@ -680,13 +680,10 @@ extern Datum Float8GetDatum(float8 X);
  */
 
 /*
- * These declarations supports the assertion-related macros in c.h.
- * assert_enabled is here because that file doesn't have PGDLLIMPORT in the
- * right place, and ExceptionalCondition must be present, for the backend only,
- * even when assertions are not enabled.
+ * Backend only infrastructure for the the assertion-related macros in c.h.
+ *
+ * ExceptionalCondition must be present even when assertions are not enabled.
  */
-extern PGDLLIMPORT bool assert_enabled;
-
 extern void ExceptionalCondition(const char *conditionName,
 					 const char *errorType,
 			 const char *fileName, int lineNumber) __attribute__((noreturn));

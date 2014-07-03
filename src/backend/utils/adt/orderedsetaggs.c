@@ -49,8 +49,6 @@ typedef struct OSAPerQueryState
 	MemoryContext qcontext;
 	/* Memory context containing per-group data: */
 	MemoryContext gcontext;
-	/* Agg plan node's output econtext: */
-	ExprContext *peraggecontext;
 
 	/* These fields are used only when accumulating tuples: */
 
@@ -117,7 +115,6 @@ ordered_set_startup(FunctionCallInfo fcinfo, bool use_tuples)
 		Aggref	   *aggref;
 		MemoryContext qcontext;
 		MemoryContext gcontext;
-		ExprContext *peraggecontext;
 		List	   *sortlist;
 		int			numSortCols;
 
@@ -133,10 +130,6 @@ ordered_set_startup(FunctionCallInfo fcinfo, bool use_tuples)
 			elog(ERROR, "ordered-set aggregate called in non-aggregate context");
 		if (!AGGKIND_IS_ORDERED_SET(aggref->aggkind))
 			elog(ERROR, "ordered-set aggregate support function called for non-ordered-set aggregate");
-		/* Also get output exprcontext so we can register shutdown callback */
-		peraggecontext = AggGetPerAggEContext(fcinfo);
-		if (!peraggecontext)
-			elog(ERROR, "ordered-set aggregate called in non-aggregate context");
 
 		/*
 		 * Prepare per-query structures in the fn_mcxt, which we assume is the
@@ -150,7 +143,6 @@ ordered_set_startup(FunctionCallInfo fcinfo, bool use_tuples)
 		qstate->aggref = aggref;
 		qstate->qcontext = qcontext;
 		qstate->gcontext = gcontext;
-		qstate->peraggecontext = peraggecontext;
 
 		/* Extract the sort information */
 		sortlist = aggref->aggorder;
@@ -291,9 +283,9 @@ ordered_set_startup(FunctionCallInfo fcinfo, bool use_tuples)
 	osastate->number_of_rows = 0;
 
 	/* Now register a shutdown callback to clean things up */
-	RegisterExprContextCallback(qstate->peraggecontext,
-								ordered_set_shutdown,
-								PointerGetDatum(osastate));
+	AggRegisterCallback(fcinfo,
+						ordered_set_shutdown,
+						PointerGetDatum(osastate));
 
 	MemoryContextSwitchTo(oldcontext);
 
@@ -462,7 +454,7 @@ percentile_disc_final(PG_FUNCTION_ARGS)
 
 	/*
 	 * Note: we *cannot* clean up the tuplesort object here, because the value
-	 * to be returned is allocated inside its sortcontext.	We could use
+	 * to be returned is allocated inside its sortcontext.  We could use
 	 * datumCopy to copy it out of there, but it doesn't seem worth the
 	 * trouble, since the cleanup callback will clear the tuplesort later.
 	 */
@@ -580,15 +572,12 @@ percentile_cont_final_common(FunctionCallInfo fcinfo,
 
 	/*
 	 * Note: we *cannot* clean up the tuplesort object here, because the value
-	 * to be returned may be allocated inside its sortcontext.	We could use
+	 * to be returned may be allocated inside its sortcontext.  We could use
 	 * datumCopy to copy it out of there, but it doesn't seem worth the
 	 * trouble, since the cleanup callback will clear the tuplesort later.
 	 */
 
-	if (isnull)
-		PG_RETURN_NULL();
-	else
-		PG_RETURN_DATUM(val);
+	PG_RETURN_DATUM(val);
 }
 
 /*
@@ -1089,7 +1078,7 @@ mode_final(PG_FUNCTION_ARGS)
 
 	/*
 	 * Note: we *cannot* clean up the tuplesort object here, because the value
-	 * to be returned is allocated inside its sortcontext.	We could use
+	 * to be returned is allocated inside its sortcontext.  We could use
 	 * datumCopy to copy it out of there, but it doesn't seem worth the
 	 * trouble, since the cleanup callback will clear the tuplesort later.
 	 */
@@ -1313,7 +1302,7 @@ hypothetical_dense_rank_final(PG_FUNCTION_ARGS)
 	sortColIdx = osastate->qstate->sortColIdx;
 
 	/* Get short-term context we can use for execTuplesMatch */
-	tmpcontext = AggGetPerTupleEContext(fcinfo)->ecxt_per_tuple_memory;
+	tmpcontext = AggGetTempMemoryContext(fcinfo);
 
 	/* insert the hypothetical row into the sort */
 	slot = osastate->qstate->tupslot;
@@ -1334,7 +1323,7 @@ hypothetical_dense_rank_final(PG_FUNCTION_ARGS)
 
 	/*
 	 * We alternate fetching into tupslot and extraslot so that we have the
-	 * previous row available for comparisons.	This is accomplished by
+	 * previous row available for comparisons.  This is accomplished by
 	 * swapping the slot pointer variables after each row.
 	 */
 	extraslot = MakeSingleTupleTableSlot(osastate->qstate->tupdesc);

@@ -40,12 +40,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <signal.h>
-
-#ifndef WIN32
 #include <sys/time.h>
-#include <unistd.h>
-#endif   /* ! WIN32 */
-
 #ifdef HAVE_SYS_SELECT_H
 #include <sys/select.h>
 #endif
@@ -88,9 +83,6 @@ typedef int pthread_attr_t;
 static int	pthread_create(pthread_t *thread, pthread_attr_t *attr, void *(*start_routine) (void *), void *arg);
 static int	pthread_join(pthread_t th, void **thread_return);
 #endif
-
-extern char *optarg;
-extern int	optind;
 
 
 /********************************************************************
@@ -170,9 +162,11 @@ bool		use_log;			/* log transaction latencies to a file */
 bool		use_quiet;			/* quiet logging onto stderr */
 int			agg_interval;		/* log aggregates instead of individual
 								 * transactions */
-int			progress = 0;       /* thread progress report every this seconds */
-int         progress_nclients = 0; /* number of clients for progress report */
-int			progress_nthreads = 0; /* number of threads for progress report */
+int			progress = 0;		/* thread progress report every this seconds */
+int			progress_nclients = 0;		/* number of clients for progress
+										 * report */
+int			progress_nthreads = 0;		/* number of threads for progress
+										 * report */
 bool		is_connect;			/* establish connection for each transaction */
 bool		is_latencies;		/* report per-command latencies */
 int			main_pid;			/* main process id used in log filename */
@@ -209,7 +203,7 @@ typedef struct
 	int			listen;			/* 0 indicates that an async query has been
 								 * sent */
 	int			sleeping;		/* 1 indicates that the client is napping */
-	bool        throttling;     /* whether nap is for throttling */
+	bool		throttling;		/* whether nap is for throttling */
 	int64		until;			/* napping until (usec) */
 	Variable   *variables;		/* array of variable definitions */
 	int			nvariables;
@@ -235,9 +229,9 @@ typedef struct
 	instr_time *exec_elapsed;	/* time spent executing cmds (per Command) */
 	int		   *exec_count;		/* number of cmd executions (per Command) */
 	unsigned short random_state[3];		/* separate randomness for each thread */
-	int64       throttle_trigger; 	/* previous/next throttling (us) */
-	int64       throttle_lag; 		/* total transaction lag behind throttling */
-	int64       throttle_lag_max; 	/* max transaction lag */
+	int64		throttle_trigger;		/* previous/next throttling (us) */
+	int64		throttle_lag;	/* total transaction lag behind throttling */
+	int64		throttle_lag_max;		/* max transaction lag */
 } TState;
 
 #define INVALID_THREAD		((pthread_t) 0)
@@ -245,11 +239,11 @@ typedef struct
 typedef struct
 {
 	instr_time	conn_time;
-	int			xacts;
+	int64		xacts;
 	int64		latencies;
 	int64		sqlats;
-	int64       throttle_lag;
-	int64       throttle_lag_max;
+	int64		throttle_lag;
+	int64		throttle_lag_max;
 } TResult;
 
 /*
@@ -351,20 +345,20 @@ usage(void)
 		   "\nInitialization options:\n"
 		   "  -i, --initialize         invokes initialization mode\n"
 		   "  -F, --fillfactor=NUM     set fill factor\n"
-		   "  -n, --no-vacuum          do not run VACUUM after initialization\n"
-		   "  -q, --quiet              quiet logging (one message each 5 seconds)\n"
+		"  -n, --no-vacuum          do not run VACUUM after initialization\n"
+	"  -q, --quiet              quiet logging (one message each 5 seconds)\n"
 		   "  -s, --scale=NUM          scaling factor\n"
 		   "  --foreign-keys           create foreign key constraints between tables\n"
 		   "  --index-tablespace=TABLESPACE\n"
-		   "                           create indexes in the specified tablespace\n"
-		   "  --tablespace=TABLESPACE  create tables in the specified tablespace\n"
+	"                           create indexes in the specified tablespace\n"
+	 "  --tablespace=TABLESPACE  create tables in the specified tablespace\n"
 		   "  --unlogged-tables        create tables as unlogged tables\n"
 		   "\nBenchmarking options:\n"
 		   "  -c, --client=NUM         number of concurrent database clients (default: 1)\n"
 		   "  -C, --connect            establish new connection for each transaction\n"
 		   "  -D, --define=VARNAME=VALUE\n"
-		   "                           define variable for use by custom script\n"
-		   "  -f, --file=FILENAME      read transaction script from FILENAME\n"
+	  "                           define variable for use by custom script\n"
+		 "  -f, --file=FILENAME      read transaction script from FILENAME\n"
 		   "  -j, --jobs=NUM           number of threads (default: 1)\n"
 		   "  -l, --log                write transaction times to log file\n"
 		   "  -M, --protocol=simple|extended|prepared\n"
@@ -373,20 +367,20 @@ usage(void)
 		   "  -N, --skip-some-updates  skip updates of pgbench_tellers and pgbench_branches\n"
 		   "  -P, --progress=NUM       show thread progress report every NUM seconds\n"
 		   "  -r, --report-latencies   report average latency per command\n"
-		   "  -R, --rate=NUM           target rate in transactions per second\n"
+		"  -R, --rate=NUM           target rate in transactions per second\n"
 		   "  -s, --scale=NUM          report this scale factor in output\n"
 		   "  -S, --select-only        perform SELECT-only transactions\n"
-		   "  -t, --transactions       number of transactions each client runs (default: 10)\n"
-		   "  -T, --time=NUM           duration of benchmark test in seconds\n"
+		   "  -t, --transactions=NUM   number of transactions each client runs (default: 10)\n"
+		 "  -T, --time=NUM           duration of benchmark test in seconds\n"
 		   "  -v, --vacuum-all         vacuum all four standard tables before tests\n"
 		   "  --aggregate-interval=NUM aggregate data over NUM seconds\n"
 		   "  --sampling-rate=NUM      fraction of transactions to log (e.g. 0.01 for 1%%)\n"
 		   "\nCommon options:\n"
 		   "  -d, --debug              print debugging output\n"
-		   "  -h, --host=HOSTNAME      database server host or socket directory\n"
+	  "  -h, --host=HOSTNAME      database server host or socket directory\n"
 		   "  -p, --port=PORT          database server port number\n"
 		   "  -U, --username=USERNAME  connect as specified database user\n"
-		   "  -V, --version            output version information, then exit\n"
+		 "  -V, --version            output version information, then exit\n"
 		   "  -?, --help               show this help, then exit\n"
 		   "\n"
 		   "Report bugs to <pgsql-bugs@postgresql.org>.\n",
@@ -421,7 +415,7 @@ strtoint64(const char *str)
 		ptr++;
 
 		/*
-		 * Do an explicit check for INT64_MIN.	Ugly though this is, it's
+		 * Do an explicit check for INT64_MIN.  Ugly though this is, it's
 		 * cleaner than trying to get the loop below to handle it portably.
 		 */
 		if (strncmp(ptr, "9223372036854775808", 19) == 0)
@@ -915,34 +909,34 @@ doCustom(TState *thread, CState *st, instr_time *conn_time, FILE *logfile, AggVa
 {
 	PGresult   *res;
 	Command   **commands;
-	bool        trans_needs_throttle = false;
+	bool		trans_needs_throttle = false;
 
 top:
 	commands = sql_files[st->use_file];
 
 	/*
-	 * Handle throttling once per transaction by sleeping.  It is simpler
-	 * to do this here rather than at the end, because so much complicated
-	 * logic happens below when statements finish.
+	 * Handle throttling once per transaction by sleeping.  It is simpler to
+	 * do this here rather than at the end, because so much complicated logic
+	 * happens below when statements finish.
 	 */
-	if (throttle_delay && ! st->is_throttled)
+	if (throttle_delay && !st->is_throttled)
 	{
 		/*
 		 * Use inverse transform sampling to randomly generate a delay, such
 		 * that the series of delays will approximate a Poisson distribution
 		 * centered on the throttle_delay time.
 		 *
-		 * 10000 implies a 9.2 (-log(1/10000)) to 0.0 (log 1) delay multiplier,
-		 * and results in a 0.055 % target underestimation bias:
+		 * 10000 implies a 9.2 (-log(1/10000)) to 0.0 (log 1) delay
+		 * multiplier, and results in a 0.055 % target underestimation bias:
 		 *
 		 * SELECT 1.0/AVG(-LN(i/10000.0)) FROM generate_series(1,10000) AS i;
 		 * = 1.000552717032611116335474
 		 *
-		 * If transactions are too slow or a given wait is shorter than
-		 * a transaction, the next transaction will start right away.
+		 * If transactions are too slow or a given wait is shorter than a
+		 * transaction, the next transaction will start right away.
 		 */
-		int64 wait = (int64) (throttle_delay *
-			1.00055271703 * -log(getrand(thread, 1, 10000)/10000.0));
+		int64		wait = (int64) (throttle_delay *
+				  1.00055271703 * -log(getrand(thread, 1, 10000) / 10000.0));
 
 		thread->throttle_trigger += wait;
 
@@ -951,14 +945,14 @@ top:
 		st->throttling = true;
 		st->is_throttled = true;
 		if (debug)
-			fprintf(stderr, "client %d throttling "INT64_FORMAT" us\n",
+			fprintf(stderr, "client %d throttling " INT64_FORMAT " us\n",
 					st->id, wait);
 	}
 
 	if (st->sleeping)
 	{							/* are we sleeping? */
 		instr_time	now;
-		int64 now_us;
+		int64		now_us;
 
 		INSTR_TIME_SET_CURRENT(now);
 		now_us = INSTR_TIME_GET_MICROSEC(now);
@@ -968,7 +962,8 @@ top:
 			if (st->throttling)
 			{
 				/* Measure lag of throttled transaction relative to target */
-				int64 lag = now_us - st->until;
+				int64		lag = now_us - st->until;
+
 				thread->throttle_lag += lag;
 				if (lag > thread->throttle_lag_max)
 					thread->throttle_lag_max = lag;
@@ -1019,6 +1014,7 @@ top:
 			INSTR_TIME_SUBTRACT(diff, st->txn_begin);
 			latency = INSTR_TIME_GET_MICROSEC(diff);
 			st->txn_latencies += latency;
+
 			/*
 			 * XXX In a long benchmark run of high-latency transactions, this
 			 * int64 addition eventually overflows.  For example, 100 threads
@@ -1182,14 +1178,16 @@ top:
 			st->use_file = (int) getrand(thread, 0, num_files - 1);
 			commands = sql_files[st->use_file];
 			st->is_throttled = false;
+
 			/*
-			 * No transaction is underway anymore, which means there is nothing
-			 * to listen to right now.  When throttling rate limits are active,
-			 * a sleep will happen next, as the next transaction starts.  And
-			 * then in any case the next SQL command will set listen back to 1.
+			 * No transaction is underway anymore, which means there is
+			 * nothing to listen to right now.  When throttling rate limits
+			 * are active, a sleep will happen next, as the next transaction
+			 * starts.  And then in any case the next SQL command will set
+			 * listen back to 1.
 			 */
 			st->listen = 0;
-			trans_needs_throttle = (throttle_delay>0);
+			trans_needs_throttle = (throttle_delay > 0);
 		}
 	}
 
@@ -1209,11 +1207,12 @@ top:
 	}
 
 	/*
-	 * This ensures that a throttling delay is inserted before proceeding
-	 * with sql commands, after the first transaction. The first transaction
+	 * This ensures that a throttling delay is inserted before proceeding with
+	 * sql commands, after the first transaction. The first transaction
 	 * throttling is performed when first entering doCustom.
 	 */
-	if (trans_needs_throttle) {
+	if (trans_needs_throttle)
+	{
 		trans_needs_throttle = false;
 		goto top;
 	}
@@ -1549,8 +1548,9 @@ disconnect_all(CState *state, int length)
 static void
 init(bool is_no_vacuum)
 {
-/* The scale factor at/beyond which 32bit integers are incapable of storing
- * 64bit values.
+/*
+ * The scale factor at/beyond which 32-bit integers are insufficient for
+ * storing TPC-B account IDs.
  *
  * Although the actual threshold is 21474, we use 20000 because it is easier to
  * document and remember, and isn't that far away from the real threshold.
@@ -1561,51 +1561,52 @@ init(bool is_no_vacuum)
 	 * Note: TPC-B requires at least 100 bytes per row, and the "filler"
 	 * fields in these table declarations were intended to comply with that.
 	 * The pgbench_accounts table complies with that because the "filler"
-	 * column is set to blank-padded empty string. But for all other tables the
-	 * column defaults to NULL and so don't actually take any space.  We could
-	 * fix that by giving them non-null default values.  However, that would
-	 * completely break comparability of pgbench results with prior versions.
-	 * Since pgbench has never pretended to be fully TPC-B compliant anyway, we
-	 * stick with the historical behavior.
+	 * column is set to blank-padded empty string. But for all other tables
+	 * the columns default to NULL and so don't actually take any space.  We
+	 * could fix that by giving them non-null default values.  However, that
+	 * would completely break comparability of pgbench results with prior
+	 * versions. Since pgbench has never pretended to be fully TPC-B compliant
+	 * anyway, we stick with the historical behavior.
 	 */
 	struct ddlinfo
 	{
-		char	   *table;
-		char	   *cols;
+		const char *table;		/* table name */
+		const char *smcols;		/* column decls if accountIDs are 32 bits */
+		const char *bigcols;	/* column decls if accountIDs are 64 bits */
 		int			declare_fillfactor;
 	};
-	struct ddlinfo DDLs[] = {
+	static const struct ddlinfo DDLs[] = {
 		{
 			"pgbench_history",
-			scale >= SCALE_32BIT_THRESHOLD
-			? "tid int,bid int,aid bigint,delta int,mtime timestamp,filler char(22)"
-			: "tid int,bid int,aid    int,delta int,mtime timestamp,filler char(22)",
+			"tid int,bid int,aid    int,delta int,mtime timestamp,filler char(22)",
+			"tid int,bid int,aid bigint,delta int,mtime timestamp,filler char(22)",
 			0
 		},
 		{
 			"pgbench_tellers",
 			"tid int not null,bid int,tbalance int,filler char(84)",
+			"tid int not null,bid int,tbalance int,filler char(84)",
 			1
 		},
 		{
 			"pgbench_accounts",
-			scale >= SCALE_32BIT_THRESHOLD
-			? "aid bigint not null,bid int,abalance int,filler char(84)"
-			: "aid    int not null,bid int,abalance int,filler char(84)",
+			"aid    int not null,bid int,abalance int,filler char(84)",
+			"aid bigint not null,bid int,abalance int,filler char(84)",
 			1
 		},
 		{
 			"pgbench_branches",
 			"bid int not null,bbalance int,filler char(88)",
+			"bid int not null,bbalance int,filler char(88)",
 			1
 		}
 	};
-	static char *DDLAFTERs[] = {
+	static const char *const DDLINDEXes[] = {
 		"alter table pgbench_branches add primary key (bid)",
 		"alter table pgbench_tellers add primary key (tid)",
 		"alter table pgbench_accounts add primary key (aid)"
 	};
-	static char *DDLKEYs[] = {
+	static const char *const DDLKEYs[] = {
 		"alter table pgbench_tellers add foreign key (bid) references pgbench_branches",
 		"alter table pgbench_accounts add foreign key (bid) references pgbench_branches",
 		"alter table pgbench_history add foreign key (bid) references pgbench_branches",
@@ -1633,16 +1634,17 @@ init(bool is_no_vacuum)
 	{
 		char		opts[256];
 		char		buffer[256];
-		struct ddlinfo *ddl = &DDLs[i];
+		const struct ddlinfo *ddl = &DDLs[i];
+		const char *cols;
 
 		/* Remove old table, if it exists. */
-		snprintf(buffer, 256, "drop table if exists %s", ddl->table);
+		snprintf(buffer, sizeof(buffer), "drop table if exists %s", ddl->table);
 		executeStatement(con, buffer);
 
 		/* Construct new create table statement. */
 		opts[0] = '\0';
 		if (ddl->declare_fillfactor)
-			snprintf(opts + strlen(opts), 256 - strlen(opts),
+			snprintf(opts + strlen(opts), sizeof(opts) - strlen(opts),
 					 " with (fillfactor=%d)", fillfactor);
 		if (tablespace != NULL)
 		{
@@ -1650,13 +1652,16 @@ init(bool is_no_vacuum)
 
 			escape_tablespace = PQescapeIdentifier(con, tablespace,
 												   strlen(tablespace));
-			snprintf(opts + strlen(opts), 256 - strlen(opts),
+			snprintf(opts + strlen(opts), sizeof(opts) - strlen(opts),
 					 " tablespace %s", escape_tablespace);
 			PQfreemem(escape_tablespace);
 		}
-		snprintf(buffer, 256, "create%s table %s(%s)%s",
+
+		cols = (scale >= SCALE_32BIT_THRESHOLD) ? ddl->bigcols : ddl->smcols;
+
+		snprintf(buffer, sizeof(buffer), "create%s table %s(%s)%s",
 				 unlogged_tables ? " unlogged" : "",
-				 ddl->table, ddl->cols, opts);
+				 ddl->table, cols, opts);
 
 		executeStatement(con, buffer);
 	}
@@ -1666,14 +1671,17 @@ init(bool is_no_vacuum)
 	for (i = 0; i < nbranches * scale; i++)
 	{
 		/* "filler" column defaults to NULL */
-		snprintf(sql, 256, "insert into pgbench_branches(bid,bbalance) values(%d,0)", i + 1);
+		snprintf(sql, sizeof(sql),
+				 "insert into pgbench_branches(bid,bbalance) values(%d,0)",
+				 i + 1);
 		executeStatement(con, sql);
 	}
 
 	for (i = 0; i < ntellers * scale; i++)
 	{
 		/* "filler" column defaults to NULL */
-		snprintf(sql, 256, "insert into pgbench_tellers(tid,bid,tbalance) values (%d,%d,0)",
+		snprintf(sql, sizeof(sql),
+			"insert into pgbench_tellers(tid,bid,tbalance) values (%d,%d,0)",
 				 i + 1, i / ntellers + 1);
 		executeStatement(con, sql);
 	}
@@ -1703,7 +1711,9 @@ init(bool is_no_vacuum)
 		int64		j = k + 1;
 
 		/* "filler" column defaults to blank padded empty string */
-		snprintf(sql, 256, INT64_FORMAT "\t" INT64_FORMAT "\t%d\t\n", j, k / naccounts + 1, 0);
+		snprintf(sql, sizeof(sql),
+				 INT64_FORMAT "\t" INT64_FORMAT "\t%d\t\n",
+				 j, k / naccounts + 1, 0);
 		if (PQputline(con, sql))
 		{
 			fprintf(stderr, "PQputline failed\n");
@@ -1775,11 +1785,11 @@ init(bool is_no_vacuum)
 	 * create indexes
 	 */
 	fprintf(stderr, "set primary keys...\n");
-	for (i = 0; i < lengthof(DDLAFTERs); i++)
+	for (i = 0; i < lengthof(DDLINDEXes); i++)
 	{
 		char		buffer[256];
 
-		strncpy(buffer, DDLAFTERs[i], 256);
+		strlcpy(buffer, DDLINDEXes[i], sizeof(buffer));
 
 		if (index_tablespace != NULL)
 		{
@@ -1787,7 +1797,7 @@ init(bool is_no_vacuum)
 
 			escape_tablespace = PQescapeIdentifier(con, index_tablespace,
 												   strlen(index_tablespace));
-			snprintf(buffer + strlen(buffer), 256 - strlen(buffer),
+			snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer),
 					 " using index tablespace %s", escape_tablespace);
 			PQfreemem(escape_tablespace);
 		}
@@ -1806,7 +1816,6 @@ init(bool is_no_vacuum)
 			executeStatement(con, DDLKEYs[i]);
 		}
 	}
-
 
 	fprintf(stderr, "done.\n");
 	PQfinish(con);
@@ -2171,7 +2180,7 @@ process_builtin(char *tb)
 
 /* print out results */
 static void
-printResults(int ttype, int normal_xacts, int nclients,
+printResults(int ttype, int64 normal_xacts, int nclients,
 			 TState *threads, int nthreads,
 			 instr_time total_time, instr_time conn_total_time,
 			 int64 total_latencies, int64 total_sqlats,
@@ -2204,21 +2213,22 @@ printResults(int ttype, int normal_xacts, int nclients,
 	if (duration <= 0)
 	{
 		printf("number of transactions per client: %d\n", nxacts);
-		printf("number of transactions actually processed: %d/%d\n",
-			   normal_xacts, nxacts * nclients);
+		printf("number of transactions actually processed: " INT64_FORMAT "/" INT64_FORMAT "\n",
+			   normal_xacts, (int64) nxacts * nclients);
 	}
 	else
 	{
 		printf("duration: %d s\n", duration);
-		printf("number of transactions actually processed: %d\n",
+		printf("number of transactions actually processed: " INT64_FORMAT "\n",
 			   normal_xacts);
 	}
 
 	if (throttle_delay || progress)
 	{
 		/* compute and show latency average and standard deviation */
-		double latency = 0.001 * total_latencies / normal_xacts;
-		double sqlat = (double) total_sqlats / normal_xacts;
+		double		latency = 0.001 * total_latencies / normal_xacts;
+		double		sqlat = (double) total_sqlats / normal_xacts;
+
 		printf("latency average: %.3f ms\n"
 			   "latency stddev: %.3f ms\n",
 			   latency, 0.001 * sqrt(sqlat - 1000000.0 * latency * latency));
@@ -2296,7 +2306,7 @@ int
 main(int argc, char **argv)
 {
 	static struct option long_options[] = {
-		/* systematic long/short named options*/
+		/* systematic long/short named options */
 		{"client", required_argument, NULL, 'c'},
 		{"connect", no_argument, NULL, 'C'},
 		{"debug", no_argument, NULL, 'd'},
@@ -2349,11 +2359,11 @@ main(int argc, char **argv)
 	instr_time	start_time;		/* start up time */
 	instr_time	total_time;
 	instr_time	conn_total_time;
-	int			total_xacts = 0;
+	int64		total_xacts = 0;
 	int64		total_latencies = 0;
 	int64		total_sqlats = 0;
-	int64       throttle_lag = 0;
-	int64       throttle_lag_max = 0;
+	int64		throttle_lag = 0;
+	int64		throttle_lag_max = 0;
 
 	int			i;
 
@@ -2558,23 +2568,24 @@ main(int argc, char **argv)
 				if (progress <= 0)
 				{
 					fprintf(stderr,
-					   "thread progress delay (-P) must be positive (%s)\n",
+						"thread progress delay (-P) must be positive (%s)\n",
 							optarg);
 					exit(1);
 				}
 				break;
 			case 'R':
-			{
-				/* get a double from the beginning of option value */
-				double throttle_value = atof(optarg);
-				if (throttle_value <= 0.0)
 				{
-					fprintf(stderr, "invalid rate limit: %s\n", optarg);
-					exit(1);
+					/* get a double from the beginning of option value */
+					double		throttle_value = atof(optarg);
+
+					if (throttle_value <= 0.0)
+					{
+						fprintf(stderr, "invalid rate limit: %s\n", optarg);
+						exit(1);
+					}
+					/* Invert rate limit into a time offset */
+					throttle_delay = (int64) (1000000.0 / throttle_value);
 				}
-				/* Invert rate limit into a time offset */
-				throttle_delay = (int64) (1000000.0 / throttle_value);
-			}
 				break;
 			case 0:
 				/* This covers long options which take no argument. */
@@ -2971,11 +2982,15 @@ threadRun(void *arg)
 	int			nstate = thread->nstate;
 	int			remains = nstate;		/* number of remaining clients */
 	int			i;
+
 	/* for reporting progress: */
-	int64       thread_start = INSTR_TIME_GET_MICROSEC(thread->start_time);
+	int64		thread_start = INSTR_TIME_GET_MICROSEC(thread->start_time);
 	int64		last_report = thread_start;
 	int64		next_report = last_report + (int64) progress * 1000000;
-	int64		last_count = 0, last_lats = 0, last_sqlats = 0, last_lags = 0;
+	int64		last_count = 0,
+				last_lats = 0,
+				last_sqlats = 0,
+				last_lags = 0;
 
 	AggVals		aggs;
 
@@ -3081,7 +3096,7 @@ threadRun(void *arg)
 					st->con = NULL;
 					continue;
 				}
-				else /* just a nap from the script */
+				else	/* just a nap from the script */
 				{
 					int			this_usec;
 
@@ -3168,19 +3183,27 @@ threadRun(void *arg)
 		/* each process reports its own progression */
 		if (progress)
 		{
-			instr_time now_time;
-			int64 now;
+			instr_time	now_time;
+			int64		now;
+
 			INSTR_TIME_SET_CURRENT(now_time);
 			now = INSTR_TIME_GET_MICROSEC(now_time);
 			if (now >= next_report)
 			{
 				/* generate and show report */
-				int64 count = 0, lats = 0, sqlats = 0;
-				int64 lags = thread->throttle_lag;
-				int64 run = now - last_report;
-				double tps, total_run, latency, sqlat, stdev, lag;
+				int64		count = 0,
+							lats = 0,
+							sqlats = 0;
+				int64		lags = thread->throttle_lag;
+				int64		run = now - last_report;
+				double		tps,
+							total_run,
+							latency,
+							sqlat,
+							stdev,
+							lag;
 
-				for (i = 0 ; i < nstate ; i++)
+				for (i = 0; i < nstate; i++)
 				{
 					count += state[i].cnt;
 					lats += state[i].txn_latencies;
@@ -3210,32 +3233,41 @@ threadRun(void *arg)
 				last_sqlats = sqlats;
 				last_lags = lags;
 				last_report = now;
-				next_report += (int64) progress * 1000000;
+				next_report += (int64) progress *1000000;
 			}
 		}
 #else
 		/* progress report by thread 0 for all threads */
 		if (progress && thread->tid == 0)
 		{
-			instr_time now_time;
-			int64 now;
+			instr_time	now_time;
+			int64		now;
+
 			INSTR_TIME_SET_CURRENT(now_time);
 			now = INSTR_TIME_GET_MICROSEC(now_time);
 			if (now >= next_report)
 			{
 				/* generate and show report */
-				int64 count = 0, lats = 0, sqlats = 0, lags = 0;
-				int64 run = now - last_report;
-				double tps, total_run, latency, sqlat, lag, stdev;
+				int64		count = 0,
+							lats = 0,
+							sqlats = 0,
+							lags = 0;
+				int64		run = now - last_report;
+				double		tps,
+							total_run,
+							latency,
+							sqlat,
+							lag,
+							stdev;
 
-				for (i = 0 ; i < progress_nclients ; i++)
+				for (i = 0; i < progress_nclients; i++)
 				{
 					count += state[i].cnt;
-					lats   += state[i].txn_latencies;
+					lats += state[i].txn_latencies;
 					sqlats += state[i].txn_sqlats;
 				}
 
-				for (i = 0 ; i < progress_nthreads ; i++)
+				for (i = 0; i < progress_nthreads; i++)
 					lags += thread[i].throttle_lag;
 
 				total_run = (now - thread_start) / 1000000.0;
@@ -3261,10 +3293,10 @@ threadRun(void *arg)
 				last_sqlats = sqlats;
 				last_lags = lags;
 				last_report = now;
-				next_report += (int64) progress * 1000000;
+				next_report += (int64) progress *1000000;
 			}
 		}
-#endif /* PTHREAD_FORK_EMULATION */
+#endif   /* PTHREAD_FORK_EMULATION */
 	}
 
 done:

@@ -4,6 +4,10 @@ PostgreSQL documentation
 -->
 
 <refentry id="app-postgres">
+ <indexterm zone="app-postgres">
+  <primary>postgres</primary>
+ </indexterm>
+
  <refmeta>
   <refentrytitle><application>postgres</application></refentrytitle>
   <manvolnum>1</manvolnum>
@@ -14,10 +18,6 @@ PostgreSQL documentation
   <refname>postgres</refname>
   <refpurpose><productname>PostgreSQL</productname> database server</refpurpose>
  </refnamediv>
-
- <indexterm zone="app-postgres">
-  <primary>postgres</primary>
- </indexterm>
 
  <refsynopsisdiv>
   <cmdsynopsis>
@@ -101,18 +101,6 @@ PostgreSQL documentation
     <title>General Purpose</title>
 
     <variablelist>
-     <varlistentry>
-      <term><option>-A 0|1</option></term>
-      <listitem>
-       <para>
-        Enables run-time assertion checks, which is a debugging aid to
-        detect programming mistakes.  This option is only available if
-        assertions were enabled when <productname>PostgreSQL</> was
-        compiled. If so, the default is on.
-       </para>
-      </listitem>
-     </varlistentry>
-
      <varlistentry>
       <term><option>-B <replaceable class="parameter">nbuffers</replaceable></option></term>
       <listitem>

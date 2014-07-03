@@ -45,6 +45,13 @@ static void StreamLog();
 static bool stop_streaming(XLogRecPtr segendpos, uint32 timeline,
 			   bool segment_finished);
 
+#define disconnect_and_exit(code)				\
+	{											\
+	if (conn != NULL) PQfinish(conn);			\
+	exit(code);									\
+	}
+
+
 static void
 usage(void)
 {
@@ -67,7 +74,7 @@ usage(void)
 	printf(_("  -U, --username=NAME    connect as specified database user\n"));
 	printf(_("  -w, --no-password      never prompt for password\n"));
 	printf(_("  -W, --password         force password prompt (should happen automatically)\n"));
-	printf(_("      --slot             replication slot to use\n"));
+	printf(_("      --slot=SLOTNAME    replication slot to use\n"));
 	printf(_("\nReport bugs to <pgsql-bugs@postgresql.org>.\n"));
 }
 
@@ -132,7 +139,7 @@ FindStreamingStart(uint32 *tli)
 		disconnect_and_exit(1);
 	}
 
-	while ((dirent = readdir(dir)) != NULL)
+	while (errno = 0, (dirent = readdir(dir)) != NULL)
 	{
 		uint32		tli;
 		XLogSegNo	segno;
@@ -202,16 +209,28 @@ FindStreamingStart(uint32 *tli)
 		}
 	}
 
-	closedir(dir);
+	if (errno)
+	{
+		fprintf(stderr, _("%s: could not read directory \"%s\": %s\n"),
+				progname, basedir, strerror(errno));
+		disconnect_and_exit(1);
+	}
+
+	if (closedir(dir))
+	{
+		fprintf(stderr, _("%s: could not close directory \"%s\": %s\n"),
+				progname, basedir, strerror(errno));
+		disconnect_and_exit(1);
+	}
 
 	if (high_segno > 0)
 	{
 		XLogRecPtr	high_ptr;
 
 		/*
-		 * Move the starting pointer to the start of the next segment, if
-		 * the highest one we saw was completed. Otherwise start streaming
-		 * from the beginning of the .partial segment.
+		 * Move the starting pointer to the start of the next segment, if the
+		 * highest one we saw was completed. Otherwise start streaming from
+		 * the beginning of the .partial segment.
 		 */
 		if (!high_ispartial)
 			high_segno++;
@@ -268,10 +287,10 @@ StreamLog(void)
 				progname, "IDENTIFY_SYSTEM", PQerrorMessage(conn));
 		disconnect_and_exit(1);
 	}
-	if (PQntuples(res) != 1 || PQnfields(res) != 3)
+	if (PQntuples(res) != 1 || PQnfields(res) < 3)
 	{
 		fprintf(stderr,
-				_("%s: could not identify system: got %d rows and %d fields, expected %d rows and %d fields\n"),
+				_("%s: could not identify system: got %d rows and %d fields, expected %d rows and %d or more fields\n"),
 				progname, PQntuples(res), PQnfields(res), 1, 3);
 		disconnect_and_exit(1);
 	}

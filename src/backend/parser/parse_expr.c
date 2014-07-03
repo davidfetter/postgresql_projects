@@ -20,6 +20,7 @@
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
+#include "optimizer/tlist.h"
 #include "optimizer/var.h"
 #include "parser/analyze.h"
 #include "parser/parse_clause.h"
@@ -41,16 +42,15 @@ bool		Transform_null_equals = false;
 static Node *transformExprRecurse(ParseState *pstate, Node *expr);
 static Node *transformParamRef(ParseState *pstate, ParamRef *pref);
 static Node *transformAExprOp(ParseState *pstate, A_Expr *a);
-static Node *transformAExprAnd(ParseState *pstate, A_Expr *a);
-static Node *transformAExprOr(ParseState *pstate, A_Expr *a);
-static Node *transformAExprNot(ParseState *pstate, A_Expr *a);
 static Node *transformAExprOpAny(ParseState *pstate, A_Expr *a);
 static Node *transformAExprOpAll(ParseState *pstate, A_Expr *a);
 static Node *transformAExprDistinct(ParseState *pstate, A_Expr *a);
 static Node *transformAExprNullIf(ParseState *pstate, A_Expr *a);
 static Node *transformAExprOf(ParseState *pstate, A_Expr *a);
 static Node *transformAExprIn(ParseState *pstate, A_Expr *a);
+static Node *transformBoolExpr(ParseState *pstate, BoolExpr *a);
 static Node *transformFuncCall(ParseState *pstate, FuncCall *fn);
+static Node *transformMultiAssignRef(ParseState *pstate, MultiAssignRef *maref);
 static Node *transformCaseExpr(ParseState *pstate, CaseExpr *c);
 static Node *transformSubLink(ParseState *pstate, SubLink *sublink);
 static Node *transformArrayExpr(ParseState *pstate, A_ArrayExpr *a,
@@ -223,15 +223,6 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 					case AEXPR_OP:
 						result = transformAExprOp(pstate, a);
 						break;
-					case AEXPR_AND:
-						result = transformAExprAnd(pstate, a);
-						break;
-					case AEXPR_OR:
-						result = transformAExprOr(pstate, a);
-						break;
-					case AEXPR_NOT:
-						result = transformAExprNot(pstate, a);
-						break;
 					case AEXPR_OP_ANY:
 						result = transformAExprOpAny(pstate, a);
 						break;
@@ -258,8 +249,16 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 				break;
 			}
 
+		case T_BoolExpr:
+			result = transformBoolExpr(pstate, (BoolExpr *) expr);
+			break;
+
 		case T_FuncCall:
 			result = transformFuncCall(pstate, (FuncCall *) expr);
+			break;
+
+		case T_MultiAssignRef:
+			result = transformMultiAssignRef(pstate, (MultiAssignRef *) expr);
 			break;
 
 		case T_NamedArgExpr:
@@ -337,7 +336,6 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 		case T_DistinctExpr:
 		case T_NullIfExpr:
 		case T_ScalarArrayOpExpr:
-		case T_BoolExpr:
 		case T_FieldSelect:
 		case T_FieldStore:
 		case T_RelabelType:
@@ -506,7 +504,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 	}			crerr = CRERR_NO_COLUMN;
 
 	/*
-	 * Give the PreParseColumnRefHook, if any, first shot.	If it returns
+	 * Give the PreParseColumnRefHook, if any, first shot.  If it returns
 	 * non-null then that's all, folks.
 	 */
 	if (pstate->p_pre_columnref_hook != NULL)
@@ -577,7 +575,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 					}
 
 					/*
-					 * Try to find the name as a relation.	Note that only
+					 * Try to find the name as a relation.  Note that only
 					 * relations already entered into the rangetable will be
 					 * recognized.
 					 *
@@ -808,7 +806,7 @@ transformParamRef(ParseState *pstate, ParamRef *pref)
 	Node	   *result;
 
 	/*
-	 * The core parser knows nothing about Params.	If a hook is supplied,
+	 * The core parser knows nothing about Params.  If a hook is supplied,
 	 * call it.  If not, or if the hook returns NULL, throw a generic error.
 	 */
 	if (pstate->p_paramref_hook != NULL)
@@ -916,46 +914,6 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 	}
 
 	return result;
-}
-
-static Node *
-transformAExprAnd(ParseState *pstate, A_Expr *a)
-{
-	Node	   *lexpr = transformExprRecurse(pstate, a->lexpr);
-	Node	   *rexpr = transformExprRecurse(pstate, a->rexpr);
-
-	lexpr = coerce_to_boolean(pstate, lexpr, "AND");
-	rexpr = coerce_to_boolean(pstate, rexpr, "AND");
-
-	return (Node *) makeBoolExpr(AND_EXPR,
-								 list_make2(lexpr, rexpr),
-								 a->location);
-}
-
-static Node *
-transformAExprOr(ParseState *pstate, A_Expr *a)
-{
-	Node	   *lexpr = transformExprRecurse(pstate, a->lexpr);
-	Node	   *rexpr = transformExprRecurse(pstate, a->rexpr);
-
-	lexpr = coerce_to_boolean(pstate, lexpr, "OR");
-	rexpr = coerce_to_boolean(pstate, rexpr, "OR");
-
-	return (Node *) makeBoolExpr(OR_EXPR,
-								 list_make2(lexpr, rexpr),
-								 a->location);
-}
-
-static Node *
-transformAExprNot(ParseState *pstate, A_Expr *a)
-{
-	Node	   *rexpr = transformExprRecurse(pstate, a->rexpr);
-
-	rexpr = coerce_to_boolean(pstate, rexpr, "NOT");
-
-	return (Node *) makeBoolExpr(NOT_EXPR,
-								 list_make1(rexpr),
-								 a->location);
 }
 
 static Node *
@@ -1108,7 +1066,7 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 	 * We try to generate a ScalarArrayOpExpr from IN/NOT IN, but this is only
 	 * possible if there is a suitable array type available.  If not, we fall
 	 * back to a boolean condition tree with multiple copies of the lefthand
-	 * expression.	Also, any IN-list items that contain Vars are handled as
+	 * expression.  Also, any IN-list items that contain Vars are handled as
 	 * separate boolean conditions, because that gives the planner more scope
 	 * for optimization on such clauses.
 	 *
@@ -1139,7 +1097,7 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 		Oid			array_type;
 
 		/*
-		 * Try to select a common type for the array elements.	Note that
+		 * Try to select a common type for the array elements.  Note that
 		 * since the LHS' type is first in the list, it will be preferred when
 		 * there is doubt (eg, when all the RHS items are unknown literals).
 		 *
@@ -1238,6 +1196,42 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 }
 
 static Node *
+transformBoolExpr(ParseState *pstate, BoolExpr *a)
+{
+	List	   *args = NIL;
+	const char *opname;
+	ListCell   *lc;
+
+	switch (a->boolop)
+	{
+		case AND_EXPR:
+			opname = "AND";
+			break;
+		case OR_EXPR:
+			opname = "OR";
+			break;
+		case NOT_EXPR:
+			opname = "NOT";
+			break;
+		default:
+			elog(ERROR, "unrecognized boolop: %d", (int) a->boolop);
+			opname = NULL;		/* keep compiler quiet */
+			break;
+	}
+
+	foreach(lc, a->args)
+	{
+		Node	   *arg = (Node *) lfirst(lc);
+
+		arg = transformExprRecurse(pstate, arg);
+		arg = coerce_to_boolean(pstate, arg, opname);
+		args = lappend(args, arg);
+	}
+
+	return (Node *) makeBoolExpr(a->boolop, args, a->location);
+}
+
+static Node *
 transformFuncCall(ParseState *pstate, FuncCall *fn)
 {
 	List	   *targs;
@@ -1254,8 +1248,8 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 	/*
 	 * When WITHIN GROUP is used, we treat its ORDER BY expressions as
 	 * additional arguments to the function, for purposes of function lookup
-	 * and argument type coercion.	So, transform each such expression and add
-	 * them to the targs list.	We don't explicitly mark where each argument
+	 * and argument type coercion.  So, transform each such expression and add
+	 * them to the targs list.  We don't explicitly mark where each argument
 	 * came from, but ParseFuncOrColumn can tell what's what by reference to
 	 * list_length(fn->agg_order).
 	 */
@@ -1277,6 +1271,80 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 							 targs,
 							 fn,
 							 fn->location);
+}
+
+static Node *
+transformMultiAssignRef(ParseState *pstate, MultiAssignRef *maref)
+{
+	SubLink    *sublink;
+	Query	   *qtree;
+	TargetEntry *tle;
+	Param	   *param;
+
+	/* We should only see this in first-stage processing of UPDATE tlists */
+	Assert(pstate->p_expr_kind == EXPR_KIND_UPDATE_SOURCE);
+
+	/* We only need to transform the source if this is the first column */
+	if (maref->colno == 1)
+	{
+		sublink = (SubLink *) transformExprRecurse(pstate, maref->source);
+		/* Currently, the grammar only allows a SubLink as source */
+		Assert(IsA(sublink, SubLink));
+		Assert(sublink->subLinkType == MULTIEXPR_SUBLINK);
+		qtree = (Query *) sublink->subselect;
+		Assert(IsA(qtree, Query));
+
+		/* Check subquery returns required number of columns */
+		if (count_nonjunk_tlist_entries(qtree->targetList) != maref->ncolumns)
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("number of columns does not match number of values"),
+					 parser_errposition(pstate, sublink->location)));
+
+		/*
+		 * Build a resjunk tlist item containing the MULTIEXPR SubLink, and
+		 * add it to pstate->p_multiassign_exprs, whence it will later get
+		 * appended to the completed targetlist.  We needn't worry about
+		 * selecting a resno for it; transformUpdateStmt will do that.
+		 */
+		tle = makeTargetEntry((Expr *) sublink, 0, NULL, true);
+		pstate->p_multiassign_exprs = lappend(pstate->p_multiassign_exprs, tle);
+
+		/*
+		 * Assign a unique-within-this-targetlist ID to the MULTIEXPR SubLink.
+		 * We can just use its position in the p_multiassign_exprs list.
+		 */
+		sublink->subLinkId = list_length(pstate->p_multiassign_exprs);
+	}
+	else
+	{
+		/*
+		 * Second or later column in a multiassignment.  Re-fetch the
+		 * transformed query, which we assume is still the last entry in
+		 * p_multiassign_exprs.
+		 */
+		Assert(pstate->p_multiassign_exprs != NIL);
+		tle = (TargetEntry *) llast(pstate->p_multiassign_exprs);
+		sublink = (SubLink *) tle->expr;
+		Assert(IsA(sublink, SubLink));
+		Assert(sublink->subLinkType == MULTIEXPR_SUBLINK);
+		qtree = (Query *) sublink->subselect;
+		Assert(IsA(qtree, Query));
+	}
+
+	/* Build a Param representing the appropriate subquery output column */
+	tle = (TargetEntry *) list_nth(qtree->targetList, maref->colno - 1);
+	Assert(!tle->resjunk);
+
+	param = makeNode(Param);
+	param->paramkind = PARAM_MULTIEXPR;
+	param->paramid = (sublink->subLinkId << 16) | maref->colno;
+	param->paramtype = exprType((Node *) tle->expr);
+	param->paramtypmod = exprTypmod((Node *) tle->expr);
+	param->paramcollid = exprCollation((Node *) tle->expr);
+	param->location = exprLocation((Node *) tle->expr);
+
+	return (Node *) param;
 }
 
 static Node *
@@ -1510,7 +1578,7 @@ transformSubLink(ParseState *pstate, SubLink *sublink)
 	qtree = parse_sub_analyze(sublink->subselect, pstate, NULL, false);
 
 	/*
-	 * Check that we got something reasonable.	Many of these conditions are
+	 * Check that we got something reasonable.  Many of these conditions are
 	 * impossible given restrictions of the grammar, but check 'em anyway.
 	 */
 	if (!IsA(qtree, Query) ||
@@ -1532,31 +1600,26 @@ transformSubLink(ParseState *pstate, SubLink *sublink)
 	else if (sublink->subLinkType == EXPR_SUBLINK ||
 			 sublink->subLinkType == ARRAY_SUBLINK)
 	{
-		ListCell   *tlist_item = list_head(qtree->targetList);
-
 		/*
 		 * Make sure the subselect delivers a single column (ignoring resjunk
 		 * targets).
 		 */
-		if (tlist_item == NULL ||
-			((TargetEntry *) lfirst(tlist_item))->resjunk)
+		if (count_nonjunk_tlist_entries(qtree->targetList) != 1)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("subquery must return a column"),
+					 errmsg("subquery must return only one column"),
 					 parser_errposition(pstate, sublink->location)));
-		while ((tlist_item = lnext(tlist_item)) != NULL)
-		{
-			if (!((TargetEntry *) lfirst(tlist_item))->resjunk)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("subquery must return only one column"),
-						 parser_errposition(pstate, sublink->location)));
-		}
 
 		/*
 		 * EXPR and ARRAY need no test expression or combining operator. These
 		 * fields should be null already, but make sure.
 		 */
+		sublink->testexpr = NULL;
+		sublink->operName = NIL;
+	}
+	else if (sublink->subLinkType == MULTIEXPR_SUBLINK)
+	{
+		/* Same as EXPR case, except no restriction on number of columns */
 		sublink->testexpr = NULL;
 		sublink->operName = NIL;
 	}
@@ -1925,7 +1988,7 @@ transformXmlExpr(ParseState *pstate, XmlExpr *x)
 	newx->location = x->location;
 
 	/*
-	 * gram.y built the named args as a list of ResTarget.	Transform each,
+	 * gram.y built the named args as a list of ResTarget.  Transform each,
 	 * and break the names out as a separate list.
 	 */
 	newx->named_args = NIL;
@@ -2188,9 +2251,9 @@ transformWholeRowRef(ParseState *pstate, RangeTblEntry *rte, int location)
 	vnum = RTERangeTablePosn(pstate, rte, &sublevels_up);
 
 	/*
-	 * Build the appropriate referencing node.	Note that if the RTE is a
+	 * Build the appropriate referencing node.  Note that if the RTE is a
 	 * function returning scalar, we create just a plain reference to the
-	 * function value, not a composite containing a single column.	This is
+	 * function value, not a composite containing a single column.  This is
 	 * pretty inconsistent at first sight, but it's what we've done
 	 * historically.  One argument for it is that "rel" and "rel.*" mean the
 	 * same thing for composite relations, so why not for scalar functions...
@@ -2374,7 +2437,7 @@ make_row_comparison_op(ParseState *pstate, List *opname,
 
 	/*
 	 * Now we must determine which row comparison semantics (= <> < <= > >=)
-	 * apply to this set of operators.	We look for btree opfamilies
+	 * apply to this set of operators.  We look for btree opfamilies
 	 * containing the operators, and see which interpretations (strategy
 	 * numbers) exist for each operator.
 	 */
@@ -2428,10 +2491,6 @@ make_row_comparison_op(ParseState *pstate, List *opname,
 	/*
 	 * For = and <> cases, we just combine the pairwise operators with AND or
 	 * OR respectively.
-	 *
-	 * Note: this is presently the only place where the parser generates
-	 * BoolExpr with more than two arguments.  Should be OK since the rest of
-	 * the system thinks BoolExpr is N-argument anyway.
 	 */
 	if (rctype == ROWCOMPARE_EQ)
 		return (Node *) makeBoolExpr(AND_EXPR, opexprs, location);

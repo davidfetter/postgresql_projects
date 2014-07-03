@@ -876,8 +876,9 @@ primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
 
   <sect2 id="streaming-replication-slots">
    <title>Replication Slots</title>
-   <indexterm zone="high-availability">
-    <primary>Replication Slots</primary>
+   <indexterm>
+    <primary>replication slot</primary>
+    <secondary>streaming replication</secondary>
    </indexterm>
    <para>
     Replication slots provide an automated way to ensure that the master does
@@ -889,7 +890,8 @@ primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
    <para>
     In lieu of using replication slots, it is possible to prevent the removal
     of old WAL segments using <xref linkend="guc-wal-keep-segments">, or by
-    storing the segments in an archive using <xref linkend="restore-command">.
+    storing the segments in an archive using
+    <xref linkend="guc-archive-command">.
     However, these methods often result in retaining more WAL segments than
     required, whereas replication slots retain only the number of segments
     known to be needed.  An advantage of these methods is that they bound
@@ -897,8 +899,8 @@ primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
     to do this using replication slots.
    </para>
    <para>
-    Similarly, <varname>hot_standby_feedback</varname>
-    and <varname>vacuum_defer_cleanup_age</varname> provide protection against
+    Similarly, <xref linkend="guc-hot-standby-feedback">
+    and <xref linkend="guc-vacuum-defer-cleanup-age"> provide protection against
     relevant rows being removed by vacuum, but the former provides no
     protection during any time period when the standby is not connected,
     and the latter often needs to be set to a high value to provide adequate
@@ -927,23 +929,23 @@ primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
      You can create a replication slot like this:
 <programlisting>
 postgres=# SELECT * FROM pg_create_physical_replication_slot('node_a_slot');
-  slotname   | xlog_position
+  slot_name  | xlog_position
 -------------+---------------
  node_a_slot |
 
 postgres=# SELECT * FROM pg_replication_slots;
   slot_name  | slot_type | datoid | database | active | xmin | restart_lsn
 -------------+-----------+--------+----------+--------+------+-------------
- node_a_slot | physical  |      0 |          | f      |      |
+ node_a_slot | physical  |        |          | f      |      |
 (1 row)
 </programlisting>
-     To configure the standby to use this slot, <varname>primary_slotname</>
+     To configure the standby to use this slot, <varname>primary_slot_name</>
      should be configured in the standby's <filename>recovery.conf</>.
      Here is a simple example:
 <programlisting>
 standby_mode = 'on'
 primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
-primary_slotname = 'node_a_slot'
+primary_slot_name = 'node_a_slot'
 </programlisting>
     </para>
    </sect3>
@@ -1888,9 +1890,14 @@ if (!triggered)
     situation will be no worse than if the standby queries were running
     directly on the primary server, and you are still getting the benefit of
     off-loading execution onto the standby.
-    <varname>max_standby_archive_delay</> must be kept large in this case,
-    because delayed WAL files might already contain entries that conflict with
-    the desired standby queries.
+    If standby servers connect and disconnect frequently, you
+    might want to make adjustments to handle the period when
+    <varname>hot_standby_feedback</> feedback is not being provided.
+    For example, consider increasing <varname>max_standby_archive_delay</>
+    so that queries are not rapidly cancelled by conflicts in WAL archive
+    files during disconnected periods.  You should also consider increasing
+    <varname>max_standby_streaming_delay</> to avoid rapid cancellations
+    by newly-arrived streaming WAL entries after reconnection.
    </para>
 
    <para>

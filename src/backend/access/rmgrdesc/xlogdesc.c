@@ -17,7 +17,6 @@
 #include "access/xlog.h"
 #include "access/xlog_internal.h"
 #include "catalog/pg_control.h"
-#include "common/relpath.h"
 #include "utils/guc.h"
 #include "utils/timestamp.h"
 
@@ -33,9 +32,10 @@ const struct config_enum_entry wal_level_options[] = {
 };
 
 void
-xlog_desc(StringInfo buf, uint8 xl_info, char *rec)
+xlog_desc(StringInfo buf, XLogRecord *record)
 {
-	uint8		info = xl_info & ~XLR_INFO_MASK;
+	char	   *rec = XLogRecGetData(record);
+	uint8		info = record->xl_info & ~XLR_INFO_MASK;
 
 	if (info == XLOG_CHECKPOINT_SHUTDOWN ||
 		info == XLOG_CHECKPOINT_ONLINE)

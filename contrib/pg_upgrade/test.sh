@@ -17,15 +17,43 @@ set -e
 unset MAKEFLAGS
 unset MAKELEVEL
 
-# Set listen_addresses desirably
+# Establish how the server will listen for connections
 testhost=`uname -s`
 
 case $testhost in
-	MINGW*)	LISTEN_ADDRESSES="localhost" ;;
-	*)		LISTEN_ADDRESSES="" ;;
+	MINGW*)
+		LISTEN_ADDRESSES="localhost"
+		PGHOST=""; unset PGHOST
+		;;
+	*)
+		LISTEN_ADDRESSES=""
+		# Select a socket directory.  The algorithm is from the "configure"
+		# script; the outcome mimics pg_regress.c:make_temp_sockdir().
+		PGHOST=$PG_REGRESS_SOCK_DIR
+		if [ "x$PGHOST" = x ]; then
+			{
+				dir=`(umask 077 &&
+					  mktemp -d /tmp/pg_upgrade_check-XXXXXX) 2>/dev/null` &&
+				[ -d "$dir" ]
+			} ||
+			{
+				dir=/tmp/pg_upgrade_check-$$-$RANDOM
+				(umask 077 && mkdir "$dir")
+			} ||
+			{
+				echo "could not create socket temporary directory in \"/tmp\""
+				exit 1
+			}
+
+			PGHOST=$dir
+			trap 'rm -rf "$PGHOST"' 0
+			trap 'exit 3' 1 2 13 15
+		fi
+		export PGHOST
+		;;
 esac
 
-POSTMASTER_OPTS="-F -c listen_addresses=$LISTEN_ADDRESSES"
+POSTMASTER_OPTS="-F -c listen_addresses=$LISTEN_ADDRESSES -k \"$PGHOST\""
 
 temp_root=$PWD/tmp_check
 
@@ -52,7 +80,7 @@ if [ "$1" = '--install' ]; then
 	# use psql from the proper installation directory, which might
 	# be outdated or missing. But don't override anything else that's
 	# already in EXTRA_REGRESS_OPTS.
-	EXTRA_REGRESS_OPTS="$EXTRA_REGRESS_OPTS --psqldir=$bindir"
+	EXTRA_REGRESS_OPTS="$EXTRA_REGRESS_OPTS --psqldir='$bindir'"
 	export EXTRA_REGRESS_OPTS
 fi
 
@@ -83,14 +111,13 @@ mkdir "$logdir"
 PGDATABASE="";        unset PGDATABASE
 PGUSER="";            unset PGUSER
 PGSERVICE="";         unset PGSERVICE
-PGSSLMODE=""          unset PGSSLMODE
+PGSSLMODE="";         unset PGSSLMODE
 PGREQUIRESSL="";      unset PGREQUIRESSL
 PGCONNECT_TIMEOUT=""; unset PGCONNECT_TIMEOUT
-PGHOST=""             unset PGHOST
 PGHOSTADDR="";        unset PGHOSTADDR
 
 # Select a non-conflicting port number, similarly to pg_regress.c
-PG_VERSION_NUM=`grep '#define PG_VERSION_NUM' $newsrc/src/include/pg_config.h | awk '{print $3}'`
+PG_VERSION_NUM=`grep '#define PG_VERSION_NUM' "$newsrc"/src/include/pg_config.h | awk '{print $3}'`
 PGPORT=`expr $PG_VERSION_NUM % 16384 + 49152`
 export PGPORT
 
@@ -114,8 +141,8 @@ export EXTRA_REGRESS_OPTS
 # enable echo so the user can see what is being executed
 set -x
 
-$oldbindir/initdb -N
-$oldbindir/pg_ctl start -l "$logdir/postmaster1.log" -o "$POSTMASTER_OPTS" -w
+"$oldbindir"/initdb -N
+"$oldbindir"/pg_ctl start -l "$logdir/postmaster1.log" -o "$POSTMASTER_OPTS" -w
 if "$MAKE" -C "$oldsrc" installcheck; then
 	pg_dumpall -f "$temp_root"/dump1.sql || pg_dumpall1_status=$?
 	if [ "$newsrc" != "$oldsrc" ]; then
@@ -140,7 +167,7 @@ if "$MAKE" -C "$oldsrc" installcheck; then
 else
 	make_installcheck_status=$?
 fi
-$oldbindir/pg_ctl -m fast stop
+"$oldbindir"/pg_ctl -m fast stop
 if [ -n "$make_installcheck_status" ]; then
 	exit 1
 fi

@@ -40,7 +40,7 @@
  * configuration file, or by client request in the connection startup
  * packet (e.g., from libpq's PGOPTIONS variable).  Furthermore, an
  * already-started backend will ignore changes to such an option in the
- * configuration file.	The idea is that these options are fixed for a
+ * configuration file.  The idea is that these options are fixed for a
  * given backend once it's started, but they can vary across backends.
  *
  * SUSET options can be set at postmaster startup, with the SIGHUP
@@ -195,6 +195,7 @@ typedef enum
 #define GUC_UNIT_TIME			0x7000	/* mask for MS, S, MIN */
 
 #define GUC_NOT_WHILE_SEC_REST	0x8000	/* can't set if security restricted */
+#define GUC_DISALLOW_IN_AUTO_FILE	0x00010000	/* can't set in PG_AUTOCONF_FILENAME */
 
 /* GUC vars that are actually declared in guc.c, rather than elsewhere */
 extern bool log_duration;
@@ -223,6 +224,7 @@ extern int	temp_file_limit;
 
 extern int	num_temp_buffers;
 
+extern char *cluster_name;
 extern char *data_directory;
 extern char *ConfigFileName;
 extern char *HbaFileName;
@@ -326,7 +328,7 @@ extern bool parse_real(const char *value, double *result);
 extern int set_config_option(const char *name, const char *value,
 				  GucContext context, GucSource source,
 				  GucAction action, bool changeVal, int elevel);
-extern void AlterSystemSetConfigFile(AlterSystemStmt * setstmt);
+extern void AlterSystemSetConfigFile(AlterSystemStmt *setstmt);
 extern char *GetConfigOptionByName(const char *name, const char **varname);
 extern void GetConfigOptionByNum(int varnum, const char **values, bool *noshow);
 extern int	GetNumConfigOptions(void);
@@ -388,9 +390,5 @@ extern void assign_search_path(const char *newval, void *extra);
 /* in access/transam/xlog.c */
 extern bool check_wal_buffers(int *newval, void **extra, GucSource source);
 extern void assign_xlog_sync_method(int new_sync_method, void *extra);
-
-/* in optimizer/path/costsize.c */
-extern bool check_effective_cache_size(int *newval, void **extra, GucSource source);
-extern void set_default_effective_cache_size(void);
 
 #endif   /* GUC_H */

@@ -24,6 +24,7 @@
 
 #include "postgres.h"
 
+#include "miscadmin.h"
 #include "utils/memdebug.h"
 #include "utils/memutils.h"
 
@@ -55,6 +56,13 @@ MemoryContext PortalContext = NULL;
 
 static void MemoryContextStatsInternal(MemoryContext context, int level);
 
+/*
+ * You should not do memory allocations within a critical section, because
+ * an out-of-memory error will be escalated to a PANIC. To enforce that
+ * rule, the allocation functions Assert that.
+ */
+#define AssertNotInCriticalSection(context) \
+	Assert(CritSectionCount == 0 || (context)->allowInCritSection)
 
 /*****************************************************************************
  *	  EXPORTED ROUTINES														 *
@@ -106,7 +114,10 @@ MemoryContextInit(void)
 	 * require it to contain at least 8K at all times. This is the only case
 	 * where retained memory in a context is *essential* --- we want to be
 	 * sure ErrorContext still has some memory even if we've run out
-	 * elsewhere!
+	 * elsewhere! Also, allow allocations in ErrorContext within a critical
+	 * section. Otherwise a PANIC will cause an assertion failure in the
+	 * error reporting code, before printing out the real cause of the
+	 * failure.
 	 *
 	 * This should be the last step in this function, as elog.c assumes memory
 	 * management works once ErrorContext is non-null.
@@ -116,6 +127,7 @@ MemoryContextInit(void)
 										 8 * 1024,
 										 8 * 1024,
 										 8 * 1024);
+	MemoryContextAllowInCriticalSection(ErrorContext, true);
 }
 
 /*
@@ -169,7 +181,7 @@ MemoryContextResetChildren(MemoryContext context)
  *
  * The type-specific delete routine removes all subsidiary storage
  * for the context, but we have to delete the context node itself,
- * as well as recurse to get the children.	We must also delink the
+ * as well as recurse to get the children.  We must also delink the
  * node from its parent, if it has one.
  */
 void
@@ -289,6 +301,26 @@ MemoryContextSetParent(MemoryContext context, MemoryContext new_parent)
 		context->parent = NULL;
 		context->nextchild = NULL;
 	}
+}
+
+/*
+ * MemoryContextAllowInCriticalSection
+ *		Allow/disallow allocations in this memory context within a critical
+ *		section.
+ *
+ * Normally, memory allocations are not allowed within a critical section,
+ * because a failure would lead to PANIC.  There are a few exceptions to
+ * that, like allocations related to debugging code that is not supposed to
+ * be enabled in production.  This function can be used to exempt specific
+ * memory contexts from the assertion in palloc().
+ */
+void
+MemoryContextAllowInCriticalSection(MemoryContext context, bool allow)
+{
+	AssertArg(MemoryContextIsValid(context));
+#ifdef USE_ASSERT_CHECKING
+	context->allowInCritSection = allow;
+#endif
 }
 
 /*
@@ -473,22 +505,22 @@ MemoryContextContains(MemoryContext context, void *pointer)
  * we want to be sure that we don't leave the context tree invalid
  * in case of failure (such as insufficient memory to allocate the
  * context node itself).  The procedure goes like this:
- *	1.	Context-type-specific routine first calls MemoryContextCreate(),
+ *	1.  Context-type-specific routine first calls MemoryContextCreate(),
  *		passing the appropriate tag/size/methods values (the methods
  *		pointer will ordinarily point to statically allocated data).
  *		The parent and name parameters usually come from the caller.
- *	2.	MemoryContextCreate() attempts to allocate the context node,
+ *	2.  MemoryContextCreate() attempts to allocate the context node,
  *		plus space for the name.  If this fails we can ereport() with no
  *		damage done.
- *	3.	We fill in all of the type-independent MemoryContext fields.
- *	4.	We call the type-specific init routine (using the methods pointer).
+ *	3.  We fill in all of the type-independent MemoryContext fields.
+ *	4.  We call the type-specific init routine (using the methods pointer).
  *		The init routine is required to make the node minimally valid
  *		with zero chance of failure --- it can't allocate more memory,
  *		for example.
- *	5.	Now we have a minimally valid node that can behave correctly
+ *	5.  Now we have a minimally valid node that can behave correctly
  *		when told to reset or delete itself.  We link the node to its
  *		parent (if any), making the node part of the context tree.
- *	6.	We return to the context-type-specific routine, which finishes
+ *	6.  We return to the context-type-specific routine, which finishes
  *		up type-specific initialization.  This routine can now do things
  *		that might fail (like allocate more memory), so long as it's
  *		sure the node is left in a state that delete will handle.
@@ -500,7 +532,7 @@ MemoryContextContains(MemoryContext context, void *pointer)
  *
  * Normally, the context node and the name are allocated from
  * TopMemoryContext (NOT from the parent context, since the node must
- * survive resets of its parent context!).	However, this routine is itself
+ * survive resets of its parent context!).  However, this routine is itself
  * used to create TopMemoryContext!  If we see that TopMemoryContext is NULL,
  * we assume we are creating TopMemoryContext and use malloc() to allocate
  * the node.
@@ -518,6 +550,9 @@ MemoryContextCreate(NodeTag tag, Size size,
 {
 	MemoryContext node;
 	Size		needed = size + strlen(name) + 1;
+
+	/* creating new memory contexts is not allowed in a critical section */
+	Assert(CritSectionCount == 0);
 
 	/* Get space for node and name */
 	if (TopMemoryContext != NULL)
@@ -554,6 +589,11 @@ MemoryContextCreate(NodeTag tag, Size size,
 		node->parent = parent;
 		node->nextchild = parent->firstchild;
 		parent->firstchild = node;
+
+#ifdef USE_ASSERT_CHECKING
+		/* inherit allowInCritSection flag from parent */
+		node->allowInCritSection = parent->allowInCritSection;
+#endif
 	}
 
 	VALGRIND_CREATE_MEMPOOL(node, 0, false);
@@ -575,6 +615,7 @@ MemoryContextAlloc(MemoryContext context, Size size)
 	void	   *ret;
 
 	AssertArg(MemoryContextIsValid(context));
+	AssertNotInCriticalSection(context);
 
 	if (!AllocSizeIsValid(size))
 		elog(ERROR, "invalid memory alloc request size %zu", size);
@@ -600,6 +641,7 @@ MemoryContextAllocZero(MemoryContext context, Size size)
 	void	   *ret;
 
 	AssertArg(MemoryContextIsValid(context));
+	AssertNotInCriticalSection(context);
 
 	if (!AllocSizeIsValid(size))
 		elog(ERROR, "invalid memory alloc request size %zu", size);
@@ -627,6 +669,7 @@ MemoryContextAllocZeroAligned(MemoryContext context, Size size)
 	void	   *ret;
 
 	AssertArg(MemoryContextIsValid(context));
+	AssertNotInCriticalSection(context);
 
 	if (!AllocSizeIsValid(size))
 		elog(ERROR, "invalid memory alloc request size %zu", size);
@@ -648,6 +691,7 @@ palloc(Size size)
 	void	   *ret;
 
 	AssertArg(MemoryContextIsValid(CurrentMemoryContext));
+	AssertNotInCriticalSection(CurrentMemoryContext);
 
 	if (!AllocSizeIsValid(size))
 		elog(ERROR, "invalid memory alloc request size %zu", size);
@@ -667,6 +711,7 @@ palloc0(Size size)
 	void	   *ret;
 
 	AssertArg(MemoryContextIsValid(CurrentMemoryContext));
+	AssertNotInCriticalSection(CurrentMemoryContext);
 
 	if (!AllocSizeIsValid(size))
 		elog(ERROR, "invalid memory alloc request size %zu", size);
@@ -738,6 +783,7 @@ repalloc(void *pointer, Size size)
 			   ((char *) pointer - STANDARDCHUNKHEADERSIZE))->context;
 
 	AssertArg(MemoryContextIsValid(context));
+	AssertNotInCriticalSection(context);
 
 	/* isReset must be false already */
 	Assert(!context->isReset);
@@ -760,6 +806,7 @@ MemoryContextAllocHuge(MemoryContext context, Size size)
 	void	   *ret;
 
 	AssertArg(MemoryContextIsValid(context));
+	AssertNotInCriticalSection(context);
 
 	if (!AllocHugeSizeIsValid(size))
 		elog(ERROR, "invalid memory alloc request size %zu", size);
@@ -801,6 +848,7 @@ repalloc_huge(void *pointer, Size size)
 			   ((char *) pointer - STANDARDCHUNKHEADERSIZE))->context;
 
 	AssertArg(MemoryContextIsValid(context));
+	AssertNotInCriticalSection(context);
 
 	/* isReset must be false already */
 	Assert(!context->isReset);

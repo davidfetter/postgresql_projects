@@ -23,8 +23,8 @@ generate_old_dump(void)
 
 	/* run new pg_dumpall binary for globals */
 	exec_prog(UTILITY_LOG_FILE, NULL, true,
-			  "\"%s/pg_dumpall\" %s --schema-only --globals-only "
-			  "--quote-all-identifiers --binary-upgrade %s -f %s",
+			  "\"%s/pg_dumpall\" %s --globals-only --quote-all-identifiers "
+			  "--binary-upgrade %s -f %s",
 			  new_cluster.bindir, cluster_conn_opts(&old_cluster),
 			  log_opts.verbose ? "--verbose" : "",
 			  GLOBALS_DUMP_FILE);
@@ -34,8 +34,8 @@ generate_old_dump(void)
 
 	/*
 	 * Set umask for this function, all functions it calls, and all
-	 * subprocesses/threads it creates.	 We can't use fopen_priv()
-	 * as Windows uses threads and umask is process-global.
+	 * subprocesses/threads it creates.  We can't use fopen_priv() as Windows
+	 * uses threads and umask is process-global.
 	 */
 	old_umask = umask(S_IRWXG | S_IRWXO);
 

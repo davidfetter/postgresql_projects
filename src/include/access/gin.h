@@ -23,7 +23,8 @@
 #define GIN_EXTRACTQUERY_PROC		   3
 #define GIN_CONSISTENT_PROC			   4
 #define GIN_COMPARE_PARTIAL_PROC	   5
-#define GINNProcs					   5
+#define GIN_TRICONSISTENT_PROC		   6
+#define GINNProcs					   6
 
 /*
  * searchMode settings for extractQueryFn.
@@ -46,6 +47,23 @@ typedef struct GinStatsData
 	int32		ginVersion;
 } GinStatsData;
 
+/*
+ * A ternary value used by tri-consistent functions.
+ *
+ * For convenience, this is compatible with booleans. A boolean can be
+ * safely cast to a GinTernaryValue.
+ */
+typedef char GinTernaryValue;
+
+#define GIN_FALSE		0		/* item is not present / does not match */
+#define GIN_TRUE		1		/* item is present / matches */
+#define GIN_MAYBE		2		/* don't know if item is present / don't know
+								 * if matches */
+
+#define DatumGetGinTernaryValue(X) ((GinTernaryValue)(X))
+#define GinTernaryValueGetDatum(X) ((Datum)(X))
+#define PG_RETURN_GIN_TERNARY_VALUE(x) return GinTernaryValueGetDatum(x)
+
 /* GUC parameter */
 extern PGDLLIMPORT int GinFuzzySearchLimit;
 
@@ -55,7 +73,7 @@ extern void ginUpdateStats(Relation index, const GinStatsData *stats);
 
 /* ginxlog.c */
 extern void gin_redo(XLogRecPtr lsn, XLogRecord *record);
-extern void gin_desc(StringInfo buf, uint8 xl_info, char *rec);
+extern void gin_desc(StringInfo buf, XLogRecord *record);
 extern void gin_xlog_startup(void);
 extern void gin_xlog_cleanup(void);
 

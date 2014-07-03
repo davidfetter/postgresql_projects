@@ -139,7 +139,13 @@
       <row>
        <entry><type>json</type></entry>
        <entry></entry>
-       <entry>JSON data</entry>
+       <entry>textual JSON data</entry>
+      </row>
+
+      <row>
+       <entry><type>jsonb</type></entry>
+       <entry></entry>
+       <entry>binary JSON data, decomposed</entry>
       </row>
 
       <row>
@@ -178,6 +184,12 @@
        <entry><type>path</type></entry>
        <entry></entry>
        <entry>geometric path on a plane</entry>
+      </row>
+
+      <row>
+       <entry><type>pg_lsn</type></entry>
+       <entry></entry>
+       <entry><productname>PostgreSQL</productname> Log Sequence Number</entry>
       </row>
 
       <row>
@@ -744,11 +756,7 @@ NUMERIC
 
     <note>
      <para>
-      Prior to <productname>PostgreSQL</productname> 7.4, the precision in
-      <type>float(<replaceable>p</replaceable>)</type> was taken to mean
-      so many <emphasis>decimal</> digits.  This has been corrected to match the SQL
-      standard, which specifies that the precision is measured in binary
-      digits.  The assumption that <type>real</type> and
+      The assumption that <type>real</type> and
       <type>double precision</type> have exactly 24 and 53 bits in the
       mantissa respectively is correct for IEEE-standard floating point
       implementations.  On non-IEEE platforms it might be off a little, but
@@ -842,16 +850,6 @@ ALTER SEQUENCE <replaceable class="parameter">tablename</replaceable>_<replaceab
         See <literal>nextval()</literal> in <xref linkend="functions-sequence">
         for details.
       </para>
-    </note>
-
-    <note>
-     <para>
-      Prior to <productname>PostgreSQL</productname> 7.3, <type>serial</type>
-      implied <literal>UNIQUE</literal>.  This is no longer automatic.  If
-      you wish a serial column to have a unique constraint or be a
-      primary key, it must now be specified, just like
-      any other data type.
-     </para>
     </note>
 
     <para>
@@ -1072,10 +1070,13 @@ SELECT '52093.89'::money::numeric::float8;
    <para>
     Values of type <type>character</type> are physically padded
     with spaces to the specified width <replaceable>n</>, and are
-    stored and displayed that way.  However, the padding spaces are
-    treated as semantically insignificant.  Trailing spaces are
-    disregarded when comparing two values of type <type>character</type>,
-    and they will be removed when converting a <type>character</type> value
+    stored and displayed that way.  However, trailing spaces are treated as
+    semantically insignificant and disregarded when comparing two values
+    of type <type>character</type>.  In collations where whitespace
+    is significant, this behavior can produce unexpected results,
+    e.g. <command>SELECT 'a '::CHAR(2) collate "C" &lt;
+    'a\n'::CHAR(2)</command> returns true.
+    Trailing spaces are removed when converting a <type>character</type> value
     to one of the other string types.  Note that trailing spaces
     <emphasis>are</> semantically significant in
     <type>character varying</type> and <type>text</type> values, and
@@ -1602,8 +1603,7 @@ SELECT E'\\xDEADBEEF';
      The SQL standard requires that writing just <type>timestamp</type>
      be equivalent to <type>timestamp without time
      zone</type>, and <productname>PostgreSQL</productname> honors that
-     behavior.  (Releases prior to 7.3 treated it as <type>timestamp
-     with time zone</type>.)  <type>timestamptz</type> is accepted as an
+     behavior.  <type>timestamptz</type> is accepted as an
      abbreviation for <type>timestamp with time zone</type>; this is a
      <productname>PostgreSQL</productname> extension.
     </para>
@@ -2205,8 +2205,10 @@ January 8 04:05:06 1999 PST
      historical accident.)  <xref
      linkend="datatype-datetime-output-table"> shows examples of each
      output style.  The output of the <type>date</type> and
-     <type>time</type> types is of course only the date or time part
-     in accordance with the given examples.
+     <type>time</type> types is generally only the date or time part
+     in accordance with the given examples.  However, the
+     <productname>POSTGRES</> style outputs date-only values in
+     <acronym>ISO</acronym> format.
     </para>
 
      <table id="datatype-datetime-output-table">
@@ -3153,7 +3155,7 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
     </para>
    </sect2>
 
-   <sect2>
+   <sect2 id="datatype-line">
     <title>Lines</title>
 
     <indexterm>
@@ -3185,7 +3187,7 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
     </para>
    </sect2>
 
-   <sect2>
+   <sect2 id="datatype-lseg">
     <title>Line Segments</title>
 
     <indexterm>
@@ -3300,7 +3302,7 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
     </para>
    </sect2>
 
-   <sect2>
+   <sect2 id="datatype-polygon">
     <title>Polygons</title>
 
     <indexterm>
@@ -3333,7 +3335,7 @@ SELECT person.name, holidays.num_weeks FROM person, holidays
     </para>
    </sect2>
 
-   <sect2>
+   <sect2 id="datatype-circle">
     <title>Circles</title>
 
     <indexterm>
@@ -4224,34 +4226,7 @@ SET xmloption TO { DOCUMENT | CONTENT };
    </sect2>
   </sect1>
 
-  <sect1 id="datatype-json">
-   <title><acronym>JSON</> Type</title>
-
-   <indexterm zone="datatype-json">
-    <primary>JSON</primary>
-   </indexterm>
-
-   <para>
-    The <type>json</type> data type can be used to store JSON (JavaScript
-    Object Notation) data, as specified in <ulink
-    url="http://www.ietf.org/rfc/rfc4627.txt">RFC 4627</ulink>.  Such
-    data can also be stored as <type>text</type>, but the
-    <type>json</type> data type has the advantage of checking that each
-    stored value is a valid JSON value.  There are also related support
-    functions available; see <xref linkend="functions-json">.
-   </para>
-
-   <para>
-    <productname>PostgreSQL</productname> allows only one server encoding
-    per database.  It is therefore not possible for JSON to conform rigidly
-    to the specification unless the server encoding is UTF-8.  Attempts to
-    directly include characters which cannot be represented in the server
-    encoding will fail; conversely, characters which can be represented in
-    the server encoding but not in UTF-8 will be allowed.
-    <literal>\uXXXX</literal> escapes are allowed regardless of the server
-    encoding, and are checked only for syntactic correctness.
-   </para>
-  </sect1>
+  &json;
 
   &array;
 
@@ -4499,6 +4474,32 @@ SELECT * FROM pg_attribute
    <para>
     (The system columns are further explained in <xref
     linkend="ddl-system-columns">.)
+   </para>
+  </sect1>
+
+  <sect1 id="datatype-pg-lsn">
+   <title><acronym>pg_lsn Type</acronym></title>
+
+   <indexterm zone="datatype-pg-lsn">
+    <primary>pg_lsn</primary>
+   </indexterm>
+
+   <para>
+    The <type>pg_lsn</type> data type can be used to store LSN (Log Sequence
+    Number) data which is a pointer to a location in the XLOG. This type is a
+    representation of XLogRecPtr and an internal system type of
+    <productname>PostgreSQL</productname>.
+   </para>
+
+   <para>
+    Internally, an LSN is a 64-bit integer, representing a byte position in
+    the write-ahead log stream.  It is printed as two hexadecimal numbers of
+    up to 8 digits each, separated by a slash; for example,
+    <literal>16/B374D848</>.  The <type>pg_lsn</type> type supports the
+    standard comparison operators, like <literal>=</literal> and 
+    <literal>&gt;</literal>.  Two LSNs can be subtracted using the
+    <literal>-</literal> operator; the result is the number of bytes separating
+    those write-ahead log positions.
    </para>
   </sect1>
 

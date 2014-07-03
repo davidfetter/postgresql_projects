@@ -26,6 +26,21 @@
 
 
 /*
+ * Struct to hold context info for transaction lock waits.
+ *
+ * 'oper' is the operation that needs to wait for the other transaction; 'rel'
+ * and 'ctid' specify the address of the tuple being waited for.
+ */
+typedef struct XactLockTableWaitInfo
+{
+	XLTW_Oper	oper;
+	Relation	rel;
+	ItemPointer ctid;
+} XactLockTableWaitInfo;
+
+static void XactLockTableWaitErrorCb(void *arg);
+
+/*
  * RelationInitLockInfo
  *		Initializes the lock information in a relation descriptor.
  *
@@ -65,7 +80,7 @@ SetLocktagRelationOid(LOCKTAG *tag, Oid relid)
 /*
  *		LockRelationOid
  *
- * Lock a relation given only its OID.	This should generally be used
+ * Lock a relation given only its OID.  This should generally be used
  * before attempting to open the relation's relcache entry.
  */
 void
@@ -253,7 +268,7 @@ LockHasWaitersRelation(Relation relation, LOCKMODE lockmode)
 /*
  *		LockRelationIdForSession
  *
- * This routine grabs a session-level lock on the target relation.	The
+ * This routine grabs a session-level lock on the target relation.  The
  * session lock persists across transaction boundaries.  It will be removed
  * when UnlockRelationIdForSession() is called, or if an ereport(ERROR) occurs,
  * or if the backend exits.
@@ -456,7 +471,7 @@ XactLockTableInsert(TransactionId xid)
  *
  * Delete the lock showing that the given transaction ID is running.
  * (This is never used for main transaction IDs; those locks are only
- * released implicitly at transaction end.	But we do use it for subtrans IDs.)
+ * released implicitly at transaction end.  But we do use it for subtrans IDs.)
  */
 void
 XactLockTableDelete(TransactionId xid)
@@ -471,19 +486,43 @@ XactLockTableDelete(TransactionId xid)
 /*
  *		XactLockTableWait
  *
- * Wait for the specified transaction to commit or abort.
+ * Wait for the specified transaction to commit or abort.  If an operation
+ * is specified, an error context callback is set up.  If 'oper' is passed as
+ * None, no error context callback is set up.
  *
  * Note that this does the right thing for subtransactions: if we wait on a
  * subtransaction, we will exit as soon as it aborts or its top parent commits.
  * It takes some extra work to ensure this, because to save on shared memory
  * the XID lock of a subtransaction is released when it ends, whether
- * successfully or unsuccessfully.	So we have to check if it's "still running"
+ * successfully or unsuccessfully.  So we have to check if it's "still running"
  * and if so wait for its parent.
  */
 void
-XactLockTableWait(TransactionId xid)
+XactLockTableWait(TransactionId xid, Relation rel, ItemPointer ctid,
+				  XLTW_Oper oper)
 {
 	LOCKTAG		tag;
+	XactLockTableWaitInfo info;
+	ErrorContextCallback callback;
+
+	/*
+	 * If an operation is specified, set up our verbose error context
+	 * callback.
+	 */
+	if (oper != XLTW_None)
+	{
+		Assert(RelationIsValid(rel));
+		Assert(ItemPointerIsValid(ctid));
+
+		info.rel = rel;
+		info.ctid = ctid;
+		info.oper = oper;
+
+		callback.callback = XactLockTableWaitErrorCb;
+		callback.arg = &info;
+		callback.previous = error_context_stack;
+		error_context_stack = &callback;
+	}
 
 	for (;;)
 	{
@@ -500,6 +539,9 @@ XactLockTableWait(TransactionId xid)
 			break;
 		xid = SubTransGetParent(xid);
 	}
+
+	if (oper != XLTW_None)
+		error_context_stack = callback.previous;
 }
 
 /*
@@ -534,6 +576,62 @@ ConditionalXactLockTableWait(TransactionId xid)
 }
 
 /*
+ * XactLockTableWaitErrorContextCb
+ *		Error context callback for transaction lock waits.
+ */
+static void
+XactLockTableWaitErrorCb(void *arg)
+{
+	XactLockTableWaitInfo *info = (XactLockTableWaitInfo *) arg;
+
+	/*
+	 * We would like to print schema name too, but that would require a
+	 * syscache lookup.
+	 */
+	if (info->oper != XLTW_None &&
+		ItemPointerIsValid(info->ctid) && RelationIsValid(info->rel))
+	{
+		const char *cxt;
+
+		switch (info->oper)
+		{
+			case XLTW_Update:
+				cxt = gettext_noop("while updating tuple (%u,%u) in relation \"%s\"");
+				break;
+			case XLTW_Delete:
+				cxt = gettext_noop("while deleting tuple (%u,%u) in relation \"%s\"");
+				break;
+			case XLTW_Lock:
+				cxt = gettext_noop("while locking tuple (%u,%u) in relation \"%s\"");
+				break;
+			case XLTW_LockUpdated:
+				cxt = gettext_noop("while locking updated version (%u,%u) of tuple in relation \"%s\"");
+				break;
+			case XLTW_InsertIndex:
+				cxt = gettext_noop("while inserting index tuple (%u,%u) in relation \"%s\"");
+				break;
+			case XLTW_InsertIndexUnique:
+				cxt = gettext_noop("while checking uniqueness of tuple (%u,%u) in relation \"%s\"");
+				break;
+			case XLTW_FetchUpdated:
+				cxt = gettext_noop("while rechecking updated tuple (%u,%u) in relation \"%s\"");
+				break;
+			case XLTW_RecheckExclusionConstr:
+				cxt = gettext_noop("while checking exclusion constraint on tuple (%u,%u) in relation \"%s\"");
+				break;
+
+			default:
+				return;
+		}
+
+		errcontext(cxt,
+				   ItemPointerGetBlockNumber(info->ctid),
+				   ItemPointerGetOffsetNumber(info->ctid),
+				   RelationGetRelationName(info->rel));
+	}
+}
+
+/*
  * WaitForLockersMultiple
  *		Wait until no transaction holds locks that conflict with the given
  *		locktags at the given lockmode.
@@ -565,7 +663,7 @@ WaitForLockersMultiple(List *locktags, LOCKMODE lockmode)
 
 	/*
 	 * Note: GetLockConflicts() never reports our own xid, hence we need not
-	 * check for that.	Also, prepared xacts are not reported, which is fine
+	 * check for that.  Also, prepared xacts are not reported, which is fine
 	 * since they certainly aren't going to do anything anymore.
 	 */
 
@@ -592,7 +690,7 @@ WaitForLockersMultiple(List *locktags, LOCKMODE lockmode)
 void
 WaitForLockers(LOCKTAG heaplocktag, LOCKMODE lockmode)
 {
-	List   *l;
+	List	   *l;
 
 	l = list_make1(&heaplocktag);
 	WaitForLockersMultiple(l, lockmode);

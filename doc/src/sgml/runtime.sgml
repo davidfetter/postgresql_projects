@@ -712,8 +712,9 @@ psql: could not connect to server: No such file or directory
 
     <variablelist>
      <varlistentry>
-      <term><systemitem class="osname">AIX</></term>
+      <term><systemitem class="osname">AIX</>
       <indexterm><primary>AIX</><secondary>IPC configuration</></>
+      </term>
       <listitem>
        <para>
         At least as of version 5.1, it should not be necessary to do
@@ -734,8 +735,9 @@ psql: could not connect to server: No such file or directory
 
 
      <varlistentry>
-      <term><systemitem class="osname">FreeBSD</></term>
+      <term><systemitem class="osname">FreeBSD</>
       <indexterm><primary>FreeBSD</><secondary>IPC configuration</></>
+      </term>
       <listitem>
        <para>
         The default settings can be changed using
@@ -791,8 +793,9 @@ kern.ipc.semmnu=256
      </varlistentry>
 
      <varlistentry>
-      <term><systemitem class="osname">NetBSD</></term>
+      <term><systemitem class="osname">NetBSD</>
       <indexterm><primary>NetBSD</><secondary>IPC configuration</></>
+      </term>
       <listitem>
        <para>
         In <systemitem class="osname">NetBSD</> 5.0 and later,
@@ -822,8 +825,9 @@ kern.ipc.semmnu=256
      </varlistentry>
 
      <varlistentry>
-      <term><systemitem class="osname">OpenBSD</></term>
+      <term><systemitem class="osname">OpenBSD</>
       <indexterm><primary>OpenBSD</><secondary>IPC configuration</></>
+      </term>
       <listitem>
        <para>
         The options <varname>SYSVSHM</> and <varname>SYSVSEM</> need
@@ -854,8 +858,9 @@ option        SEMMAP=256
      </varlistentry>
 
      <varlistentry>
-      <term><systemitem class="osname">HP-UX</></term>
+      <term><systemitem class="osname">HP-UX</>
       <indexterm><primary>HP-UX</><secondary>IPC configuration</></>
+      </term>
       <listitem>
        <para>
         The default settings tend to suffice for normal installations.
@@ -875,8 +880,9 @@ option        SEMMAP=256
 
 
      <varlistentry>
-      <term><systemitem class="osname">Linux</></term>
+      <term><systemitem class="osname">Linux</>
       <indexterm><primary>Linux</><secondary>IPC configuration</></>
+      </term>
       <listitem>
        <para>
         The default maximum segment size is 32 MB, and the
@@ -917,8 +923,9 @@ option        SEMMAP=256
 
 
      <varlistentry>
-      <term><systemitem class="osname">Mac OS X</></term>
+      <term><systemitem class="osname">Mac OS X</>
       <indexterm><primary>Mac OS X</><secondary>IPC configuration</></>
+      </term>
       <listitem>
        <para>
         The recommended method for configuring shared memory in OS X
@@ -980,8 +987,9 @@ sysctl -w kern.sysv.shmall
 
 
      <varlistentry>
-      <term><systemitem class="osname">SCO OpenServer</></term>
+      <term><systemitem class="osname">SCO OpenServer</>
       <indexterm><primary>SCO OpenServer</><secondary>IPC configuration</></>
+      </term>
       <listitem>
        <para>
         In the default configuration, only 512 kB of shared memory per
@@ -1008,8 +1016,9 @@ sysctl -w kern.sysv.shmall
 
      <varlistentry>
       <term><systemitem class="osname">Solaris</> 2.6 to 2.9 (Solaris
-      6 to Solaris 9)</term>
+      6 to Solaris 9)
       <indexterm><primary>Solaris</><secondary>IPC configuration</></>
+      </term>
       <listitem>
        <para>
         The relevant settings can be changed in
@@ -1082,8 +1091,9 @@ project.max-msg-ids=(priv,4096,deny)
 
 
      <varlistentry>
-      <term><systemitem class="osname">UnixWare</></term>
+      <term><systemitem class="osname">UnixWare</>
       <indexterm><primary>UnixWare</><secondary>IPC configuration</></>
+      </term>
       <listitem>
        <para>
         On <productname>UnixWare</> 7, the maximum size for shared
@@ -1265,7 +1275,7 @@ sysctl -w vm.overcommit_memory=2
    <para>
     Another approach, which can be used with or without altering
     <varname>vm.overcommit_memory</>, is to set the process-specific
-    <varname>oom_score_adj</> value for the postmaster process to
+    <firstterm>OOM score adjustment</> value for the postmaster process to
     <literal>-1000</>, thereby guaranteeing it will not be targeted by the OOM
     killer.  The simplest way to do this is to execute
 <programlisting>
@@ -1274,20 +1284,28 @@ echo -1000 > /proc/self/oom_score_adj
     in the postmaster's startup script just before invoking the postmaster.
     Note that this action must be done as root, or it will have no effect;
     so a root-owned startup script is the easiest place to do it.  If you
-    do this, you may also wish to build <productname>PostgreSQL</>
-    with <literal>-DLINUX_OOM_SCORE_ADJ=0</> added to <varname>CPPFLAGS</>.
-    That will cause postmaster child processes to run with the normal
-    <varname>oom_score_adj</> value of zero, so that the OOM killer can still
-    target them at need.
+    do this, you should also set these environment variables in the startup
+    script before invoking the postmaster:
+<programlisting>
+export PG_OOM_ADJUST_FILE=/proc/self/oom_score_adj
+export PG_OOM_ADJUST_VALUE=0
+</programlisting>
+    These settings will cause postmaster child processes to run with the
+    normal OOM score adjustment of zero, so that the OOM killer can still
+    target them at need.  You could use some other value for
+    <envar>PG_OOM_ADJUST_VALUE</> if you want the child processes to run
+    with some other OOM score adjustment.  (<envar>PG_OOM_ADJUST_VALUE</>
+    can also be omitted, in which case it defaults to zero.)  If you do not
+    set <envar>PG_OOM_ADJUST_FILE</>, the child processes will run with the
+    same OOM score adjustment as the postmaster, which is unwise since the
+    whole point is to ensure that the postmaster has a preferential setting.
    </para>
 
    <para>
     Older Linux kernels do not offer <filename>/proc/self/oom_score_adj</>,
     but may have a previous version of the same functionality called
     <filename>/proc/self/oom_adj</>.  This works the same except the disable
-    value is <literal>-17</> not <literal>-1000</>.  The corresponding
-    build flag for <productname>PostgreSQL</> is
-    <literal>-DLINUX_OOM_ADJ=0</>.
+    value is <literal>-17</> not <literal>-1000</>.
    </para>
 
    <note>
@@ -1306,6 +1324,57 @@ echo -1000 > /proc/self/oom_score_adj
     kernel vendor.
    </para>
    </note>
+  </sect2>
+
+  <sect2 id="linux-huge-pages">
+   <title>Linux huge pages</title>
+
+   <para>
+    Using huge pages reduces overhead when using large contiguous chunks of
+    memory, like <productname>PostgreSQL</productname> does. To enable this
+    feature in <productname>PostgreSQL</productname> you need a kernel
+    with <varname>CONFIG_HUGETLBFS=y</varname> and
+    <varname>CONFIG_HUGETLB_PAGE=y</varname>. You also have to tune the system
+    setting <varname>vm.nr_hugepages</varname>. To estimate the number of
+    necessary huge pages start <productname>PostgreSQL</productname> without
+    huge pages enabled and check the <varname>VmPeak</varname> value from the
+    proc filesystem:
+<programlisting>
+$ <userinput>head -1 /path/to/data/directory/postmaster.pid</userinput>
+4170
+$ <userinput>grep ^VmPeak /proc/4170/status</userinput>
+VmPeak:  6490428 kB
+</programlisting>
+     <literal>6490428</literal> / <literal>2048</literal>
+     (<varname>PAGE_SIZE</varname> is <literal>2MB</literal> in this case) are
+     roughly <literal>3169.154</literal> huge pages, so you will need at
+     least <literal>3170</literal> huge pages:
+<programlisting>
+$ <userinput>sysctl -w vm.nr_hugepages=3170</userinput>
+</programlisting>
+    Sometimes the kernel is not able to allocate the desired number of huge
+    pages, so it might be necessary to repeat that command or to reboot. Don't
+    forget to add an entry to <filename>/etc/sysctl.conf</filename> to persist
+    this setting through reboots.
+   </para>
+
+   <para>
+    The default behavior for huge pages in
+    <productname>PostgreSQL</productname> is to use them when possible and
+    to fallback to normal pages when failing. To enforce the use of huge
+    pages, you can set
+    <link linkend="guc-huge-pages"><varname>huge_pages</varname></link>
+    to <literal>on</literal>. Note that in this case
+    <productname>PostgreSQL</productname> will fail to start if not enough huge
+    pages are available.
+   </para>
+
+   <para>
+    For a detailed description of the <productname>Linux</productname> huge
+    pages feature have a look
+    at <ulink url="https://www.kernel.org/doc/Documentation/vm/hugetlbpage.txt">https://www.kernel.org/doc/Documentation/vm/hugetlbpage.txt</ulink>.
+   </para>
+
   </sect2>
  </sect1>
 

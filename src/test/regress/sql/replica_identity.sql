@@ -23,7 +23,7 @@ SELECT relreplident FROM pg_class WHERE oid = 'pg_class'::regclass;
 SELECT relreplident FROM pg_class WHERE oid = 'pg_constraint'::regclass;
 
 ----
--- Make sure we detect inelegible indexes
+-- Make sure we detect ineligible indexes
 ----
 
 -- fail, not unique
@@ -71,7 +71,7 @@ SELECT count(*) FROM pg_index WHERE indrelid = 'test_replica_identity'::regclass
 
 ALTER TABLE test_replica_identity REPLICA IDENTITY FULL;
 SELECT relreplident FROM pg_class WHERE oid = 'test_replica_identity'::regclass;
-\d test_replica_identity
+\d+ test_replica_identity
 ALTER TABLE test_replica_identity REPLICA IDENTITY NOTHING;
 SELECT relreplident FROM pg_class WHERE oid = 'test_replica_identity'::regclass;
 

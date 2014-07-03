@@ -65,10 +65,10 @@ typedef struct SimpleOidList
  *
  * NOTE: the structures described here live for the entire pg_dump run;
  * and in most cases we make a struct for every object we can find in the
- * catalogs, not only those we are actually going to dump.	Hence, it's
+ * catalogs, not only those we are actually going to dump.  Hence, it's
  * best to store a minimal amount of per-object info in these structs,
  * and retrieve additional per-object info when and if we dump a specific
- * object.	In particular, try to avoid retrieving expensive-to-compute
+ * object.  In particular, try to avoid retrieving expensive-to-compute
  * information until it's known to be needed.  We do, however, have to
  * store enough info to determine whether an object should be dumped and
  * what order to dump in.
@@ -241,22 +241,25 @@ typedef struct _tableInfo
 	char	   *reltablespace;	/* relation tablespace */
 	char	   *reloptions;		/* options specified by WITH (...) */
 	char	   *checkoption;	/* WITH CHECK OPTION */
-	char	   *toast_reloptions;		/* ditto, for the TOAST table */
+	char	   *toast_reloptions;		/* WITH options for the TOAST table */
 	bool		hasindex;		/* does it have any indexes? */
 	bool		hasrules;		/* does it have any rules? */
 	bool		hastriggers;	/* does it have any triggers? */
 	bool		hasoids;		/* does it have OIDs? */
 	uint32		frozenxid;		/* for restore frozen xid */
+	uint32		minmxid;		/* for restore min multi xid */
 	Oid			toast_oid;		/* for restore toast frozen xid */
 	uint32		toast_frozenxid;	/* for restore toast frozen xid */
+	uint32		toast_minmxid;	/* for restore toast min multi xid */
 	int			ncheck;			/* # of CHECK expressions */
 	char	   *reloftype;		/* underlying type for typed table */
 	/* these two are set only if table is a sequence owned by a column: */
 	Oid			owning_tab;		/* OID of table owning sequence */
 	int			owning_col;		/* attr # of column owning sequence */
-	int			relpages;
+	int			relpages;		/* table's size in pages (from pg_class) */
 
 	bool		interesting;	/* true if need to collect more data */
+	bool		postponed_def;	/* matview must be postponed into post-data */
 
 	/*
 	 * These fields are computed only if we decide the table is interesting
@@ -361,17 +364,16 @@ typedef struct _evttriggerInfo
 	char	   *evtowner;
 	char	   *evttags;
 	char	   *evtfname;
-	char		evttype;
 	char		evtenabled;
 } EventTriggerInfo;
 
 /*
- * struct ConstraintInfo is used for all constraint types.	However we
+ * struct ConstraintInfo is used for all constraint types.  However we
  * use a different objType for foreign key constraints, to make it easier
  * to sort them the way we want.
  *
  * Note: condeferrable and condeferred are currently only valid for
- * unique/primary-key constraints.	Otherwise that info is in condef.
+ * unique/primary-key constraints.  Otherwise that info is in condef.
  */
 typedef struct _constraintInfo
 {

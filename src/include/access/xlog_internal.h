@@ -55,7 +55,7 @@ typedef struct BkpBlock
 /*
  * Each page of XLOG file has a header like this:
  */
-#define XLOG_PAGE_MAGIC 0xD07B	/* can be used as WAL version indicator */
+#define XLOG_PAGE_MAGIC 0xD07E	/* can be used as WAL version indicator */
 
 typedef struct XLogPageHeaderData
 {
@@ -123,7 +123,7 @@ typedef XLogLongPageHeaderData *XLogLongPageHeader;
  * Compute ID and segment from an XLogRecPtr.
  *
  * For XLByteToSeg, do the computation at face value.  For XLByteToPrevSeg,
- * a boundary byte is taken to be in the previous segment.	This is suitable
+ * a boundary byte is taken to be in the previous segment.  This is suitable
  * for deciding which segment to write given a pointer to a record end,
  * for example.
  */
@@ -245,10 +245,9 @@ typedef struct RmgrData
 {
 	const char *rm_name;
 	void		(*rm_redo) (XLogRecPtr lsn, struct XLogRecord *rptr);
-	void		(*rm_desc) (StringInfo buf, uint8 xl_info, char *rec);
+	void		(*rm_desc) (StringInfo buf, struct XLogRecord *rptr);
 	void		(*rm_startup) (void);
 	void		(*rm_cleanup) (void);
-	bool		(*rm_safe_restartpoint) (void);
 } RmgrData;
 
 extern const RmgrData RmgrTable[];
@@ -262,7 +261,7 @@ extern XLogRecPtr RequestXLogSwitch(void);
 extern void GetOldestRestartPoint(XLogRecPtr *oldrecptr, TimeLineID *oldtli);
 
 /*
- * Exported for the functions in timeline.c and xlogarchive.c.	Only valid
+ * Exported for the functions in timeline.c and xlogarchive.c.  Only valid
  * in the startup process.
  */
 extern bool ArchiveRecoveryRequested;

@@ -97,6 +97,7 @@ static bool allow_core_files = false;
 static time_t start_time;
 
 static char postopts_file[MAXPGPATH];
+static char version_file[MAXPGPATH];
 static char pid_file[MAXPGPATH];
 static char backup_file[MAXPGPATH];
 static char recovery_file[MAXPGPATH];
@@ -152,8 +153,9 @@ static void pgwin32_doRunAsService(void);
 static int	CreateRestrictedProcess(char *cmd, PROCESS_INFORMATION *processInfo, bool as_service);
 #endif
 
-static pgpid_t get_pgpid(void);
+static pgpid_t get_pgpid(bool is_status_request);
 static char **readfile(const char *path);
+static void free_readfile(char **optlines);
 static int	start_postmaster(void);
 static void read_post_opts(void);
 
@@ -245,10 +247,35 @@ print_msg(const char *msg)
 }
 
 static pgpid_t
-get_pgpid(void)
+get_pgpid(bool is_status_request)
 {
 	FILE	   *pidf;
 	long		pid;
+	struct stat statbuf;
+
+	if (stat(pg_data, &statbuf) != 0)
+	{
+		if (errno == ENOENT)
+			write_stderr(_("%s: directory \"%s\" does not exist\n"), progname,
+						 pg_data);
+		else
+			write_stderr(_("%s: could not access directory \"%s\": %s\n"), progname,
+						 pg_data, strerror(errno));
+
+		/*
+		 * The Linux Standard Base Core Specification 3.1 says this should
+		 * return '4, program or service status is unknown'
+		 * https://refspecs.linuxbase.org/LSB_3.1.0/LSB-Core-generic/LSB-Core-generic/iniscrptact.html
+		 */
+		exit(is_status_request ? 4 : 1);
+	}
+
+	if (stat(version_file, &statbuf) != 0 && errno == ENOENT)
+	{
+		write_stderr(_("%s: directory \"%s\" is not a database cluster directory\n"),
+					 progname, pg_data);
+		exit(is_status_request ? 4 : 1);
+	}
 
 	pidf = fopen(pid_file, "r");
 	if (pidf == NULL)
@@ -369,6 +396,25 @@ readfile(const char *path)
 }
 
 
+/*
+ * Free memory allocated for optlines through readfile()
+ */
+static void
+free_readfile(char **optlines)
+{
+	char	   *curr_line = NULL;
+	int			i = 0;
+
+	if (!optlines)
+		return;
+
+	while ((curr_line = optlines[i++]))
+		free(curr_line);
+
+	free(optlines);
+
+	return;
+}
 
 /*
  * start/test/stop routines
@@ -390,11 +436,11 @@ start_postmaster(void)
 	 * the PID without having to rely on reading it back from the pidfile.
 	 */
 	if (log_file != NULL)
-		snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s%s < \"%s\" >> \"%s\" 2>&1 &" SYSTEMQUOTE,
+		snprintf(cmd, MAXPGPATH, "\"%s\" %s%s < \"%s\" >> \"%s\" 2>&1 &",
 				 exec_path, pgdata_opt, post_opts,
 				 DEVNULL, log_file);
 	else
-		snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s%s < \"%s\" 2>&1 &" SYSTEMQUOTE,
+		snprintf(cmd, MAXPGPATH, "\"%s\" %s%s < \"%s\" 2>&1 &",
 				 exec_path, pgdata_opt, post_opts, DEVNULL);
 
 	return system(cmd);
@@ -408,10 +454,10 @@ start_postmaster(void)
 	PROCESS_INFORMATION pi;
 
 	if (log_file != NULL)
-		snprintf(cmd, MAXPGPATH, "CMD /C " SYSTEMQUOTE "\"%s\" %s%s < \"%s\" >> \"%s\" 2>&1" SYSTEMQUOTE,
+		snprintf(cmd, MAXPGPATH, "CMD /C \"\"%s\" %s%s < \"%s\" >> \"%s\" 2>&1\"",
 				 exec_path, pgdata_opt, post_opts, DEVNULL, log_file);
 	else
-		snprintf(cmd, MAXPGPATH, "CMD /C " SYSTEMQUOTE "\"%s\" %s%s < \"%s\" 2>&1" SYSTEMQUOTE,
+		snprintf(cmd, MAXPGPATH, "CMD /C \"\"%s\" %s%s < \"%s\" 2>&1\"",
 				 exec_path, pgdata_opt, post_opts, DEVNULL);
 
 	if (!CreateRestrictedProcess(cmd, &pi, false))
@@ -461,7 +507,7 @@ test_postmaster_connection(bool do_checkpoint)
 			 *		6	9.1+ server, shared memory not created
 			 *		7	9.1+ server, shared memory created
 			 *
-			 * This code does not support pre-9.1 servers.	On Unix machines
+			 * This code does not support pre-9.1 servers.  On Unix machines
 			 * we could consider extracting the port number from the shmem
 			 * key, but that (a) is not robust, and (b) doesn't help with
 			 * finding out the socket directory.  And it wouldn't work anyway
@@ -494,7 +540,7 @@ test_postmaster_connection(bool do_checkpoint)
 					time_t		pmstart;
 
 					/*
-					 * Make sanity checks.	If it's for a standalone backend
+					 * Make sanity checks.  If it's for a standalone backend
 					 * (negative PID), or the recorded start time is before
 					 * pg_ctl started, then either we are looking at the wrong
 					 * data directory, or this is a pre-existing pidfile that
@@ -572,6 +618,13 @@ test_postmaster_connection(bool do_checkpoint)
 					}
 				}
 			}
+
+			/*
+			 * Free the results of readfile.
+			 *
+			 * This is safe to call even if optlines is NULL.
+			 */
+			free_readfile(optlines);
 		}
 
 		/* If we have a connection string, ping the server */
@@ -608,7 +661,7 @@ test_postmaster_connection(bool do_checkpoint)
 
 		/*
 		 * If we've been able to identify the child postmaster's PID, check
-		 * the process is still alive.	This covers cases where the postmaster
+		 * the process is still alive.  This covers cases where the postmaster
 		 * successfully created the pidfile but then crashed without removing
 		 * it.
 		 */
@@ -703,11 +756,14 @@ read_post_opts(void)
 				{
 					*arg1 = '\0';		/* terminate so we get only program
 										 * name */
-					post_opts = arg1 + 1;		/* point past whitespace */
+					post_opts = pg_strdup(arg1 + 1);	/* point past whitespace */
 				}
 				if (exec_path == NULL)
-					exec_path = optline;
+					exec_path = pg_strdup(optline);
 			}
+
+			/* Free the results of readfile. */
+			free_readfile(optlines);
 		}
 	}
 }
@@ -759,10 +815,10 @@ do_init(void)
 		post_opts = "";
 
 	if (!silent_mode)
-		snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s%s" SYSTEMQUOTE,
+		snprintf(cmd, MAXPGPATH, "\"%s\" %s%s",
 				 exec_path, pgdata_opt, post_opts);
 	else
-		snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s%s > \"%s\"" SYSTEMQUOTE,
+		snprintf(cmd, MAXPGPATH, "\"%s\" %s%s > \"%s\"",
 				 exec_path, pgdata_opt, post_opts, DEVNULL);
 
 	if (system(cmd) != 0)
@@ -780,7 +836,7 @@ do_start(void)
 
 	if (ctl_command != RESTART_COMMAND)
 	{
-		old_pid = get_pgpid();
+		old_pid = get_pgpid(false);
 		if (old_pid != 0)
 			write_stderr(_("%s: another server might be running; "
 						   "trying to start server anyway\n"),
@@ -864,7 +920,7 @@ do_stop(void)
 	pgpid_t		pid;
 	struct stat statbuf;
 
-	pid = get_pgpid();
+	pid = get_pgpid(false);
 
 	if (pid == 0)				/* no pid file */
 	{
@@ -913,7 +969,7 @@ do_stop(void)
 
 		for (cnt = 0; cnt < wait_seconds; cnt++)
 		{
-			if ((pid = get_pgpid()) != 0)
+			if ((pid = get_pgpid(false)) != 0)
 			{
 				print_msg(".");
 				pg_usleep(1000000);		/* 1 sec */
@@ -950,7 +1006,7 @@ do_restart(void)
 	pgpid_t		pid;
 	struct stat statbuf;
 
-	pid = get_pgpid();
+	pid = get_pgpid(false);
 
 	if (pid == 0)				/* no pid file */
 	{
@@ -1003,7 +1059,7 @@ do_restart(void)
 
 		for (cnt = 0; cnt < wait_seconds; cnt++)
 		{
-			if ((pid = get_pgpid()) != 0)
+			if ((pid = get_pgpid(false)) != 0)
 			{
 				print_msg(".");
 				pg_usleep(1000000);		/* 1 sec */
@@ -1041,7 +1097,7 @@ do_reload(void)
 {
 	pgpid_t		pid;
 
-	pid = get_pgpid();
+	pid = get_pgpid(false);
 	if (pid == 0)				/* no pid file */
 	{
 		write_stderr(_("%s: PID file \"%s\" does not exist\n"), progname, pid_file);
@@ -1080,7 +1136,7 @@ do_promote(void)
 	pgpid_t		pid;
 	struct stat statbuf;
 
-	pid = get_pgpid();
+	pid = get_pgpid(false);
 
 	if (pid == 0)				/* no pid file */
 	{
@@ -1107,8 +1163,8 @@ do_promote(void)
 	}
 
 	/*
-	 * For 9.3 onwards, "fast" promotion is performed. Promotion
-	 * with a full checkpoint is still possible by writing a file called
+	 * For 9.3 onwards, "fast" promotion is performed. Promotion with a full
+	 * checkpoint is still possible by writing a file called
 	 * "fallback_promote" instead of "promote"
 	 */
 	snprintf(promote_file, MAXPGPATH, "%s/promote", pg_data);
@@ -1156,7 +1212,7 @@ postmaster_is_alive(pid_t pid)
 	 * postmaster we are after.
 	 *
 	 * Don't believe that our own PID or parent shell's PID is the postmaster,
-	 * either.	(Windows hasn't got getppid(), though.)
+	 * either.  (Windows hasn't got getppid(), though.)
 	 */
 	if (pid == getpid())
 		return false;
@@ -1174,7 +1230,7 @@ do_status(void)
 {
 	pgpid_t		pid;
 
-	pid = get_pgpid();
+	pid = get_pgpid(true);
 	/* Is there a pid file? */
 	if (pid != 0)
 	{
@@ -1195,14 +1251,20 @@ do_status(void)
 			if (postmaster_is_alive((pid_t) pid))
 			{
 				char	  **optlines;
+				char	  **curr_line;
 
 				printf(_("%s: server is running (PID: %ld)\n"),
 					   progname, pid);
 
 				optlines = readfile(postopts_file);
 				if (optlines != NULL)
-					for (; *optlines != NULL; optlines++)
-						fputs(*optlines, stdout);
+				{
+					for (curr_line = optlines; *curr_line != NULL; curr_line++)
+						fputs(*curr_line, stdout);
+
+					/* Free the results of readfile */
+					free_readfile(optlines);
+				}
 				return;
 			}
 		}
@@ -1211,8 +1273,9 @@ do_status(void)
 
 	/*
 	 * The Linux Standard Base Core Specification 3.1 says this should return
-	 * '3'
-	 * https://refspecs.linuxbase.org/LSB_3.1.0/LSB-Core-generic/LSB-Core-generic/iniscrptact.html
+	 * '3, program is not running'
+	 * https://refspecs.linuxbase.org/LSB_3.1.0/LSB-Core-generic/LSB-Core-gener
+	 * ic/iniscrptact.html
 	 */
 	exit(3);
 }
@@ -1237,20 +1300,23 @@ static bool
 IsWindowsXPOrGreater(void)
 {
 	OSVERSIONINFO osv;
+
 	osv.dwOSVersionInfoSize = sizeof(osv);
 
-	 /* Windows XP = Version 5.1 */
-	return (!GetVersionEx(&osv) || /* could not get version */
+	/* Windows XP = Version 5.1 */
+	return (!GetVersionEx(&osv) ||		/* could not get version */
 			osv.dwMajorVersion > 5 || (osv.dwMajorVersion == 5 && osv.dwMinorVersion >= 1));
 }
 
-static bool IsWindows7OrGreater(void)
+static bool
+IsWindows7OrGreater(void)
 {
 	OSVERSIONINFO osv;
+
 	osv.dwOSVersionInfoSize = sizeof(osv);
 
-	 /* Windows 7 = Version 6.0 */
-	return (!GetVersionEx(&osv) || /* could not get version */
+	/* Windows 7 = Version 6.0 */
+	return (!GetVersionEx(&osv) ||		/* could not get version */
 			osv.dwMajorVersion > 6 || (osv.dwMajorVersion == 6 && osv.dwMinorVersion >= 0));
 }
 #endif
@@ -1326,7 +1392,19 @@ pgwin32_CommandLine(bool registration)
 						  register_servicename);
 
 	if (pg_config)
-		appendPQExpBuffer(cmdLine, " -D \"%s\"", pg_config);
+	{
+		/* We need the -D path to be absolute */
+		char	   *dataDir;
+
+		if ((dataDir = make_absolute_path(pg_config)) == NULL)
+		{
+			/* make_absolute_path already reported the error */
+			exit(1);
+		}
+		make_native_path(dataDir);
+		appendPQExpBuffer(cmdLine, " -D \"%s\"", dataDir);
+		free(dataDir);
+	}
 
 	if (registration && do_wait)
 		appendPQExpBuffer(cmdLine, " -w");
@@ -1961,9 +2039,11 @@ adjust_data_dir(void)
 	else
 		my_exec_path = pg_strdup(exec_path);
 
-	snprintf(cmd, MAXPGPATH, SYSTEMQUOTE "\"%s\" %s%s -C data_directory" SYSTEMQUOTE,
-			 my_exec_path, pgdata_opt ? pgdata_opt : "", post_opts ?
-			 post_opts : "");
+	/* it's important for -C to be the first option, see main.c */
+	snprintf(cmd, MAXPGPATH, "\"%s\" -C data_directory %s%s",
+			 my_exec_path,
+			 pgdata_opt ? pgdata_opt : "",
+			 post_opts ? post_opts : "");
 
 	fd = popen(cmd, "r");
 	if (fd == NULL || fgets(filename, sizeof(filename), fd) == NULL)
@@ -2249,6 +2329,7 @@ main(int argc, char **argv)
 	if (pg_data)
 	{
 		snprintf(postopts_file, MAXPGPATH, "%s/postmaster.opts", pg_data);
+		snprintf(version_file, MAXPGPATH, "%s/PG_VERSION", pg_data);
 		snprintf(pid_file, MAXPGPATH, "%s/postmaster.pid", pg_data);
 		snprintf(backup_file, MAXPGPATH, "%s/backup_label", pg_data);
 		snprintf(recovery_file, MAXPGPATH, "%s/recovery.conf", pg_data);

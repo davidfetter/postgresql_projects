@@ -21,7 +21,6 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
-#include "common/username.h"
 #include "libpq/auth.h"
 #include "libpq/crypt.h"
 #include "libpq/ip.h"
@@ -50,7 +49,7 @@ static int	recv_and_check_password_packet(Port *port, char **logdetail);
 /* Max size of username ident server can return */
 #define IDENT_USERNAME_MAX 512
 
-/* Standard TCP port number for Ident service.	Assigned by IANA */
+/* Standard TCP port number for Ident service.  Assigned by IANA */
 #define IDENT_PORT 113
 
 static int	ident_inet(hbaPort *port);
@@ -129,7 +128,6 @@ static int	CheckCertAuth(Port *port);
  *----------------------------------------------------------------
  */
 char	   *pg_krb_server_keyfile;
-char	   *pg_krb_srvnam;
 bool		pg_krb_caseins_users;
 
 
@@ -214,6 +212,7 @@ static void
 auth_failed(Port *port, int status, char *logdetail)
 {
 	const char *errstr;
+	char	   *cdetail;
 	int			errcode_return = ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION;
 
 	/*
@@ -273,17 +272,12 @@ auth_failed(Port *port, int status, char *logdetail)
 			break;
 	}
 
-	if (port->hba)
-	{
-		char	   *cdetail;
-
-		cdetail = psprintf(_("Connection matched pg_hba.conf line %d: \"%s\""),
-						   port->hba->linenumber, port->hba->rawline);
-		if (logdetail)
-			logdetail = psprintf("%s\n%s", logdetail, cdetail);
-		else
-			logdetail = cdetail;
-	}
+	cdetail = psprintf(_("Connection matched pg_hba.conf line %d: \"%s\""),
+					   port->hba->linenumber, port->hba->rawline);
+	if (logdetail)
+		logdetail = psprintf("%s\n%s", logdetail, cdetail);
+	else
+		logdetail = cdetail;
 
 	ereport(FATAL,
 			(errcode(errcode_return),
@@ -431,15 +425,25 @@ ClientAuthentication(Port *port)
 								   NI_NUMERICHOST);
 
 #define HOSTNAME_LOOKUP_DETAIL(port) \
-				(port->remote_hostname				  \
-				 ? (port->remote_hostname_resolv == +1					\
-					? errdetail_log("Client IP address resolved to \"%s\", forward lookup matches.", port->remote_hostname) \
-					: (port->remote_hostname_resolv == 0				\
-					   ? errdetail_log("Client IP address resolved to \"%s\", forward lookup not checked.", port->remote_hostname) \
-					   : (port->remote_hostname_resolv == -1			\
-						  ? errdetail_log("Client IP address resolved to \"%s\", forward lookup does not match.", port->remote_hostname) \
-						  : 0)))										\
-				 : 0)
+				(port->remote_hostname ? \
+				 (port->remote_hostname_resolv == +1 ? \
+				  errdetail_log("Client IP address resolved to \"%s\", forward lookup matches.", \
+								port->remote_hostname) : \
+				  port->remote_hostname_resolv == 0 ? \
+				  errdetail_log("Client IP address resolved to \"%s\", forward lookup not checked.", \
+								port->remote_hostname) : \
+				  port->remote_hostname_resolv == -1 ? \
+				  errdetail_log("Client IP address resolved to \"%s\", forward lookup does not match.", \
+								port->remote_hostname) : \
+				  port->remote_hostname_resolv == -2 ? \
+				  errdetail_log("Could not translate client host name \"%s\" to IP address: %s.", \
+								port->remote_hostname, \
+								gai_strerror(port->remote_hostname_errcode)) : \
+				  0) \
+				 : (port->remote_hostname_resolv == -2 ? \
+					errdetail_log("Could not resolve client IP address to a host name: %s.", \
+								  gai_strerror(port->remote_hostname_errcode)) : \
+					0))
 
 				if (am_walsender)
 				{
@@ -673,7 +677,7 @@ recv_password_packet(Port *port)
 			(errmsg("received password packet")));
 
 	/*
-	 * Return the received string.	Note we do not attempt to do any
+	 * Return the received string.  Note we do not attempt to do any
 	 * character-set conversion on it; since we don't yet know the client's
 	 * encoding, there wouldn't be much point.
 	 */
@@ -1383,7 +1387,7 @@ interpret_ident_response(const char *ident_response,
 /*
  *	Talk to the ident server on host "remote_ip_addr" and find out who
  *	owns the tcp connection from his port "remote_port" to port
- *	"local_port_addr" on host "local_ip_addr".	Return the user name the
+ *	"local_port_addr" on host "local_ip_addr".  Return the user name the
  *	ident server gives as "*ident_user".
  *
  *	IP addresses and port numbers are in network byte order.
@@ -1459,7 +1463,7 @@ ident_inet(hbaPort *port)
 
 	sock_fd = socket(ident_serv->ai_family, ident_serv->ai_socktype,
 					 ident_serv->ai_protocol);
-	if (sock_fd < 0)
+	if (sock_fd == PGINVALID_SOCKET)
 	{
 		ereport(LOG,
 				(errcode_for_socket_access(),
@@ -1539,7 +1543,7 @@ ident_inet(hbaPort *port)
 					ident_response)));
 
 ident_inet_done:
-	if (sock_fd >= 0)
+	if (sock_fd != PGINVALID_SOCKET)
 		closesocket(sock_fd);
 	pg_freeaddrinfo_all(remote_addr.addr.ss_family, ident_serv);
 	pg_freeaddrinfo_all(local_addr.addr.ss_family, la);
@@ -1565,10 +1569,8 @@ auth_peer(hbaPort *port)
 	char		ident_user[IDENT_USERNAME_MAX + 1];
 	uid_t		uid;
 	gid_t		gid;
-	const char *user_name;
-	char	   *errstr;
+	struct passwd *pw;
 
-	errno = 0;
 	if (getpeereid(port->sock, &uid, &gid) != 0)
 	{
 		/* Provide special error message if getpeereid is a stub */
@@ -1583,15 +1585,17 @@ auth_peer(hbaPort *port)
 		return STATUS_ERROR;
 	}
 
-	user_name = get_user_name(&errstr);
-	if (!user_name)
+	errno = 0;					/* clear errno before call */
+	pw = getpwuid(uid);
+	if (!pw)
 	{
-		ereport(LOG, (errmsg_internal("%s", errstr)));
-		pfree(errstr);
+		ereport(LOG,
+				(errmsg("failed to look up local user id %ld: %s",
+		   (long) uid, errno ? strerror(errno) : _("user does not exist"))));
 		return STATUS_ERROR;
 	}
 
-	strlcpy(ident_user, user_name, IDENT_USERNAME_MAX + 1);
+	strlcpy(ident_user, pw->pw_name, IDENT_USERNAME_MAX + 1);
 
 	return check_usermap(port->hba->usermap, port->user_name, ident_user, false);
 }
@@ -2002,8 +2006,8 @@ CheckLDAPAuth(Port *port)
 		attributes[1] = NULL;
 
 		filter = psprintf("(%s=%s)",
-				attributes[0],
-				port->user_name);
+						  attributes[0],
+						  port->user_name);
 
 		r = ldap_search_s(ldap,
 						  port->hba->ldapbasedn,
@@ -2091,9 +2095,9 @@ CheckLDAPAuth(Port *port)
 	}
 	else
 		fulluser = psprintf("%s%s%s",
-				port->hba->ldapprefix ? port->hba->ldapprefix : "",
-				port->user_name,
-				port->hba->ldapsuffix ? port->hba->ldapsuffix : "");
+						  port->hba->ldapprefix ? port->hba->ldapprefix : "",
+							port->user_name,
+						 port->hba->ldapsuffix ? port->hba->ldapsuffix : "");
 
 	r = ldap_simple_bind_s(ldap, fulluser, passwd);
 	ldap_unbind(ldap);
@@ -2357,7 +2361,7 @@ CheckRADIUSAuth(Port *port)
 	packet->length = htons(packet->length);
 
 	sock = socket(serveraddrs[0].ai_family, SOCK_DGRAM, 0);
-	if (sock < 0)
+	if (sock == PGINVALID_SOCKET)
 	{
 		ereport(LOG,
 				(errmsg("could not create RADIUS socket: %m")));

@@ -36,13 +36,14 @@
      <variablelist>
 
      <varlistentry id="restore-command" xreflabel="restore_command">
-      <term><varname>restore_command</varname> (<type>string</type>)</term>
+      <term><varname>restore_command</varname> (<type>string</type>)
       <indexterm>
         <primary><varname>restore_command</> recovery parameter</primary>
       </indexterm>
+      </term>
       <listitem>
        <para>
-        The shell command to execute to retrieve an archived segment of
+        The local shell command to execute to retrieve an archived segment of
         the WAL file series. This parameter is required for archive recovery,
         but optional for streaming replication.
         Any <literal>%f</> in the string is
@@ -79,10 +80,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
      </varlistentry>
 
      <varlistentry id="archive-cleanup-command" xreflabel="archive_cleanup_command">
-      <term><varname>archive_cleanup_command</varname> (<type>string</type>)</term>
+      <term><varname>archive_cleanup_command</varname> (<type>string</type>)
       <indexterm>
         <primary><varname>archive_cleanup_command</> recovery parameter</primary>
       </indexterm>
+      </term>
       <listitem>
        <para>
         This optional parameter specifies a shell command that will be executed
@@ -119,10 +121,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
      </varlistentry>
 
      <varlistentry id="recovery-end-command" xreflabel="recovery_end_command">
-      <term><varname>recovery_end_command</varname> (<type>string</type>)</term>
+      <term><varname>recovery_end_command</varname> (<type>string</type>)
       <indexterm>
         <primary><varname>recovery_end_command</> recovery parameter</primary>
       </indexterm>
+      </term>
       <listitem>
        <para>
         This parameter specifies a shell command that will be executed once only
@@ -138,56 +141,6 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
         anyway.  An exception is that if the command was terminated by a
         signal or an error by the shell (such as command not found), the
         database will not proceed with startup.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="min-recovery-apply-delay" xreflabel="min_recovery_apply_delay">
-      <term><varname>min_recovery_apply_delay</varname> (<type>integer</type>)</term>
-      <indexterm>
-        <primary><varname>min_recovery_apply_delay</> recovery parameter</primary>
-      </indexterm>
-      <listitem>
-       <para>
-        By default, a standby server keeps restoring WAL records from the
-        primary as soon as possible. It may be useful to have a time-delayed
-        copy of the data, offering various options to correct data loss errors.
-        This parameter allows you to delay recovery by a fixed period of time,
-        specified in milliseconds if no unit is specified.  For example, if
-        you set this parameter to <literal>5min</literal>, the standby will
-        replay each transaction commit only when the system time on the standby
-        is at least five minutes past the commit time reported by the master.
-       </para>
-       <para>
-        It is possible that the replication delay between servers exceeds the
-        value of this parameter, in which case no delay is added.
-        Note that the delay is calculated between the WAL timestamp as written
-        on master and the time on the current standby. Delays
-        in transfer because of networks or cascading replication configurations
-        may reduce the actual wait time significantly. If the system
-        clocks on master and standby are not synchronised, this may lead to
-        recovery applying records earlier than expected but is not a major issue
-        because the useful settings of the parameter are much larger than
-        typical time deviation between the servers. Be careful to allow for
-        different timezone settings on master and standby.
-       </para>
-       <para>
-        The delay occurs only on WAL records for COMMIT and Restore Points.
-        Other records may be replayed earlier than the specified delay, which
-        is not an issue for MVCC though may potentially increase the number
-        of recovery conflicts generated.
-       </para>
-       <para>
-        The delay occurs until the standby is promoted or triggered. After that
-        the standby will end recovery without further waiting.
-       </para>
-       <para>
-        This parameter is intended for use with streaming replication deployments,
-        however, if the parameter is specified it will be honoured in all cases.
-        Synchronous replication is not affected by this setting because there is
-        not yet any setting to request synchronous apply of transaction commits.
-        <varname>hot_standby_feedback</> will be delayed by use of this feature
-        which could lead to bloat on the master; use both together with care.
        </para>
       </listitem>
      </varlistentry>
@@ -209,10 +162,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
      <variablelist>
 
      <varlistentry id="recovery-target" xreflabel="recovery_target_name">
-      <term><varname>recovery_target</varname><literal> = 'immediate'</literal></term>
+      <term><varname>recovery_target</varname><literal> = 'immediate'</literal>
       <indexterm>
         <primary><varname>recovery_target</> recovery parameter</primary>
       </indexterm>
+      </term>
       <listitem>
        <para>
         This parameter specifies that recovery should end as soon as a
@@ -228,12 +182,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
      </varlistentry>
 
      <varlistentry id="recovery-target-name" xreflabel="recovery_target_name">
-      <term><varname>recovery_target_name</varname>
-           (<type>string</type>)
-      </term>
+      <term><varname>recovery_target_name</varname> (<type>string</type>)
       <indexterm>
         <primary><varname>recovery_target_name</> recovery parameter</primary>
       </indexterm>
+      </term>
       <listitem>
        <para>
         This parameter specifies the named restore point, created with
@@ -243,12 +196,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
      </varlistentry>
 
      <varlistentry id="recovery-target-time" xreflabel="recovery_target_time">
-      <term><varname>recovery_target_time</varname>
-           (<type>timestamp</type>)
-      </term>
+      <term><varname>recovery_target_time</varname> (<type>timestamp</type>)
       <indexterm>
         <primary><varname>recovery_target_time</> recovery parameter</primary>
       </indexterm>
+      </term>
       <listitem>
        <para>
         This parameter specifies the time stamp up to which recovery
@@ -260,10 +212,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
      </varlistentry>
 
      <varlistentry id="recovery-target-xid" xreflabel="recovery_target_xid">
-      <term><varname>recovery_target_xid</varname> (<type>string</type>)</term>
+      <term><varname>recovery_target_xid</varname> (<type>string</type>)
       <indexterm>
         <primary><varname>recovery_target_xid</> recovery parameter</primary>
       </indexterm>
+      </term>
       <listitem>
        <para>
         This parameter specifies the transaction ID up to which recovery
@@ -287,12 +240,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
 
      <varlistentry id="recovery-target-inclusive"
                    xreflabel="recovery_target_inclusive">
-      <term><varname>recovery_target_inclusive</varname>
-        (<type>boolean</type>)
-      </term>
+      <term><varname>recovery_target_inclusive</varname> (<type>boolean</type>)
       <indexterm>
         <primary><varname>recovery_target_inclusive</> recovery parameter</primary>
       </indexterm>
+      </term>
       <listitem>
        <para>
         Specifies whether we stop just after the specified recovery target
@@ -309,12 +261,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
 
      <varlistentry id="recovery-target-timeline"
                    xreflabel="recovery_target_timeline">
-      <term><varname>recovery_target_timeline</varname>
-        (<type>string</type>)
-      </term>
+      <term><varname>recovery_target_timeline</varname> (<type>string</type>)
       <indexterm>
         <primary><varname>recovery_target_timeline</> recovery parameter</primary>
       </indexterm>
+      </term>
       <listitem>
        <para>
         Specifies recovering into a particular timeline.  The default is
@@ -331,12 +282,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
 
      <varlistentry id="pause-at-recovery-target"
                    xreflabel="pause_at_recovery_target">
-      <term><varname>pause_at_recovery_target</varname>
-        (<type>boolean</type>)
-      </term>
+      <term><varname>pause_at_recovery_target</varname> (<type>boolean</type>)
       <indexterm>
         <primary><varname>pause_at_recovery_target</> recovery parameter</primary>
       </indexterm>
+      </term>
       <listitem>
        <para>
         Specifies whether recovery should pause when the recovery target
@@ -367,10 +317,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
      <variablelist>
 
        <varlistentry id="standby-mode" xreflabel="standby_mode">
-        <term><varname>standby_mode</varname> (<type>boolean</type>)</term>
+        <term><varname>standby_mode</varname> (<type>boolean</type>)
         <indexterm>
           <primary><varname>standby_mode</> recovery parameter</primary>
         </indexterm>
+        </term>
         <listitem>
          <para>
           Specifies whether to start the <productname>PostgreSQL</> server as
@@ -384,10 +335,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
         </listitem>
        </varlistentry>
        <varlistentry id="primary-conninfo" xreflabel="primary_conninfo">
-        <term><varname>primary_conninfo</varname> (<type>string</type>)</term>
+        <term><varname>primary_conninfo</varname> (<type>string</type>)
         <indexterm>
           <primary><varname>primary_conninfo</> recovery parameter</primary>
         </indexterm>
+        </term>
         <listitem>
          <para>
           Specifies a connection string to be used for the standby server
@@ -418,11 +370,12 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
          </para>
         </listitem>
        </varlistentry>
-       <varlistentry id="primary-slotname" xreflabel="primary_slotname">
-        <term><varname>primary_slotname</varname> (<type>string</type>)</term>
+       <varlistentry id="primary-slot-name" xreflabel="primary_slot_name">
+        <term><varname>primary_slot_name</varname> (<type>string</type>)
         <indexterm>
-          <primary><varname>primary_slotname</> recovery parameter</primary>
+          <primary><varname>primary_slot_name</> recovery parameter</primary>
         </indexterm>
+        </term>
         <listitem>
          <para>
           Optionally specifies an existing replication slot to be used when
@@ -435,10 +388,11 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
         </listitem>
        </varlistentry>
        <varlistentry id="trigger-file" xreflabel="trigger_file">
-        <term><varname>trigger_file</varname> (<type>string</type>)</term>
+        <term><varname>trigger_file</varname> (<type>string</type>)
         <indexterm>
           <primary><varname>trigger_file</> recovery parameter</primary>
         </indexterm>
+        </term>
         <listitem>
          <para>
           Specifies a trigger file whose presence ends recovery in the
@@ -448,6 +402,57 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
          </para>
         </listitem>
        </varlistentry>
+
+     <varlistentry id="recovery-min-apply-delay" xreflabel="recovery_min_apply_delay">
+      <term><varname>recovery_min_apply_delay</varname> (<type>integer</type>)
+      <indexterm>
+        <primary><varname>recovery_min_apply_delay</> recovery parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        By default, a standby server restores WAL records from the
+        primary as soon as possible. It may be useful to have a time-delayed
+        copy of the data, offering various options to correct data loss errors.
+        This parameter allows you to delay recovery by a fixed period of time,
+        specified in milliseconds if no unit is specified.  For example, if
+        you set this parameter to <literal>5min</literal>, the standby will
+        replay each transaction commit only when the system time on the standby
+        is at least five minutes past the commit time reported by the master.
+       </para>
+       <para>
+        It is possible that the replication delay between servers exceeds the
+        value of this parameter, in which case no delay is added.
+        Note that the delay is calculated between the WAL timestamp as written
+        on master and the time on the current standby. Delays
+        in transfer because of networks or cascading replication configurations
+        may reduce the actual wait time significantly. If the system
+        clocks on master and standby are not synchronised, this may lead to
+        recovery applying records earlier than expected; but that is not a
+        major issue because useful settings of the parameter are much larger
+        than typical time deviations between servers. Be careful to allow for
+        different timezone settings on master and standby.
+       </para>
+       <para>
+        The delay occurs only on WAL records for COMMIT and Restore Points.
+        Other records may be replayed earlier than the specified delay, which
+        is not an issue for MVCC though it may potentially increase the number
+        of recovery conflicts generated.
+       </para>
+       <para>
+        The delay occurs until the standby is promoted or triggered. After that
+        the standby will end recovery without further waiting.
+       </para>
+       <para>
+        This parameter is intended for use with streaming replication deployments,
+        however, if the parameter is specified it will be honoured in all cases.
+        Synchronous replication is not affected by this setting because there is
+        not yet any setting to request synchronous apply of transaction commits.
+        <varname>hot_standby_feedback</> will be delayed by use of this feature
+        which could lead to bloat on the master; use both together with care.
+       </para>
+      </listitem>
+     </varlistentry>
 
      </variablelist>
    </sect1>

@@ -20,6 +20,14 @@
 #include "utils/relcache.h"
 
 
+/* ----------
+ * Paths for the statistics files (relative to installation's $PGDATA).
+ * ----------
+ */
+#define PGSTAT_STAT_PERMANENT_DIRECTORY		"pg_stat"
+#define PGSTAT_STAT_PERMANENT_FILENAME		"pg_stat/global.stat"
+#define PGSTAT_STAT_PERMANENT_TMPFILE		"pg_stat/global.tmp"
+
 /* Default directory to store temporary statistics data in */
 #define PG_STAT_TMP_DIR		"pg_stat_tmp"
 
@@ -129,7 +137,7 @@ typedef enum PgStat_Single_Reset_Type
  *
  * Many of the event counters are nontransactional, ie, we count events
  * in committed and aborted transactions alike.  For these, we just count
- * directly in the PgStat_TableStatus.	However, delta_live_tuples,
+ * directly in the PgStat_TableStatus.  However, delta_live_tuples,
  * delta_dead_tuples, and changed_tuples must be derived from event counts
  * with awareness of whether the transaction or subtransaction committed or
  * aborted.  Hence, we also keep a stack of per-(sub)transaction status
@@ -367,10 +375,10 @@ typedef struct PgStat_MsgAnalyze
  */
 typedef struct PgStat_MsgArchiver
 {
-	PgStat_MsgHdr	m_hdr;
-	bool			m_failed; /* Failed attempt */
-	char			m_xlog[MAX_XFN_CHARS + 1];
-	TimestampTz		m_timestamp;
+	PgStat_MsgHdr m_hdr;
+	bool		m_failed;		/* Failed attempt */
+	char		m_xlog[MAX_XFN_CHARS + 1];
+	TimestampTz m_timestamp;
 } PgStat_MsgArchiver;
 
 /* ----------
@@ -636,10 +644,12 @@ typedef struct PgStat_StatFuncEntry
 typedef struct PgStat_ArchiverStats
 {
 	PgStat_Counter archived_count;		/* archival successes */
-	char last_archived_wal[MAX_XFN_CHARS + 1];	/* last WAL file archived */
-	TimestampTz last_archived_timestamp;	/* last archival success time */
-	PgStat_Counter failed_count;		/* failed archival attempts */
-	char last_failed_wal[MAX_XFN_CHARS + 1];	/* WAL file involved in last failure */
+	char		last_archived_wal[MAX_XFN_CHARS + 1];	/* last WAL file
+														 * archived */
+	TimestampTz last_archived_timestamp;		/* last archival success time */
+	PgStat_Counter failed_count;	/* failed archival attempts */
+	char		last_failed_wal[MAX_XFN_CHARS + 1];		/* WAL file involved in
+														 * last failure */
 	TimestampTz last_failed_timestamp;	/* last archival failure time */
 	TimestampTz stat_reset_timestamp;
 } PgStat_ArchiverStats;
@@ -676,7 +686,7 @@ typedef enum BackendState
 	STATE_IDLEINTRANSACTION,
 	STATE_FASTPATH,
 	STATE_IDLEINTRANSACTION_ABORTED,
-	STATE_DISABLED,
+	STATE_DISABLED
 } BackendState;
 
 /* ----------
@@ -734,6 +744,34 @@ typedef struct PgBackendStatus
 	/* current command string; MUST be null-terminated */
 	char	   *st_activity;
 } PgBackendStatus;
+
+/* ----------
+ * LocalPgBackendStatus
+ *
+ * When we build the backend status array, we use LocalPgBackendStatus to be
+ * able to add new values to the struct when needed without adding new fields
+ * to the shared memory. It contains the backend status as a first member.
+ * ----------
+ */
+typedef struct LocalPgBackendStatus
+{
+	/*
+	 * Local version of the backend status entry.
+	 */
+	PgBackendStatus backendStatus;
+
+	/*
+	 * The xid of the current transaction if available, InvalidTransactionId
+	 * if not.
+	 */
+	TransactionId backend_xid;
+
+	/*
+	 * The xmin of the current session if available, InvalidTransactionId if
+	 * not.
+	 */
+	TransactionId backend_xmin;
+} LocalPgBackendStatus;
 
 /*
  * Working state needed to accumulate per-function-call timing statistics.
@@ -907,6 +945,7 @@ extern void pgstat_send_bgwriter(void);
 extern PgStat_StatDBEntry *pgstat_fetch_stat_dbentry(Oid dbid);
 extern PgStat_StatTabEntry *pgstat_fetch_stat_tabentry(Oid relid);
 extern PgBackendStatus *pgstat_fetch_stat_beentry(int beid);
+extern LocalPgBackendStatus *pgstat_fetch_stat_local_beentry(int beid);
 extern PgStat_StatFuncEntry *pgstat_fetch_stat_funcentry(Oid funcid);
 extern int	pgstat_fetch_stat_numbackends(void);
 extern PgStat_ArchiverStats *pgstat_fetch_stat_archiver(void);

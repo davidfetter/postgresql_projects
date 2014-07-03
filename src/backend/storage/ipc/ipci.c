@@ -55,7 +55,7 @@ static bool addin_request_allowed = true;
  *		a loadable module.
  *
  * This is only useful if called from the _PG_init hook of a library that
- * is loaded into the postmaster via shared_preload_libraries.	Once
+ * is loaded into the postmaster via shared_preload_libraries.  Once
  * shared memory has been allocated, calls will be ignored.  (We could
  * raise an error, but it seems better to make it a no-op, so that
  * libraries containing such calls can be reloaded if needed.)
@@ -85,11 +85,13 @@ RequestAddinShmemSpace(Size size)
  * This is a bit code-wasteful and could be cleaned up.)
  *
  * If "makePrivate" is true then we only need private memory, not shared
- * memory.	This is true for a standalone backend, false for a postmaster.
+ * memory.  This is true for a standalone backend, false for a postmaster.
  */
 void
 CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 {
+	PGShmemHeader *shim = NULL;
+
 	if (!IsUnderPostmaster)
 	{
 		PGShmemHeader *seghdr;
@@ -149,7 +151,7 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		/*
 		 * Create the shmem segment
 		 */
-		seghdr = PGSharedMemoryCreate(size, makePrivate, port);
+		seghdr = PGSharedMemoryCreate(size, makePrivate, port, &shim);
 
 		InitShmemAccess(seghdr);
 
@@ -254,7 +256,7 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 
 	/* Initialize dynamic shared memory facilities. */
 	if (!IsUnderPostmaster)
-		dsm_postmaster_startup();
+		dsm_postmaster_startup(shim);
 
 	/*
 	 * Now give loadable modules a chance to set up their shmem allocations

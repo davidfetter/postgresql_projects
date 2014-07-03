@@ -23,7 +23,7 @@ typedef struct RelationData *Relation;
 /* ----------------
  *		RelationPtr is used in the executor to support index scans
  *		where we have to keep track of several index relations in an
- *		array.	-cim 9/10/89
+ *		array.  -cim 9/10/89
  * ----------------
  */
 typedef Relation *RelationPtr;
@@ -39,6 +39,7 @@ extern void RelationClose(Relation relation);
  */
 extern List *RelationGetIndexList(Relation relation);
 extern Oid	RelationGetOidIndex(Relation relation);
+extern Oid	RelationGetReplicaIndex(Relation relation);
 extern List *RelationGetIndexExpressions(Relation relation);
 extern List *RelationGetIndexPredicate(Relation relation);
 
@@ -50,7 +51,7 @@ typedef enum IndexAttrBitmapKind
 } IndexAttrBitmapKind;
 
 extern Bitmapset *RelationGetIndexAttrBitmap(Relation relation,
-											 IndexAttrBitmapKind keyAttrs);
+						   IndexAttrBitmapKind keyAttrs);
 
 extern void RelationGetExclusionInfo(Relation indexRelation,
 						 Oid **operators,

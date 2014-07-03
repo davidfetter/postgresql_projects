@@ -69,7 +69,7 @@ sub mkvcbuild
 	  srandom.c getaddrinfo.c gettimeofday.c inet_net_ntop.c kill.c open.c
 	  erand48.c snprintf.c strlcat.c strlcpy.c dirmod.c noblock.c path.c
 	  pgcheckdir.c pg_crc.c pgmkdirp.c pgsleep.c pgstrcasecmp.c pqsignal.c
-	  qsort.c qsort_arg.c quotes.c
+	  mkdtemp.c qsort.c qsort_arg.c quotes.c system.c
 	  sprompt.c tar.c thread.c getopt.c getopt_long.c dirent.c
 	  win32env.c win32error.c win32setlocale.c);
 
@@ -318,7 +318,7 @@ sub mkvcbuild
 	$ecpg->AddPrefixInclude('src\interfaces\ecpg\preproc');
 	$ecpg->AddFiles('src\interfaces\ecpg\preproc', 'pgc.l', 'preproc.y');
 	$ecpg->AddDefine('MAJOR_VERSION=4');
-	$ecpg->AddDefine('MINOR_VERSION=10');
+	$ecpg->AddDefine('MINOR_VERSION=11');
 	$ecpg->AddDefine('PATCHLEVEL=0');
 	$ecpg->AddDefine('ECPG_COMPILE');
 	$ecpg->AddReference($libpgcommon, $libpgport);
@@ -374,6 +374,11 @@ sub mkvcbuild
 	$pgreceivexlog->{name} = 'pg_receivexlog';
 	$pgreceivexlog->AddFile('src\bin\pg_basebackup\pg_receivexlog.c');
 	$pgreceivexlog->AddLibrary('ws2_32.lib');
+
+	my $pgrecvlogical = AddSimpleFrontend('pg_basebackup', 1);
+	$pgrecvlogical->{name} = 'pg_recvlogical';
+	$pgrecvlogical->AddFile('src\bin\pg_basebackup\pg_recvlogical.c');
+	$pgrecvlogical->AddLibrary('ws2_32.lib');
 
 	my $pgconfig = AddSimpleFrontend('pg_config');
 

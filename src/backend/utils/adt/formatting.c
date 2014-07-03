@@ -1823,7 +1823,7 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 
 		/*
 		 * Note: we assume that toupper_l()/tolower_l() will not be so broken
-		 * as to need guard tests.	When using the default collation, we apply
+		 * as to need guard tests.  When using the default collation, we apply
 		 * the traditional Postgres behavior that forces ASCII-style treatment
 		 * of I/i, but in non-default collations you get exactly what the
 		 * collation says.
@@ -3587,7 +3587,7 @@ do_to_timestamp(text *date_txt, text *fmt,
 		if (tmfc.bc)
 			tmfc.cc = -tmfc.cc;
 		if (tmfc.cc >= 0)
-			/* +1 becuase 21st century started in 2001 */
+			/* +1 because 21st century started in 2001 */
 			tm->tm_year = (tmfc.cc - 1) * 100 + 1;
 		else
 			/* +1 because year == 599 is 600 BC */
@@ -3629,7 +3629,7 @@ do_to_timestamp(text *date_txt, text *fmt,
 	{
 		/*
 		 * The month and day field have not been set, so we use the
-		 * day-of-year field to populate them.	Depending on the date mode,
+		 * day-of-year field to populate them.  Depending on the date mode,
 		 * this field may be interpreted as a Gregorian day-of-year, or an ISO
 		 * week date day-of-year.
 		 */
