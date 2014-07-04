@@ -1646,7 +1646,6 @@ agg_retrieve_hash_table(AggState *aggstate)
 		else
 			InstrCountFiltered1(aggstate, 1);
 	}
-		  //}
 
 	/* No more groups */
 	return NULL;
