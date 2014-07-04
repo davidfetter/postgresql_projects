@@ -130,6 +130,8 @@ typedef struct ExprContext
 	Datum	   *ecxt_aggvalues; /* precomputed values for aggs/windowfuncs */
 	bool	   *ecxt_aggnulls;	/* null flags for aggs/windowfuncs */
 
+	Bitmapset  *grouped_cols;   /* which columns exist in current grouping set */
+	
 	/* Value to substitute for CaseTestExpr nodes in expression */
 	Datum		caseValue_datum;
 	bool		caseValue_isNull;
@@ -1701,6 +1703,7 @@ typedef struct GroupState
 /* these structs are private in nodeAgg.c: */
 typedef struct AggStatePerAggData *AggStatePerAgg;
 typedef struct AggStatePerGroupData *AggStatePerGroup;
+typedef struct AggStatePerGroupingSetData *AggStatePerGroupingSet;
 
 typedef struct AggState
 {
@@ -1718,6 +1721,7 @@ typedef struct AggState
 	bool		agg_done;		/* indicates completion of Agg scan */
 	int curgroup_size;		/* The current group size. Used for ROLLUP */
 	int curgroup;           /* The current group number being processed */
+	Bitmapset **grouped_cols;   /* column groupings for rollup */
 	/* these fields are used in AGG_PLAIN and AGG_SORTED modes: */
 	AggStatePerGroup pergroup;	/* per-Aggref-per-group working state */
 	HeapTuple	grp_firstTuple; /* copy of first tuple of current group */

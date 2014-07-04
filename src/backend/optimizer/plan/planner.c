@@ -531,7 +531,8 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 
 		if (contain_agg_clause(havingclause) ||
 			contain_volatile_functions(havingclause) ||
-			contain_subplans(havingclause))
+			contain_subplans(havingclause) ||
+			parse->groupingSets)
 		{
 			/* keep it in HAVING */
 			newHaving = lappend(newHaving, havingclause);

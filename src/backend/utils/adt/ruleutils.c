@@ -4631,7 +4631,7 @@ get_target_list(List *targetList, deparse_context *context,
 		 * different from a whole-row Var).  We need to call get_variable
 		 * directly so that we can tell it to do the right thing.
 		 */
-		if (tle->expr && IsA(tle->expr, Var))
+		if (tle->expr && (IsA(tle->expr, Var) || IsA(tle->expr, GroupedVar)))
 		{
 			attname = get_variable((Var *) tle->expr, 0, true, context);
 		}

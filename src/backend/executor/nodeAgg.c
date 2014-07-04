@@ -1462,6 +1462,9 @@ agg_retrieve_direct(AggState *aggstate)
 							   &aggvalues[aggno], &aggnulls[aggno]);
 		}
 
+		if (hasRollup)
+			econtext->grouped_cols = aggstate->grouped_cols[currentGroup];
+
 		/*
 		 * Check the qual (HAVING clause); if the group does not match, ignore
 		 * it and loop back to try to process another group.
@@ -1699,7 +1702,17 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->hashtable = NULL;
 
 	if (node->hasRollup)
+	{
 		numGroups = node->numCols + 1;
+		aggstate->grouped_cols = palloc(numGroups * sizeof(Bitmapset *));
+		for (i = 0; i < numGroups; ++i)
+		{
+			Bitmapset *cols = NULL;
+			for (j = 0; j < (node->numCols - i); ++j)
+				cols = bms_add_member(cols, node->grpColIdx[j]);
+			aggstate->grouped_cols[i] = cols;
+		}
+	}
 
 	aggstate->aggcontext = (ExprContext **) palloc0(sizeof(ExprContext *) * numGroups);
 

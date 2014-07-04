@@ -68,6 +68,12 @@ typedef struct
 	int			rtoffset;
 } fix_upper_expr_context;
 
+typedef struct
+{
+	PlannerInfo *root;
+	Bitmapset   *groupedcols;
+} set_group_vars_context;
+
 /*
  * Check if a Const node is a regclass value.  We accept plain OID too,
  * since a regclass Const will get folded to that type if it's an argument
@@ -134,6 +140,8 @@ static List *set_returning_clause_references(PlannerInfo *root,
 static bool fix_opfuncids_walker(Node *node, void *context);
 static bool extract_query_dependencies_walker(Node *node,
 								  PlannerInfo *context);
+static void set_group_vars(PlannerInfo *root, Agg *agg);
+static Node *set_group_vars_mutator(Node *node, set_group_vars_context *context);
 
 
 /*****************************************************************************
@@ -647,6 +655,9 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 			}
 			break;
 		case T_Agg:
+			set_upper_references(root, plan, rtoffset);
+			set_group_vars(root, (Agg *) plan);
+			break;
 		case T_Group:
 			set_upper_references(root, plan, rtoffset);
 			break;
@@ -1245,6 +1256,67 @@ fix_scan_expr_walker(Node *node, fix_scan_expr_context *context)
 	return expression_tree_walker(node, fix_scan_expr_walker,
 								  (void *) context);
 }
+
+
+/*
+ * set_group_vars
+ *    Modify any Var references in the target list of a non-trivial
+ *    (i.e. contains grouping sets) Agg node to use GroupedVar instead,
+ *    which will conditionally replace them with nulls at runtime.
+ */
+static void
+set_group_vars(PlannerInfo *root, Agg *agg)
+{
+	set_group_vars_context context;
+	int i;
+	Bitmapset *cols = NULL;
+
+	if (!agg->hasRollup)
+		return;
+
+	context.root = root;
+
+	for (i = 0; i < agg->numCols; ++i)
+		cols = bms_add_member(cols, agg->grpColIdx[i]);
+
+	context.groupedcols = cols;
+
+	agg->plan.targetlist = (List *) set_group_vars_mutator((Node *) agg->plan.targetlist,
+														   &context);
+	agg->plan.qual = (List *) set_group_vars_mutator((Node *) agg->plan.qual,
+													 &context);
+}
+
+static Node *
+set_group_vars_mutator(Node *node, set_group_vars_context *context)
+{
+	if (node == NULL)
+		return NULL;
+	if (IsA(node, Var))
+	{
+		Var *var = (Var *) node;
+
+		if (var->varno == OUTER_VAR
+			&& bms_is_member(var->varattno, context->groupedcols))
+		{
+			var = copyVar(var);
+			var->xpr.type = T_GroupedVar;
+		}
+
+		return (Node *) var;
+	}
+	else if (IsA(node, Aggref))
+	{
+		/*
+		 * don't recurse into Aggrefs, since they see the values prior
+		 * to grouping.
+		 */
+		return node;
+	}
+	return expression_tree_mutator(node, set_group_vars_mutator,
+								   (void *) context);
+}
+
 
 /*
  * set_join_references
