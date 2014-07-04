@@ -1711,7 +1711,7 @@ typedef struct AggState
 	FmgrInfo   *hashfunctions;	/* per-grouping-field hash fns */
 	AggStatePerAgg peragg;		/* per-Aggref information */
 	AggStatePerGroup **pointerRollup; /* pointers into pergroup for ROLLUP groups */
-	MemoryContext *aggcontext;	/* memory context for long-lived data */
+	ExprContext **aggcontext;	/* econtexts for long-lived data */
 	ExprContext *tmpcontext;	/* econtext for input expressions */
 	AggStatePerAgg curperagg;	/* identifies currently active aggregate */
 	bool        input_done;     /* indicates end of input */
