@@ -30,6 +30,7 @@
 
 #include "miscadmin.h"
 #include "portability/mem.h"
+#include "storage/dsm.h"
 #include "storage/ipc.h"
 #include "storage/pg_shmem.h"
 #include "utils/guc.h"
@@ -227,7 +228,7 @@ IpcMemoryDelete(int status, Datum shmId)
  * Is a previously-existing shmem segment still existing and in use?
  *
  * The point of this exercise is to detect the case where a prior postmaster
- * crashed, but it left child backends that are still running.	Therefore
+ * crashed, but it left child backends that are still running.  Therefore
  * we only care about shmem segments that are associated with the intended
  * DataDir.  This is an important consideration since accidental matches of
  * shmem segment IDs are reasonably common.
@@ -333,12 +334,12 @@ CreateAnonymousSegment(Size *size)
 	int			mmap_errno = 0;
 
 #ifndef MAP_HUGETLB
-	if (huge_tlb_pages == HUGE_TLB_ON)
+	if (huge_pages == HUGE_PAGES_ON)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("huge TLB pages not supported on this platform")));
 #else
-	if (huge_tlb_pages == HUGE_TLB_ON || huge_tlb_pages == HUGE_TLB_TRY)
+	if (huge_pages == HUGE_PAGES_ON || huge_pages == HUGE_PAGES_TRY)
 	{
 		/*
 		 * Round up the request size to a suitable large value.
@@ -364,17 +365,17 @@ CreateAnonymousSegment(Size *size)
 		ptr = mmap(NULL, allocsize, PROT_READ | PROT_WRITE,
 				   PG_MMAP_FLAGS | MAP_HUGETLB, -1, 0);
 		mmap_errno = errno;
-		if (huge_tlb_pages == HUGE_TLB_TRY && ptr == MAP_FAILED)
+		if (huge_pages == HUGE_PAGES_TRY && ptr == MAP_FAILED)
 			elog(DEBUG1, "mmap with MAP_HUGETLB failed, huge pages disabled: %m");
 	}
 #endif
 
-	if (huge_tlb_pages == HUGE_TLB_OFF ||
-		(huge_tlb_pages == HUGE_TLB_TRY && ptr == MAP_FAILED))
+	if (huge_pages == HUGE_PAGES_OFF ||
+		(huge_pages == HUGE_PAGES_TRY && ptr == MAP_FAILED))
 	{
 		/*
-		 * use the original size, not the rounded up value, when falling
-		 * back to non-huge pages.
+		 * use the original size, not the rounded up value, when falling back
+		 * to non-huge pages.
 		 */
 		allocsize = *size;
 		ptr = mmap(NULL, allocsize, PROT_READ | PROT_WRITE,
@@ -391,7 +392,7 @@ CreateAnonymousSegment(Size *size)
 				 errhint("This error usually means that PostgreSQL's request "
 					"for a shared memory segment exceeded available memory, "
 					  "swap space or huge pages. To reduce the request size "
-						 "(currently  %zu bytes), reduce PostgreSQL's shared "
+						 "(currently %zu bytes), reduce PostgreSQL's shared "
 					   "memory usage, perhaps by reducing shared_buffers or "
 						 "max_connections.",
 						 *size) : 0));
@@ -410,18 +411,19 @@ CreateAnonymousSegment(Size *size)
  * the storage.
  *
  * Dead Postgres segments are recycled if found, but we do not fail upon
- * collision with non-Postgres shmem segments.	The idea here is to detect and
+ * collision with non-Postgres shmem segments.  The idea here is to detect and
  * re-use keys that may have been assigned by a crashed postmaster or backend.
  *
  * makePrivate means to always create a new segment, rather than attach to
  * or recycle any existing segment.
  *
  * The port number is passed for possible use as a key (for SysV, we use
- * it to generate the starting shmem key).	In a standalone backend,
+ * it to generate the starting shmem key).  In a standalone backend,
  * zero will be passed.
  */
 PGShmemHeader *
-PGSharedMemoryCreate(Size size, bool makePrivate, int port)
+PGSharedMemoryCreate(Size size, bool makePrivate, int port,
+					 PGShmemHeader **shim)
 {
 	IpcMemoryKey NextShmemSegID;
 	void	   *memAddress;
@@ -431,10 +433,10 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	Size		sysvsize;
 
 #if defined(EXEC_BACKEND) || !defined(MAP_HUGETLB)
-	if (huge_tlb_pages == HUGE_TLB_ON)
+	if (huge_pages == HUGE_PAGES_ON)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("huge TLB pages not supported on this platform")));
+				 errmsg("huge pages not supported on this platform")));
 #endif
 
 	/* Room for a header? */
@@ -509,10 +511,13 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 
 		/*
 		 * The segment appears to be from a dead Postgres process, or from a
-		 * previous cycle of life in this same process.  Zap it, if possible.
-		 * This probably shouldn't fail, but if it does, assume the segment
-		 * belongs to someone else after all, and continue quietly.
+		 * previous cycle of life in this same process.  Zap it, if possible,
+		 * and any associated dynamic shared memory segments, as well. This
+		 * probably shouldn't fail, but if it does, assume the segment belongs
+		 * to someone else after all, and continue quietly.
 		 */
+		if (hdr->dsm_control != 0)
+			dsm_cleanup_using_control_segment(hdr->dsm_control);
 		shmdt(memAddress);
 		if (shmctl(shmid, IPC_RMID, NULL) < 0)
 			continue;
@@ -539,6 +544,7 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	hdr = (PGShmemHeader *) memAddress;
 	hdr->creatorPID = getpid();
 	hdr->magic = PGShmemMagic;
+	hdr->dsm_control = 0;
 
 	/* Fill in the data directory ID info, too */
 	if (stat(DataDir, &statbuf) < 0)
@@ -554,6 +560,7 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 	 */
 	hdr->totalsize = size;
 	hdr->freeoffset = MAXALIGN(sizeof(PGShmemHeader));
+	*shim = hdr;
 
 	/* Save info for possible future use */
 	UsedShmemSegAddr = memAddress;
@@ -576,7 +583,7 @@ PGSharedMemoryCreate(Size size, bool makePrivate, int port)
 /*
  * PGSharedMemoryReAttach
  *
- * Re-attach to an already existing shared memory segment.	In the non
+ * Re-attach to an already existing shared memory segment.  In the non
  * EXEC_BACKEND case this is not used, because postmaster children inherit
  * the shared memory segment attachment via fork().
  *
@@ -608,6 +615,7 @@ PGSharedMemoryReAttach(void)
 	if (hdr != origUsedShmemSegAddr)
 		elog(FATAL, "reattaching to shared memory returned unexpected address (got %p, expected %p)",
 			 hdr, origUsedShmemSegAddr);
+	dsm_set_control_handle(((PGShmemHeader *) hdr)->dsm_control);
 
 	UsedShmemSegAddr = hdr;		/* probably redundant */
 }
@@ -618,7 +626,7 @@ PGSharedMemoryReAttach(void)
  *
  * Detach from the shared memory segment, if still attached.  This is not
  * intended for use by the process that originally created the segment
- * (it will have an on_shmem_exit callback registered to do that).	Rather,
+ * (it will have an on_shmem_exit callback registered to do that).  Rather,
  * this is for subprocesses that have inherited an attachment and want to
  * get rid of it.
  */

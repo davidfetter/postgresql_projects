@@ -387,6 +387,36 @@
       <entry>Final function (zero if none)</entry>
      </row>
      <row>
+      <entry><structfield>aggmtransfn</structfield></entry>
+      <entry><type>regproc</type></entry>
+      <entry><literal><link linkend="catalog-pg-proc"><structname>pg_proc</structname></link>.oid</literal></entry>
+      <entry>Forward transition function for moving-aggregate mode (zero if none)</entry>
+     </row>
+     <row>
+      <entry><structfield>aggminvtransfn</structfield></entry>
+      <entry><type>regproc</type></entry>
+      <entry><literal><link linkend="catalog-pg-proc"><structname>pg_proc</structname></link>.oid</literal></entry>
+      <entry>Inverse transition function for moving-aggregate mode (zero if none)</entry>
+     </row>
+     <row>
+      <entry><structfield>aggmfinalfn</structfield></entry>
+      <entry><type>regproc</type></entry>
+      <entry><literal><link linkend="catalog-pg-proc"><structname>pg_proc</structname></link>.oid</literal></entry>
+      <entry>Final function for moving-aggregate mode (zero if none)</entry>
+     </row>
+     <row>
+      <entry><structfield>aggfinalextra</structfield></entry>
+      <entry><type>bool</type></entry>
+      <entry></entry>
+      <entry>True to pass extra dummy arguments to aggfinalfn</entry>
+     </row>
+     <row>
+      <entry><structfield>aggmfinalextra</structfield></entry>
+      <entry><type>bool</type></entry>
+      <entry></entry>
+      <entry>True to pass extra dummy arguments to aggmfinalfn</entry>
+     </row>
+     <row>
       <entry><structfield>aggsortop</structfield></entry>
       <entry><type>oid</type></entry>
       <entry><literal><link linkend="catalog-pg-operator"><structname>pg_operator</structname></link>.oid</literal></entry>
@@ -406,6 +436,20 @@
        data, or zero to use a default estimate</entry>
      </row>
      <row>
+      <entry><structfield>aggmtranstype</structfield></entry>
+      <entry><type>oid</type></entry>
+      <entry><literal><link linkend="catalog-pg-type"><structname>pg_type</structname></link>.oid</literal></entry>
+      <entry>Data type of the aggregate function's internal transition (state)
+       data for moving-aggregate mode (zero if none)</entry>
+     </row>
+     <row>
+      <entry><structfield>aggmtransspace</structfield></entry>
+      <entry><type>int4</type></entry>
+      <entry></entry>
+      <entry>Approximate average size (in bytes) of the transition state data
+       for moving-aggregate mode, or zero to use a default estimate</entry>
+     </row>
+     <row>
       <entry><structfield>agginitval</structfield></entry>
       <entry><type>text</type></entry>
       <entry></entry>
@@ -413,6 +457,17 @@
        The initial value of the transition state.  This is a text
        field containing the initial value in its external string
        representation.  If this field is null, the transition state
+       value starts out null.
+      </entry>
+     </row>
+     <row>
+      <entry><structfield>aggminitval</structfield></entry>
+      <entry><type>text</type></entry>
+      <entry></entry>
+      <entry>
+       The initial value of the transition state for moving-aggregate mode.
+       This is a text field containing the initial value in its external
+       string representation.  If this field is null, the transition state
        value starts out null.
       </entry>
      </row>
@@ -2538,10 +2593,10 @@
       <entry><type>bool</type></entry>
       <entry></entry>
       <entry>
-       If true then this database can be used in the
-       <literal>TEMPLATE</literal> clause of <command>CREATE
-       DATABASE</command> to create a new database as a clone of
-       this one
+       If true, then this database can be cloned by
+       any user with <literal>CREATEDB</> privileges;
+       if false, then only superusers or the owner of
+       the database can clone it.
       </entry>
      </row>
 
@@ -5177,7 +5232,7 @@
 
   <para>
    For more on replication slots,
-   see <xref linkend="streaming-replication-slots">.
+   see <xref linkend="streaming-replication-slots"> and <xref linkend="logicaldecoding">.
   </para>
 
   <table>
@@ -5197,9 +5252,16 @@
     <tbody>
      <row>
       <entry><structfield>slot_name</structfield></entry>
-      <entry><type>text</type></entry>
+      <entry><type>name</type></entry>
       <entry></entry>
       <entry>A unique, cluster-wide identifier for the replication slot</entry>
+     </row>
+
+     <row>
+      <entry><structfield>plugin</structfield></entry>
+      <entry><type>name</type></entry>
+      <entry></entry>
+      <entry>The basename of the shared object containing the output plugin this logical slot is using, or null for physical slots.</entry>
      </row>
 
      <row>
@@ -5243,8 +5305,18 @@
      </row>
 
      <row>
+      <entry><structfield>catalog_xmin</structfield></entry>
+      <entry><type>xid</type></entry>
+      <entry></entry>
+      <entry>The oldest transaction affecting the system catalogs that this
+      slot needs the database to retain.  <literal>VACUUM</literal> cannot
+      remove catalog tuples deleted by any later transaction.
+      </entry>
+     </row>
+
+     <row>
       <entry><structfield>restart_lsn</structfield></entry>
-      <entry><type>text</type></entry>
+      <entry><type>pg_lsn</type></entry>
       <entry></entry>
       <entry>The address (<literal>LSN</literal>) of oldest WAL which still
       might be required by the consumer of this slot and thus won't be
@@ -7846,16 +7918,27 @@
 
   <para>
    The <structfield>pid</structfield> column can be joined to the
-   <structfield>pid</structfield> column of the
-   <structname>pg_stat_activity</structname> view to get more
-   information on the session holding or waiting to hold each lock.
+   <structfield>pid</structfield> column of the <link
+   linkend="pg-stat-activity-view"><structname>pg_stat_activity</structname></link>
+   view to get more
+   information on the session holding or waiting to hold each lock,
+   for example
+<programlisting>
+SELECT * FROM pg_locks pl LEFT JOIN pg_stat_activity psa
+    ON pl.pid = psa.pid;
+</programlisting>
    Also, if you are using prepared transactions, the
-   <structfield>transaction</> column can be joined to the
-   <structfield>transaction</structfield> column of the
-   <structname>pg_prepared_xacts</structname> view to get more
-   information on prepared transactions that hold locks.
+   <structfield>virtualtransaction</> column can be joined to the
+   <structfield>transaction</structfield> column of the <link
+   linkend="view-pg-prepared-xacts"><structname>pg_prepared_xacts</structname></link>
+   view to get more information on prepared transactions that hold locks.
    (A prepared transaction can never be waiting for a lock,
    but it continues to hold the locks it acquired while running.)
+   For example:
+<programlisting>
+SELECT * FROM pg_locks pl LEFT JOIN pg_prepared_xacts ppx
+    ON pl.virtualtransaction = '-1/' || ppx.transaction;
+</programlisting>
   </para>
 
   <para>

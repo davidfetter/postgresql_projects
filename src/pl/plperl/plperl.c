@@ -62,8 +62,8 @@ PG_MODULE_MAGIC;
 
 
 /**********************************************************************
- * Information associated with a Perl interpreter.	We have one interpreter
- * that is used for all plperlu (untrusted) functions.	For plperl (trusted)
+ * Information associated with a Perl interpreter.  We have one interpreter
+ * that is used for all plperlu (untrusted) functions.  For plperl (trusted)
  * functions, there is a separate interpreter for each effective SQL userid.
  * (This is needed to ensure that an unprivileged user can't inject Perl code
  * that'll be executed with the privileges of some other SQL user.)
@@ -99,7 +99,7 @@ typedef struct plperl_interp_desc
  *
  * The refcount field counts the struct's reference from the hash table shown
  * below, plus one reference for each function call level that is using the
- * struct.	We can release the struct, and the associated Perl sub, when the
+ * struct.  We can release the struct, and the associated Perl sub, when the
  * refcount goes to zero.
  **********************************************************************/
 typedef struct plperl_proc_desc
@@ -240,12 +240,6 @@ static plperl_call_data *current_call_data = NULL;
 /**********************************************************************
  * Forward declarations
  **********************************************************************/
-Datum		plperl_call_handler(PG_FUNCTION_ARGS);
-Datum		plperl_inline_handler(PG_FUNCTION_ARGS);
-Datum		plperl_validator(PG_FUNCTION_ARGS);
-Datum		plperlu_call_handler(PG_FUNCTION_ARGS);
-Datum		plperlu_inline_handler(PG_FUNCTION_ARGS);
-Datum		plperlu_validator(PG_FUNCTION_ARGS);
 void		_PG_init(void);
 
 static PerlInterpreter *plperl_init_interp(void);
@@ -260,8 +254,8 @@ static void plperl_event_trigger_handler(PG_FUNCTION_ARGS);
 static void free_plperl_function(plperl_proc_desc *prodesc);
 
 static plperl_proc_desc *compile_plperl_function(Oid fn_oid,
-												 bool is_trigger,
-												 bool is_event_trigger);
+						bool is_trigger,
+						bool is_event_trigger);
 
 static SV  *plperl_hash_from_tuple(HeapTuple tuple, TupleDesc tupdesc);
 static SV  *plperl_hash_from_datum(Datum attr);
@@ -308,6 +302,16 @@ static char *setlocale_perl(int category, char *locale);
 static char *
 hek2cstr(HE *he)
 {
+	char	   *ret;
+	SV		   *sv;
+
+	/*
+	 * HeSVKEY_force will return a temporary mortal SV*, so we need to make
+	 * sure to free it with ENTER/SAVE/FREE/LEAVE
+	 */
+	ENTER;
+	SAVETMPS;
+
 	/*-------------------------
 	 * Unfortunately,  while HeUTF8 is true for most things > 256, for values
 	 * 128..255 it's not, but perl will treat them as unicode code points if
@@ -332,11 +336,17 @@ hek2cstr(HE *he)
 	 * right thing
 	 *-------------------------
 	 */
-	SV		   *sv = HeSVKEY_force(he);
 
+	sv = HeSVKEY_force(he);
 	if (HeUTF8(he))
 		SvUTF8_on(sv);
-	return sv2cstr(sv);
+	ret = sv2cstr(sv);
+
+	/* free sv */
+	FREETMPS;
+	LEAVE;
+
+	return ret;
 }
 
 /*
@@ -1786,7 +1796,7 @@ plperl_inline_handler(PG_FUNCTION_ARGS)
 	/* Set up a callback for error reporting */
 	pl_error_context.callback = plperl_inline_callback;
 	pl_error_context.previous = error_context_stack;
-	pl_error_context.arg = (Datum) 0;
+	pl_error_context.arg = NULL;
 	error_context_stack = &pl_error_context;
 
 	/*
@@ -1883,6 +1893,9 @@ plperl_validator(PG_FUNCTION_ARGS)
 	bool		is_event_trigger = false;
 	int			i;
 
+	if (!CheckFunctionValidatorAccess(fcinfo->flinfo->fn_oid, funcoid))
+		PG_RETURN_VOID();
+
 	/* Get the new function's pg_proc entry */
 	tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcoid));
 	if (!HeapTupleIsValid(tuple))
@@ -1964,6 +1977,7 @@ PG_FUNCTION_INFO_V1(plperlu_validator);
 Datum
 plperlu_validator(PG_FUNCTION_ARGS)
 {
+	/* call plperl validator with our fcinfo so it gets our oid */
 	return plperl_validator(fcinfo);
 }
 
@@ -3042,7 +3056,7 @@ plperl_spi_execute_fetch_result(SPITupleTable *tuptable, int processed,
 
 /*
  * Note: plperl_return_next is called both in Postgres and Perl contexts.
- * We report any errors in Postgres fashion (via ereport).	If called in
+ * We report any errors in Postgres fashion (via ereport).  If called in
  * Perl context, it is SPI.xs's responsibility to catch the error and
  * convert to a Perl error.  We assume (perhaps without adequate justification)
  * that we need not abort the current transaction if the Perl code traps the
@@ -3401,7 +3415,7 @@ plperl_spi_prepare(char *query, int argc, SV **argv)
 			char	   *typstr;
 
 			typstr = sv2cstr(argv[i]);
-			parseTypeString(typstr, &typId, &typmod);
+			parseTypeString(typstr, &typId, &typmod, false);
 			pfree(typstr);
 
 			getTypeInputInfo(typId, &typInput, &typIOParam);
@@ -3807,9 +3821,7 @@ hv_store_string(HV *hv, const char *key, SV *val)
 	char	   *hkey;
 	SV		  **ret;
 
-	hkey = (char *)
-		pg_do_encoding_conversion((unsigned char *) key, strlen(key),
-								  GetDatabaseEncoding(), PG_UTF8);
+	hkey = pg_server_to_any(key, strlen(key), PG_UTF8);
 
 	/*
 	 * This seems nowhere documented, but under Perl 5.8.0 and up, hv_store()
@@ -3837,9 +3849,7 @@ hv_fetch_string(HV *hv, const char *key)
 	char	   *hkey;
 	SV		  **ret;
 
-	hkey = (char *)
-		pg_do_encoding_conversion((unsigned char *) key, strlen(key),
-								  GetDatabaseEncoding(), PG_UTF8);
+	hkey = pg_server_to_any(key, strlen(key), PG_UTF8);
 
 	/* See notes in hv_store_string */
 	hlen = -(int) strlen(hkey);

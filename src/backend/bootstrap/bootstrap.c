@@ -17,9 +17,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
-#ifdef HAVE_GETOPT_H
-#include <getopt.h>
-#endif
 
 #include "access/htup_details.h"
 #include "bootstrap/bootstrap.h"
@@ -29,6 +26,7 @@
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
+#include "pg_getopt.h"
 #include "postmaster/bgwriter.h"
 #include "postmaster/startup.h"
 #include "postmaster/walwriter.h"
@@ -45,9 +43,6 @@
 #include "utils/rel.h"
 #include "utils/relmapper.h"
 #include "utils/tqual.h"
-
-extern int	optind;
-extern char *optarg;
 
 uint32		bootstrap_data_checksum_version = 0;		/* No checksum */
 
@@ -81,7 +76,7 @@ int			numattr;			/* number of attributes for cur. rel */
  * in the core "bootstrapped" catalogs.
  *
  *		XXX several of these input/output functions do catalog scans
- *			(e.g., F_REGPROCIN scans pg_proc).	this obviously creates some
+ *			(e.g., F_REGPROCIN scans pg_proc).  this obviously creates some
  *			order dependencies in the catalog creation process.
  */
 struct typinfo
@@ -379,9 +374,9 @@ AuxiliaryProcessMain(int argc, char *argv[])
 #endif
 
 		/*
-		 * Assign the ProcSignalSlot for an auxiliary process.	Since it
+		 * Assign the ProcSignalSlot for an auxiliary process.  Since it
 		 * doesn't have a BackendId, the slot is statically allocated based on
-		 * the auxiliary process type (MyAuxProcType).	Backends use slots
+		 * the auxiliary process type (MyAuxProcType).  Backends use slots
 		 * indexed in the range from 1 to MaxBackends (inclusive), so we use
 		 * MaxBackends + AuxProcType + 1 as the index of the slot for an
 		 * auxiliary process.
@@ -566,7 +561,7 @@ bootstrap_signals(void)
 }
 
 /*
- * Begin shutdown of an auxiliary process.	This is approximately the equivalent
+ * Begin shutdown of an auxiliary process.  This is approximately the equivalent
  * of ShutdownPostgres() in postinit.c.  We can't run transactions in an
  * auxiliary process, so most of the work of AbortTransaction() is not needed,
  * but we do need to make sure we've released any LWLocks we are holding.
@@ -881,7 +876,7 @@ cleanup(void)
  * and not an OID at all, until the first reference to a type not known in
  * TypInfo[].  At that point it will read and cache pg_type in the Typ array,
  * and subsequently return a real OID (and set the global pointer Ap to
- * point at the found row in Typ).	So caller must check whether Typ is
+ * point at the found row in Typ).  So caller must check whether Typ is
  * still NULL to determine what the return value is!
  * ----------------
  */
@@ -1078,9 +1073,9 @@ MapArrayTypeName(char *s)
  *
  *		At bootstrap time, we define a bunch of indexes on system catalogs.
  *		We postpone actually building the indexes until just before we're
- *		finished with initialization, however.	This is because the indexes
+ *		finished with initialization, however.  This is because the indexes
  *		themselves have catalog entries, and those have to be included in the
- *		indexes on those catalogs.	Doing it in two phases is the simplest
+ *		indexes on those catalogs.  Doing it in two phases is the simplest
  *		way of making sure the indexes have the right contents at the end.
  */
 void
@@ -1093,7 +1088,7 @@ index_register(Oid heap,
 
 	/*
 	 * XXX mao 10/31/92 -- don't gc index reldescs, associated info at
-	 * bootstrap time.	we'll declare the indexes now, but want to create them
+	 * bootstrap time.  we'll declare the indexes now, but want to create them
 	 * later.
 	 */
 

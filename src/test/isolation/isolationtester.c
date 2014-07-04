@@ -10,28 +10,16 @@
 #ifdef WIN32
 #include <windows.h>
 #endif
-
-#ifndef WIN32
 #include <sys/time.h>
-#include <unistd.h>
-
-#ifdef HAVE_GETOPT_H
-#include <getopt.h>
-#endif
-#else
-int			getopt(int argc, char *const argv[], const char *optstring);
-#endif   /* ! WIN32 */
-
 #ifdef HAVE_SYS_SELECT_H
 #include <sys/select.h>
 #endif
 
 #include "libpq-fe.h"
 #include "pqexpbuffer.h"
+#include "pg_getopt.h"
 
 #include "isolationtester.h"
-
-extern int	optind;
 
 #define PREP_WAITING "isolationtester_waiting"
 
@@ -46,16 +34,16 @@ static int	nconns = 0;
 /* In dry run only output permutations to be run by the tester. */
 static int	dry_run = false;
 
-static void run_testspec(TestSpec * testspec);
-static void run_all_permutations(TestSpec * testspec);
-static void run_all_permutations_recurse(TestSpec * testspec, int nsteps,
-							 Step ** steps);
-static void run_named_permutations(TestSpec * testspec);
-static void run_permutation(TestSpec * testspec, int nsteps, Step ** steps);
+static void run_testspec(TestSpec *testspec);
+static void run_all_permutations(TestSpec *testspec);
+static void run_all_permutations_recurse(TestSpec *testspec, int nsteps,
+							 Step **steps);
+static void run_named_permutations(TestSpec *testspec);
+static void run_permutation(TestSpec *testspec, int nsteps, Step **steps);
 
 #define STEP_NONBLOCK	0x1		/* return 0 as soon as cmd waits for a lock */
 #define STEP_RETRY		0x2		/* this is a retry of a previously-waiting cmd */
-static bool try_complete_step(Step * step, int flags);
+static bool try_complete_step(Step *step, int flags);
 
 static int	step_qsort_cmp(const void *a, const void *b);
 static int	step_bsearch_cmp(const void *a, const void *b);
@@ -196,7 +184,7 @@ main(int argc, char **argv)
 
 	/*
 	 * Build the query we'll use to detect lock contention among sessions in
-	 * the test specification.	Most of the time, we could get away with
+	 * the test specification.  Most of the time, we could get away with
 	 * simply checking whether a session is waiting for *any* lock: we don't
 	 * exactly expect concurrent use of test tables.  However, autovacuum will
 	 * occasionally take AccessExclusiveLock to truncate a table, and we must
@@ -303,7 +291,7 @@ static int *piles;
  * explicitly specified.
  */
 static void
-run_testspec(TestSpec * testspec)
+run_testspec(TestSpec *testspec)
 {
 	if (testspec->permutations)
 		run_named_permutations(testspec);
@@ -315,7 +303,7 @@ run_testspec(TestSpec * testspec)
  * Run all permutations of the steps and sessions.
  */
 static void
-run_all_permutations(TestSpec * testspec)
+run_all_permutations(TestSpec *testspec)
 {
 	int			nsteps;
 	int			i;
@@ -345,7 +333,7 @@ run_all_permutations(TestSpec * testspec)
 }
 
 static void
-run_all_permutations_recurse(TestSpec * testspec, int nsteps, Step ** steps)
+run_all_permutations_recurse(TestSpec *testspec, int nsteps, Step **steps)
 {
 	int			i;
 	int			found = 0;
@@ -375,7 +363,7 @@ run_all_permutations_recurse(TestSpec * testspec, int nsteps, Step ** steps)
  * Run permutations given in the test spec
  */
 static void
-run_named_permutations(TestSpec * testspec)
+run_named_permutations(TestSpec *testspec)
 {
 	int			i,
 				j;
@@ -451,7 +439,7 @@ step_bsearch_cmp(const void *a, const void *b)
  * If a step caused an error to be reported, print it out and clear it.
  */
 static void
-report_error_message(Step * step)
+report_error_message(Step *step)
 {
 	if (step->errormsg)
 	{
@@ -468,7 +456,7 @@ report_error_message(Step * step)
  * one fails due to a timeout such as deadlock timeout.
  */
 static void
-report_two_error_messages(Step * step1, Step * step2)
+report_two_error_messages(Step *step1, Step *step2)
 {
 	char	   *prefix;
 
@@ -496,7 +484,7 @@ report_two_error_messages(Step * step1, Step * step2)
  * Run one permutation
  */
 static void
-run_permutation(TestSpec * testspec, int nsteps, Step ** steps)
+run_permutation(TestSpec *testspec, int nsteps, Step **steps)
 {
 	PGresult   *res;
 	int			i;
@@ -691,11 +679,11 @@ teardown:
 /*
  * Our caller already sent the query associated with this step.  Wait for it
  * to either complete or (if given the STEP_NONBLOCK flag) to block while
- * waiting for a lock.	We assume that any lock wait will persist until we
+ * waiting for a lock.  We assume that any lock wait will persist until we
  * have executed additional steps in the permutation.
  *
  * When calling this function on behalf of a given step for a second or later
- * time, pass the STEP_RETRY flag.	This only affects the messages printed.
+ * time, pass the STEP_RETRY flag.  This only affects the messages printed.
  *
  * If the connection returns an error, the message is saved in step->errormsg.
  * Caller should call report_error_message shortly after this, to have it
@@ -705,7 +693,7 @@ teardown:
  * a lock, returns true.  Otherwise, returns false.
  */
 static bool
-try_complete_step(Step * step, int flags)
+try_complete_step(Step *step, int flags)
 {
 	PGconn	   *conn = conns[1 + step->session];
 	fd_set		read_set;

@@ -126,9 +126,9 @@ encode_varbyte(uint64 val, unsigned char **ptr)
 static uint64
 decode_varbyte(unsigned char **ptr)
 {
-	uint64 val;
+	uint64		val;
 	unsigned char *p = *ptr;
-	uint64 c;
+	uint64		c;
 
 	c = *(p++);
 	val = c & 0x7F;
@@ -176,6 +176,9 @@ decode_varbyte(unsigned char **ptr)
  * 'maxsize' bytes in size.  The number items in the returned segment is
  * returned in *nwritten. If it's not equal to nipd, not all the items fit
  * in 'maxsize', and only the first *nwritten were encoded.
+ *
+ * The allocated size of the returned struct is short-aligned, and the padding
+ * byte at the end, if any, is zero.
  */
 GinPostingList *
 ginCompressPostingList(const ItemPointer ipd, int nipd, int maxsize,
@@ -188,9 +191,12 @@ ginCompressPostingList(const ItemPointer ipd, int nipd, int maxsize,
 	unsigned char *ptr;
 	unsigned char *endptr;
 
+	maxsize = SHORTALIGN_DOWN(maxsize);
+
 	result = palloc(maxsize);
 
 	maxbytes = maxsize - offsetof(GinPostingList, bytes);
+	Assert(maxbytes > 0);
 
 	/* Store the first special item */
 	result->first = ipd[0];
@@ -204,7 +210,7 @@ ginCompressPostingList(const ItemPointer ipd, int nipd, int maxsize,
 		uint64		val = itemptr_to_uint64(&ipd[totalpacked]);
 		uint64		delta = val - prev;
 
-		Assert (val > prev);
+		Assert(val > prev);
 
 		if (endptr - ptr >= 6)
 			encode_varbyte(delta, &ptr);
@@ -219,7 +225,7 @@ ginCompressPostingList(const ItemPointer ipd, int nipd, int maxsize,
 
 			encode_varbyte(delta, &p);
 			if (p - buf > (endptr - ptr))
-				break; /* output is full */
+				break;			/* output is full */
 
 			memcpy(ptr, buf, p - buf);
 			ptr += (p - buf);
@@ -227,6 +233,13 @@ ginCompressPostingList(const ItemPointer ipd, int nipd, int maxsize,
 		prev = val;
 	}
 	result->nbytes = ptr - result->bytes;
+
+	/*
+	 * If we wrote an odd number of bytes, zero out the padding byte at the
+	 * end.
+	 */
+	if (result->nbytes != SHORTALIGN(result->nbytes))
+		result->bytes[result->nbytes] = 0;
 
 	if (nwritten)
 		*nwritten = totalpacked;
@@ -237,7 +250,6 @@ ginCompressPostingList(const ItemPointer ipd, int nipd, int maxsize,
 	 * Check that the encoded segment decodes back to the original items.
 	 */
 #if defined (CHECK_ENCODING_ROUNDTRIP)
-	if (assert_enabled)
 	{
 		int			ndecoded;
 		ItemPointer tmp = ginPostingListDecode(result, &ndecoded);
@@ -273,7 +285,7 @@ ginPostingListDecode(GinPostingList *plist, int *ndecoded)
 ItemPointer
 ginPostingListDecodeAllSegments(GinPostingList *segment, int len, int *ndecoded_out)
 {
-	ItemPointer	result;
+	ItemPointer result;
 	int			nallocated;
 	uint64		val;
 	char	   *endseg = ((char *) segment) + len;
@@ -298,9 +310,10 @@ ginPostingListDecodeAllSegments(GinPostingList *segment, int len, int *ndecoded_
 		}
 
 		/* copy the first item */
+		Assert(OffsetNumberIsValid(ItemPointerGetOffsetNumber(&segment->first)));
+		Assert(ndecoded == 0 || ginCompareItemPointers(&segment->first, &result[ndecoded - 1]) > 0);
 		result[ndecoded] = segment->first;
 		ndecoded++;
-		Assert(OffsetNumberIsValid(ItemPointerGetOffsetNumber(&segment->first)));
 
 		val = itemptr_to_uint64(&segment->first);
 		ptr = segment->bytes;
@@ -335,7 +348,7 @@ ginPostingListDecodeAllSegmentsToTbm(GinPostingList *ptr, int len,
 									 TIDBitmap *tbm)
 {
 	int			ndecoded;
-	ItemPointer	items;
+	ItemPointer items;
 
 	items = ginPostingListDecodeAllSegments(ptr, len, &ndecoded);
 	tbm_add_tuples(tbm, items, ndecoded, false);
@@ -346,39 +359,41 @@ ginPostingListDecodeAllSegmentsToTbm(GinPostingList *ptr, int len,
 
 /*
  * Merge two ordered arrays of itempointers, eliminating any duplicates.
- * Returns the number of items in the result.
- * Caller is responsible that there is enough space at *dst.
  *
- * It's OK if 'dst' overlaps with the *beginning* of one of the arguments.
+ * Returns a palloc'd array, and *nmerged is set to the number of items in
+ * the result, after eliminating duplicates.
  */
-int
-ginMergeItemPointers(ItemPointerData *dst,
-					 ItemPointerData *a, uint32 na,
-					 ItemPointerData *b, uint32 nb)
+ItemPointer
+ginMergeItemPointers(ItemPointerData *a, uint32 na,
+					 ItemPointerData *b, uint32 nb,
+					 int *nmerged)
 {
-	ItemPointerData *dptr = dst;
-	ItemPointerData *aptr = a,
-			   *bptr = b;
-	int			result;
+	ItemPointerData *dst;
+
+	dst = (ItemPointer) palloc((na + nb) * sizeof(ItemPointerData));
 
 	/*
-	 * If the argument arrays don't overlap, we can just append them to
-	 * each other.
+	 * If the argument arrays don't overlap, we can just append them to each
+	 * other.
 	 */
 	if (na == 0 || nb == 0 || ginCompareItemPointers(&a[na - 1], &b[0]) < 0)
 	{
-		memmove(dst, a, na * sizeof(ItemPointerData));
-		memmove(&dst[na], b, nb * sizeof(ItemPointerData));
-		result = na + nb;
+		memcpy(dst, a, na * sizeof(ItemPointerData));
+		memcpy(&dst[na], b, nb * sizeof(ItemPointerData));
+		*nmerged = na + nb;
 	}
 	else if (ginCompareItemPointers(&b[nb - 1], &a[0]) < 0)
 	{
-		memmove(dst, b, nb * sizeof(ItemPointerData));
-		memmove(&dst[nb], a, na * sizeof(ItemPointerData));
-		result = na + nb;
+		memcpy(dst, b, nb * sizeof(ItemPointerData));
+		memcpy(&dst[nb], a, na * sizeof(ItemPointerData));
+		*nmerged = na + nb;
 	}
 	else
 	{
+		ItemPointerData *dptr = dst;
+		ItemPointerData *aptr = a;
+		ItemPointerData *bptr = b;
+
 		while (aptr - a < na && bptr - b < nb)
 		{
 			int			cmp = ginCompareItemPointers(aptr, bptr);
@@ -401,8 +416,8 @@ ginMergeItemPointers(ItemPointerData *dst,
 		while (bptr - b < nb)
 			*dptr++ = *bptr++;
 
-		result = dptr - dst;
+		*nmerged = dptr - dst;
 	}
 
-	return result;
+	return dst;
 }

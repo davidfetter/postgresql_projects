@@ -107,11 +107,6 @@ CREATE FUNCTION functext_E_3(int) RETURNS bool LANGUAGE 'sql'
 
 RESET SESSION AUTHORIZATION;
 
--- list of built-in leakproof functions
-SELECT proname, prorettype::regtype, proargtypes::regtype[]
-       FROM pg_proc JOIN pg_namespace ON pronamespace = pg_namespace.oid
-       WHERE nspname = 'pg_catalog' AND proleakproof ORDER BY proname;
-
 --
 -- CALLED ON NULL INPUT | RETURNS NULL ON NULL INPUT | STRICT
 --

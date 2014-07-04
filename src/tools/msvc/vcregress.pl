@@ -170,8 +170,15 @@ sub plcheck
 	{
 		next unless -d "$pl/sql" && -d "$pl/expected";
 		my $lang = $pl eq 'tcl' ? 'pltcl' : $pl;
-		next unless -d "../../$Config/$lang";
-		$lang = 'plpythonu' if $lang eq 'plpython';
+		if ($lang eq 'plpython')
+		{
+			next unless -d "../../$Config/plpython2";
+			$lang = 'plpythonu';
+		}
+		else
+		{
+			next unless -d "../../$Config/$lang";
+		}
 		my @lang_args = ("--load-extension=$lang");
 		chdir $pl;
 		my @tests = fetchTests();
@@ -212,8 +219,12 @@ sub contribcheck
 	my $mstat = 0;
 	foreach my $module (glob("*"))
 	{
-		next if ($module eq 'sepgsql');
-		next if ($module eq 'xml2' && !$config->{xml});
+		# these configuration-based exclusions must match Install.pm
+		next if ($module eq "uuid-ossp" && !defined($config->{uuid}));
+		next if ($module eq "sslinfo"   && !defined($config->{openssl}));
+		next if ($module eq "xml2"      && !defined($config->{xml}));
+		next if ($module eq "sepgsql");
+
 		next
 		  unless -d "$module/sql"
 			  && -d "$module/expected"

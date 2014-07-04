@@ -63,13 +63,17 @@
 static unsigned char *
 utf_u2e(unsigned char *src)
 {
-	return pg_do_encoding_conversion(src, strlen(src), PG_UTF8, GetDatabaseEncoding());
+	return (unsigned char *) pg_any_to_server((char *) src,
+											  strlen(src),
+											  PG_UTF8);
 }
 
 static unsigned char *
 utf_e2u(unsigned char *src)
 {
-	return pg_do_encoding_conversion(src, strlen(src), GetDatabaseEncoding(), PG_UTF8);
+	return (unsigned char *) pg_server_to_any((char *) src,
+											  strlen(src),
+											  PG_UTF8);
 }
 
 #define PLTCL_UTF
@@ -188,8 +192,6 @@ static pltcl_proc_desc *pltcl_current_prodesc = NULL;
 /**********************************************************************
  * Forward declarations
  **********************************************************************/
-Datum		pltcl_call_handler(PG_FUNCTION_ARGS);
-Datum		pltclu_call_handler(PG_FUNCTION_ARGS);
 void		_PG_init(void);
 
 static void pltcl_init_interp(pltcl_interp_desc *interp_desc, bool pltrusted);
@@ -206,8 +208,8 @@ static void pltcl_event_trigger_handler(PG_FUNCTION_ARGS, bool pltrusted);
 static void throw_tcl_error(Tcl_Interp *interp, const char *proname);
 
 static pltcl_proc_desc *compile_pltcl_function(Oid fn_oid, Oid tgreloid,
-											   bool is_event_trigger,
-											   bool pltrusted);
+					   bool is_event_trigger,
+					   bool pltrusted);
 
 static int pltcl_elog(ClientData cdata, Tcl_Interp *interp,
 		   int argc, CONST84 char *argv[]);
@@ -853,7 +855,7 @@ pltcl_trigger_handler(PG_FUNCTION_ARGS, bool pltrusted)
 	/* Find or compile the function */
 	prodesc = compile_pltcl_function(fcinfo->flinfo->fn_oid,
 									 RelationGetRelid(trigdata->tg_relation),
-									 false, /* not an event trigger */
+									 false,		/* not an event trigger */
 									 pltrusted);
 
 	pltcl_current_prodesc = prodesc;
@@ -1605,7 +1607,7 @@ pltcl_elog(ClientData cdata, Tcl_Interp *interp,
 	if (level == ERROR)
 	{
 		/*
-		 * We just pass the error back to Tcl.	If it's not caught, it'll
+		 * We just pass the error back to Tcl.  If it's not caught, it'll
 		 * eventually get converted to a PG error when we reach the call
 		 * handler.
 		 */
@@ -2161,7 +2163,7 @@ pltcl_SPI_prepare(ClientData cdata, Tcl_Interp *interp,
 						typIOParam;
 			int32		typmod;
 
-			parseTypeString(args[i], &typId, &typmod);
+			parseTypeString(args[i], &typId, &typmod, false);
 
 			getTypeInputInfo(typId, &typInput, &typIOParam);
 

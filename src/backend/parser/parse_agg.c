@@ -437,7 +437,7 @@ check_agg_arguments(ParseState *pstate,
 
 	/*
 	 * Now check for vars/aggs in the direct arguments, and throw error if
-	 * needed.	Note that we allow a Var of the agg's semantic level, but not
+	 * needed.  Note that we allow a Var of the agg's semantic level, but not
 	 * an Agg of that level.  In principle such Aggs could probably be
 	 * supported, but it would create an ordering dependency among the
 	 * aggregates at execution time.  Since the case appears neither to be
@@ -840,7 +840,7 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	/*
 	 * If there are join alias vars involved, we have to flatten them to the
 	 * underlying vars, so that aliased and unaliased vars will be correctly
-	 * taken as equal.	We can skip the expense of doing this if no rangetable
+	 * taken as equal.  We can skip the expense of doing this if no rangetable
 	 * entries are RTE_JOIN kind. We use the planner's flatten_join_alias_vars
 	 * routine to do the flattening; it wants a PlannerInfo root node, which
 	 * fortunately can be mostly dummy.
@@ -881,7 +881,7 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	 *
 	 * Note: because we check resjunk tlist elements as well as regular ones,
 	 * this will also find ungrouped variables that came from ORDER BY and
-	 * WINDOW clauses.	For that matter, it's also going to examine the
+	 * WINDOW clauses.  For that matter, it's also going to examine the
 	 * grouping expressions themselves --- but they'll all pass the test ...
 	 */
 	clause = (Node *) qry->targetList;
@@ -1026,7 +1026,7 @@ check_ungrouped_columns_walker(Node *node,
 	/*
 	 * If we have an ungrouped Var of the original query level, we have a
 	 * failure.  Vars below the original query level are not a problem, and
-	 * neither are Vars from above it.	(If such Vars are ungrouped as far as
+	 * neither are Vars from above it.  (If such Vars are ungrouped as far as
 	 * their own query level is concerned, that's someone else's problem...)
 	 */
 	if (IsA(node, Var))
@@ -1084,7 +1084,7 @@ check_ungrouped_columns_walker(Node *node,
 
 		/*
 		 * Check whether the Var is known functionally dependent on the GROUP
-		 * BY columns.	If so, we can allow the Var to be used, because the
+		 * BY columns.  If so, we can allow the Var to be used, because the
 		 * grouping is really a no-op for this table.  However, this deduction
 		 * depends on one or more constraints of the table, so we have to add
 		 * those constraints to the query's constraintDeps list, because it's
@@ -1256,24 +1256,28 @@ resolve_aggregate_transtype(Oid aggfuncid,
  * For an ordered-set aggregate, remember that agg_input_types describes
  * the direct arguments followed by the aggregated arguments.
  *
- * transfn_oid and finalfn_oid identify the funcs to be called; the latter
- * may be InvalidOid.
+ * transfn_oid, invtransfn_oid and finalfn_oid identify the funcs to be
+ * called; the latter two may be InvalidOid.
  *
- * Pointers to the constructed trees are returned into *transfnexpr and
- * *finalfnexpr.  The latter is set to NULL if there's no finalfn.
+ * Pointers to the constructed trees are returned into *transfnexpr,
+ * *invtransfnexpr and *finalfnexpr. If there is no invtransfn or finalfn,
+ * the respective pointers are set to NULL.  Since use of the invtransfn is
+ * optional, NULL may be passed for invtransfnexpr.
  */
 void
 build_aggregate_fnexprs(Oid *agg_input_types,
 						int agg_num_inputs,
 						int agg_num_direct_inputs,
-						bool agg_ordered_set,
+						int num_finalfn_inputs,
 						bool agg_variadic,
 						Oid agg_state_type,
 						Oid agg_result_type,
 						Oid agg_input_collation,
 						Oid transfn_oid,
+						Oid invtransfn_oid,
 						Oid finalfn_oid,
 						Expr **transfnexpr,
+						Expr **invtransfnexpr,
 						Expr **finalfnexpr)
 {
 	Param	   *argp;
@@ -1318,6 +1322,26 @@ build_aggregate_fnexprs(Oid *agg_input_types,
 	fexpr->funcvariadic = agg_variadic;
 	*transfnexpr = (Expr *) fexpr;
 
+	/*
+	 * Build invtransfn expression if requested, with same args as transfn
+	 */
+	if (invtransfnexpr != NULL)
+	{
+		if (OidIsValid(invtransfn_oid))
+		{
+			fexpr = makeFuncExpr(invtransfn_oid,
+								 agg_state_type,
+								 args,
+								 InvalidOid,
+								 agg_input_collation,
+								 COERCE_EXPLICIT_CALL);
+			fexpr->funcvariadic = agg_variadic;
+			*invtransfnexpr = (Expr *) fexpr;
+		}
+		else
+			*invtransfnexpr = NULL;
+	}
+
 	/* see if we have a final function */
 	if (!OidIsValid(finalfn_oid))
 	{
@@ -1337,19 +1361,17 @@ build_aggregate_fnexprs(Oid *agg_input_types,
 	argp->location = -1;
 	args = list_make1(argp);
 
-	if (agg_ordered_set)
+	/* finalfn may take additional args, which match agg's input types */
+	for (i = 0; i < num_finalfn_inputs - 1; i++)
 	{
-		for (i = 0; i < agg_num_inputs; i++)
-		{
-			argp = makeNode(Param);
-			argp->paramkind = PARAM_EXEC;
-			argp->paramid = -1;
-			argp->paramtype = agg_input_types[i];
-			argp->paramtypmod = -1;
-			argp->paramcollid = agg_input_collation;
-			argp->location = -1;
-			args = lappend(args, argp);
-		}
+		argp = makeNode(Param);
+		argp->paramkind = PARAM_EXEC;
+		argp->paramid = -1;
+		argp->paramtype = agg_input_types[i];
+		argp->paramtypmod = -1;
+		argp->paramcollid = agg_input_collation;
+		argp->location = -1;
+		args = lappend(args, argp);
 	}
 
 	*finalfnexpr = (Expr *) makeFuncExpr(finalfn_oid,

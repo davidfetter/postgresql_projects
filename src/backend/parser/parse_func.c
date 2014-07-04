@@ -104,7 +104,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 	/*
 	 * Most of the rest of the parser just assumes that functions do not have
-	 * more than FUNC_MAX_ARGS parameters.	We have to test here to protect
+	 * more than FUNC_MAX_ARGS parameters.  We have to test here to protect
 	 * against array overruns, etc.  Of course, this may not be a function,
 	 * but the test doesn't hurt.
 	 */
@@ -520,7 +520,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	 * If there are default arguments, we have to include their types in
 	 * actual_arg_types for the purpose of checking generic type consistency.
 	 * However, we do NOT put them into the generated parse node, because
-	 * their actual values might change before the query gets run.	The
+	 * their actual values might change before the query gets run.  The
 	 * planner has to insert the up-to-date values at plan time.
 	 */
 	nargsplusdefs = nargs;
@@ -556,10 +556,21 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	make_fn_arguments(pstate, fargs, actual_arg_types, declared_arg_types);
 
 	/*
+	 * If the function isn't actually variadic, forget any VARIADIC decoration
+	 * on the call.  (Perhaps we should throw an error instead, but
+	 * historically we've allowed people to write that.)
+	 */
+	if (!OidIsValid(vatype))
+	{
+		Assert(nvargs == 0);
+		func_variadic = false;
+	}
+
+	/*
 	 * If it's a variadic function call, transform the last nvargs arguments
 	 * into an array --- unless it's an "any" variadic.
 	 */
-	if (nvargs > 0 && declared_arg_types[nargs - 1] != ANYOID)
+	if (nvargs > 0 && vatype != ANYOID)
 	{
 		ArrayExpr  *newa = makeNode(ArrayExpr);
 		int			non_var_args = nargs - nvargs;
@@ -584,22 +595,27 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		newa->location = exprLocation((Node *) vargs);
 
 		fargs = lappend(fargs, newa);
+
+		/* We could not have had VARIADIC marking before ... */
+		Assert(!func_variadic);
+		/* ... but now, it's a VARIADIC call */
+		func_variadic = true;
 	}
 
 	/*
-	 * When function is called with an explicit VARIADIC labeled parameter,
-	 * and the declared_arg_type is "any", then sanity check the actual
-	 * parameter type now - it must be an array.
+	 * If an "any" variadic is called with explicit VARIADIC marking, insist
+	 * that the variadic parameter be of some array type.
 	 */
 	if (nargs > 0 && vatype == ANYOID && func_variadic)
 	{
-		Oid		va_arr_typid = actual_arg_types[nargs - 1];
+		Oid			va_arr_typid = actual_arg_types[nargs - 1];
 
-		if (!OidIsValid(get_element_type(va_arr_typid)))
+		if (!OidIsValid(get_base_element_type(va_arr_typid)))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("VARIADIC argument must be an array"),
-			  parser_errposition(pstate, exprLocation((Node *) llast(fargs)))));
+					 parser_errposition(pstate,
+									  exprLocation((Node *) llast(fargs)))));
 	}
 
 	/* build the appropriate output structure */
@@ -637,7 +653,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 		/*
 		 * Reject attempt to call a parameterless aggregate without (*)
-		 * syntax.	This is mere pedantry but some folks insisted ...
+		 * syntax.  This is mere pedantry but some folks insisted ...
 		 */
 		if (fargs == NIL && !agg_star && !agg_within_group)
 			ereport(ERROR,
@@ -656,7 +672,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		 * We might want to support named arguments later, but disallow it for
 		 * now.  We'd need to figure out the parsed representation (should the
 		 * NamedArgExprs go above or below the TargetEntry nodes?) and then
-		 * teach the planner to reorder the list properly.	Or maybe we could
+		 * teach the planner to reorder the list properly.  Or maybe we could
 		 * make transformAggregateCall do that?  However, if you'd also like
 		 * to allow default arguments for aggregates, we'd need to do it in
 		 * planning to avoid semantic problems.
@@ -701,7 +717,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 
 		/*
 		 * Reject attempt to call a parameterless aggregate without (*)
-		 * syntax.	This is mere pedantry but some folks insisted ...
+		 * syntax.  This is mere pedantry but some folks insisted ...
 		 */
 		if (wfunc->winagg && fargs == NIL && !agg_star)
 			ereport(ERROR,
@@ -879,7 +895,7 @@ func_select_candidate(int nargs,
 	 * matches" in the exact-match heuristic; it also makes it possible to do
 	 * something useful with the type-category heuristics. Note that this
 	 * makes it difficult, but not impossible, to use functions declared to
-	 * take a domain as an input datatype.	Such a function will be selected
+	 * take a domain as an input datatype.  Such a function will be selected
 	 * over the base-type function only if it is an exact match at all
 	 * argument positions, and so was already chosen by our caller.
 	 *
@@ -1003,7 +1019,7 @@ func_select_candidate(int nargs,
 
 	/*
 	 * The next step examines each unknown argument position to see if we can
-	 * determine a "type category" for it.	If any candidate has an input
+	 * determine a "type category" for it.  If any candidate has an input
 	 * datatype of STRING category, use STRING category (this bias towards
 	 * STRING is appropriate since unknown-type literals look like strings).
 	 * Otherwise, if all the candidates agree on the type category of this
@@ -1014,7 +1030,7 @@ func_select_candidate(int nargs,
 	 * the candidates takes a preferred datatype within the category.
 	 *
 	 * Having completed this examination, remove candidates that accept the
-	 * wrong category at any unknown position.	Also, if at least one
+	 * wrong category at any unknown position.  Also, if at least one
 	 * candidate accepted a preferred type at a position, remove candidates
 	 * that accept non-preferred types.  If just one candidate remains, return
 	 * that one.  However, if this rule turns out to reject all candidates,
@@ -1143,7 +1159,7 @@ func_select_candidate(int nargs,
 	 * type, and see if that gives us a unique match.  If so, use that match.
 	 *
 	 * NOTE: for a binary operator with one unknown and one non-unknown input,
-	 * we already tried this heuristic in binary_oper_exact().	However, that
+	 * we already tried this heuristic in binary_oper_exact().  However, that
 	 * code only finds exact matches, whereas here we will handle matches that
 	 * involve coercion, polymorphic type resolution, etc.
 	 */
@@ -1253,6 +1269,7 @@ func_get_detail(List *funcname,
 	*rettype = InvalidOid;
 	*retset = false;
 	*nvargs = 0;
+	*vatype = InvalidOid;
 	*true_typeids = NULL;
 	if (argdefaults)
 		*argdefaults = NIL;
@@ -1311,7 +1328,7 @@ func_get_detail(List *funcname,
 		 *
 		 * NB: it's important that this code does not exceed what coerce_type
 		 * can do, because the caller will try to apply coerce_type if we
-		 * return FUNCDETAIL_COERCION.	If we return that result for something
+		 * return FUNCDETAIL_COERCION.  If we return that result for something
 		 * coerce_type can't handle, we'll cause infinite recursion between
 		 * this module and coerce_type!
 		 */
@@ -1364,6 +1381,7 @@ func_get_detail(List *funcname,
 					*rettype = targetType;
 					*retset = false;
 					*nvargs = 0;
+					*vatype = InvalidOid;
 					*true_typeids = argtypes;
 					return FUNCDETAIL_COERCION;
 				}
@@ -1488,7 +1506,7 @@ func_get_detail(List *funcname,
 			{
 				/*
 				 * This is a bit tricky in named notation, since the supplied
-				 * arguments could replace any subset of the defaults.	We
+				 * arguments could replace any subset of the defaults.  We
 				 * work by making a bitmapset of the argnumbers of defaulted
 				 * arguments, then scanning the defaults list and selecting
 				 * the needed items.  (This assumes that defaulted arguments
@@ -1733,7 +1751,7 @@ FuncNameAsType(List *funcname)
  * ParseComplexProjection -
  *	  handles function calls with a single argument that is of complex type.
  *	  If the function call is actually a column projection, return a suitably
- *	  transformed expression tree.	If not, return NULL.
+ *	  transformed expression tree.  If not, return NULL.
  */
 static Node *
 ParseComplexProjection(ParseState *pstate, char *funcname, Node *first_arg,
@@ -1807,7 +1825,7 @@ ParseComplexProjection(ParseState *pstate, char *funcname, Node *first_arg,
  *		The result is something like "foo(integer)".
  *
  * If argnames isn't NIL, it is a list of C strings representing the actual
- * arg names for the last N arguments.	This must be considered part of the
+ * arg names for the last N arguments.  This must be considered part of the
  * function signature too, when dealing with named-notation function calls.
  *
  * This is typically used in the construction of function-not-found error

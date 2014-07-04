@@ -13,7 +13,7 @@
  * NOTES
  *	  Every node type that can appear in stored rules' parsetrees *must*
  *	  have an output function defined here (as well as an input function
- *	  in readfuncs.c).	For use in debugging, we also provide output
+ *	  in readfuncs.c).  For use in debugging, we also provide output
  *	  functions for nodes that appear in raw parsetrees, path, and plan trees.
  *	  These nodes however need not have input functions.
  *
@@ -30,8 +30,8 @@
 
 
 /*
- * Macros to simplify output of different kinds of fields.	Use these
- * wherever possible to reduce the chance for silly typos.	Note that these
+ * Macros to simplify output of different kinds of fields.  Use these
+ * wherever possible to reduce the chance for silly typos.  Note that these
  * hard-wire conventions about the names of the local variables in an Out
  * routine.
  */
@@ -1142,6 +1142,7 @@ _outSubLink(StringInfo str, const SubLink *node)
 	WRITE_NODE_TYPE("SUBLINK");
 
 	WRITE_ENUM_FIELD(subLinkType, SubLinkType);
+	WRITE_INT_FIELD(subLinkId);
 	WRITE_NODE_FIELD(testexpr);
 	WRITE_NODE_FIELD(operName);
 	WRITE_NODE_FIELD(subselect);
@@ -1728,6 +1729,7 @@ _outPlannerInfo(StringInfo str, const PlannerInfo *node)
 	WRITE_INT_FIELD(join_cur_level);
 	WRITE_NODE_FIELD(init_plans);
 	WRITE_NODE_FIELD(cte_plan_ids);
+	WRITE_NODE_FIELD(multiexpr_params);
 	WRITE_NODE_FIELD(eq_classes);
 	WRITE_NODE_FIELD(canon_pathkeys);
 	WRITE_NODE_FIELD(left_join_clauses);
@@ -2437,6 +2439,7 @@ _outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
 	WRITE_OID_FIELD(checkAsUser);
 	WRITE_BITMAPSET_FIELD(selectedCols);
 	WRITE_BITMAPSET_FIELD(modifiedCols);
+	WRITE_NODE_FIELD(securityQuals);
 }
 
 static void
@@ -2463,15 +2466,6 @@ _outAExpr(StringInfo str, const A_Expr *node)
 		case AEXPR_OP:
 			appendStringInfoChar(str, ' ');
 			WRITE_NODE_FIELD(name);
-			break;
-		case AEXPR_AND:
-			appendStringInfoString(str, " AND");
-			break;
-		case AEXPR_OR:
-			appendStringInfoString(str, " OR");
-			break;
-		case AEXPR_NOT:
-			appendStringInfoString(str, " NOT");
 			break;
 		case AEXPR_OP_ANY:
 			appendStringInfoChar(str, ' ');
@@ -2617,6 +2611,16 @@ _outResTarget(StringInfo str, const ResTarget *node)
 }
 
 static void
+_outMultiAssignRef(StringInfo str, const MultiAssignRef *node)
+{
+	WRITE_NODE_TYPE("MULTIASSIGNREF");
+
+	WRITE_NODE_FIELD(source);
+	WRITE_INT_FIELD(colno);
+	WRITE_INT_FIELD(ncolumns);
+}
+
+static void
 _outSortBy(StringInfo str, const SortBy *node)
 {
 	WRITE_NODE_TYPE("SORTBY");
@@ -2737,6 +2741,7 @@ _outConstraint(StringInfo str, const Constraint *node)
 			WRITE_CHAR_FIELD(fk_upd_action);
 			WRITE_CHAR_FIELD(fk_del_action);
 			WRITE_NODE_FIELD(old_conpfeqop);
+			WRITE_OID_FIELD(old_pktable_oid);
 			WRITE_BOOL_FIELD(skip_validation);
 			WRITE_BOOL_FIELD(initially_valid);
 			break;
@@ -3231,6 +3236,9 @@ _outNode(StringInfo str, const void *obj)
 				break;
 			case T_ResTarget:
 				_outResTarget(str, obj);
+				break;
+			case T_MultiAssignRef:
+				_outMultiAssignRef(str, obj);
 				break;
 			case T_SortBy:
 				_outSortBy(str, obj);

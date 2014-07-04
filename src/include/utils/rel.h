@@ -101,22 +101,20 @@ typedef struct RelationData
 	Form_pg_class rd_rel;		/* RELATION tuple */
 	TupleDesc	rd_att;			/* tuple descriptor */
 	Oid			rd_id;			/* relation's object id */
-	List	   *rd_indexlist;	/* list of OIDs of indexes on relation */
-	Bitmapset  *rd_indexattr;	/* identifies columns used in indexes */
-	Bitmapset  *rd_keyattr;		/* cols that can be ref'd by foreign keys */
-	Bitmapset  *rd_idattr;		/* included in replica identity index */
-	Oid			rd_oidindex;	/* OID of unique index on OID, if any */
 	LockInfoData rd_lockInfo;	/* lock mgr's info for locking relation */
 	RuleLock   *rd_rules;		/* rewrite rules */
 	MemoryContext rd_rulescxt;	/* private memory cxt for rd_rules, if any */
 	TriggerDesc *trigdesc;		/* Trigger info, or NULL if rel has none */
 
-	/*
-	 * The index chosen as the relation's replication identity or
-	 * InvalidOid. Only set correctly if RelationGetIndexList has been
-	 * called/rd_indexvalid > 0.
-	 */
-	Oid rd_replidindex;
+	/* data managed by RelationGetIndexList: */
+	List	   *rd_indexlist;	/* list of OIDs of indexes on relation */
+	Oid			rd_oidindex;	/* OID of unique index on OID, if any */
+	Oid			rd_replidindex; /* OID of replica identity index, if any */
+
+	/* data managed by RelationGetIndexAttrBitmap: */
+	Bitmapset  *rd_indexattr;	/* identifies columns used in indexes */
+	Bitmapset  *rd_keyattr;		/* cols that can be ref'd by foreign keys */
+	Bitmapset  *rd_idattr;		/* included in replica identity index */
 
 	/*
 	 * rd_options is set whenever rd_rel is loaded into the relcache entry.
@@ -142,7 +140,7 @@ typedef struct RelationData
 	 * Note: rd_amcache is available for index AMs to cache private data about
 	 * an index.  This must be just a cache since it may get reset at any time
 	 * (in particular, it will get reset by a relcache inval message for the
-	 * index).	If used, it must point to a single memory chunk palloc'd in
+	 * index).  If used, it must point to a single memory chunk palloc'd in
 	 * rd_indexcxt.  A relcache reset will include freeing that chunk and
 	 * setting rd_amcache = NULL.
 	 */
@@ -165,7 +163,7 @@ typedef struct RelationData
 	 * foreign-table support
 	 *
 	 * rd_fdwroutine must point to a single memory chunk palloc'd in
-	 * CacheMemoryContext.	It will be freed and reset to NULL on a relcache
+	 * CacheMemoryContext.  It will be freed and reset to NULL on a relcache
 	 * reset.
 	 */
 
@@ -206,6 +204,9 @@ typedef struct AutoVacOpts
 	int			freeze_min_age;
 	int			freeze_max_age;
 	int			freeze_table_age;
+	int			multixact_freeze_min_age;
+	int			multixact_freeze_max_age;
+	int			multixact_freeze_table_age;
 	float8		vacuum_scale_factor;
 	float8		analyze_scale_factor;
 } AutoVacOpts;
@@ -217,7 +218,8 @@ typedef struct StdRdOptions
 	AutoVacOpts autovacuum;		/* autovacuum-related options */
 	bool		security_barrier;		/* for views */
 	int			check_option_offset;	/* for views */
-	bool		user_catalog_table;		/* use as an additional catalog relation */
+	bool		user_catalog_table;		/* use as an additional catalog
+										 * relation */
 } StdRdOptions;
 
 #define HEAP_MIN_FILLFACTOR			10
@@ -271,7 +273,7 @@ typedef struct StdRdOptions
 	((relation)->rd_options &&												\
 	 ((StdRdOptions *) (relation)->rd_options)->check_option_offset != 0 ?	\
 	 strcmp((char *) (relation)->rd_options +								\
-			((StdRdOptions *) (relation)->rd_options)->check_option_offset,	\
+			((StdRdOptions *) (relation)->rd_options)->check_option_offset, \
 			"local") == 0 : false)
 
 /*
@@ -283,13 +285,13 @@ typedef struct StdRdOptions
 	((relation)->rd_options &&												\
 	 ((StdRdOptions *) (relation)->rd_options)->check_option_offset != 0 ?	\
 	 strcmp((char *) (relation)->rd_options +								\
-			((StdRdOptions *) (relation)->rd_options)->check_option_offset,	\
+			((StdRdOptions *) (relation)->rd_options)->check_option_offset, \
 			"cascaded") == 0 : false)
 
 /*
  * RelationIsUsedAsCatalogTable
  *		Returns whether the relation should be treated as a catalog table
- *      from the pov of logical decoding.
+ *		from the pov of logical decoding.
  */
 #define RelationIsUsedAsCatalogTable(relation)	\
 	((relation)->rd_options ?				\
@@ -395,7 +397,7 @@ typedef struct StdRdOptions
  * RelationGetTargetBlock
  *		Fetch relation's current insertion target block.
  *
- * Returns InvalidBlockNumber if there is no current target block.	Note
+ * Returns InvalidBlockNumber if there is no current target block.  Note
  * that the target block status is discarded on any smgr-level invalidation.
  */
 #define RelationGetTargetBlock(relation) \

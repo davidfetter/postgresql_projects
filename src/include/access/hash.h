@@ -185,7 +185,7 @@ typedef HashMetaPageData *HashMetaPage;
 #define ALL_SET					((uint32) ~0)
 
 /*
- * Bitmap pages do not contain tuples.	They do contain the standard
+ * Bitmap pages do not contain tuples.  They do contain the standard
  * page headers and trailers; however, everything in between is a
  * giant bit array.  The number of bits that fit on a page obviously
  * depends on the page size and the header/trailer overhead.  We require
@@ -336,7 +336,8 @@ typedef struct HSpool HSpool;	/* opaque struct in hashsort.c */
 
 extern HSpool *_h_spoolinit(Relation heap, Relation index, uint32 num_buckets);
 extern void _h_spooldestroy(HSpool *hspool);
-extern void _h_spool(IndexTuple itup, HSpool *hspool);
+extern void _h_spool(HSpool *hspool, ItemPointer self,
+                Datum *values, bool *isnull);
 extern void _h_indexbuild(HSpool *hspool);
 
 /* hashutil.c */
@@ -355,6 +356,6 @@ extern OffsetNumber _hash_binsearch_last(Page page, uint32 hash_value);
 
 /* hash.c */
 extern void hash_redo(XLogRecPtr lsn, XLogRecord *record);
-extern void hash_desc(StringInfo buf, uint8 xl_info, char *rec);
+extern void hash_desc(StringInfo buf, XLogRecord *record);
 
 #endif   /* HASH_H */

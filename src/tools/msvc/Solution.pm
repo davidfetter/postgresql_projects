@@ -15,14 +15,14 @@ sub _new
 	my $classname = shift;
 	my $options   = shift;
 	my $self      = {
-		projects => {},
-		options  => $options,
-		numver   => '',
-		strver   => '',
-		VisualStudioVersion => undef,
+		projects                   => {},
+		options                    => $options,
+		numver                     => '',
+		strver                     => '',
+		VisualStudioVersion        => undef,
 		MinimumVisualStudioVersion => undef,
-		vcver    => undef,
-		platform => undef, };
+		vcver                      => undef,
+		platform                   => undef, };
 	bless($self, $classname);
 
 	# integer_datetimes is now the default
@@ -214,6 +214,7 @@ s{PG_VERSION_STR "[^"]+"}{__STRINGIFY(x) #x\n#define __STRINGIFY2(z) __STRINGIFY
 
 		if ($self->{options}->{uuid})
 		{
+			print O "#define HAVE_UUID_OSSP\n";
 			print O "#define HAVE_UUID_H\n";
 		}
 		if ($self->{options}->{xml})
@@ -505,10 +506,8 @@ sub AddProject
 	{
 		$proj->AddIncludeDir($self->{options}->{gss} . '\inc\krb5');
 		$proj->AddLibrary($self->{options}->{gss} . '\lib\i386\krb5_32.lib');
-		$proj->AddLibrary(
-			$self->{options}->{gss} . '\lib\i386\comerr32.lib');
-		$proj->AddLibrary(
-			$self->{options}->{gss} . '\lib\i386\gssapi32.lib');
+		$proj->AddLibrary($self->{options}->{gss} . '\lib\i386\comerr32.lib');
+		$proj->AddLibrary($self->{options}->{gss} . '\lib\i386\gssapi32.lib');
 	}
 	if ($self->{options}->{iconv})
 	{
@@ -752,8 +751,8 @@ sub new
 	$self->{solutionFileVersion}        = '12.00';
 	$self->{vcver}                      = '12.00';
 	$self->{visualStudioName}           = 'Visual Studio 2013';
-	$self->{VisualStudioVersion}        = '12.0.21005.1',
-	$self->{MinimumVisualStudioVersion} = '10.0.40219.1',
+	$self->{VisualStudioVersion}        = '12.0.21005.1';
+	$self->{MinimumVisualStudioVersion} = '10.0.40219.1';
 
 	return $self;
 }

@@ -310,6 +310,7 @@ main(int argc, char *argv[])
 	if (roles.head != NULL)
 	{
 		SimpleStringListCell *cell;
+
 		appendPQExpBufferStr(&sql, " IN ROLE ");
 
 		for (cell = roles.head; cell; cell = cell->next)
@@ -320,10 +321,10 @@ main(int argc, char *argv[])
 				appendPQExpBuffer(&sql, "%s", fmtId(cell->val));
 		}
 	}
-	appendPQExpBufferStr(&sql, ";\n");
+	appendPQExpBufferStr(&sql, ";");
 
 	if (echo)
-		printf("%s", sql.data);
+		printf("%s\n", sql.data);
 	result = PQexec(conn, sql.data);
 
 	if (PQresultStatus(result) != PGRES_COMMAND_OK)

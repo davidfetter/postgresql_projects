@@ -16,7 +16,6 @@
 #include "postgres.h"
 
 #include "catalog/catalog.h"
-#include "common/relpath.h"
 #include "executor/instrument.h"
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
@@ -95,7 +94,7 @@ LocalPrefetchBuffer(SMgrRelation smgr, ForkNumber forkNum,
  *	  Find or create a local buffer for the given page of the given relation.
  *
  * API is similar to bufmgr.c's BufferAlloc, except that we do not need
- * to do any locking since this is all local.	Also, IO_IN_PROGRESS
+ * to do any locking since this is all local.   Also, IO_IN_PROGRESS
  * does not get set.  Lastly, we support only default access strategy
  * (hence, usage_count is always advanced).
  */
@@ -293,7 +292,7 @@ MarkLocalBufferDirty(Buffer buffer)
  *		specified relation that have block numbers >= firstDelBlock.
  *		(In particular, with firstDelBlock = 0, all pages are removed.)
  *		Dirty pages are simply dropped, without bothering to write them
- *		out first.	Therefore, this is NOT rollback-able, and so should be
+ *		out first.  Therefore, this is NOT rollback-able, and so should be
  *		used only with extreme caution!
  *
  *		See DropRelFileNodeBuffers in bufmgr.c for more notes.
@@ -460,7 +459,7 @@ GetLocalBufferStorage(void)
 		/*
 		 * We allocate local buffers in a context of their own, so that the
 		 * space eaten for them is easily recognizable in MemoryContextStats
-		 * output.	Create the context on first use.
+		 * output.  Create the context on first use.
 		 */
 		if (LocalBufferContext == NULL)
 			LocalBufferContext =
@@ -492,15 +491,15 @@ GetLocalBufferStorage(void)
 }
 
 /*
- * AtEOXact_LocalBuffers - clean up at end of transaction.
+ * CheckForLocalBufferLeaks - ensure this backend holds no local buffer pins
  *
- * This is just like AtEOXact_Buffers, but for local buffers.
+ * This is just like CheckBufferLeaks(), but for local buffers.
  */
-void
-AtEOXact_LocalBuffers(bool isCommit)
+static void
+CheckForLocalBufferLeaks(void)
 {
 #ifdef USE_ASSERT_CHECKING
-	if (assert_enabled && LocalRefCount)
+	if (LocalRefCount)
 	{
 		int			RefCountErrors = 0;
 		int			i;
@@ -521,33 +520,28 @@ AtEOXact_LocalBuffers(bool isCommit)
 }
 
 /*
+ * AtEOXact_LocalBuffers - clean up at end of transaction.
+ *
+ * This is just like AtEOXact_Buffers, but for local buffers.
+ */
+void
+AtEOXact_LocalBuffers(bool isCommit)
+{
+	CheckForLocalBufferLeaks();
+}
+
+/*
  * AtProcExit_LocalBuffers - ensure we have dropped pins during backend exit.
  *
- * This is just like AtProcExit_Buffers, but for local buffers.  We shouldn't
- * be holding any remaining pins; if we are, and assertions aren't enabled,
- * we'll fail later in DropRelFileNodeBuffers while trying to drop the temp
- * rels.
+ * This is just like AtProcExit_Buffers, but for local buffers.
  */
 void
 AtProcExit_LocalBuffers(void)
 {
-#ifdef USE_ASSERT_CHECKING
-	if (assert_enabled && LocalRefCount)
-	{
-		int			RefCountErrors = 0;
-		int			i;
-
-		for (i = 0; i < NLocBuffer; i++)
-		{
-			if (LocalRefCount[i] != 0)
-			{
-				Buffer		b = -i - 1;
-
-				PrintBufferLeakWarning(b);
-				RefCountErrors++;
-			}
-		}
-		Assert(RefCountErrors == 0);
-	}
-#endif
+	/*
+	 * We shouldn't be holding any remaining pins; if we are, and assertions
+	 * aren't enabled, we'll fail later in DropRelFileNodeBuffers while trying
+	 * to drop the temp rels.
+	 */
+	CheckForLocalBufferLeaks();
 }

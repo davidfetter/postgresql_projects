@@ -188,12 +188,17 @@ struct tzEntry;
 #define DTK_DATE_M		(DTK_M(YEAR) | DTK_M(MONTH) | DTK_M(DAY))
 #define DTK_TIME_M		(DTK_M(HOUR) | DTK_M(MINUTE) | DTK_ALL_SECS_M)
 
-#define MAXDATELEN		63		/* maximum possible length of an input date
-								 * string (not counting tr. null) */
-#define MAXDATEFIELDS	25		/* maximum possible number of fields in a date
-								 * string */
-#define TOKMAXLEN		10		/* only this many chars are stored in
-								 * datetktbl */
+/*
+ * Working buffer size for input and output of interval, timestamp, etc.
+ * Inputs that need more working space will be rejected early.  Longer outputs
+ * will overrun buffers, so this must suffice for all possible output.  As of
+ * this writing, interval_out() needs the most space at ~90 bytes.
+ */
+#define MAXDATELEN		128
+/* maximum possible number of fields in a date string */
+#define MAXDATEFIELDS	25
+/* only this many chars are stored in datetktbl */
+#define TOKMAXLEN		10
 
 /* keep this struct small; it gets used a lot */
 typedef struct
@@ -256,7 +261,7 @@ extern const int day_tab[2][13];
 
 /*
  * Datetime input parsing routines (ParseDateTime, DecodeDateTime, etc)
- * return zero or a positive value on success.	On failure, they return
+ * return zero or a positive value on success.  On failure, they return
  * one of these negative code values.  DateTimeParseError may be used to
  * produce a correct ereport.
  */
@@ -278,6 +283,7 @@ extern int ParseDateTime(const char *timestr, char *workbuf, size_t buflen,
 extern int DecodeDateTime(char **field, int *ftype,
 			   int nf, int *dtype,
 			   struct pg_tm * tm, fsec_t *fsec, int *tzp);
+extern int	DecodeTimezone(char *str, int *tzp);
 extern int DecodeTimeOnly(char **field, int *ftype,
 			   int nf, int *dtype,
 			   struct pg_tm * tm, fsec_t *fsec, int *tzp);

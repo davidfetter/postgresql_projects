@@ -4,6 +4,10 @@ PostgreSQL documentation
 -->
 
 <refentry id="SQL-CREATETABLESPACE">
+ <indexterm zone="sql-createtablespace">
+  <primary>CREATE TABLESPACE</primary>
+ </indexterm>
+
  <refmeta>
   <refentrytitle>CREATE TABLESPACE</refentrytitle>
   <manvolnum>7</manvolnum>
@@ -14,10 +18,6 @@ PostgreSQL documentation
   <refname>CREATE TABLESPACE</refname>
   <refpurpose>define a new tablespace</refpurpose>
  </refnamediv>
-
- <indexterm zone="sql-createtablespace">
-  <primary>CREATE TABLESPACE</primary>
- </indexterm>
 
  <refsynopsisdiv>
 <synopsis>
@@ -50,6 +50,14 @@ CREATE TABLESPACE <replaceable class="parameter">tablespace_name</replaceable>
    <command>CREATE INDEX</> or <command>ADD CONSTRAINT</> to have the data
    files for these objects stored within the specified tablespace.
   </para>
+
+  <warning>
+   <para>
+    A tablespace cannot be used independently of the cluster in which it
+    is defined;  see <xref linkend="manage-ag-tablespaces"/>.
+   </para>
+  </warning>
+
  </refsect1>
 
  <refsect1>

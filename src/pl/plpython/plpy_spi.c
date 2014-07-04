@@ -113,7 +113,7 @@ PLy_spi_prepare(PyObject *self, PyObject *args)
 			 *information for input conversion.
 			 ********************************************************/
 
-			parseTypeString(sptr, &typeId, &typmod);
+			parseTypeString(sptr, &typeId, &typmod, false);
 
 			typeTup = SearchSysCache1(TYPEOID,
 									  ObjectIdGetDatum(typeId));
@@ -130,12 +130,7 @@ PLy_spi_prepare(PyObject *self, PyObject *args)
 
 			plan->types[i] = typeId;
 			typeStruct = (Form_pg_type) GETSTRUCT(typeTup);
-			if (typeStruct->typtype != TYPTYPE_COMPOSITE)
-				PLy_output_datum_func(&plan->args[i], typeTup);
-			else
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				   errmsg("plpy.prepare does not support composite types")));
+			PLy_output_datum_func(&plan->args[i], typeTup);
 			ReleaseSysCache(typeTup);
 		}
 

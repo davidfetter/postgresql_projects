@@ -18,15 +18,16 @@
 #include "nodes/parsenodes.h"
 
 extern List *QueryRewrite(Query *parsetree);
-extern void AcquireRewriteLocks(Query *parsetree, bool forUpdatePushedDown);
+extern void AcquireRewriteLocks(Query *parsetree,
+					bool forExecute,
+					bool forUpdatePushedDown);
 
 extern Node *build_column_default(Relation rel, int attrno);
 extern Query *get_view_query(Relation view);
 extern const char *view_query_is_auto_updatable(Query *viewquery,
-										 bool security_barrier,
-										 bool check_cols);
-extern int	relation_is_updatable(Oid reloid,
-						  bool include_triggers,
-						  Bitmapset *include_cols);
+							 bool check_cols);
+extern int relation_is_updatable(Oid reloid,
+					  bool include_triggers,
+					  Bitmapset *include_cols);
 
 #endif   /* REWRITEHANDLER_H */

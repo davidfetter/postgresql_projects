@@ -40,7 +40,7 @@
 #endif
 
 /* GUC. */
-extern int dynamic_shared_memory_type;
+extern int	dynamic_shared_memory_type;
 
 /*
  * Directory for on-disk state.
@@ -71,5 +71,8 @@ extern bool dsm_impl_op(dsm_op op, dsm_handle handle, Size request_size,
 
 /* Some implementations cannot resize segments.  Can this one? */
 extern bool dsm_impl_can_resize(void);
+
+/* Implementation-dependent actions required to keep segment until shudown. */
+extern void dsm_impl_keep_segment(dsm_handle handle, void *impl_private);
 
 #endif   /* DSM_IMPL_H */

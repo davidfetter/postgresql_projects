@@ -4,6 +4,10 @@ PostgreSQL documentation
 -->
 
 <refentry id="SQL-ALTERSYSTEM">
+ <indexterm zone="sql-altersystem">
+  <primary>ALTER SYSTEM</primary>
+ </indexterm>
+
  <refmeta>
   <refentrytitle>ALTER SYSTEM</refentrytitle>
   <manvolnum>7</manvolnum>
@@ -14,10 +18,6 @@ PostgreSQL documentation
   <refname>ALTER SYSTEM</refname>
   <refpurpose>change a server configuration parameter</refpurpose>
  </refnamediv>
-
- <indexterm zone="sql-altersystem">
-  <primary>ALTER SYSTEM</primary>
- </indexterm>
 
  <refsynopsisdiv>
 <synopsis>
@@ -76,6 +76,16 @@ ALTER SYSTEM SET <replaceable class="PARAMETER">configuration_parameter</replace
   </variablelist>
  </refsect1>
 
+ <refsect1>
+  <title>Notes</title>
+
+  <para>
+    This command can't be used to set <xref linkend="guc-data-directory">
+    and any parameters (e.g., <link linkend="runtime-config-preset">preset options</>)
+    that are not allowed in <filename>postgresql.conf</>.
+  </para>
+ </refsect1>
+  
  <refsect1>
   <title>Examples</title>
 

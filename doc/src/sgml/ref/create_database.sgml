@@ -4,6 +4,10 @@ PostgreSQL documentation
 -->
 
 <refentry id="SQL-CREATEDATABASE">
+ <indexterm zone="sql-createdatabase">
+  <primary>CREATE DATABASE</primary>
+ </indexterm>
+
  <refmeta>
   <refentrytitle>CREATE DATABASE</refentrytitle>
   <manvolnum>7</manvolnum>
@@ -15,10 +19,6 @@ PostgreSQL documentation
   <refpurpose>create a new database</refpurpose>
  </refnamediv>
 
- <indexterm zone="sql-createdatabase">
-  <primary>CREATE DATABASE</primary>
- </indexterm>
-
  <refsynopsisdiv>
 <synopsis>
 CREATE DATABASE <replaceable class="PARAMETER">name</replaceable>
@@ -28,6 +28,8 @@ CREATE DATABASE <replaceable class="PARAMETER">name</replaceable>
            [ LC_COLLATE [=] <replaceable class="parameter">lc_collate</replaceable> ]
            [ LC_CTYPE [=] <replaceable class="parameter">lc_ctype</replaceable> ]
            [ TABLESPACE [=] <replaceable class="parameter">tablespace_name</replaceable> ]
+           [ IS_TEMPLATE [=] <replaceable class="parameter">istemplate</replaceable> ]
+           [ ALLOW_CONNECTIONS [=] <replaceable class="parameter">allowconn</replaceable> ]
            [ CONNECTION LIMIT [=] <replaceable class="parameter">connlimit</replaceable> ] ]
 </synopsis>
  </refsynopsisdiv>
@@ -148,6 +150,28 @@ CREATE DATABASE <replaceable class="PARAMETER">name</replaceable>
      </varlistentry>
 
      <varlistentry>
+       <term><replaceable class="parameter">istemplate</replaceable></term>
+       <listitem>
+        <para>
+         If true, then this database can be cloned by any user with CREATEDB
+         privileges; if false (the default), then only superusers or the owner
+         of the database can clone it.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry>
+       <term><replaceable class="parameter">allowconn</replaceable></term>
+       <listitem>
+        <para>
+         If false then no one can connect to this database.  The default is
+         true, allowing connections (except as restricted by other mechanisms,
+         such as <literal>GRANT</>/<literal>REVOKE CONNECT</>).
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry>
       <term><replaceable class="parameter">connlimit</replaceable></term>
       <listitem>
        <para>
@@ -185,6 +209,12 @@ CREATE DATABASE <replaceable class="PARAMETER">name</replaceable>
    <para>
     The program <xref linkend="APP-CREATEDB"> is a
     wrapper program around this command, provided for convenience.
+   </para>
+
+   <para>
+    Database-level configuration parameters (set via <xref
+    linkend="sql-alterdatabase">) are not copied from the template
+    database.
    </para>
 
   <para>

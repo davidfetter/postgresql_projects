@@ -12,15 +12,13 @@
  */
 
 #include "postgres_fe.h"
-#include "libpq-fe.h"
-#include "pqexpbuffer.h"
-#include "pgtar.h"
 
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <time.h>
 
 #ifdef HAVE_LIBZ
@@ -28,24 +26,47 @@
 #endif
 
 #include "getopt_long.h"
-
+#include "libpq-fe.h"
+#include "pqexpbuffer.h"
+#include "pgtar.h"
+#include "pgtime.h"
 #include "receivelog.h"
+#include "replication/basebackup.h"
 #include "streamutil.h"
 
 
+#define atooid(x)  ((Oid) strtoul((x), NULL, 10))
+
+typedef struct TablespaceListCell
+{
+	struct TablespaceListCell *next;
+	char		old_dir[MAXPGPATH];
+	char		new_dir[MAXPGPATH];
+} TablespaceListCell;
+
+typedef struct TablespaceList
+{
+	TablespaceListCell *head;
+	TablespaceListCell *tail;
+} TablespaceList;
+
 /* Global options */
 static char *basedir = NULL;
+static TablespaceList tablespace_dirs = {NULL, NULL};
 static char *xlog_dir = "";
-static char	format = 'p';		/* p(lain)/t(ar) */
+static char format = 'p';		/* p(lain)/t(ar) */
 static char *label = "pg_basebackup base backup";
-static bool	showprogress = false;
-static int verbose = 0;
+static bool showprogress = false;
+static int	verbose = 0;
 static int	compresslevel = 0;
-static bool	includewal = false;
-static bool	streamwal = false;
-static bool	fastcheckpoint = false;
-static bool	writerecoveryconf = false;
+static bool includewal = false;
+static bool streamwal = false;
+static bool fastcheckpoint = false;
+static bool writerecoveryconf = false;
 static int	standby_message_timeout = 10 * 1000;		/* 10 sec = default */
+static pg_time_t last_progress_report = 0;
+static int32 maxrate = 0;		/* no limit by default */
+
 
 /* Progress counters */
 static uint64 totalsize;
@@ -74,8 +95,9 @@ static PQExpBuffer recoveryconfcontents = NULL;
 
 /* Function headers */
 static void usage(void);
+static void disconnect_and_exit(int code);
 static void verify_dir_is_empty_or_create(char *dirname);
-static void progress_report(int tablespacenum, const char *filename);
+static void progress_report(int tablespacenum, const char *filename, bool force);
 
 static void ReceiveTarFile(PGconn *conn, PGresult *res, int rownum);
 static void ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum);
@@ -85,6 +107,105 @@ static void BaseBackup(void);
 
 static bool reached_end_position(XLogRecPtr segendpos, uint32 timeline,
 					 bool segment_finished);
+
+static const char *get_tablespace_mapping(const char *dir);
+static void update_tablespace_symlink(Oid oid, const char *old_dir);
+static void tablespace_list_append(const char *arg);
+
+
+static void
+disconnect_and_exit(int code)
+{
+	if (conn != NULL)
+		PQfinish(conn);
+
+#ifndef WIN32
+
+	/*
+	 * On windows, our background thread dies along with the process. But on
+	 * Unix, if we have started a subprocess, we want to kill it off so it
+	 * doesn't remain running trying to stream data.
+	 */
+	if (bgchild > 0)
+		kill(bgchild, SIGTERM);
+#endif
+
+	exit(code);
+}
+
+
+/*
+ * Split argument into old_dir and new_dir and append to tablespace mapping
+ * list.
+ */
+static void
+tablespace_list_append(const char *arg)
+{
+	TablespaceListCell *cell = (TablespaceListCell *) pg_malloc0(sizeof(TablespaceListCell));
+	char	   *dst;
+	char	   *dst_ptr;
+	const char *arg_ptr;
+
+	dst_ptr = dst = cell->old_dir;
+	for (arg_ptr = arg; *arg_ptr; arg_ptr++)
+	{
+		if (dst_ptr - dst >= MAXPGPATH)
+		{
+			fprintf(stderr, _("%s: directory name too long\n"), progname);
+			exit(1);
+		}
+
+		if (*arg_ptr == '\\' && *(arg_ptr + 1) == '=')
+			;					/* skip backslash escaping = */
+		else if (*arg_ptr == '=' && (arg_ptr == arg || *(arg_ptr - 1) != '\\'))
+		{
+			if (*cell->new_dir)
+			{
+				fprintf(stderr, _("%s: multiple \"=\" signs in tablespace mapping\n"), progname);
+				exit(1);
+			}
+			else
+				dst = dst_ptr = cell->new_dir;
+		}
+		else
+			*dst_ptr++ = *arg_ptr;
+	}
+
+	if (!*cell->old_dir || !*cell->new_dir)
+	{
+		fprintf(stderr,
+				_("%s: invalid tablespace mapping format \"%s\", must be \"OLDDIR=NEWDIR\"\n"),
+				progname, arg);
+		exit(1);
+	}
+
+	/*
+	 * This check isn't absolutely necessary.  But all tablespaces are created
+	 * with absolute directories, so specifying a non-absolute path here would
+	 * just never match, possibly confusing users.  It's also good to be
+	 * consistent with the new_dir check.
+	 */
+	if (!is_absolute_path(cell->old_dir))
+	{
+		fprintf(stderr, _("%s: old directory is not an absolute path in tablespace mapping: %s\n"),
+				progname, cell->old_dir);
+		exit(1);
+	}
+
+	if (!is_absolute_path(cell->new_dir))
+	{
+		fprintf(stderr, _("%s: new directory is not an absolute path in tablespace mapping: %s\n"),
+				progname, cell->new_dir);
+		exit(1);
+	}
+
+	if (tablespace_dirs.tail)
+		tablespace_dirs.tail->next = cell;
+	else
+		tablespace_dirs.head = cell;
+	tablespace_dirs.tail = cell;
+}
+
 
 #ifdef HAVE_LIBZ
 static const char *
@@ -111,8 +232,11 @@ usage(void)
 	printf(_("\nOptions controlling the output:\n"));
 	printf(_("  -D, --pgdata=DIRECTORY receive base backup into directory\n"));
 	printf(_("  -F, --format=p|t       output format (plain (default), tar)\n"));
+	printf(_("  -r, --max-rate=RATE    maximum transfer rate to transfer data directory\n"));
 	printf(_("  -R, --write-recovery-conf\n"
 			 "                         write recovery.conf after backup\n"));
+	printf(_("  -T, --tablespace-mapping=OLDDIR=NEWDIR\n"
+	  "                         relocate tablespace in OLDDIR to NEWDIR\n"));
 	printf(_("  -x, --xlog             include required WAL files in backup (fetch mode)\n"));
 	printf(_("  -X, --xlog-method=fetch|stream\n"
 			 "                         include required WAL files with specified method\n"));
@@ -176,7 +300,7 @@ reached_end_position(XLogRecPtr segendpos, uint32 timeline,
 						lo;
 
 			MemSet(xlogend, 0, sizeof(xlogend));
-			r = read(bgpipe[0], xlogend, sizeof(xlogend)-1);
+			r = read(bgpipe[0], xlogend, sizeof(xlogend) - 1);
 			if (r < 0)
 			{
 				fprintf(stderr, _("%s: could not read from ready pipe: %s\n"),
@@ -399,13 +523,27 @@ verify_dir_is_empty_or_create(char *dirname)
 /*
  * Print a progress report based on the global variables. If verbose output
  * is enabled, also print the current file name.
+ *
+ * Progress report is written at maximum once per second, unless the
+ * force parameter is set to true.
  */
 static void
-progress_report(int tablespacenum, const char *filename)
+progress_report(int tablespacenum, const char *filename, bool force)
 {
-	int			percent = (int) ((totaldone / 1024) * 100 / totalsize);
+	int			percent;
 	char		totaldone_str[32];
 	char		totalsize_str[32];
+	pg_time_t	now;
+
+	if (!showprogress)
+		return;
+
+	now = time(NULL);
+	if (now == last_progress_report && !force)
+		return;					/* Max once per second */
+
+	last_progress_report = now;
+	percent = totalsize ? (int) ((totaldone / 1024) * 100 / totalsize) : 0;
 
 	/*
 	 * Avoid overflowing past 100% or the full size. This may make the total
@@ -475,6 +613,97 @@ progress_report(int tablespacenum, const char *filename)
 	fprintf(stderr, "\r");
 }
 
+static int32
+parse_max_rate(char *src)
+{
+	double		result;
+	char	   *after_num;
+	char	   *suffix = NULL;
+
+	errno = 0;
+	result = strtod(src, &after_num);
+	if (src == after_num)
+	{
+		fprintf(stderr,
+				_("%s: transfer rate \"%s\" is not a valid value\n"),
+				progname, src);
+		exit(1);
+	}
+	if (errno != 0)
+	{
+		fprintf(stderr,
+				_("%s: invalid transfer rate \"%s\": %s\n"),
+				progname, src, strerror(errno));
+		exit(1);
+	}
+
+	if (result <= 0)
+	{
+		/*
+		 * Reject obviously wrong values here.
+		 */
+		fprintf(stderr, _("%s: transfer rate must be greater than zero\n"),
+				progname);
+		exit(1);
+	}
+
+	/*
+	 * Evaluate suffix, after skipping over possible whitespace. Lack of
+	 * suffix means kilobytes.
+	 */
+	while (*after_num != '\0' && isspace((unsigned char) *after_num))
+		after_num++;
+
+	if (*after_num != '\0')
+	{
+		suffix = after_num;
+		if (*after_num == 'k')
+		{
+			/* kilobyte is the expected unit. */
+			after_num++;
+		}
+		else if (*after_num == 'M')
+		{
+			after_num++;
+			result *= 1024.0;
+		}
+	}
+
+	/* The rest can only consist of white space. */
+	while (*after_num != '\0' && isspace((unsigned char) *after_num))
+		after_num++;
+
+	if (*after_num != '\0')
+	{
+		fprintf(stderr,
+				_("%s: invalid --max-rate unit: \"%s\"\n"),
+				progname, suffix);
+		exit(1);
+	}
+
+	/* Valid integer? */
+	if ((uint64) result != (uint64) ((uint32) result))
+	{
+		fprintf(stderr,
+				_("%s: transfer rate \"%s\" exceeds integer range\n"),
+				progname, src);
+		exit(1);
+	}
+
+	/*
+	 * The range is checked on the server side too, but avoid the server
+	 * connection if a nonsensical value was passed.
+	 */
+	if (result < MAX_RATE_LOWER || result > MAX_RATE_UPPER)
+	{
+		fprintf(stderr,
+				_("%s: transfer rate \"%s\" is out of range\n"),
+				progname, src);
+		exit(1);
+	}
+
+	return (int32) result;
+}
 
 /*
  * Write a piece of tar data
@@ -565,6 +794,7 @@ ReceiveTarFile(PGconn *conn, PGresult *res, int rownum)
 			else
 #endif
 				tarfile = stdout;
+			strcpy(filename, "-");
 		}
 		else
 		{
@@ -852,13 +1082,59 @@ ReceiveTarFile(PGconn *conn, PGresult *res, int rownum)
 			}
 		}
 		totaldone += r;
-		if (showprogress)
-			progress_report(rownum, filename);
+		progress_report(rownum, filename, false);
 	}							/* while (1) */
+	progress_report(rownum, filename, true);
 
 	if (copybuf != NULL)
 		PQfreemem(copybuf);
 }
+
+
+/*
+ * Retrieve tablespace path, either relocated or original depending on whether
+ * -T was passed or not.
+ */
+static const char *
+get_tablespace_mapping(const char *dir)
+{
+	TablespaceListCell *cell;
+
+	for (cell = tablespace_dirs.head; cell; cell = cell->next)
+		if (strcmp(dir, cell->old_dir) == 0)
+			return cell->new_dir;
+
+	return dir;
+}
+
+
+/*
+ * Update symlinks to reflect relocated tablespace.
+ */
+static void
+update_tablespace_symlink(Oid oid, const char *old_dir)
+{
+	const char *new_dir = get_tablespace_mapping(old_dir);
+
+	if (strcmp(old_dir, new_dir) != 0)
+	{
+		char	   *linkloc = psprintf("%s/pg_tblspc/%d", basedir, oid);
+
+		if (unlink(linkloc) != 0 && errno != ENOENT)
+		{
+			fprintf(stderr, _("%s: could not remove symbolic link \"%s\": %s"),
+					progname, linkloc, strerror(errno));
+			disconnect_and_exit(1);
+		}
+		if (symlink(new_dir, linkloc) != 0)
+		{
+			fprintf(stderr, _("%s: could not create symbolic link \"%s\": %s"),
+					progname, linkloc, strerror(errno));
+			disconnect_and_exit(1);
+		}
+	}
+}
+
 
 /*
  * Receive a tar format stream from the connection to the server, and unpack
@@ -867,8 +1143,7 @@ ReceiveTarFile(PGconn *conn, PGresult *res, int rownum)
  *
  * If the data is for the main data directory, it will be restored in the
  * specified directory. If it's for another tablespace, it will be restored
- * in the original directory, since relocation of tablespaces is not
- * supported.
+ * in the original or mapped directory.
  */
 static void
 ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum)
@@ -882,9 +1157,9 @@ ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum)
 	FILE	   *file = NULL;
 
 	if (basetablespace)
-		strcpy(current_path, basedir);
+		strlcpy(current_path, basedir, sizeof(current_path));
 	else
-		strcpy(current_path, PQgetvalue(res, rownum, 1));
+		strlcpy(current_path, get_tablespace_mapping(PQgetvalue(res, rownum, 1)), sizeof(current_path));
 
 	/*
 	 * Get the COPY data
@@ -1079,8 +1354,7 @@ ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum)
 				disconnect_and_exit(1);
 			}
 			totaldone += r;
-			if (showprogress)
-				progress_report(rownum, filename);
+			progress_report(rownum, filename, false);
 
 			current_len_left -= r;
 			if (current_len_left == 0 && current_padding == 0)
@@ -1096,6 +1370,7 @@ ReceiveAndUnpackTarFile(PGconn *conn, PGresult *res, int rownum)
 			}
 		}						/* continuing data in existing file */
 	}							/* loop over all data blocks */
+	progress_report(rownum, filename, true);
 
 	if (file != NULL)
 	{
@@ -1308,8 +1583,9 @@ BaseBackup(void)
 	char	   *sysidentifier;
 	uint32		latesttli;
 	uint32		starttli;
-	char		current_path[MAXPGPATH];
+	char	   *basebkp;
 	char		escaped_label[MAXPGPATH];
+	char	   *maxrate_clause = NULL;
 	int			i;
 	char		xlogstart[64];
 	char		xlogend[64];
@@ -1367,10 +1643,10 @@ BaseBackup(void)
 				progname, "IDENTIFY_SYSTEM", PQerrorMessage(conn));
 		disconnect_and_exit(1);
 	}
-	if (PQntuples(res) != 1 || PQnfields(res) != 3)
+	if (PQntuples(res) != 1 || PQnfields(res) < 3)
 	{
 		fprintf(stderr,
-				_("%s: could not identify system: got %d rows and %d fields, expected %d rows and %d fields\n"),
+				_("%s: could not identify system: got %d rows and %d fields, expected %d rows and %d or more fields\n"),
 				progname, PQntuples(res), PQnfields(res), 1, 3);
 		disconnect_and_exit(1);
 	}
@@ -1382,15 +1658,20 @@ BaseBackup(void)
 	 * Start the actual backup
 	 */
 	PQescapeStringConn(conn, escaped_label, label, sizeof(escaped_label), &i);
-	snprintf(current_path, sizeof(current_path),
-			 "BASE_BACKUP LABEL '%s' %s %s %s %s",
-			 escaped_label,
-			 showprogress ? "PROGRESS" : "",
-			 includewal && !streamwal ? "WAL" : "",
-			 fastcheckpoint ? "FAST" : "",
-			 includewal ? "NOWAIT" : "");
 
-	if (PQsendQuery(conn, current_path) == 0)
+	if (maxrate > 0)
+		maxrate_clause = psprintf("MAX_RATE %u", maxrate);
+
+	basebkp =
+		psprintf("BASE_BACKUP LABEL '%s' %s %s %s %s %s",
+				 escaped_label,
+				 showprogress ? "PROGRESS" : "",
+				 includewal && !streamwal ? "WAL" : "",
+				 fastcheckpoint ? "FAST" : "",
+				 includewal ? "NOWAIT" : "",
+				 maxrate_clause ? maxrate_clause : "");
+
+	if (PQsendQuery(conn, basebkp) == 0)
 	{
 		fprintf(stderr, _("%s: could not send replication command \"%s\": %s"),
 				progname, "BASE_BACKUP", PQerrorMessage(conn));
@@ -1415,7 +1696,7 @@ BaseBackup(void)
 		disconnect_and_exit(1);
 	}
 
-	strcpy(xlogstart, PQgetvalue(res, 0, 0));
+	strlcpy(xlogstart, PQgetvalue(res, 0, 0), sizeof(xlogstart));
 
 	/*
 	 * 9.3 and later sends the TLI of the starting point. With older servers,
@@ -1456,8 +1737,7 @@ BaseBackup(void)
 	tablespacecount = PQntuples(res);
 	for (i = 0; i < PQntuples(res); i++)
 	{
-		if (showprogress)
-			totalsize += atol(PQgetvalue(res, i, 2));
+		totalsize += atol(PQgetvalue(res, i, 2));
 
 		/*
 		 * Verify tablespace directories are empty. Don't bother with the
@@ -1465,7 +1745,11 @@ BaseBackup(void)
 		 * we do anything anyway.
 		 */
 		if (format == 'p' && !PQgetisnull(res, i, 1))
-			verify_dir_is_empty_or_create(PQgetvalue(res, i, 1));
+		{
+			char	   *path = (char *) get_tablespace_mapping(PQgetvalue(res, i, 1));
+
+			verify_dir_is_empty_or_create(path);
+		}
 	}
 
 	/*
@@ -1504,9 +1788,21 @@ BaseBackup(void)
 
 	if (showprogress)
 	{
-		progress_report(PQntuples(res), NULL);
+		progress_report(PQntuples(res), NULL, true);
 		fprintf(stderr, "\n");	/* Need to move to next line */
 	}
+
+	if (format == 'p' && tablespace_dirs.head != NULL)
+	{
+		for (i = 0; i < PQntuples(res); i++)
+		{
+			Oid			tblspc_oid = atooid(PQgetvalue(res, i, 0));
+
+			if (tblspc_oid)
+				update_tablespace_symlink(tblspc_oid, PQgetvalue(res, i, 1));
+		}
+	}
+
 	PQclear(res);
 
 	/*
@@ -1527,7 +1823,7 @@ BaseBackup(void)
 				progname);
 		disconnect_and_exit(1);
 	}
-	strcpy(xlogend, PQgetvalue(res, 0, 0));
+	strlcpy(xlogend, PQgetvalue(res, 0, 0), sizeof(xlogend));
 	if (verbose && includewal)
 		fprintf(stderr, "transaction log end point: %s\n", xlogend);
 	PQclear(res);
@@ -1657,7 +1953,9 @@ main(int argc, char **argv)
 		{"pgdata", required_argument, NULL, 'D'},
 		{"format", required_argument, NULL, 'F'},
 		{"checkpoint", required_argument, NULL, 'c'},
+		{"max-rate", required_argument, NULL, 'r'},
 		{"write-recovery-conf", no_argument, NULL, 'R'},
+		{"tablespace-mapping", required_argument, NULL, 'T'},
 		{"xlog", no_argument, NULL, 'x'},
 		{"xlog-method", required_argument, NULL, 'X'},
 		{"gzip", no_argument, NULL, 'z'},
@@ -1697,7 +1995,7 @@ main(int argc, char **argv)
 		}
 	}
 
-	while ((c = getopt_long(argc, argv, "D:F:RxX:l:zZ:d:c:h:p:U:s:wWvP",
+	while ((c = getopt_long(argc, argv, "D:F:r:RT:xX:l:zZ:d:c:h:p:U:s:wWvP",
 							long_options, &option_index)) != -1)
 	{
 		switch (c)
@@ -1718,8 +2016,14 @@ main(int argc, char **argv)
 					exit(1);
 				}
 				break;
+			case 'r':
+				maxrate = parse_max_rate(optarg);
+				break;
 			case 'R':
 				writerecoveryconf = true;
+				break;
+			case 'T':
+				tablespace_list_append(optarg);
 				break;
 			case 'x':
 				if (includewal)

@@ -15,13 +15,12 @@
  *	oids are the same between old and new clusters.  This is important
  *	because toast oids are stored as toast pointers in user tables.
  *
- *	FYI, while pg_class.oid and pg_class.relfilenode are initially the same
- *	in a cluster, but they can diverge due to CLUSTER, REINDEX, or VACUUM
- *	FULL.  The new cluster will have matching pg_class.oid and
- *	pg_class.relfilenode values and be based on the old oid value.	This can
- *	cause the old and new pg_class.relfilenode values to differ.  In summary,
- *	old and new pg_class.oid and new pg_class.relfilenode will have the
- *	same value, and old pg_class.relfilenode might differ.
+ *	While pg_class.oid and pg_class.relfilenode are initially the same
+ *	in a cluster, they can diverge due to CLUSTER, REINDEX, or VACUUM
+ *	FULL.  In the new cluster, pg_class.oid and pg_class.relfilenode will
+ *	be the same and will match the old pg_class.oid value.  Because of
+ *	this, old/new pg_class.relfilenode values will not match if CLUSTER,
+ *	REINDEX, or VACUUM FULL have been performed in the old cluster.
  *
  *	We control all assignments of pg_type.oid because these oids are stored
  *	in user composite type values.
@@ -47,7 +46,7 @@ static void prepare_new_cluster(void);
 static void prepare_new_databases(void);
 static void create_new_objects(void);
 static void copy_clog_xlog_xid(void);
-static void set_frozenxids(void);
+static void set_frozenxids(bool minmxid_only);
 static void setup(char *argv0, bool *live_check);
 static void cleanup(void);
 
@@ -126,7 +125,7 @@ main(int argc, char **argv)
 
 	/*
 	 * Most failures happen in create_new_objects(), which has completed at
-	 * this point.	We do this here because it is just before linking, which
+	 * this point.  We do this here because it is just before linking, which
 	 * will link the old and new cluster data files, preventing the old
 	 * cluster from being safely started once the new cluster is started.
 	 */
@@ -194,7 +193,7 @@ setup(char *argv0, bool *live_check)
 	{
 		/*
 		 * If we have a postmaster.pid file, try to start the server.  If it
-		 * starts, the pid file was stale, so stop the server.	If it doesn't
+		 * starts, the pid file was stale, so stop the server.  If it doesn't
 		 * start, assume the server is running.  If the pid file is left over
 		 * from a server crash, this also allows any committed transactions
 		 * stored in the WAL to be replayed so they are not lost, because WAL
@@ -206,7 +205,7 @@ setup(char *argv0, bool *live_check)
 		{
 			if (!user_opts.check)
 				pg_fatal("There seems to be a postmaster servicing the old cluster.\n"
-					   "Please shutdown that postmaster and try again.\n");
+						 "Please shutdown that postmaster and try again.\n");
 			else
 				*live_check = true;
 		}
@@ -219,7 +218,7 @@ setup(char *argv0, bool *live_check)
 			stop_postmaster(false);
 		else
 			pg_fatal("There seems to be a postmaster servicing the new cluster.\n"
-				   "Please shutdown that postmaster and try again.\n");
+					 "Please shutdown that postmaster and try again.\n");
 	}
 
 	/* get path to pg_upgrade executable */
@@ -251,8 +250,8 @@ prepare_new_cluster(void)
 	/*
 	 * We do freeze after analyze so pg_statistic is also frozen. template0 is
 	 * not frozen here, but data rows were frozen by initdb, and we set its
-	 * datfrozenxid and relfrozenxids later to match the new xid counter
-	 * later.
+	 * datfrozenxid, relfrozenxids, and relminmxid later to match the new xid
+	 * counter later.
 	 */
 	prep_status("Freezing all rows on the new cluster");
 	exec_prog(UTILITY_LOG_FILE, NULL, true,
@@ -274,14 +273,14 @@ prepare_new_databases(void)
 	 * set.
 	 */
 
-	set_frozenxids();
+	set_frozenxids(false);
 
 	prep_status("Restoring global objects in the new cluster");
 
 	/*
 	 * Install support functions in the global-object restore database to
-	 * preserve pg_authid.oid.	pg_dumpall uses 'template0' as its template
-	 * database so objects we add into 'template1' are not propogated.	They
+	 * preserve pg_authid.oid.  pg_dumpall uses 'template0' as its template
+	 * database so objects we add into 'template1' are not propogated.  They
 	 * are removed on pg_upgrade exit.
 	 */
 	install_support_functions_in_new_db("template1");
@@ -357,6 +356,13 @@ create_new_objects(void)
 	end_progress_output();
 	check_ok();
 
+	/*
+	 * We don't have minmxids for databases or relations in pre-9.3
+	 * clusters, so set those after we have restores the schemas.
+	 */
+	if (GET_MAJOR_VERSION(old_cluster.major_version) < 903)
+		set_frozenxids(true);
+
 	/* regenerate now that we have objects in the databases */
 	get_db_and_rel_infos(&new_cluster);
 
@@ -364,8 +370,24 @@ create_new_objects(void)
 }
 
 /*
- * Delete the given subdirectory contents from the new cluster, and copy the
- * files from the old cluster into it.
+ * Delete the given subdirectory contents from the new cluster
+ */
+static void
+remove_new_subdir(char *subdir, bool rmtopdir)
+{
+	char		new_path[MAXPGPATH];
+
+	prep_status("Deleting files from new %s", subdir);
+
+	snprintf(new_path, sizeof(new_path), "%s/%s", new_cluster.pgdata, subdir);
+	if (!rmtree(new_path, rmtopdir))
+		pg_fatal("could not delete directory \"%s\"\n", new_path);
+
+	check_ok();
+}
+
+/*
+ * Copy the files from the old cluster into it
  */
 static void
 copy_subdir_files(char *subdir)
@@ -373,13 +395,10 @@ copy_subdir_files(char *subdir)
 	char		old_path[MAXPGPATH];
 	char		new_path[MAXPGPATH];
 
-	prep_status("Deleting files from new %s", subdir);
+	remove_new_subdir(subdir, true);
 
 	snprintf(old_path, sizeof(old_path), "%s/%s", old_cluster.pgdata, subdir);
 	snprintf(new_path, sizeof(new_path), "%s/%s", new_cluster.pgdata, subdir);
-	if (!rmtree(new_path, true))
-		pg_fatal("could not delete directory \"%s\"\n", new_path);
-	check_ok();
 
 	prep_status("Copying old %s to new server", subdir);
 
@@ -420,6 +439,7 @@ copy_clog_xlog_xid(void)
 	{
 		copy_subdir_files("pg_multixact/offsets");
 		copy_subdir_files("pg_multixact/members");
+
 		prep_status("Setting next multixact ID and offset for new cluster");
 
 		/*
@@ -437,6 +457,13 @@ copy_clog_xlog_xid(void)
 	}
 	else if (new_cluster.controldata.cat_ver >= MULTIXACT_FORMATCHANGE_CAT_VER)
 	{
+		/*
+		 * Remove offsets/0000 file created by initdb that no longer matches
+		 * the new multi-xid value.  "members" starts at zero so no need to
+		 * remove it.
+		 */
+		remove_new_subdir("pg_multixact/offsets", false);
+
 		prep_status("Setting oldest multixact ID on new cluster");
 
 		/*
@@ -469,15 +496,15 @@ copy_clog_xlog_xid(void)
 /*
  *	set_frozenxids()
  *
- *	We have frozen all xids, so set relfrozenxid and datfrozenxid
- *	to be the old cluster's xid counter, which we just set in the new
- *	cluster.  User-table frozenxid values will be set by pg_dumpall
- *	--binary-upgrade, but objects not set by the pg_dump must have
- *	proper frozen counters.
+ *	We have frozen all xids, so set datfrozenxid, relfrozenxid, and
+ *	relminmxid to be the old cluster's xid counter, which we just set
+ *	in the new cluster.  User-table frozenxid and minmxid values will
+ *	be set by pg_dump --binary-upgrade, but objects not set by the pg_dump
+ *	must have proper frozen counters.
  */
 static
 void
-set_frozenxids(void)
+set_frozenxids(bool minmxid_only)
 {
 	int			dbnum;
 	PGconn	   *conn,
@@ -487,15 +514,25 @@ set_frozenxids(void)
 	int			i_datname;
 	int			i_datallowconn;
 
-	prep_status("Setting frozenxid counters in new cluster");
+	if (!minmxid_only)
+		prep_status("Setting frozenxid and minmxid counters in new cluster");
+	else
+		prep_status("Setting minmxid counter in new cluster");
 
 	conn_template1 = connectToServer(&new_cluster, "template1");
 
-	/* set pg_database.datfrozenxid */
+	if (!minmxid_only)
+		/* set pg_database.datfrozenxid */
+		PQclear(executeQueryOrDie(conn_template1,
+								  "UPDATE pg_catalog.pg_database "
+								  "SET	datfrozenxid = '%u'",
+								  old_cluster.controldata.chkpnt_nxtxid));
+
+	/* set pg_database.datminmxid */
 	PQclear(executeQueryOrDie(conn_template1,
 							  "UPDATE pg_catalog.pg_database "
-							  "SET	datfrozenxid = '%u'",
-							  old_cluster.controldata.chkpnt_nxtxid));
+							  "SET	datminmxid = '%u'",
+							  old_cluster.controldata.chkpnt_nxtmulti));
 
 	/* get database names */
 	dbres = executeQueryOrDie(conn_template1,
@@ -513,34 +550,41 @@ set_frozenxids(void)
 
 		/*
 		 * We must update databases where datallowconn = false, e.g.
-		 * template0, because autovacuum increments their datfrozenxids and
-		 * relfrozenxids even if autovacuum is turned off, and even though all
-		 * the data rows are already frozen  To enable this, we temporarily
-		 * change datallowconn.
+		 * template0, because autovacuum increments their datfrozenxids,
+		 * relfrozenxids, and relminmxid  even if autovacuum is turned off,
+		 * and even though all the data rows are already frozen  To enable
+		 * this, we temporarily change datallowconn.
 		 */
 		if (strcmp(datallowconn, "f") == 0)
 			PQclear(executeQueryOrDie(conn_template1,
-									  "UPDATE pg_catalog.pg_database "
-									  "SET	datallowconn = true "
-									  "WHERE datname = '%s'", datname));
+								"ALTER DATABASE %s ALLOW_CONNECTIONS = true",
+									  quote_identifier(datname)));
 
 		conn = connectToServer(&new_cluster, datname);
 
-		/* set pg_class.relfrozenxid */
+		if (!minmxid_only)
+			/* set pg_class.relfrozenxid */
+			PQclear(executeQueryOrDie(conn,
+									  "UPDATE	pg_catalog.pg_class "
+									  "SET	relfrozenxid = '%u' "
+			/* only heap, materialized view, and TOAST are vacuumed */
+									  "WHERE	relkind IN ('r', 'm', 't')",
+									  old_cluster.controldata.chkpnt_nxtxid));
+
+		/* set pg_class.relminmxid */
 		PQclear(executeQueryOrDie(conn,
 								  "UPDATE	pg_catalog.pg_class "
-								  "SET	relfrozenxid = '%u' "
+								  "SET	relminmxid = '%u' "
 		/* only heap, materialized view, and TOAST are vacuumed */
 								  "WHERE	relkind IN ('r', 'm', 't')",
-								  old_cluster.controldata.chkpnt_nxtxid));
+								  old_cluster.controldata.chkpnt_nxtmulti));
 		PQfinish(conn);
 
 		/* Reset datallowconn flag */
 		if (strcmp(datallowconn, "f") == 0)
 			PQclear(executeQueryOrDie(conn_template1,
-									  "UPDATE pg_catalog.pg_database "
-									  "SET	datallowconn = false "
-									  "WHERE datname = '%s'", datname));
+							   "ALTER DATABASE %s ALLOW_CONNECTIONS = false",
+									  quote_identifier(datname)));
 	}
 
 	PQclear(dbres);

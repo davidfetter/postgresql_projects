@@ -385,7 +385,7 @@ list_truncate(List *list, int new_size)
  * Locate the n'th cell (counting from 0) of the list.  It is an assertion
  * failure if there is no such cell.
  */
-static ListCell *
+ListCell *
 list_nth_cell(const List *list, int n)
 {
 	ListCell   *match;
@@ -796,7 +796,7 @@ list_union_oid(const List *list1, const List *list2)
  * "intersection" if list1 is known unique beforehand.
  *
  * This variant works on lists of pointers, and determines list
- * membership via equal().	Note that the list1 member will be pointed
+ * membership via equal().  Note that the list1 member will be pointed
  * to in the result.
  */
 List *
@@ -988,7 +988,7 @@ list_append_unique_oid(List *list, Oid datum)
  * via equal().
  *
  * This is almost the same functionality as list_union(), but list1 is
- * modified in-place rather than being copied.	Note also that list2's cells
+ * modified in-place rather than being copied.  Note also that list2's cells
  * are not inserted in list1, so the analogy to list_concat() isn't perfect.
  */
 List *

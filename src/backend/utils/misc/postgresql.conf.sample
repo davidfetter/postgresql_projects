@@ -79,7 +79,7 @@
 
 #authentication_timeout = 1min		# 1s-600s
 #ssl = off				# (change requires restart)
-#ssl_ciphers = 'DEFAULT:!LOW:!EXP:!MD5:@STRENGTH'	# allowed SSL ciphers
+#ssl_ciphers = 'HIGH:MEDIUM:+3DES:!aNULL' # allowed SSL ciphers
 					# (change requires restart)
 #ssl_prefer_server_ciphers = on		# (change requires restart)
 #ssl_ecdh_curve = 'prime256v1'		# (change requires restart)
@@ -91,9 +91,8 @@
 #password_encryption = on
 #db_user_namespace = off
 
-# Kerberos and GSSAPI
+# GSSAPI using Kerberos
 #krb_server_keyfile = ''
-#krb_srvname = 'postgres'		# (Kerberos only)
 #krb_caseins_users = off
 
 # - TCP Keepalives -
@@ -115,7 +114,7 @@
 
 #shared_buffers = 32MB			# min 128kB
 					# (change requires restart)
-#huge_tlb_pages = try			# on, off, or try
+#huge_pages = try			# on, off, or try
 					# (change requires restart)
 #temp_buffers = 8MB			# min 800kB
 #max_prepared_transactions = 0		# zero disables the feature
@@ -124,11 +123,11 @@
 # per transaction slot, plus lock space (see max_locks_per_transaction).
 # It is not advisable to set max_prepared_transactions nonzero unless you
 # actively intend to use prepared transactions.
-#work_mem = 1MB				# min 64kB
-#maintenance_work_mem = 16MB		# min 1MB
+#work_mem = 4MB				# min 64kB
+#maintenance_work_mem = 64MB		# min 1MB
 #autovacuum_work_mem = -1		# min 1MB, or -1 to use maintenance_work_mem
 #max_stack_depth = 2MB			# min 100kB
-#dynamic_shared_memory_type = posix # the default is the first option
+#dynamic_shared_memory_type = posix	# the default is the first option
 					# supported by the operating system:
 					#   posix
 					#   sysv
@@ -173,7 +172,7 @@
 
 # - Settings -
 
-#wal_level = minimal			# minimal, archive, hot_standby or logical
+#wal_level = minimal			# minimal, archive, hot_standby, or logical
 					# (change requires restart)
 #fsync = on				# turns forced synchronization on or off
 #synchronous_commit = on		# synchronization level;
@@ -186,7 +185,7 @@
 					#   fsync_writethrough
 					#   open_sync
 #full_page_writes = on			# recover from partial page writes
-#wal_log_hints = off			# also do full pages writes of non-critical updates
+#wal_log_hints = off			# also do full page writes of non-critical updates
 #wal_buffers = -1			# min 32kB, -1 sets based on shared_buffers
 					# (change requires restart)
 #wal_writer_delay = 200ms		# 1-10000 milliseconds
@@ -226,7 +225,7 @@
 #wal_keep_segments = 0		# in logfile segments, 16MB each; 0 disables
 #wal_sender_timeout = 60s	# in milliseconds; 0 disables
 
-#max_replication_slots = 0	# max number of replication slots.
+#max_replication_slots = 0	# max number of replication slots
 				# (change requires restart)
 
 # - Master Server -
@@ -284,7 +283,7 @@
 #cpu_tuple_cost = 0.01			# same scale as above
 #cpu_index_tuple_cost = 0.005		# same scale as above
 #cpu_operator_cost = 0.0025		# same scale as above
-#effective_cache_size = -1		# -1 selects auto-tuned default
+#effective_cache_size = 4GB
 
 # - Genetic Query Optimizer -
 
@@ -436,7 +435,8 @@
 					# than the specified size in kilobytes;
 					# -1 disables, 0 logs all temp files
 #log_timezone = 'GMT'
-
+#cluster_name = ''			# added to process titles if nonempty
+					# (change requires restart)
 
 #------------------------------------------------------------------------------
 # RUNTIME STATISTICS
@@ -448,7 +448,7 @@
 #track_counts = on
 #track_io_timing = off
 #track_functions = none			# none, pl, all
-#track_activity_query_size = 1024 	# (change requires restart)
+#track_activity_query_size = 1024	# (change requires restart)
 #update_process_title = on
 #stats_temp_directory = 'pg_stat_tmp'
 
@@ -482,6 +482,9 @@
 #autovacuum_analyze_scale_factor = 0.1	# fraction of table size before analyze
 #autovacuum_freeze_max_age = 200000000	# maximum XID age before forced vacuum
 					# (change requires restart)
+#autovacuum_multixact_freeze_max_age = 400000000	# maximum multixact age
+					# before forced vacuum
+					# (change requires restart)
 #autovacuum_vacuum_cost_delay = 20ms	# default vacuum cost delay for
 					# autovacuum, in milliseconds;
 					# -1 means use vacuum_cost_delay
@@ -509,6 +512,8 @@
 #lock_timeout = 0			# in milliseconds, 0 is disabled
 #vacuum_freeze_min_age = 50000000
 #vacuum_freeze_table_age = 150000000
+#vacuum_multixact_freeze_min_age = 5000000
+#vacuum_multixact_freeze_table_age = 150000000
 #bytea_output = 'hex'			# hex, escape
 #xmlbinary = 'base64'
 #xmloption = 'content'

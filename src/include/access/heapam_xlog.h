@@ -43,12 +43,12 @@
  */
 #define XLOG_HEAP_INIT_PAGE		0x80
 /*
- * We ran out of opcodes, so heapam.c now has a second RmgrId.	These opcodes
+ * We ran out of opcodes, so heapam.c now has a second RmgrId.  These opcodes
  * are associated with RM_HEAP2_ID, but are not logically different from
  * the ones above associated with RM_HEAP_ID.  XLOG_HEAP_OPMASK applies to
  * these, too.
  */
-/* 0x00 is free, was XLOG_HEAP2_FREEZE */
+#define XLOG_HEAP2_REWRITE		0x00
 #define XLOG_HEAP2_CLEAN		0x10
 #define XLOG_HEAP2_FREEZE_PAGE	0x20
 #define XLOG_HEAP2_CLEANUP_INFO 0x30
@@ -67,9 +67,11 @@
 #define XLOG_HEAP_CONTAINS_OLD_TUPLE		(1<<2)
 #define XLOG_HEAP_CONTAINS_OLD_KEY			(1<<3)
 #define XLOG_HEAP_CONTAINS_NEW_TUPLE		(1<<4)
+#define XLOG_HEAP_PREFIX_FROM_OLD			(1<<5)
+#define XLOG_HEAP_SUFFIX_FROM_OLD			(1<<6)
 
 /* convenience macro for checking whether any form of old tuple was logged */
-#define XLOG_HEAP_CONTAINS_OLD 						\
+#define XLOG_HEAP_CONTAINS_OLD						\
 	(XLOG_HEAP_CONTAINS_OLD_TUPLE | XLOG_HEAP_CONTAINS_OLD_KEY)
 
 /*
@@ -124,11 +126,11 @@ typedef struct xl_heap_header
  */
 typedef struct xl_heap_header_len
 {
-	uint16      t_len;
+	uint16		t_len;
 	xl_heap_header header;
 } xl_heap_header_len;
 
-#define SizeOfHeapHeaderLen	(offsetof(xl_heap_header_len, header) + SizeOfHeapHeader)
+#define SizeOfHeapHeaderLen (offsetof(xl_heap_header_len, header) + SizeOfHeapHeader)
 
 /* This is what we need to know about insert */
 typedef struct xl_heap_insert
@@ -177,9 +179,24 @@ typedef struct xl_heap_update
 	TransactionId old_xmax;		/* xmax of the old tuple */
 	TransactionId new_xmax;		/* xmax of the new tuple */
 	ItemPointerData newtid;		/* new inserted tuple id */
-	uint8		old_infobits_set;	/* infomask bits to set on old tuple */
+	uint8		old_infobits_set;		/* infomask bits to set on old tuple */
 	uint8		flags;
-	/* NEW TUPLE xl_heap_header AND TUPLE DATA FOLLOWS AT END OF STRUCT */
+
+	/*
+	 * If XLOG_HEAP_PREFIX_FROM_OLD or XLOG_HEAP_SUFFIX_FROM_OLD flags are
+	 * set, the prefix and/or suffix come next, as one or two uint16s.
+	 *
+	 * After that, xl_heap_header_len and new tuple data follow.  The new
+	 * tuple data and length don't include the prefix and suffix, which are
+	 * copied from the old tuple on replay.  The new tuple data is omitted if
+	 * a full-page image of the page was taken (unless the
+	 * XLOG_HEAP_CONTAINS_NEW_TUPLE flag is set, in which case it's included
+	 * anyway).
+	 *
+	 * If XLOG_HEAP_CONTAINS_OLD_TUPLE or XLOG_HEAP_CONTAINS_OLD_KEY flags are
+	 * set, another xl_heap_header_len struct and tuple data for the old tuple
+	 * follows.
+	 */
 } xl_heap_update;
 
 #define SizeOfHeapUpdate	(offsetof(xl_heap_update, flags) + sizeof(uint8))
@@ -318,29 +335,43 @@ typedef struct xl_heap_new_cid
 	 * transactions
 	 */
 	TransactionId top_xid;
-	CommandId cmin;
-	CommandId cmax;
+	CommandId	cmin;
+	CommandId	cmax;
+
 	/*
-	 * don't really need the combocid since we have the actual values
-	 * right in this struct, but the padding makes it free and its
-	 * useful for debugging.
+	 * don't really need the combocid since we have the actual values right in
+	 * this struct, but the padding makes it free and its useful for
+	 * debugging.
 	 */
-	CommandId combocid;
+	CommandId	combocid;
+
 	/*
 	 * Store the relfilenode/ctid pair to facilitate lookups.
 	 */
-	xl_heaptid target;
+	xl_heaptid	target;
 } xl_heap_new_cid;
 
 #define SizeOfHeapNewCid (offsetof(xl_heap_new_cid, target) + SizeOfHeapTid)
 
+/* logical rewrite xlog record header */
+typedef struct xl_heap_rewrite_mapping
+{
+	TransactionId mapped_xid;	/* xid that might need to see the row */
+	Oid			mapped_db;		/* DbOid or InvalidOid for shared rels */
+	Oid			mapped_rel;		/* Oid of the mapped relation */
+	off_t		offset;			/* How far have we written so far */
+	uint32		num_mappings;	/* Number of in-memory mappings */
+	XLogRecPtr	start_lsn;		/* Insert LSN at begin of rewrite */
+} xl_heap_rewrite_mapping;
+
 extern void HeapTupleHeaderAdvanceLatestRemovedXid(HeapTupleHeader tuple,
 									   TransactionId *latestRemovedXid);
 
-extern void heap_redo(XLogRecPtr lsn, XLogRecord *rptr);
-extern void heap_desc(StringInfo buf, uint8 xl_info, char *rec);
-extern void heap2_redo(XLogRecPtr lsn, XLogRecord *rptr);
-extern void heap2_desc(StringInfo buf, uint8 xl_info, char *rec);
+extern void heap_redo(XLogRecPtr lsn, XLogRecord *record);
+extern void heap_desc(StringInfo buf, XLogRecord *record);
+extern void heap2_redo(XLogRecPtr lsn, XLogRecord *record);
+extern void heap2_desc(StringInfo buf, XLogRecord *record);
+extern void heap_xlog_logical_rewrite(XLogRecPtr lsn, XLogRecord *r);
 
 extern XLogRecPtr log_heap_cleanup_info(RelFileNode rnode,
 					  TransactionId latestRemovedXid);

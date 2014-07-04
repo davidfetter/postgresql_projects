@@ -33,8 +33,7 @@ files, as shown in <xref linkend="pgdata-contents-table">.  In addition to
 these required items, the cluster configuration files
 <filename>postgresql.conf</filename>, <filename>pg_hba.conf</filename>, and
 <filename>pg_ident.conf</filename> are traditionally stored in
-<varname>PGDATA</> (although in <productname>PostgreSQL</productname> 8.0 and
-later, it is possible to place them elsewhere).
+<varname>PGDATA</>, although it is possible to place them elsewhere.
 </para>
 
 <table tocentry="1" id="pgdata-contents-table">
@@ -79,6 +78,11 @@ Item
 </row>
 
 <row>
+ <entry><filename>pg_logical</></entry>
+ <entry>Subdirectory containing status data for logical decoding</entry>
+</row>
+
+<row>
  <entry><filename>pg_multixact</></entry>
  <entry>Subdirectory containing multitransaction status data
   (used for shared row locks)</entry>
@@ -90,6 +94,11 @@ Item
 </row>
 
 <row>
+ <entry><filename>pg_replslot</></entry>
+ <entry>Subdirectory containing replication slot data</entry>
+</row>
+
+<row>
  <entry><filename>pg_serial</></entry>
  <entry>Subdirectory containing information about committed serializable transactions</entry>
 </row>
@@ -97,6 +106,12 @@ Item
 <row>
  <entry><filename>pg_snapshots</></entry>
  <entry>Subdirectory containing exported snapshots</entry>
+</row>
+
+<row>
+ <entry><filename>pg_stat</></entry>
+ <entry>Subdirectory containing permanent files for the statistics
+  subsystem</entry>
 </row>
 
 <row>
