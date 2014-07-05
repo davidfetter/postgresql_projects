@@ -4555,6 +4555,10 @@ get_basic_select_query(Query *query, deparse_context *context,
 	{
 		appendContextKeyword(context, " GROUP BY ",
 							 -PRETTYINDENT_STD, PRETTYINDENT_STD, 1);
+
+		if (query->groupingSets != NULL)
+			appendStringInfoString(buf, "ROLLUP(");
+
 		sep = "";
 		foreach(l, query->groupClause)
 		{
@@ -4565,6 +4569,9 @@ get_basic_select_query(Query *query, deparse_context *context,
 									 false, context);
 			sep = ", ";
 		}
+
+		if (query->groupingSets != NULL)
+			appendStringInfoString(buf, ")");
 	}
 
 	/* Add the HAVING clause if given */
