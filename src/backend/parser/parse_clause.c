@@ -1715,6 +1715,8 @@ transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
 				if (targetIsInSortList(tle, InvalidOid, result))
 					continue;
 
+				found = false;
+
 				/*
 				 * If the GROUP BY tlist entry also appears in ORDER BY, copy operator
 				 * info from the (first) matching ORDER BY item.  This means that if
@@ -1725,6 +1727,10 @@ transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
 				 * sort step, and it allows the user to choose the equality semantics
 				 * used by GROUP BY, should she be working with a datatype that has
 				 * more than one equality operator.
+				 *
+				 * But for ROLLUP, we must currently demand that the ordering
+				 * be NULLS LAST (since we're going to add nulls at the end).
+				 * We can cope with either sort direction otherwise.
 				 */
 				if (tle->ressortgroupref > 0)
 				{
@@ -1734,7 +1740,8 @@ transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
 					{
 						SortGroupClause *sc = (SortGroupClause *) lfirst(sl);
 
-						if (sc->tleSortGroupRef == tle->ressortgroupref)
+						if (sc->tleSortGroupRef == tle->ressortgroupref
+							&& !sc->nulls_first)
 						{
 							result = lappend(result, copyObject(sc));
 							++numAdditions;
@@ -1744,16 +1751,16 @@ transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
 					}
 				}
 
-		/*
-		 * If no match in ORDER BY, just add it to the result using default
-		 * sort/group semantics.
-		 */
-		if (!found)
-			result = addTargetToGroupList(pstate, tle,
-													    result, *targetlist,
-													    exprLocation(gexpr),
-													    true);
-		    ++numAdditions;
+				/*
+				 * If no match in ORDER BY, just add it to the result using default
+				 * sort/group semantics.
+				 */
+				if (!found)
+					result = addTargetToGroupList(pstate, tle,
+												  result, *targetlist,
+												  exprLocation(gexpr),
+												  true);
+				++numAdditions;
 			}
 		}
 		else
