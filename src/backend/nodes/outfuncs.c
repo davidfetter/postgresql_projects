@@ -920,6 +920,7 @@ _outGrouping(StringInfo str, const Grouping *node)
 
 	WRITE_NODE_FIELD(vars);
 	WRITE_LOCATION_FIELD(location);
+	WRITE_INT_FIELD(agglevelsup);
 }
 
 static void

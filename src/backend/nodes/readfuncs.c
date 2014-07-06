@@ -447,6 +447,7 @@ _readGrouping(void)
 
 	READ_NODE_FIELD(vars);
 	READ_LOCATION_FIELD(location);
+	READ_INT_FIELD(agglevelsup);
 
 	READ_DONE();
 }

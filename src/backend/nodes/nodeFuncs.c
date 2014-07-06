@@ -1021,6 +1021,9 @@ exprSetCollation(Node *expr, Oid collation)
 		case T_BoolExpr:
 			Assert(!OidIsValid(collation));		/* result is always boolean */
 			break;
+	    case T_Grouping:
+			Assert(!OidIsValid(collation));
+			break;
 		case T_SubLink:
 #ifdef USE_ASSERT_CHECKING
 			{

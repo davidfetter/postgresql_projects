@@ -2787,4 +2787,12 @@ typedef struct AlterTSConfigurationStmt
 	bool		missing_ok;		/* for DROP - skip error if missing? */
 } AlterTSConfigurationStmt;
 
+/* GROUPING(cols) statement */
+typedef struct GroupingParse
+{
+	NodeTag type;
+	List *args;  /* List of ColumnRefs */
+	int  location;
+} GroupingParse;
+	
 #endif   /* PARSENODES_H */
