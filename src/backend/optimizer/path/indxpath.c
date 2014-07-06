@@ -50,7 +50,8 @@ typedef enum
 {
 	SAOP_PER_AM,				/* Use ScalarArrayOpExpr if amsearcharray */
 	SAOP_ALLOW,					/* Use ScalarArrayOpExpr for all indexes */
-	SAOP_REQUIRE				/* Require ScalarArrayOpExpr to be used */
+	SAOP_REQUIRE,				/* Require ScalarArrayOpExpr to be used */
+	SAOP_SKIP_LOWER				/* Require lower ScalarArrayOpExpr to be eliminated */
 } SaOpControl;
 
 /* Whether we are looking for plain indexscan, bitmap scan, or either */
@@ -118,7 +119,8 @@ static void get_index_paths(PlannerInfo *root, RelOptInfo *rel,
 static List *build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 				  IndexOptInfo *index, IndexClauseSet *clauses,
 				  bool useful_predicate,
-				  SaOpControl saop_control, ScanTypeControl scantype);
+				  SaOpControl saop_control, ScanTypeControl scantype,
+				  bool *saop_retry);
 static List *build_paths_for_OR(PlannerInfo *root, RelOptInfo *rel,
 				   List *clauses, List *other_clauses);
 static List *generate_bitmap_or_paths(PlannerInfo *root, RelOptInfo *rel,
@@ -734,6 +736,7 @@ get_index_paths(PlannerInfo *root, RelOptInfo *rel,
 {
 	List	   *indexpaths;
 	ListCell   *lc;
+	bool       saop_retry = false;
 
 	/*
 	 * Build simple index paths using the clauses.  Allow ScalarArrayOpExpr
@@ -742,7 +745,23 @@ get_index_paths(PlannerInfo *root, RelOptInfo *rel,
 	indexpaths = build_index_paths(root, rel,
 								   index, clauses,
 								   index->predOK,
-								   SAOP_PER_AM, ST_ANYSCAN);
+								   SAOP_PER_AM, ST_ANYSCAN, &saop_retry);
+
+	/*
+	 * If we allowed any ScalarArrayOpExprs on an index with a useful sort
+	 * ordering, then try again without them, since otherwise we miss important
+	 * paths where the index ordering is relevant.
+	 */
+	if (saop_retry)
+	{
+		indexpaths = list_concat(indexpaths,
+								 build_index_paths(root, rel,
+												   index, clauses,
+												   index->predOK,
+												   SAOP_SKIP_LOWER,
+												   ST_ANYSCAN,
+												   NULL));
+	}
 
 	/*
 	 * Submit all the ones that can form plain IndexScan plans to add_path. (A
@@ -779,7 +798,7 @@ get_index_paths(PlannerInfo *root, RelOptInfo *rel,
 		indexpaths = build_index_paths(root, rel,
 									   index, clauses,
 									   false,
-									   SAOP_REQUIRE, ST_BITMAPSCAN);
+									   SAOP_REQUIRE, ST_BITMAPSCAN, NULL);
 		*bitindexpaths = list_concat(*bitindexpaths, indexpaths);
 	}
 }
@@ -816,12 +835,14 @@ get_index_paths(PlannerInfo *root, RelOptInfo *rel,
  * 'useful_predicate' indicates whether the index has a useful predicate
  * 'saop_control' indicates whether ScalarArrayOpExpr clauses can be used
  * 'scantype' indicates whether we need plain or bitmap scan support
+ * 'saop_retry' indicates whether a SAOP_SKIP_LOWER retry is worthwhile
  */
 static List *
 build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 				  IndexOptInfo *index, IndexClauseSet *clauses,
 				  bool useful_predicate,
-				  SaOpControl saop_control, ScanTypeControl scantype)
+				  SaOpControl saop_control, ScanTypeControl scantype,
+				  bool *saop_retry)
 {
 	List	   *result = NIL;
 	IndexPath  *ipath;
@@ -877,7 +898,9 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 	 * assuming that the scan result is ordered.  (Actually, the result is
 	 * still ordered if there are equality constraints for all earlier
 	 * columns, but it seems too expensive and non-modular for this code to be
-	 * aware of that refinement.)
+	 * aware of that refinement.) But if saop_control is SAOP_SKIP_LOWER, we
+	 * skip exactly these clauses that break sorting, and don't bother
+	 * building any paths otherwise.
 	 *
 	 * We also build a Relids set showing which outer rels are required by the
 	 * selected clauses.  Any lateral_relids are included in that, but not
@@ -901,9 +924,13 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 				/* Ignore if not supported by index */
 				if (saop_control == SAOP_PER_AM && !index->amsearcharray)
 					continue;
-				found_clause = true;
 				if (indexcol > 0)
+				{
 					found_lower_saop_clause = true;
+					if (saop_control == SAOP_SKIP_LOWER)
+						continue;
+				}
+				found_clause = true;
 			}
 			else
 			{
@@ -928,6 +955,13 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 			return NIL;
 	}
 
+	if (saop_control == SAOP_SKIP_LOWER)
+	{
+		if (!found_lower_saop_clause)
+			return NIL;
+		found_lower_saop_clause = false;
+	}
+
 	/* We do not want the index's rel itself listed in outer_relids */
 	outer_relids = bms_del_member(outer_relids, rel->relid);
 	/* Enforce convention that outer_relids is exactly NULL if empty */
@@ -944,9 +978,19 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 	 * assume the scan is unordered.
 	 */
 	pathkeys_possibly_useful = (scantype != ST_BITMAPSCAN &&
-								!found_lower_saop_clause &&
 								has_useful_pathkeys(root, rel));
 	index_is_ordered = (index->sortopfamily != NULL);
+	if (pathkeys_possibly_useful && found_lower_saop_clause)
+	{
+		/*
+		 * We can't use an ordering with a lower SAOP clause, but we might be
+		 * able to use this same index better without the SAOP. Set a retry
+		 * flag so we can do another pass to catch that.
+		 */
+		pathkeys_possibly_useful = false;
+		if (saop_retry)
+			*saop_retry = true;
+	}
 	if (index_is_ordered && pathkeys_possibly_useful)
 	{
 		index_pathkeys = build_index_pathkeys(root, index,
@@ -1137,7 +1181,7 @@ build_paths_for_OR(PlannerInfo *root, RelOptInfo *rel,
 		indexpaths = build_index_paths(root, rel,
 									   index, &clauseset,
 									   useful_predicate,
-									   SAOP_ALLOW, ST_BITMAPSCAN);
+									   SAOP_ALLOW, ST_BITMAPSCAN, NULL);
 		result = list_concat(result, indexpaths);
 	}
 
