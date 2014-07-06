@@ -961,6 +961,22 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 			return NIL;
 		found_lower_saop_clause = false;
 	}
+	else if (found_lower_saop_clause)
+	{
+		/*
+		 * If we have a lower SAOP clause, we should leave it up to the cost
+		 * estimates to decide whether to use it in the scan or punt it to a
+		 * filter clause, rather than try and second-guess the AM's cost
+		 * estimate mechanism.  In addition, we need to consider the path
+		 * without the SAOP on the basis that it might give us an ordering
+		 * which overcomes any cost advantage of using the SAOP as an index
+		 * qual.  So either way, we flag it up so that the caller can do
+		 * another pass over the same index with SAOP_SKIP_LOWER to catch
+		 * such cases.
+		 */
+		if (saop_retry)
+			*saop_retry = true;
+	}
 
 	/* We do not want the index's rel itself listed in outer_relids */
 	outer_relids = bms_del_member(outer_relids, rel->relid);
@@ -978,19 +994,9 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 	 * assume the scan is unordered.
 	 */
 	pathkeys_possibly_useful = (scantype != ST_BITMAPSCAN &&
+								!found_lower_saop_clause &&
 								has_useful_pathkeys(root, rel));
 	index_is_ordered = (index->sortopfamily != NULL);
-	if (pathkeys_possibly_useful && found_lower_saop_clause)
-	{
-		/*
-		 * We can't use an ordering with a lower SAOP clause, but we might be
-		 * able to use this same index better without the SAOP. Set a retry
-		 * flag so we can do another pass to catch that.
-		 */
-		pathkeys_possibly_useful = false;
-		if (saop_retry)
-			*saop_retry = true;
-	}
 	if (index_is_ordered && pathkeys_possibly_useful)
 	{
 		index_pathkeys = build_index_pathkeys(root, index,
