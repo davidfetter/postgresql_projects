@@ -174,6 +174,7 @@ typedef struct Grouping
 {
 	Expr xpr;
 	List *vars;
+	List *clauses;
 	int location;
 	int agglevelsup;
 } Grouping;

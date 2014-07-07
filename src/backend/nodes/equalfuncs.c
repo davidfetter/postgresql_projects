@@ -156,6 +156,7 @@ static bool
 _equalGrouping(const Grouping *a, const Grouping *b)
 {
 	COMPARE_NODE_FIELD(vars);
+	COMPARE_NODE_FIELD(clauses);
 	COMPARE_LOCATION_FIELD(location);
 	COMPARE_SCALAR_FIELD(agglevelsup);
 

@@ -953,41 +953,23 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 			hasSelfRefRTEs = true;
 	}
 
+	if (qry->groupingSets)
+		hasRollup = true;
+
 	/*
 	 * Build a list of the acceptable GROUP BY expressions for use by
 	 * check_ungrouped_columns().
 	 */
 	foreach(l, qry->groupClause)
 	{
-		/* If ROLLUP is present, iterate into the nested sublist */
-		if (IsA(lfirst(l), List))
-		{
-			hasRollup = true;
-			foreach(l_inner, lfirst(l))
-			{
-				    List *current_sublist_groupclauses = NIL;
-					SortGroupClause *grpcl = (SortGroupClause *) lfirst(l_inner);
-					Node	   *expr;
+		SortGroupClause *grpcl = (SortGroupClause *) lfirst(l);
+		Node	   *expr;
 
-					expr = get_sortgroupclause_expr(grpcl, qry->targetList);
-					if (expr == NULL)
-						continue;			/* probably cannot happen */
+		expr = get_sortgroupclause_expr(grpcl, qry->targetList);
+		if (expr == NULL)
+			continue;			/* probably cannot happen */
 
-					current_sublist_groupclauses = lcons(expr, current_sublist_groupclauses);
-					groupClauses = lappend(groupClauses, current_sublist_groupclauses);
-			}
-		}
-		else
-		{
-			SortGroupClause *grpcl = (SortGroupClause *) lfirst(l);
-			Node	   *expr;
-
-			expr = get_sortgroupclause_expr(grpcl, qry->targetList);
-			if (expr == NULL)
-				continue;			/* probably cannot happen */
-
-			groupClauses = lcons(expr, groupClauses);
-		}
+		groupClauses = lcons(expr, groupClauses);
 		
 	}
 
@@ -1024,8 +1006,8 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 		{
 			if (!hasRollup)
 			{
-			have_non_var_grouping = true;
-			break;
+				have_non_var_grouping = true;
+				break;
 			}
 		}
 	}
@@ -1151,7 +1133,7 @@ check_ungrouped_columns_walker(Node *node,
 	if (IsA(node, Grouping))
 	{
 		Grouping *grp = (Grouping *) node;
-	    bool result = false;
+		List *list_clauses = NIL;
 
 		if ((int) grp->agglevelsup == context->sublevels_up)
 		{
@@ -1159,20 +1141,50 @@ check_ungrouped_columns_walker(Node *node,
 			 * or not. If not, error out.
 			 */
 			ListCell *lc;
+			ListCell *lc_grp;
+			int i = 0;
 
 			foreach(lc, (grp->vars))
 			{
+				Var            *current_grouping_expr;
+
 				if (!(IsA(lfirst(lc), Var)) || (((Var *) lfirst(lc))->varlevelsup != grp->agglevelsup))
 					ereport(ERROR,
 							(errcode(ERRCODE_GROUPING_ERROR),
 							 errmsg("Arguments to GROUPING must be grouped columns of the current query level"),
 							 parser_errposition(context->pstate, grp->location)));
+
+				current_grouping_expr = (Var *) lfirst(lc);
+				i = 0;
+
+				/* Find and put indexes into groupClauses for each Var present in vars list in Grouping node */
+				foreach(lc_grp, (context->qry->groupClause))
+				{
+					SortGroupClause *current_sgclause;
+					Var            *current_expr;
+
+					++i;
+
+					current_sgclause = lfirst(lc_grp);
+
+					current_expr = (Var *) get_sortgroupclause_expr(current_sgclause, (context->qry->targetList));
+
+					if (equal(current_expr, current_grouping_expr))
+					{
+						list_clauses = lappend_int(list_clauses, i);
+
+						break;
+					}
+				}
+						
 			}
 
-			result = true;
+			grp->clauses = list_clauses;
+			grp->vars = NULL;
+
 		}
 
-		return result;
+		return false;
 	}
 				
 	/*
