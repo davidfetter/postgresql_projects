@@ -1628,6 +1628,9 @@ FigureColnameInternal(Node *node, char **name)
 				}
 			}
 			break;
+	    case T_GroupingParse:
+			*name = "grouping";
+			return 2;
 		case T_A_Indirection:
 			{
 				A_Indirection *ind = (A_Indirection *) node;

@@ -461,6 +461,12 @@ transformGroupingExpr(ParseState *pstate, GroupingParse *p)
 	List *result_list = NULL;
 	Grouping *result = makeNode(Grouping);
 
+	if (list_length(args) > 31)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Argument columns to GROUPING must be less than 31 in number"),
+				 parser_errposition(pstate, p->location)));
+
 	foreach(lc, args)
 	{
 		Node *current_result;

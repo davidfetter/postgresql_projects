@@ -115,6 +115,7 @@ typedef enum NodeTag
 	T_SortState,
 	T_GroupState,
 	T_AggState,
+	T_GroupingState,
 	T_WindowAggState,
 	T_UniqueState,
 	T_HashState,

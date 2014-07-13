@@ -45,8 +45,9 @@ exprType(const Node *expr)
 		case T_Var:
 			type = ((const Var *) expr)->vartype;
 			break;
-	case T_Grouping:
+	    case T_Grouping:
 			type = INT4OID;
+			break;
 		case T_GroupedVar:
 			type = ((const GroupedVar *) expr)->vartype;
 			break;

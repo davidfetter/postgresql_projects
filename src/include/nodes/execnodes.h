@@ -913,6 +913,16 @@ typedef struct MinMaxExprState
 } MinMaxExprState;
 
 /* ----------------
+ *		GroupingState node
+ * ----------------
+ */
+typedef struct GroupingState
+{
+	ExprState	xprstate;
+	List        *clauses;
+} GroupingState;
+
+/* ----------------
  *		XmlExprState node
  * ----------------
  */

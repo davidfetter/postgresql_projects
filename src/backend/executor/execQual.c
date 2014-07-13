@@ -183,6 +183,8 @@ static Datum ExecEvalArrayCoerceExpr(ArrayCoerceExprState *astate,
 						bool *isNull, ExprDoneCond *isDone);
 static Datum ExecEvalCurrentOfExpr(ExprState *exprstate, ExprContext *econtext,
 					  bool *isNull, ExprDoneCond *isDone);
+static Datum ExecEvalGroupingExpr(GroupingState *gstate, ExprContext *econtext,
+								  bool *isNull, ExprDoneCond *isDone);
 
 
 /* ----------------------------------------------------------------
@@ -3027,6 +3029,42 @@ ExecEvalCaseTestExpr(ExprState *exprstate,
 	return econtext->caseValue_datum;
 }
 
+/* 
+ * ExecEvalGroupingExpr
+ * Return a bitmask with a bit for each column.
+ * A bit is set if the column is not a part of grouping.
+ */
+
+static Datum
+ExecEvalGroupingExpr(GroupingState *gstate,
+					 ExprContext *econtext,
+					 bool *isNull,
+					 ExprDoneCond *isDone)
+{
+	int result = 0;
+	int current_val= 0;
+	ListCell *lc;
+
+
+	if (isDone)
+		*isDone = ExprSingleResult;
+
+	*isNull = false;
+
+	foreach(lc, (gstate->clauses)) 
+	{
+		current_val = lfirst_int(lc);
+
+		result = result << 1;
+
+		if (!bms_is_member(current_val, econtext->grouped_cols))
+			result = result | 1;
+
+	}
+		
+	return (Datum) result;
+}
+
 /* ----------------------------------------------------------------
  *		ExecEvalArray - ARRAY[] expressions
  * ----------------------------------------------------------------
@@ -4429,6 +4467,36 @@ ExecInitExpr(Expr *node, PlanState *parent)
 			Assert(((Var *) node)->varattno != InvalidAttrNumber);
 			state = (ExprState *) makeNode(ExprState);
 			state->evalfunc = ExecEvalScalarVar;
+			break;
+		case T_Grouping:
+		{
+			Grouping *grp_node = (Grouping *) node;
+			GroupingState *grp_state = makeNode(GroupingState);
+			List     *result_list = NIL;    
+			ListCell *lc;
+			Agg *agg = NULL;
+
+			if (parent != NULL)
+				if (!(IsA((parent->plan), Agg)))
+					elog(ERROR, "Parent is not Agg node");
+
+		    agg = (Agg *) (parent->plan);
+
+			foreach(lc, (grp_node->clauses))
+			{
+				int current_index = lfirst_int(lc);
+				int result = 0;
+
+				result = agg->grpColIdx[(current_index - 1)];
+
+				result_list = lappend_int(result_list, result);
+			}
+
+			grp_state->clauses = result_list;
+
+			state = (ExprState *) grp_state;
+			state->evalfunc = (ExprStateEvalFunc) ExecEvalGroupingExpr;
+		}
 			break;
 		case T_Const:
 			state = (ExprState *) makeNode(ExprState);
