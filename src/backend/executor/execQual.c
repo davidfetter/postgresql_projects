@@ -4482,17 +4482,20 @@ ExecInitExpr(Expr *node, PlanState *parent)
 
 		    agg = (Agg *) (parent->plan);
 
-			foreach(lc, (grp_node->clauses))
+			if (agg->hasRollup)
 			{
-				int current_index = lfirst_int(lc);
-				int result = 0;
+				foreach(lc, (grp_node->clauses))
+				{
+					int current_index = lfirst_int(lc);
+					int result = 0;
 
-				result = agg->grpColIdx[(current_index - 1)];
+					result = agg->grpColIdx[(current_index - 1)];
 
-				result_list = lappend_int(result_list, result);
+					result_list = lappend_int(result_list, result);
+				}
+
+				grp_state->clauses = result_list;
 			}
-
-			grp_state->clauses = result_list;
 
 			state = (ExprState *) grp_state;
 			state->evalfunc = (ExprStateEvalFunc) ExecEvalGroupingExpr;

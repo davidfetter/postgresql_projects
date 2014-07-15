@@ -721,6 +721,14 @@ IncrementVarSublevelsUp_walker(Node *node,
 			agg->agglevelsup += context->delta_sublevels_up;
 		/* fall through to recurse into argument */
 	}
+	if (IsA(node, Grouping))
+	{
+		Grouping	   *grp = (Grouping *) node;
+
+		if (grp->agglevelsup >= context->min_sublevels_up)
+			grp->agglevelsup += context->delta_sublevels_up;
+		/* fall through to recurse into argument */
+	}
 	if (IsA(node, PlaceHolderVar))
 	{
 		PlaceHolderVar *phv = (PlaceHolderVar *) node;
