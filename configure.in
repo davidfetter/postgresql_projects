@@ -891,7 +891,7 @@ fi
 AC_CHECK_LIB(m, main)
 AC_SEARCH_LIBS(setproctitle, util)
 AC_SEARCH_LIBS(dlopen, dl)
-AC_SEARCH_LIBS(socket, [socket wsock32])
+AC_SEARCH_LIBS(socket, [socket ws2_32])
 AC_SEARCH_LIBS(shl_load, dld)
 # We only use libld in port/dynloader/aix.c
 case $host_os in
@@ -954,6 +954,7 @@ if test "$with_openssl" = yes ; then
      AC_SEARCH_LIBS(CRYPTO_new_ex_data, eay32 crypto, [], [AC_MSG_ERROR([library 'eay32' or 'crypto' is required for OpenSSL])])
      AC_SEARCH_LIBS(SSL_library_init, ssleay32 ssl, [], [AC_MSG_ERROR([library 'ssleay32' or 'ssl' is required for OpenSSL])])
   fi
+  AC_CHECK_FUNCS([SSL_get_current_compression])
 fi
 
 if test "$with_pam" = yes ; then
