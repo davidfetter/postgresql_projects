@@ -78,12 +78,12 @@ ignore: random
 # ----------
 # Another group of parallel tests
 # ----------
-test: select_into select_distinct select_distinct_on select_implicit select_having subselect union case join aggregates groupingsets transactions random portals arrays btree_index hash_index update namespace prepared_xacts delete
+test: select_into select_distinct select_distinct_on select_implicit select_having subselect union case join aggregates transactions random portals arrays btree_index hash_index update namespace prepared_xacts delete
 
 # ----------
 # Another group of parallel tests
 # ----------
-test: privileges security_label collate matview lock replica_identity
+test: privileges security_label collate matview lock replica_identity groupingsets
 
 # ----------
 # Another group of parallel tests
