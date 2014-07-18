@@ -180,6 +180,16 @@ _equalGroupedVar(const GroupedVar *a, const GroupedVar *b)
 }
 
 static bool
+_equalGroupingSet(const GroupingSet *a, const GroupingSet *b)
+{
+	COMPARE_SCALAR_FIELD(kind);
+	COMPARE_NODE_FIELD(content);
+	COMPARE_LOCATION_FIELD(location);
+
+	return true;
+}
+
+static bool
 _equalConst(const Const *a, const Const *b)
 {
 	COMPARE_SCALAR_FIELD(consttype);
@@ -2589,6 +2599,9 @@ equal(const void *a, const void *b)
 			break;
         case T_Grouping:
 			retval = _equalGrouping(a, b);
+			break;
+        case T_GroupingSet:
+			retval = _equalGroupingSet(a, b);
 			break;
 		case T_Const:
 			retval = _equalConst(a, b);

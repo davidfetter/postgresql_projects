@@ -351,7 +351,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				target_list opt_target_list insert_column_list set_target_list
 				set_clause_list set_clause multiple_set_clause
 				ctext_expr_list ctext_row def_list indirection opt_indirection
-				reloption_list group_clause rollup_clause TriggerFuncArgs select_limit
+				reloption_list group_clause TriggerFuncArgs select_limit
 				opt_select_limit opclass_item_list opclass_drop_list
 				opclass_purpose opt_opfamily transaction_mode_list_or_empty
 				OptTableFuncElementList TableFuncElementList opt_type_modifiers
@@ -360,6 +360,10 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				opt_enum_val_list enum_val_list table_func_column_list
 				create_generic_options alter_generic_options
 				relation_expr_list dostmt_opt_list
+
+%type <list>	group_by_list grouping_set_list
+%type <node>	group_by_item empty_grouping_set rollup_clause cube_clause
+%type <node>	grouping_sets_clause grouping_set
 
 %type <list>	opt_fdw_options fdw_options
 %type <defelt>	fdw_option
@@ -425,7 +429,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <list>	ExclusionConstraintList ExclusionConstraintElem
 %type <list>	func_arg_list
 %type <node>	func_arg_expr
-%type <list>	row type_list array_expr_list
+%type <list>	row explicit_row implicit_row type_list array_expr_list
 %type <node>	case_expr case_arg when_clause case_default
 %type <list>	when_clause_list
 %type <ival>	sub_type
@@ -547,7 +551,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	CLUSTER COALESCE COLLATE COLLATION COLUMN COMMENT COMMENTS COMMIT
 	COMMITTED CONCURRENTLY CONFIGURATION CONNECTION CONSTRAINT CONSTRAINTS
 	CONTENT_P CONTINUE_P CONVERSION_P COPY COST CREATE
-	CROSS CSV CURRENT_P
+	CROSS CSV CUBE CURRENT_P
 	CURRENT_CATALOG CURRENT_DATE CURRENT_ROLE CURRENT_SCHEMA
 	CURRENT_TIME CURRENT_TIMESTAMP CURRENT_USER CURSOR CYCLE
 
@@ -600,7 +604,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	ROW ROWS RULE
 
 	SAVEPOINT SCHEMA SCROLL SEARCH SECOND_P SECURITY SELECT SEQUENCE SEQUENCES
-	SERIALIZABLE SERVER SESSION SESSION_USER SET SETOF SHARE
+	SERIALIZABLE SERVER SESSION SESSION_USER SET SETS SETOF SHARE
 	SHOW SIMILAR SIMPLE SMALLINT SNAPSHOT SOME STABLE STANDALONE_P START
 	STATEMENT STATISTICS STDIN STDOUT STORAGE STRICT_P STRIP_P SUBSTRING
 	SYMMETRIC SYSID SYSTEM_P
@@ -9832,15 +9836,84 @@ first_or_next: FIRST_P								{ $$ = 0; }
 		;
 
 
+/*
+ * This syntax for group_clause tries to follow the spec quite closely.
+ * However, the spec allows only column references, not expressions,
+ * which introduces an ambiguity between implicit row constructors
+ * (a,b) and lists of column references.
+ *
+ * We handle this by using the a_expr production for what the spec calls
+ * <ordinary grouping set>, which in the spec represents either one column
+ * reference or a parenthesized list of column references. Then, we check the
+ * top node of the a_expr to see if it's an implicit RowExpr, and if so, just
+ * grab and use the list, discarding the node. (this is done in parse analysis,
+ * not here)
+ *
+ * (we abuse the row_format field of RowExpr to distinguish implicit and
+ * explicit row constructors; it's debatable if anyone sanely wants to use them
+ * in a group clause, but if they have a reason to, we make it possible.)
+ *
+ * Each item in the group_clause list is either an expression tree or a
+ * GroupingSet node of some type.
+ */
+
 group_clause:
-			GROUP_P BY expr_list					{ $$ = $3; }
-			| GROUP_P BY ROLLUP '(' expr_list ')'				{ $$ = list_make1($5); }
+			GROUP_P BY group_by_list				{ $$ = $3; }
 			| /*EMPTY*/								{ $$ = NIL; }
 		;
 
+group_by_list:
+			group_by_item							{ $$ = list_make1($1); }
+			| group_by_list ',' group_by_item		{ $$ = lappend($1,$3); }
+		;
+
+group_by_item:
+			a_expr									{ $$ = $1; }
+			| empty_grouping_set					{ $$ = $1; }
+			| rollup_clause							{ $$ = $1; }
+			| cube_clause							{ $$ = $1; }
+			| grouping_sets_clause					{ $$ = $1; }
+		;
+
+empty_grouping_set:
+			'(' ')'
+				{
+					$$ = (Node *) makeGroupingSet(GROUPING_SET_EMPTY, NIL, @1);
+				}
+		;
+
 rollup_clause:
-			ROLLUP expr_list				{ $$ = $2; }
-			| /*EMPTY*/								{ $$ = NIL; }
+			ROLLUP '(' expr_list ')'
+				{
+					$$ = (Node *) makeGroupingSet(GROUPING_SET_ROLLUP, $3, @1);
+				}
+		;
+
+cube_clause:
+			CUBE '(' expr_list ')'
+				{
+					$$ = (Node *) makeGroupingSet(GROUPING_SET_CUBE, $3, @1);
+				}
+		;
+
+grouping_sets_clause:
+			GROUPING SETS '(' grouping_set_list ')'
+				{
+					$$ = (Node *) makeGroupingSet(GROUPING_SET_SETS, $4, @1);
+				}
+		;
+
+grouping_set:
+			a_expr									{ $$ = $1; }
+			| empty_grouping_set					{ $$ = $1; }
+			| rollup_clause							{ $$ = $1; }
+			| cube_clause							{ $$ = $1; }
+			| grouping_sets_clause					{ $$ = $1; }
+		;
+
+grouping_set_list:
+			grouping_set 							{ $$ = list_make1($1); }
+			| grouping_set_list ',' grouping_set	{ $$ = lappend($1,$3); }
 		;
 
 having_clause:
@@ -10866,6 +10939,8 @@ interval_second:
  * c_expr is all the productions that are common to a_expr and b_expr;
  * it's factored out just to eliminate redundant coding.
  */
+
+
 a_expr:		c_expr									{ $$ = $1; }
 			| a_expr TYPECAST Typename
 					{ $$ = makeTypeCast($1, $3, @2); }
@@ -11322,7 +11397,9 @@ b_expr:		c_expr
  * cannot appear here.	However, it's OK to refer to a_exprs that occur
  * inside parentheses, such as function arguments; that cannot introduce
  * ambiguity to the b_expr syntax.
+ *
  */
+
 c_expr:		columnref								{ $$ = $1; }
 			| AexprConst							{ $$ = $1; }
 			| PARAM opt_indirection
@@ -11421,12 +11498,23 @@ c_expr:		columnref								{ $$ = $1; }
 					n->location = @1;
 					$$ = (Node *)n;
 				}
-			| row
+			| explicit_row
 				{
 					RowExpr *r = makeNode(RowExpr);
 					r->args = $1;
 					r->row_typeid = InvalidOid;	/* not analyzed yet */
 					r->colnames = NIL;	/* to be filled in during analysis */
+					r->row_format = COERCE_EXPLICIT_CALL; /* abuse */
+					r->location = @1;
+					$$ = (Node *)r;
+				}
+			| implicit_row
+				{
+					RowExpr *r = makeNode(RowExpr);
+					r->args = $1;
+					r->row_typeid = InvalidOid;	/* not analyzed yet */
+					r->colnames = NIL;	/* to be filled in during analysis */
+					r->row_format = COERCE_IMPLICIT_CAST; /* abuse */
 					r->location = @1;
 					$$ = (Node *)r;
 				}
@@ -12184,6 +12272,13 @@ frame_bound:
 row:		ROW '(' expr_list ')'					{ $$ = $3; }
 			| ROW '(' ')'							{ $$ = NIL; }
 			| '(' expr_list ',' a_expr ')'			{ $$ = lappend($2, $4); }
+		;
+
+explicit_row:	ROW '(' expr_list ')'				{ $$ = $3; }
+			| ROW '(' ')'							{ $$ = NIL; }
+		;
+
+implicit_row:	'(' expr_list ',' a_expr ')'		{ $$ = lappend($2, $4); }
 		;
 
 sub_type:	ANY										{ $$ = ANY_SUBLINK; }
@@ -13094,6 +13189,7 @@ unreserved_keyword:
 			| SERVER
 			| SESSION
 			| SET
+			| SETS
 			| SHARE
 			| SHOW
 			| SIMPLE
@@ -13170,6 +13266,7 @@ col_name_keyword:
 			| CHAR_P
 			| CHARACTER
 			| COALESCE
+			| CUBE
 			| DEC
 			| DECIMAL_P
 			| EXISTS
@@ -13191,6 +13288,7 @@ col_name_keyword:
 			| POSITION
 			| PRECISION
 			| REAL
+			| ROLLUP
 			| ROW
 			| SETOF
 			| SMALLINT
@@ -13314,7 +13412,6 @@ reserved_keyword:
 			| PRIMARY
 			| REFERENCES
 			| RETURNING
-			| ROLLUP
 			| SELECT
 			| SESSION_USER
 			| SOME

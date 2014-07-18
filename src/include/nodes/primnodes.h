@@ -1167,6 +1167,32 @@ typedef struct CurrentOfExpr
 	int			cursor_param;	/* refcursor parameter number, or 0 */
 } CurrentOfExpr;
 
+/*
+ * Node representing substructure in GROUPING SETS
+ *
+ * This is not actually executable, but it's used in the raw parsetree
+ * representation of GROUP BY, and in the groupingSets field of Query, to
+ * preserve the original structure of rollup/cube clauses for readability
+ * rather than reducing everything to grouping sets.
+ */
+
+typedef enum
+{
+	GROUPING_SET_EMPTY,
+	GROUPING_SET_SIMPLE,
+	GROUPING_SET_ROLLUP,
+	GROUPING_SET_CUBE,
+	GROUPING_SET_SETS
+} GroupingSetKind;
+
+typedef struct GroupingSet
+{
+	Expr		xpr;
+	GroupingSetKind kind;
+	List	   *content;
+	int			location;
+} GroupingSet;
+
 /*--------------------
  * TargetEntry -
  *	   a target entry (used in query target lists)

@@ -1210,6 +1210,9 @@ exprLocation(const Node *expr)
 		case T_GroupedVar:
 			loc = ((const GroupedVar *) expr)->location;
 			break;
+		case T_GroupingSet:
+			loc = ((const GroupingSet *) expr)->location;
+			break;
 		case T_Const:
 			loc = ((const Const *) expr)->location;
 			break;
@@ -3257,6 +3260,8 @@ raw_expression_tree_walker(Node *node,
 			return walker(((WithClause *) node)->ctes, context);
 		case T_CommonTableExpr:
 			return walker(((CommonTableExpr *) node)->ctequery, context);
+		case T_GroupingSet:
+			return walker(((GroupingSet *) node)->content, context);
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(node));

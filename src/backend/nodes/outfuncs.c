@@ -941,6 +941,16 @@ _outGroupedVar(StringInfo str, const GroupedVar *node)
 }
 
 static void
+_outGroupingSet(StringInfo str, const GroupingSet *node)
+{
+	WRITE_NODE_TYPE("GROUPINGSET");
+
+	WRITE_ENUM_FIELD(kind, GroupingSetKind);
+	WRITE_NODE_FIELD(content);
+	WRITE_LOCATION_FIELD(location);
+}
+
+static void
 _outConst(StringInfo str, const Const *node)
 {
 	WRITE_NODE_TYPE("CONST");
@@ -2943,6 +2953,9 @@ _outNode(StringInfo str, const void *obj)
 				break;
             case T_Grouping:
 				_outGrouping(str, obj);
+				break;
+            case T_GroupingSet:
+				_outGroupingSet(str, obj);
 				break;
 			case T_Const:
 				_outConst(str, obj);
