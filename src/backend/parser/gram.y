@@ -10939,8 +10939,6 @@ interval_second:
  * c_expr is all the productions that are common to a_expr and b_expr;
  * it's factored out just to eliminate redundant coding.
  */
-
-
 a_expr:		c_expr									{ $$ = $1; }
 			| a_expr TYPECAST Typename
 					{ $$ = makeTypeCast($1, $3, @2); }
@@ -11397,9 +11395,7 @@ b_expr:		c_expr
  * cannot appear here.	However, it's OK to refer to a_exprs that occur
  * inside parentheses, such as function arguments; that cannot introduce
  * ambiguity to the b_expr syntax.
- *
  */
-
 c_expr:		columnref								{ $$ = $1; }
 			| AexprConst							{ $$ = $1; }
 			| PARAM opt_indirection
