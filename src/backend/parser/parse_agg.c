@@ -329,10 +329,7 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	List	   *tdistinct = NIL;
 	AttrNumber	attno = 1;
 	int			save_next_resno;
-	int			min_varlevel;
 	ListCell   *lc;
-	const char *err;
-	bool		errkind;
 
 	if (AGGKIND_IS_ORDERED_SET(agg->aggkind))
 	{
@@ -938,11 +935,9 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	bool		hasSelfRefRTEs;
 	PlannerInfo *root;
 	Node	   *clause;
-	ListCell   *l_inner;
-	bool       hasRollup = false;
 
 	/* This should only be called if we found aggregates or grouping */
-	Assert(pstate->p_hasAggs || qry->groupClause || qry->havingQual);
+	Assert(pstate->p_hasAggs || qry->groupClause || qry->havingQual || qry->groupingSets);
 
 	/*
 	 * Scan the range table to see if there are JOIN or self-reference CTE
@@ -958,9 +953,6 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 		else if (rte->rtekind == RTE_CTE && rte->self_reference)
 			hasSelfRefRTEs = true;
 	}
-
-	if (qry->groupingSets)
-		hasRollup = true;
 
 	/*
 	 * Build a list of the acceptable GROUP BY expressions for use by
@@ -1010,11 +1002,8 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	{
 		if (!IsA((Node *) lfirst(l), Var))
 		{
-			if (!hasRollup)
-			{
-				have_non_var_grouping = true;
-				break;
-			}
+			have_non_var_grouping = true;
+			break;
 		}
 	}
 
@@ -1094,7 +1083,6 @@ check_ungrouped_columns_walker(Node *node,
 							   check_ungrouped_columns_context *context)
 {
 	ListCell   *gl;
-	ListCell   *gl_iter;
 
 	if (node == NULL)
 		return false;

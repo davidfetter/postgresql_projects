@@ -1999,7 +1999,9 @@ transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
 	 * needed for GROUP BY, per the syntax rules for grouping sets, but
 	 * we do it anyway.)
 	 */
-	flat_grouplist = (List *) flatten_grouping_sets((Node *) grouplist, true, &hasGroupingSets);
+	flat_grouplist = (List *) flatten_grouping_sets((Node *) grouplist,
+													true,
+													&hasGroupingSets);
 
 	/*
 	 * If the list is now empty, but hasGroupingSets is true, it's because
@@ -2011,7 +2013,7 @@ transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
 	{
 		flat_grouplist = list_make1(makeGroupingSet(GROUPING_SET_EMPTY,
 													NIL,
-													exprLocation((Node *) linitial(grouplist))));
+													exprLocation(grouplist)));
 	}
 
 	foreach(gl, flat_grouplist)
