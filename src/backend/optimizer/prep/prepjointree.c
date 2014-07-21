@@ -1297,6 +1297,7 @@ is_simple_subquery(Query *subquery, RangeTblEntry *rte,
 	if (subquery->hasAggs ||
 		subquery->hasWindowFuncs ||
 		subquery->groupClause ||
+		subquery->groupingSets ||
 		subquery->havingQual ||
 		subquery->sortClause ||
 		subquery->distinctClause ||

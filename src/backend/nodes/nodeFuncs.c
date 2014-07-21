@@ -1653,7 +1653,6 @@ expression_tree_walker(Node *node,
 	switch (nodeTag(node))
 	{
 		case T_Var:
-	    case T_Grouping:
 	    case T_GroupedVar:
 		case T_Const:
 		case T_Param:
@@ -1685,6 +1684,15 @@ expression_tree_walker(Node *node,
 										   walker, context))
 					return true;
 				if (walker((Node *) expr->aggfilter, context))
+					return true;
+			}
+			break;
+	    case T_Grouping:
+			{
+				Grouping   *grouping = (Grouping *) node;
+
+				if (expression_tree_walker((Node *) grouping->args,
+										   walker, context))
 					return true;
 			}
 			break;
@@ -2177,15 +2185,6 @@ expression_tree_mutator(Node *node,
 				return (Node *) newnode;
 			}
 			break;
-	    case T_Grouping:
-			{
-				Grouping		   *grouping = (Grouping *) node;
-				Grouping		   *newnode;
-
-				FLATCOPY(newnode, grouping, Grouping);
-				return (Node *) newnode;
-			}
-			break;
 	    case T_GroupedVar:
 			{
 				GroupedVar         *groupedvar = (GroupedVar *) node;
@@ -2213,6 +2212,17 @@ expression_tree_mutator(Node *node,
 		case T_RangeTblRef:
 		case T_SortGroupClause:
 			return (Node *) copyObject(node);
+		case T_Grouping:
+			{
+				Grouping	   *grouping = (Grouping *) node;
+				Grouping	   *newnode;
+
+				FLATCOPY(newnode, grouping, Grouping);
+				MUTATE(newnode->args, grouping->args, List *);
+				/* assume no need to copy or mutate the refs list */
+				return (Node *) newnode;
+			}
+			break;
 		case T_WithCheckOption:
 			{
 				WithCheckOption *wco = (WithCheckOption *) node;

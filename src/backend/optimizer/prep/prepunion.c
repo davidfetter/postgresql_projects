@@ -268,7 +268,8 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 		 */
 		if (pNumGroups)
 		{
-			if (subquery->groupClause || subquery->distinctClause ||
+			if (subquery->groupClause || subquery->groupingSets ||
+				subquery->distinctClause ||
 				subroot->hasHavingQual || subquery->hasAggs)
 				*pNumGroups = subplan->plan_rows;
 			else

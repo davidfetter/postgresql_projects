@@ -1231,6 +1231,7 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	 */
 	if (parse->hasAggs ||
 		parse->groupClause ||
+		parse->groupingSets ||
 		parse->havingQual ||
 		parse->distinctClause ||
 		parse->sortClause ||
@@ -2104,7 +2105,7 @@ subquery_push_qual(Query *subquery, RangeTblEntry *rte, Index rti, Node *qual)
 		 * subquery uses grouping or aggregation, put it in HAVING (since the
 		 * qual really refers to the group-result rows).
 		 */
-		if (subquery->hasAggs || subquery->groupClause || subquery->havingQual)
+		if (subquery->hasAggs || subquery->groupClause || subquery->groupingSets || subquery->havingQual)
 			subquery->havingQual = make_and_qual(subquery->havingQual, qual);
 		else
 			subquery->jointree->quals =

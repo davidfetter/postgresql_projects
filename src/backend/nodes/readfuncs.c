@@ -445,8 +445,8 @@ _readGrouping(void)
 {
 	READ_LOCALS(Grouping);
 
-	READ_NODE_FIELD(vars);
-	READ_NODE_FIELD(clauses);
+	READ_NODE_FIELD(args);
+	READ_NODE_FIELD(refs);
 	READ_LOCATION_FIELD(location);
 	READ_INT_FIELD(agglevelsup);
 

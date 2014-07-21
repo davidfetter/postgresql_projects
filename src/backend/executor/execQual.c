@@ -4489,7 +4489,7 @@ ExecInitExpr(Expr *node, PlanState *parent)
 
 			if (agg->hasRollup)
 			{
-				foreach(lc, (grp_node->clauses))
+				foreach(lc, (grp_node->refs))
 				{
 					int current_index = lfirst_int(lc);
 					int result = 0;

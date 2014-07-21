@@ -1006,7 +1006,8 @@ find_unaggregated_cols_walker(Node *node, Bitmapset **colnos)
 		*colnos = bms_add_member(*colnos, var->varattno);
 		return false;
 	}
-	if (IsA(node, Aggref))		/* do not descend into aggregate exprs */
+	if (IsA(node, Aggref) || IsA(node, Grouping))
+		/* do not descend into aggregate exprs */
 		return false;
 	return expression_tree_walker(node, find_unaggregated_cols_walker,
 								  (void *) colnos);

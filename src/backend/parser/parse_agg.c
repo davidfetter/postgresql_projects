@@ -43,6 +43,7 @@ typedef struct
 	ParseState *pstate;
 	Query	   *qry;
 	List	   *groupClauses;
+	List	   *groupClauseVars;
 	bool		have_non_var_grouping;
 	List	  **func_grouped_rels;
 	int			sublevels_up;
@@ -56,7 +57,8 @@ static int check_agg_arguments(ParseState *pstate,
 static bool check_agg_arguments_walker(Node *node,
 						   check_agg_arguments_context *context);
 static void check_ungrouped_columns(Node *node, ParseState *pstate, Query *qry,
-						List *groupClauses, bool have_non_var_grouping,
+						List *groupClauses, List *groupClauseVars,
+						bool have_non_var_grouping,
 						List **func_grouped_rels);
 static bool check_ungrouped_columns_walker(Node *node,
 							   check_ungrouped_columns_context *context);
@@ -90,7 +92,7 @@ static void check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 	{
 		Grouping *grp = (Grouping *) expr;
 
-		args = grp->vars;
+		args = grp->args;
 
 		location = grp->location;
 	}
@@ -200,7 +202,7 @@ static void check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 			errkind = true;
 			break;
 	    case EXPR_KIND_GROUPING:
-			/* okay */
+			errkind = true;
 			break;
 		case EXPR_KIND_ORDER_BY:
 			/* okay */
@@ -455,13 +457,13 @@ transformGroupingExpr(ParseState *pstate, GroupingParse *p)
 {
 	ListCell *lc;
 	List *args = p->args;
-	List *result_list = NULL;
+	List *result_list = NIL;
 	Grouping *result = makeNode(Grouping);
 
 	if (list_length(args) > 31)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Argument columns to GROUPING must be less than 31 in number"),
+				 errmsg("Argument columns to GROUPING must be less than 32 in number"),
 				 parser_errposition(pstate, p->location)));
 
 	foreach(lc, args)
@@ -470,23 +472,12 @@ transformGroupingExpr(ParseState *pstate, GroupingParse *p)
 
 		current_result = transformExpr(pstate, (Node*) lfirst(lc), EXPR_KIND_GROUPING);
 
-		/* If the result is not a Var or is a whole row Var, error out */
-		if (!(IsA(current_result, Var) || (((Var *) current_result)->varattno == 0)))
-		{
-			ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Argument to GROUPING must be a simple column reference"),
-				 parser_errposition(pstate, p->location)));
-			return NULL;
-		}
+		/* acceptability of expressions is checked later */
 
-		if (result_list == NULL)
-			result_list = list_make1(current_result);
-		else
-			lappend(result_list, current_result);
+		result_list = lappend(result_list, current_result);
 	}
 
-	result->vars = result_list;
+	result->args = result_list;
 	result->location = p->location;
 
 	check_agglevels_and_constraints(pstate, (Node *) result);
@@ -928,6 +919,7 @@ void
 parseCheckAggregates(ParseState *pstate, Query *qry)
 {
 	List	   *groupClauses = NIL;
+	List	   *groupClauseVars = NIL;
 	bool		have_non_var_grouping;
 	List	   *func_grouped_rels = NIL;
 	ListCell   *l;
@@ -957,18 +949,20 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	/*
 	 * Build a list of the acceptable GROUP BY expressions for use by
 	 * check_ungrouped_columns().
+	 *
+	 * We get the TLE, not just the expr, because GROUPING wants to know
+	 * the sortgroupref.
 	 */
 	foreach(l, qry->groupClause)
 	{
 		SortGroupClause *grpcl = (SortGroupClause *) lfirst(l);
-		Node	   *expr;
+		TargetEntry	   *expr;
 
-		expr = get_sortgroupclause_expr(grpcl, qry->targetList);
+		expr = get_sortgroupclause_tle(grpcl, qry->targetList);
 		if (expr == NULL)
 			continue;			/* probably cannot happen */
 
 		groupClauses = lcons(expr, groupClauses);
-		
 	}
 
 	/*
@@ -1000,10 +994,14 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	have_non_var_grouping = false;
 	foreach(l, groupClauses)
 	{
-		if (!IsA((Node *) lfirst(l), Var))
+		TargetEntry *tle = lfirst(l);
+		if (!IsA(tle->expr, Var))
 		{
 			have_non_var_grouping = true;
-			break;
+		}
+		else
+		{
+			groupClauseVars = lappend(groupClauseVars, tle->expr);
 		}
 	}
 
@@ -1019,14 +1017,16 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	if (hasJoinRTEs)
 		clause = flatten_join_alias_vars(root, clause);
 	check_ungrouped_columns(clause, pstate, qry,
-							groupClauses, have_non_var_grouping,
+							groupClauses, groupClauseVars,
+							have_non_var_grouping,
 							&func_grouped_rels);
 
 	clause = (Node *) qry->havingQual;
 	if (hasJoinRTEs)
 		clause = flatten_join_alias_vars(root, clause);
 	check_ungrouped_columns(clause, pstate, qry,
-							groupClauses, have_non_var_grouping,
+							groupClauses, groupClauseVars,
+							have_non_var_grouping,
 							&func_grouped_rels);
 
 	/*
@@ -1063,7 +1063,8 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
  */
 static void
 check_ungrouped_columns(Node *node, ParseState *pstate, Query *qry,
-						List *groupClauses, bool have_non_var_grouping,
+						List *groupClauses, List *groupClauseVars,
+						bool have_non_var_grouping,
 						List **func_grouped_rels)
 {
 	check_ungrouped_columns_context context;
@@ -1071,6 +1072,7 @@ check_ungrouped_columns(Node *node, ParseState *pstate, Query *qry,
 	context.pstate = pstate;
 	context.qry = qry;
 	context.groupClauses = groupClauses;
+	context.groupClauseVars = groupClauseVars;
 	context.have_non_var_grouping = have_non_var_grouping;
 	context.func_grouped_rels = func_grouped_rels;
 	context.sublevels_up = 0;
@@ -1127,55 +1129,74 @@ check_ungrouped_columns_walker(Node *node,
 	if (IsA(node, Grouping))
 	{
 		Grouping *grp = (Grouping *) node;
-		List *list_clauses = NIL;
+
+		/*
+		 * We only need to check Grouping nodes at the exact level to which
+		 * they belong, since they cannot mix levels in arguments.
+		 */
 
 		if ((int) grp->agglevelsup == context->sublevels_up)
 		{
-			/* Check if each of the args in Grouping node is a Var of the same level
-			 * or not. If not, error out.
-			 */
-			ListCell *lc;
-			ListCell *lc_grp;
-			int i = 0;
+			ListCell  *lc;
+			List 	  *ref_list = NIL;
 
-			foreach(lc, (grp->vars))
+			foreach(lc, (grp->args))
 			{
-				Var            *current_grouping_expr;
+				Node   *expr = lfirst(lc);
+				Index	ref = 0;
 
-				if (!(IsA(lfirst(lc), Var)) || (((Var *) lfirst(lc))->varlevelsup != grp->agglevelsup))
-					ereport(ERROR,
-							(errcode(ERRCODE_GROUPING_ERROR),
-							 errmsg("Arguments to GROUPING must be grouped columns of the current query level"),
-							 parser_errposition(context->pstate, grp->location)));
+				/*
+				 * Each expression must match a grouping entry at the current
+				 * query level. Unlike the general expression case, we don't
+				 * allow functional dependencies or outer references.
+				 */
 
-				current_grouping_expr = (Var *) lfirst(lc);
-				i = 0;
-
-				/* Find and put indexes into groupClauses for each Var present in vars list in Grouping node */
-				foreach(lc_grp, (context->qry->groupClause))
+				if (IsA(expr, Var))
 				{
-					SortGroupClause *current_sgclause;
-					Var            *current_expr;
+					Var *var = (Var *) expr;
 
-					++i;
-
-					current_sgclause = lfirst(lc_grp);
-
-					current_expr = (Var *) get_sortgroupclause_expr(current_sgclause, (context->qry->targetList));
-
-					if (equal(current_expr, current_grouping_expr))
+					if (var->varlevelsup == context->sublevels_up)
 					{
-						list_clauses = lappend_int(list_clauses, i);
+						foreach(gl, context->groupClauses)
+						{
+							TargetEntry *tle = lfirst(gl);
+							Var	  		*gvar = (Var *) tle->expr;
 
-						break;
+							if (IsA(gvar, Var) &&
+								gvar->varno == var->varno &&
+								gvar->varattno == var->varattno &&
+								gvar->varlevelsup == 0)
+							{
+								ref = tle->ressortgroupref;
+								break;
+							}
+						}
 					}
 				}
-						
+				else if (context->have_non_var_grouping && context->sublevels_up == 0)
+				{
+					foreach(gl, context->groupClauses)
+					{
+						TargetEntry *tle = lfirst(gl);
+
+						if (equal(expr, tle->expr))
+						{
+							ref = tle->ressortgroupref;
+							break;
+						}
+					}
+				}
+
+				if (ref == 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_GROUPING_ERROR),
+							 errmsg("Arguments to GROUPING must be grouping expressions of the associated query level"),
+							 parser_errposition(context->pstate, grp->location)));
+
+				ref_list = lappend_int(ref_list, ref);
 			}
 
-			grp->clauses = list_clauses;
-			grp->vars = NULL;
-
+			grp->refs = ref_list;
 		}
 
 		return false;
@@ -1192,11 +1213,10 @@ check_ungrouped_columns_walker(Node *node,
 	{
 		foreach(gl, context->groupClauses)
 		{
-			{
-				if (equal(node, lfirst(gl)))
-						return false;	/* acceptable, do not descend more */
-			}
-				
+			TargetEntry *tle = lfirst(gl);
+
+			if (equal(node, tle->expr))
+				return false;	/* acceptable, do not descend more */
 		}
 	}
 
@@ -1222,7 +1242,7 @@ check_ungrouped_columns_walker(Node *node,
 		{
 			foreach(gl, context->groupClauses)
 			{
-				Var		   *gvar = (Var *) lfirst(gl);
+				Var		   *gvar = (Var *) ((TargetEntry *)lfirst(gl))->expr;
 
 				if (IsA(gvar, Var) &&
 					gvar->varno == var->varno &&
@@ -1231,7 +1251,7 @@ check_ungrouped_columns_walker(Node *node,
 				{
 					return false;		/* acceptable, we're okay */
 				}
-				
+			
 			}
 		}
 
@@ -1262,7 +1282,7 @@ check_ungrouped_columns_walker(Node *node,
 			if (check_functional_grouping(rte->relid,
 										  var->varno,
 										  0,
-										  context->groupClauses,
+										  context->groupClauseVars,
 										  &context->qry->constraintDeps))
 			{
 				*context->func_grouped_rels =

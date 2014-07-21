@@ -1881,7 +1881,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		 * result was already mostly unique).  If not, use the number of
 		 * distinct-groups calculated previously.
 		 */
-		if (parse->groupClause || root->hasHavingQual || parse->hasAggs)
+		if (parse->groupClause || parse->groupingSets || root->hasHavingQual || parse->hasAggs)
 			dNumDistinctRows = result_plan->plan_rows;
 		else
 			dNumDistinctRows = dNumGroups;
@@ -3079,7 +3079,7 @@ make_subplanTargetList(PlannerInfo *root,
 	 * If we're not grouping or aggregating, there's nothing to do here;
 	 * query_planner should receive the unmodified target list.
 	 */
-	if (!parse->hasAggs && !parse->groupClause && !root->hasHavingQual &&
+	if (!parse->hasAggs && !parse->groupClause && !parse->groupingSets && !root->hasHavingQual &&
 		!parse->hasWindowFuncs)
 	{
 		*need_tlist_eval = true;

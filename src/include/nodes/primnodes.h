@@ -173,8 +173,8 @@ typedef Var GroupedVar;
 typedef struct Grouping
 {
 	Expr xpr;
-	List *vars;
-	List *clauses;
+	List *args;
+	List *refs;
 	int location;
 	int agglevelsup;
 } Grouping;

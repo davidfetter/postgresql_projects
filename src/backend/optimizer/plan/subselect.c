@@ -1532,13 +1532,14 @@ simplify_EXISTS_query(Query *query)
 {
 	/*
 	 * We don't try to simplify at all if the query uses set operations,
-	 * aggregates, modifying CTEs, HAVING, LIMIT/OFFSET, or FOR UPDATE/SHARE;
-	 * none of these seem likely in normal usage and their possible effects
-	 * are complex.
+	 * aggregates, grouping sets, modifying CTEs, HAVING, LIMIT/OFFSET, or FOR
+	 * UPDATE/SHARE; none of these seem likely in normal usage and their
+	 * possible effects are complex.
 	 */
 	if (query->commandType != CMD_SELECT ||
 		query->setOperations ||
 		query->hasAggs ||
+		query->groupingSets ||
 		query->hasWindowFuncs ||
 		query->hasModifyingCTE ||
 		query->havingQual ||

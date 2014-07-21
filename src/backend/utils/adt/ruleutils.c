@@ -360,9 +360,11 @@ static void get_target_list(List *targetList, deparse_context *context,
 static void get_setop_query(Node *setOp, Query *query,
 				deparse_context *context,
 				TupleDesc resultDesc);
-static Node *get_rule_sortgroupclause(SortGroupClause *srt, List *tlist,
+static Node *get_rule_sortgroupclause(Index ref, List *tlist,
 						 bool force_colno,
 						 deparse_context *context);
+static void get_rule_groupingset(GroupingSet *gset, List *targetlist,
+								 bool omit_parens, deparse_context *context);
 static void get_rule_orderby(List *orderList, List *targetList,
 				 bool force_colno, deparse_context *context);
 static void get_rule_windowclause(Query *query, deparse_context *context);
@@ -4526,7 +4528,7 @@ get_basic_select_query(Query *query, deparse_context *context,
 				SortGroupClause *srt = (SortGroupClause *) lfirst(l);
 
 				appendStringInfoString(buf, sep);
-				get_rule_sortgroupclause(srt, query->targetList,
+				get_rule_sortgroupclause(srt->tleSortGroupRef, query->targetList,
 										 false, context);
 				sep = ", ";
 			}
@@ -4551,27 +4553,36 @@ get_basic_select_query(Query *query, deparse_context *context,
 	}
 
 	/* Add the GROUP BY clause if given */
-	if (query->groupClause != NULL)
+	if (query->groupClause != NULL || query->groupingSets != NULL)
 	{
 		appendContextKeyword(context, " GROUP BY ",
 							 -PRETTYINDENT_STD, PRETTYINDENT_STD, 1);
 
-		if (query->groupingSets != NULL)
-			appendStringInfoString(buf, "ROLLUP(");
-
-		sep = "";
-		foreach(l, query->groupClause)
+		if (query->groupingSets == NIL)
 		{
-			SortGroupClause *grp = (SortGroupClause *) lfirst(l);
+			sep = "";
+			foreach(l, query->groupClause)
+			{
+				SortGroupClause *grp = (SortGroupClause *) lfirst(l);
 
-			appendStringInfoString(buf, sep);
-			get_rule_sortgroupclause(grp, query->targetList,
-									 false, context);
-			sep = ", ";
+				appendStringInfoString(buf, sep);
+				get_rule_sortgroupclause(grp->tleSortGroupRef, query->targetList,
+										 false, context);
+				sep = ", ";
+			}
 		}
+		else
+		{
+			sep = "";
+			foreach(l, query->groupingSets)
+			{
+				GroupingSet *grp = lfirst(l);
 
-		if (query->groupingSets != NULL)
-			appendStringInfoString(buf, ")");
+				appendStringInfoString(buf, sep);
+				get_rule_groupingset(grp, query->targetList, true, context);
+				sep = ", ";
+			}
+		}
 	}
 
 	/* Add the HAVING clause if given */
@@ -4857,14 +4868,14 @@ get_setop_query(Node *setOp, Query *query, deparse_context *context,
  * Also returns the expression tree, so caller need not find it again.
  */
 static Node *
-get_rule_sortgroupclause(SortGroupClause *srt, List *tlist, bool force_colno,
+get_rule_sortgroupclause(Index ref, List *tlist, bool force_colno,
 						 deparse_context *context)
 {
 	StringInfo	buf = context->buf;
 	TargetEntry *tle;
 	Node	   *expr;
 
-	tle = get_sortgroupclause_tle(srt, tlist);
+	tle = get_sortgroupref_tle(ref, tlist);
 	expr = (Node *) tle->expr;
 
 	/*
@@ -4889,6 +4900,66 @@ get_rule_sortgroupclause(SortGroupClause *srt, List *tlist, bool force_colno,
 }
 
 /*
+ * Display a GroupingSet
+ */
+static void
+get_rule_groupingset(GroupingSet *gset, List *targetlist,
+					 bool omit_parens, deparse_context *context)
+{
+	ListCell   *l;
+	StringInfo	buf = context->buf;
+	bool		omit_child_parens = true;
+	char	   *sep = "";
+
+	switch (gset->kind)
+	{
+		case GROUPING_SET_EMPTY:
+			appendStringInfoString(buf, "()");
+			return;
+
+		case GROUPING_SET_SIMPLE:
+			{
+				if (!omit_parens || list_length(gset->content) != 1)
+					appendStringInfoString(buf, "(");
+
+				foreach(l, gset->content)
+				{
+					Index ref = lfirst_int(l);
+
+					appendStringInfoString(buf, sep);
+					get_rule_sortgroupclause(ref, targetlist,
+											 false, context);
+					sep = ", ";
+				}
+
+				if (!omit_parens || list_length(gset->content) != 1)
+					appendStringInfoString(buf, ")");
+			}
+			return;
+
+		case GROUPING_SET_ROLLUP:
+			appendStringInfoString(buf, "ROLLUP(");
+			break;
+		case GROUPING_SET_CUBE:
+			appendStringInfoString(buf, "CUBE(");
+			break;
+		case GROUPING_SET_SETS:
+			appendStringInfoString(buf, "GROUPING SETS (");
+			omit_child_parens = false;
+			break;
+	}
+
+	foreach(l, gset->content)
+	{
+		appendStringInfoString(buf, sep);
+		get_rule_groupingset(lfirst(l), targetlist, omit_child_parens, context);
+		sep = ", ";
+	}
+
+	appendStringInfoString(buf, ")");
+}
+
+/*
  * Display an ORDER BY list.
  */
 static void
@@ -4908,7 +4979,7 @@ get_rule_orderby(List *orderList, List *targetList,
 		TypeCacheEntry *typentry;
 
 		appendStringInfoString(buf, sep);
-		sortexpr = get_rule_sortgroupclause(srt, targetList,
+		sortexpr = get_rule_sortgroupclause(srt->tleSortGroupRef, targetList,
 											force_colno, context);
 		sortcoltype = exprType(sortexpr);
 		/* See whether operator is default < or > for datatype */
@@ -5008,7 +5079,7 @@ get_rule_windowspec(WindowClause *wc, List *targetList,
 			SortGroupClause *grp = (SortGroupClause *) lfirst(l);
 
 			appendStringInfoString(buf, sep);
-			get_rule_sortgroupclause(grp, targetList,
+			get_rule_sortgroupclause(grp->tleSortGroupRef, targetList,
 									 false, context);
 			sep = ", ";
 		}
@@ -7579,6 +7650,16 @@ get_rule_expr(Node *node, deparse_context *context,
 				else
 					appendStringInfo(buf, "CURRENT OF $%d",
 									 cexpr->cursor_param);
+			}
+			break;
+
+		case T_Grouping:
+			{
+				Grouping *gexpr = (Grouping *) node;
+
+				appendStringInfoString(buf, "GROUPING(");
+				get_rule_expr((Node *) gexpr->args, context, true);
+				appendStringInfoChar(buf, ')');
 			}
 			break;
 

@@ -1073,8 +1073,8 @@ _copyGrouping(const Grouping *from)
 {
 	Grouping		   *newnode = makeNode(Grouping);
 
-	COPY_NODE_FIELD(vars);
-	COPY_NODE_FIELD(clauses);
+	COPY_NODE_FIELD(args);
+	COPY_NODE_FIELD(refs);
 	COPY_LOCATION_FIELD(location);
 	COPY_SCALAR_FIELD(agglevelsup);
 

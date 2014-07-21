@@ -918,8 +918,8 @@ _outGrouping(StringInfo str, const Grouping *node)
 {
 	WRITE_NODE_TYPE("GROUPING");
 
-	WRITE_NODE_FIELD(vars);
-	WRITE_NODE_FIELD(clauses);
+	WRITE_NODE_FIELD(args);
+	WRITE_NODE_FIELD(refs);
 	WRITE_LOCATION_FIELD(location);
 	WRITE_INT_FIELD(agglevelsup);
 }

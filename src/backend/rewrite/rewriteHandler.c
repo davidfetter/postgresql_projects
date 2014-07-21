@@ -2063,7 +2063,7 @@ view_query_is_auto_updatable(Query *viewquery, bool check_cols)
 	if (viewquery->distinctClause != NIL)
 		return gettext_noop("Views containing DISTINCT are not automatically updatable.");
 
-	if (viewquery->groupClause != NIL)
+	if (viewquery->groupClause != NIL || viewquery->groupingSets)
 		return gettext_noop("Views containing GROUP BY are not automatically updatable.");
 
 	if (viewquery->havingQual != NULL)
