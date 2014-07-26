@@ -632,6 +632,8 @@ typedef struct Agg
 	AttrNumber *grpColIdx;		/* their indexes in the target list */
 	Oid		   *grpOperators;	/* equality operators to compare with */
 	long		numGroups;		/* estimated number of groups in input */
+	List        *groupIds;      /* group IDs of the groups present in current Agg */
+	List        *currentMatchCols;  /* current  number of matching cols */
 } Agg;
 
 /* ----------------

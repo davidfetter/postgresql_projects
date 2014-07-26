@@ -18,3 +18,7 @@ select a, sum(b) from aggtest v(a,b) group by rollup (a);
 select grouping(a), sum(b) from aggtest v(a,b) group by rollup (a);
 
 select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by a,b;
+
+SELECT four, ten, SUM(SUM(four)) OVER (PARTITION BY four), AVG(ten) FROM tenk1
+GROUP BY ROLLUP(four, ten) ORDER BY four, ten;
+

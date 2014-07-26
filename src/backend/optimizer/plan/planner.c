@@ -78,6 +78,7 @@ static double preprocess_limit(PlannerInfo *root,
 				 int64 *offset_est, int64 *count_est);
 static bool limit_needed(Query *parse);
 static void preprocess_groupclause(PlannerInfo *root);
+static List* preprocess_groupingset(PlannerInfo *root);
 static void standard_qp_callback(PlannerInfo *root, void *extra);
 static bool choose_hashed_grouping(PlannerInfo *root,
 					   double tuple_fraction, double limit_tuples,
@@ -2541,6 +2542,7 @@ limit_needed(Query *parse)
 }
 
 
+
 /*
  * preprocess_groupclause - do preparatory work on GROUP BY clause
  *
@@ -2631,6 +2633,53 @@ preprocess_groupclause(PlannerInfo *root)
 	Assert(list_length(parse->groupClause) == list_length(new_groupclause));
 	parse->groupClause = new_groupclause;
 }
+
+static List* preprocess_groupingset(PlannerInfo *root)
+{
+	Query	   *parse = root->parse;
+	List       *groupingSets = parse->groupingSets;
+	List       *result = NIL;
+	ListCell   *lc;
+	int        max_length = 0;
+	List       *max_length_list = NIL;
+
+	foreach(lc, groupingSets)
+	{
+		GroupingSet *gs = lfirst(lc);
+
+		if (gs->kind == GROUPING_SET_SIMPLE)
+			result = lappend(result, (gs->content));
+		else if (gs->kind == GROUPING_SET_ROLLUP)
+		{
+			List *rollup_val = gs->content;
+			List *rollups_result = NIL;
+			List *lc_inner;
+			int curgroup_size = list_length(gs->content);
+
+			while (curgroup_size > 0)
+			{
+				List *current_result = NIL;
+				int i = curgroup_size;
+
+				foreach(lc_inner, rollup_val)
+				{
+					/* If we are done with making the current group, break */
+					if (i == 0)
+						break;
+
+					current_result = lappend(current_result, (lfirst(lc_inner)));
+					--i;
+				}
+
+				rollups_result = lappend(rollups_result, current_result);
+				--curgroup_size;
+			}
+
+			result = lappend(result, rollups_result);
+		}
+	}
+}
+		
 
 /*
  * Compute query_pathkeys and other pathkeys during plan generation
