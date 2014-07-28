@@ -40,6 +40,7 @@
 #include "rewrite/rewriteManip.h"
 #include "utils/rel.h"
 #include "utils/selfuncs.h"
+#include "math.h"
 
 
 /* GUC parameter */
@@ -1199,6 +1200,10 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		/* Preprocess GROUP BY clause, if any */
 		if (parse->groupClause)
 			preprocess_groupclause(root);
+
+		/* Preprocess Grouping set, if any */
+		if (parse->groupingSets)
+			preprocess_groupingset(root);
 
 		/* If the groupClause is a list-of lists, we need to traverse
 		 * in the top list and then calculate the number of group columns
@@ -2634,50 +2639,215 @@ preprocess_groupclause(PlannerInfo *root)
 	parse->groupClause = new_groupclause;
 }
 
+static List* process_groupingsetnode(GroupingSet *gs)
+{
+	List * result = NIL;
+
+	if (gs->kind == GROUPING_SET_SIMPLE)
+	{
+		result = lappend(result, (gs->content));
+	}
+	else if (gs->kind == GROUPING_SET_ROLLUP)
+	{
+		List *rollup_val = gs->content;
+		List *rollups_result = NIL;
+		List *current_flat_val = NIL;
+		List *current_result_final = NIL;
+		ListCell *lc_result;
+		ListCell *lc_inner;
+		int curgroup_size = list_length(gs->content);
+		int current_data_val;
+		
+		while (curgroup_size > 0)
+		{
+			List *current_result = NIL;
+			int i = curgroup_size;
+
+			foreach(lc_inner, rollup_val)
+			{
+				GroupingSet *gs_current = (GroupingSet *)(lfirst(lc_inner));
+				/* If we are done with making the current group, break */
+				if (i == 0)
+					break;
+
+				current_result = lappend(current_result, (gs_current->content));
+				--i;
+			}
+
+			current_result_final = NIL;
+			foreach(lc_result, current_result)
+			{
+				current_flat_val = lfirst(lc_result);
+				current_data_val = linitial_int(current_flat_val);
+				current_result_final = lappend_int(current_result_final, current_data_val);
+			}
+			
+			rollups_result = lappend(rollups_result, current_result_final);
+			--curgroup_size;
+		}
+
+		rollups_result = lappend(rollups_result, NIL);
+
+		result = list_concat(result, rollups_result);
+	}
+	else if (gs->kind == GROUPING_SET_SETS)
+	{
+		ListCell *lc;
+
+		foreach(lc, (gs->content))
+		{
+			List *current_result = NIL;
+
+			current_result = process_groupingsetnode(lfirst(lc));
+			lappend(result, current_result);
+		}
+	}
+	else if (gs->kind == GROUPING_SET_CUBE)
+	{
+		List *current_result_final = NIL;
+		ListCell *lc_result;
+		List *current_flat_val = NIL;
+		int upper_cap = (int) pow(2, list_length(gs->content));
+		int i = 0;
+		int current_data_val = 0;
+		int number_bits = list_length((gs->content));
+
+		for (i = 0;i < upper_cap;i++)
+		{
+			List *current_groups = NIL;
+			List *current_group_result = NIL;
+			ListCell *lc;
+			int j = 0;
+
+			for (j = 0;j < number_bits;j++)
+			{
+				if ((i & (1<<j)))
+				{
+					current_groups = lappend_int(current_groups, j);
+				}
+			}
+
+			foreach(lc, current_groups)
+			{
+				ListCell *lc_inner;
+				GroupingSet *gs_current;
+				int current_val = lfirst_int(lc);
+				int k = current_val;
+
+				foreach(lc_inner, (gs->content))
+				{
+					if (k == 0)
+						break;
+
+					--k;
+				}
+
+				gs_current = (GroupingSet *)(lfirst(lc_inner));
+
+				current_group_result = lappend(current_group_result, (gs_current->content));
+	
+			}
+
+			current_result_final = NIL;
+
+			foreach(lc_result, current_group_result)
+			{
+				current_flat_val = lfirst(lc_result);
+				current_data_val = linitial_int(current_flat_val);
+				current_result_final = lappend_int(current_result_final, current_data_val);
+			}
+
+			result = lappend(result, current_result_final);
+
+		}
+	}
+
+	return result;
+}
 static List* preprocess_groupingset(PlannerInfo *root)
 {
 	Query	   *parse = root->parse;
 	List       *groupingSets = parse->groupingSets;
+	List       *result_groups = NIL;
 	List       *result = NIL;
 	ListCell   *lc;
+	ListCell   *lc_sets;
 	int        max_length = 0;
-	List       *max_length_list = NIL;
+	List       *max_length_list = NULL;
+	int        current_group_set_num = 0;
 
 	foreach(lc, groupingSets)
 	{
+		List *current_result = NIL;
 		GroupingSet *gs = lfirst(lc);
 
-		if (gs->kind == GROUPING_SET_SIMPLE)
-			result = lappend(result, (gs->content));
-		else if (gs->kind == GROUPING_SET_ROLLUP)
+		current_result = process_groupingsetnode(gs);
+	
+		result_groups = lappend(result_groups,current_result);
+	}
+
+	foreach(lc_sets, result_groups)
+	{
+		List     *current_set_list = lfirst(lc_sets);
+		ListCell *lc_inner;
+		ListCell *lc_result;
+
+		foreach(lc_inner, current_set_list)
 		{
-			List *rollup_val = gs->content;
-			List *rollups_result = NIL;
-			List *lc_inner;
-			int curgroup_size = list_length(gs->content);
+			List     *current_result = NIL;
+			List *current_group = NIL;
+			ListCell *lc_iterate;
+			int i = current_group_set_num + 1;
 
-			while (curgroup_size > 0)
+			foreach(lc_iterate, result_groups)
 			{
-				List *current_result = NIL;
-				int i = curgroup_size;
-
-				foreach(lc_inner, rollup_val)
+				if (i < list_length(result_groups))
 				{
-					/* If we are done with making the current group, break */
-					if (i == 0)
-						break;
+					List *current_product_list= list_nth(result_groups, i);
 
-					current_result = lappend(current_result, (lfirst(lc_inner)));
-					--i;
+					foreach(lc_result, current_product_list)
+					{
+						List *current_outer_group = lfirst(lc_inner);
+						List *current_inner_group = lfirst(lc_result);
+						ListCell *lc_outer_group;
+						ListCell *lc_inner_group;
+
+						current_group = NIL;
+
+						foreach(lc_outer_group, current_outer_group)
+						{
+							int current_val = lfirst_int(lc_outer_group);
+
+							current_group = lappend_int(current_group, current_val);
+						}
+
+						foreach(lc_inner_group, current_inner_group)
+						{
+							int current_val = lfirst_int(lc_inner_group);
+
+							current_group = lappend_int(current_group, current_val);
+						}
+
+						if (list_length(current_group) > max_length)
+						{
+							max_length = list_length(current_group);
+							max_length_list = current_group;
+						}
+
+						current_result = lappend(current_result, current_group);
+					}
 				}
 
-				rollups_result = lappend(rollups_result, current_result);
-				--curgroup_size;
+				++i;
 			}
 
-			result = lappend(result, rollups_result);
+			result = list_concat(result, current_result);
 		}
+
+		current_group_set_num++;
 	}
+		
+	return result;
 }
 		
 
