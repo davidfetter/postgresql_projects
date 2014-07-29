@@ -1203,7 +1203,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 		/* Preprocess Grouping set, if any */
 		if (parse->groupingSets)
-			preprocess_groupingset(root);
+			parse->groupingSets = preprocess_groupingset(root);
 
 		/* If the groupClause is a list-of lists, we need to traverse
 		 * in the top list and then calculate the number of group columns
@@ -2772,6 +2772,7 @@ static List* preprocess_groupingset(PlannerInfo *root)
 	List       *result = NIL;
 	ListCell   *lc;
 	ListCell   *lc_sets;
+	ListCell   *lc_prefix;
 	int        max_length = 0;
 	List       *max_length_list = NULL;
 	int        current_group_set_num = 0;
@@ -2846,7 +2847,25 @@ static List* preprocess_groupingset(PlannerInfo *root)
 
 		current_group_set_num++;
 	}
-		
+
+	foreach(lc_prefix, result)
+	{
+		List *current_match_list = lfirst(lc_prefix);
+		ListCell *lc_mainlist;
+		ListCell *lc_prefixlist;
+
+		foreach(lc_mainlist, max_length_list)
+		{
+			foreach(lc_prefixlist, current_match_list)
+			{
+				if (lfirst_int(lc_mainlist) != lfirst_int(lc_prefixlist))
+				{
+					elog(ERROR, "Functionality not implemented yet");
+				}
+			}
+		}
+	}
+
 	return result;
 }
 		
