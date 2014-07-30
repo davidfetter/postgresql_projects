@@ -2786,6 +2786,13 @@ static List* preprocess_groupingset(PlannerInfo *root)
 		result_groups = lappend(result_groups,current_result);
 	}
 
+	if (list_length(result_groups) == 1)
+	{
+		result = linitial(result_groups);
+
+		return result;
+	}
+
 	foreach(lc_sets, result_groups)
 	{
 		List     *current_set_list = lfirst(lc_sets);
@@ -2852,16 +2859,28 @@ static List* preprocess_groupingset(PlannerInfo *root)
 		List *current_match_list = lfirst(lc_prefix);
 		ListCell *lc_mainlist;
 		ListCell *lc_prefixlist;
+		int current_mainlist_element = 0;
 
 		foreach(lc_mainlist, max_length_list)
 		{
+			int i = 0;
+
 			foreach(lc_prefixlist, current_match_list)
 			{
-				if (lfirst_int(lc_mainlist) != lfirst_int(lc_prefixlist))
+				if (i >= current_mainlist_element)
 				{
-					elog(ERROR, "Functionality not implemented yet");
+					if (lfirst_int(lc_mainlist) != lfirst_int(lc_prefixlist))
+					{
+						elog(ERROR, "Functionality not implemented yet");
+					}
+
+					break;
 				}
+
+				++i;
 			}
+
+			++current_mainlist_element;
 		}
 	}
 
