@@ -2676,9 +2676,14 @@ static List* process_groupingsetnode(GroupingSet *gs)
 			current_result_final = NIL;
 			foreach(lc_result, current_result)
 			{
+				ListCell *lc_flatval;
+
 				current_flat_val = lfirst(lc_result);
-				current_data_val = linitial_int(current_flat_val);
-				current_result_final = lappend_int(current_result_final, current_data_val);
+				foreach(lc_flatval, current_flat_val)
+				{
+					current_data_val = lfirst_int(lc_flatval);
+					current_result_final = lappend_int(current_result_final, current_data_val);
+				}
 			}
 			
 			rollups_result = lappend(rollups_result, current_result_final);
