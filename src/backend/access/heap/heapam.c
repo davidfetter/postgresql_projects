@@ -4183,7 +4183,9 @@ l3:
 			 * the case, HeapTupleSatisfiesUpdate would have returned
 			 * MayBeUpdated and we wouldn't be here.
 			 */
-			nmembers = GetMultiXactIdMembers(xwait, &members, false);
+			nmembers =
+				GetMultiXactIdMembers(xwait, &members, false,
+									  HEAP_XMAX_IS_LOCKED_ONLY(infomask));
 
 			for (i = 0; i < nmembers; i++)
 			{
@@ -4204,7 +4206,8 @@ l3:
 				}
 			}
 
-			pfree(members);
+			if (members)
+				pfree(members);
 		}
 
 		/*
@@ -4353,7 +4356,9 @@ l3:
 				 * been the case, HeapTupleSatisfiesUpdate would have returned
 				 * MayBeUpdated and we wouldn't be here.
 				 */
-				nmembers = GetMultiXactIdMembers(xwait, &members, false);
+				nmembers =
+					GetMultiXactIdMembers(xwait, &members, false,
+										  HEAP_XMAX_IS_LOCKED_ONLY(infomask));
 
 				if (nmembers <= 0)
 				{
@@ -4834,7 +4839,7 @@ l5:
 		 * MultiXactIdExpand if we weren't to do this, so this check is not
 		 * incurring extra work anyhow.
 		 */
-		if (!MultiXactIdIsRunning(xmax))
+		if (!MultiXactIdIsRunning(xmax, HEAP_XMAX_IS_LOCKED_ONLY(old_infomask)))
 		{
 			if (HEAP_XMAX_IS_LOCKED_ONLY(old_infomask) ||
 				TransactionIdDidAbort(MultiXactIdGetUpdateXid(xmax,
@@ -5175,7 +5180,8 @@ l4:
 				int			i;
 				MultiXactMember *members;
 
-				nmembers = GetMultiXactIdMembers(rawxmax, &members, false);
+				nmembers = GetMultiXactIdMembers(rawxmax, &members, false,
+									 HEAP_XMAX_IS_LOCKED_ONLY(old_infomask));
 				for (i = 0; i < nmembers; i++)
 				{
 					HTSU_Result res;
@@ -5533,7 +5539,8 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 		 */
 		Assert((!(t_infomask & HEAP_LOCK_MASK) &&
 				HEAP_XMAX_IS_LOCKED_ONLY(t_infomask)) ||
-			   !MultiXactIdIsRunning(multi));
+			   !MultiXactIdIsRunning(multi,
+									 HEAP_XMAX_IS_LOCKED_ONLY(t_infomask)));
 		if (HEAP_XMAX_IS_LOCKED_ONLY(t_infomask))
 		{
 			*flags |= FRM_INVALIDATE_XMAX;
@@ -5576,7 +5583,9 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 
 	allow_old = !(t_infomask & HEAP_LOCK_MASK) &&
 		HEAP_XMAX_IS_LOCKED_ONLY(t_infomask);
-	nmembers = GetMultiXactIdMembers(multi, &members, allow_old);
+	nmembers =
+		GetMultiXactIdMembers(multi, &members, allow_old,
+							  HEAP_XMAX_IS_LOCKED_ONLY(t_infomask));
 	if (nmembers <= 0)
 	{
 		/* Nothing worth keeping */
@@ -5627,17 +5636,13 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 
 			/*
 			 * It's an update; should we keep it?  If the transaction is known
-			 * aborted then it's okay to ignore it, otherwise not.  However,
-			 * if the Xid is older than the cutoff_xid, we must remove it.
-			 * Note that such an old updater cannot possibly be committed,
-			 * because HeapTupleSatisfiesVacuum would have returned
+			 * aborted or crashed then it's okay to ignore it, otherwise not.
+			 * Note that an updater older than cutoff_xid cannot possibly be
+			 * committed, because HeapTupleSatisfiesVacuum would have returned
 			 * HEAPTUPLE_DEAD and we would not be trying to freeze the tuple.
 			 *
-			 * Note the TransactionIdDidAbort() test is just an optimization
-			 * and not strictly necessary for correctness.
-			 *
 			 * As with all tuple visibility routines, it's critical to test
-			 * TransactionIdIsInProgress before the transam.c routines,
+			 * TransactionIdIsInProgress before TransactionIdDidCommit,
 			 * because of race conditions explained in detail in tqual.c.
 			 */
 			if (TransactionIdIsCurrentTransactionId(xid) ||
@@ -5646,46 +5651,40 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 				Assert(!TransactionIdIsValid(update_xid));
 				update_xid = xid;
 			}
-			else if (!TransactionIdDidAbort(xid))
+			else if (TransactionIdDidCommit(xid))
 			{
 				/*
-				 * Test whether to tell caller to set HEAP_XMAX_COMMITTED
-				 * while we have the Xid still in cache.  Note this can only
-				 * be done if the transaction is known not running.
+				 * The transaction committed, so we can tell caller to set
+				 * HEAP_XMAX_COMMITTED.  (We can only do this because we know
+				 * the transaction is not running.)
 				 */
-				if (TransactionIdDidCommit(xid))
-					update_committed = true;
 				Assert(!TransactionIdIsValid(update_xid));
+				update_committed = true;
 				update_xid = xid;
 			}
 
 			/*
+			 * Not in progress, not committed -- must be aborted or crashed;
+			 * we can ignore it.
+			 */
+
+			/*
+			 * Since the tuple wasn't marked HEAPTUPLE_DEAD by vacuum, the
+			 * update Xid cannot possibly be older than the xid cutoff.
+			 */
+			Assert(!TransactionIdIsValid(update_xid) ||
+				   !TransactionIdPrecedes(update_xid, cutoff_xid));
+
+			/*
 			 * If we determined that it's an Xid corresponding to an update
 			 * that must be retained, additionally add it to the list of
-			 * members of the new Multis, in case we end up using that.  (We
+			 * members of the new Multi, in case we end up using that.  (We
 			 * might still decide to use only an update Xid and not a multi,
 			 * but it's easier to maintain the list as we walk the old members
 			 * list.)
-			 *
-			 * It is possible to end up with a very old updater Xid that
-			 * crashed and thus did not mark itself as aborted in pg_clog.
-			 * That would manifest as a pre-cutoff Xid.  Make sure to ignore
-			 * it.
 			 */
 			if (TransactionIdIsValid(update_xid))
-			{
-				if (!TransactionIdPrecedes(update_xid, cutoff_xid))
-				{
-					newmembers[nnewmembers++] = members[i];
-				}
-				else
-				{
-					/* cannot have committed: would be HEAPTUPLE_DEAD */
-					Assert(!TransactionIdDidCommit(update_xid));
-					update_xid = InvalidTransactionId;
-					update_committed = false;
-				}
-			}
+				newmembers[nnewmembers++] = members[i];
 		}
 		else
 		{
@@ -5993,7 +5992,7 @@ GetMultiXactIdHintBits(MultiXactId multi, uint16 *new_infomask,
 	 * We only use this in multis we just created, so they cannot be values
 	 * pre-pg_upgrade.
 	 */
-	nmembers = GetMultiXactIdMembers(multi, &members, false);
+	nmembers = GetMultiXactIdMembers(multi, &members, false, false);
 
 	for (i = 0; i < nmembers; i++)
 	{
@@ -6072,7 +6071,7 @@ MultiXactIdGetUpdateXid(TransactionId xmax, uint16 t_infomask)
 	 * Since we know the LOCK_ONLY bit is not set, this cannot be a multi from
 	 * pre-pg_upgrade.
 	 */
-	nmembers = GetMultiXactIdMembers(xmax, &members, false);
+	nmembers = GetMultiXactIdMembers(xmax, &members, false, false);
 
 	if (nmembers > 0)
 	{
@@ -6158,7 +6157,8 @@ Do_MultiXactIdWait(MultiXactId multi, MultiXactStatus status,
 	int			remain = 0;
 
 	allow_old = !(infomask & HEAP_LOCK_MASK) && HEAP_XMAX_IS_LOCKED_ONLY(infomask);
-	nmembers = GetMultiXactIdMembers(multi, &members, allow_old);
+	nmembers = GetMultiXactIdMembers(multi, &members, allow_old,
+									 HEAP_XMAX_IS_LOCKED_ONLY(infomask));
 
 	if (nmembers >= 0)
 	{
@@ -6304,7 +6304,8 @@ heap_tuple_needs_freeze(HeapTupleHeader tuple, TransactionId cutoff_xid,
 
 			allow_old = !(tuple->t_infomask & HEAP_LOCK_MASK) &&
 				HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask);
-			nmembers = GetMultiXactIdMembers(multi, &members, allow_old);
+			nmembers = GetMultiXactIdMembers(multi, &members, allow_old,
+								HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask));
 
 			for (i = 0; i < nmembers; i++)
 			{
@@ -6921,133 +6922,6 @@ log_heap_update(Relation reln, Buffer oldbuf,
 }
 
 /*
- * Perform XLogInsert of a HEAP_NEWPAGE record to WAL. Caller is responsible
- * for writing the page to disk after calling this routine.
- *
- * Note: If you're using this function, you should be building pages in private
- * memory and writing them directly to smgr.  If you're using buffers, call
- * log_newpage_buffer instead.
- *
- * If the page follows the standard page layout, with a PageHeader and unused
- * space between pd_lower and pd_upper, set 'page_std' to TRUE. That allows
- * the unused space to be left out from the WAL record, making it smaller.
- */
-XLogRecPtr
-log_newpage(RelFileNode *rnode, ForkNumber forkNum, BlockNumber blkno,
-			Page page, bool page_std)
-{
-	xl_heap_newpage xlrec;
-	XLogRecPtr	recptr;
-	XLogRecData rdata[3];
-
-	/*
-	 * Note: the NEWPAGE log record is used for both heaps and indexes, so do
-	 * not do anything that assumes we are touching a heap.
-	 */
-
-	/* NO ELOG(ERROR) from here till newpage op is logged */
-	START_CRIT_SECTION();
-
-	xlrec.node = *rnode;
-	xlrec.forknum = forkNum;
-	xlrec.blkno = blkno;
-
-	if (page_std)
-	{
-		/* Assume we can omit data between pd_lower and pd_upper */
-		uint16		lower = ((PageHeader) page)->pd_lower;
-		uint16		upper = ((PageHeader) page)->pd_upper;
-
-		if (lower >= SizeOfPageHeaderData &&
-			upper > lower &&
-			upper <= BLCKSZ)
-		{
-			xlrec.hole_offset = lower;
-			xlrec.hole_length = upper - lower;
-		}
-		else
-		{
-			/* No "hole" to compress out */
-			xlrec.hole_offset = 0;
-			xlrec.hole_length = 0;
-		}
-	}
-	else
-	{
-		/* Not a standard page header, don't try to eliminate "hole" */
-		xlrec.hole_offset = 0;
-		xlrec.hole_length = 0;
-	}
-
-	rdata[0].data = (char *) &xlrec;
-	rdata[0].len = SizeOfHeapNewpage;
-	rdata[0].buffer = InvalidBuffer;
-	rdata[0].next = &(rdata[1]);
-
-	if (xlrec.hole_length == 0)
-	{
-		rdata[1].data = (char *) page;
-		rdata[1].len = BLCKSZ;
-		rdata[1].buffer = InvalidBuffer;
-		rdata[1].next = NULL;
-	}
-	else
-	{
-		/* must skip the hole */
-		rdata[1].data = (char *) page;
-		rdata[1].len = xlrec.hole_offset;
-		rdata[1].buffer = InvalidBuffer;
-		rdata[1].next = &rdata[2];
-
-		rdata[2].data = (char *) page + (xlrec.hole_offset + xlrec.hole_length);
-		rdata[2].len = BLCKSZ - (xlrec.hole_offset + xlrec.hole_length);
-		rdata[2].buffer = InvalidBuffer;
-		rdata[2].next = NULL;
-	}
-
-	recptr = XLogInsert(RM_HEAP_ID, XLOG_HEAP_NEWPAGE, rdata);
-
-	/*
-	 * The page may be uninitialized. If so, we can't set the LSN because that
-	 * would corrupt the page.
-	 */
-	if (!PageIsNew(page))
-	{
-		PageSetLSN(page, recptr);
-	}
-
-	END_CRIT_SECTION();
-
-	return recptr;
-}
-
-/*
- * Perform XLogInsert of a HEAP_NEWPAGE record to WAL.
- *
- * Caller should initialize the buffer and mark it dirty before calling this
- * function.  This function will set the page LSN and TLI.
- *
- * If the page follows the standard page layout, with a PageHeader and unused
- * space between pd_lower and pd_upper, set 'page_std' to TRUE. That allows
- * the unused space to be left out from the WAL record, making it smaller.
- */
-XLogRecPtr
-log_newpage_buffer(Buffer buffer, bool page_std)
-{
-	Page		page = BufferGetPage(buffer);
-	RelFileNode rnode;
-	ForkNumber	forkNum;
-	BlockNumber blkno;
-
-	/* Shared buffers should be modified in a critical section. */
-	Assert(CritSectionCount > 0);
-
-	BufferGetTag(buffer, &rnode, &forkNum, &blkno);
-
-	return log_newpage(&rnode, forkNum, blkno, page, page_std);
-}
-
-/*
  * Perform XLogInsert of a XLOG_HEAP2_NEW_CID record
  *
  * This is only used in wal_level >= WAL_LEVEL_LOGICAL, and only for catalog
@@ -7510,56 +7384,6 @@ heap_xlog_freeze_page(XLogRecPtr lsn, XLogRecord *record)
 	}
 
 	PageSetLSN(page, lsn);
-	MarkBufferDirty(buffer);
-	UnlockReleaseBuffer(buffer);
-}
-
-static void
-heap_xlog_newpage(XLogRecPtr lsn, XLogRecord *record)
-{
-	xl_heap_newpage *xlrec = (xl_heap_newpage *) XLogRecGetData(record);
-	char	   *blk = ((char *) xlrec) + sizeof(xl_heap_newpage);
-	Buffer		buffer;
-	Page		page;
-
-	/* Backup blocks are not used in newpage records */
-	Assert(!(record->xl_info & XLR_BKP_BLOCK_MASK));
-
-	Assert(record->xl_len == SizeOfHeapNewpage + BLCKSZ - xlrec->hole_length);
-
-	/*
-	 * Note: the NEWPAGE log record is used for both heaps and indexes, so do
-	 * not do anything that assumes we are touching a heap.
-	 */
-	buffer = XLogReadBufferExtended(xlrec->node, xlrec->forknum, xlrec->blkno,
-									RBM_ZERO);
-	Assert(BufferIsValid(buffer));
-	LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-	page = (Page) BufferGetPage(buffer);
-
-	if (xlrec->hole_length == 0)
-	{
-		memcpy((char *) page, blk, BLCKSZ);
-	}
-	else
-	{
-		memcpy((char *) page, blk, xlrec->hole_offset);
-		/* must zero-fill the hole */
-		MemSet((char *) page + xlrec->hole_offset, 0, xlrec->hole_length);
-		memcpy((char *) page + (xlrec->hole_offset + xlrec->hole_length),
-			   blk + xlrec->hole_offset,
-			   BLCKSZ - (xlrec->hole_offset + xlrec->hole_length));
-	}
-
-	/*
-	 * The page may be uninitialized. If so, we can't set the LSN because that
-	 * would corrupt the page.
-	 */
-	if (!PageIsNew(page))
-	{
-		PageSetLSN(page, lsn);
-	}
-
 	MarkBufferDirty(buffer);
 	UnlockReleaseBuffer(buffer);
 }
@@ -8419,9 +8243,6 @@ heap_redo(XLogRecPtr lsn, XLogRecord *record)
 			break;
 		case XLOG_HEAP_HOT_UPDATE:
 			heap_xlog_update(lsn, record, true);
-			break;
-		case XLOG_HEAP_NEWPAGE:
-			heap_xlog_newpage(lsn, record);
 			break;
 		case XLOG_HEAP_LOCK:
 			heap_xlog_lock(lsn, record);
