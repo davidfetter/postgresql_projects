@@ -9,7 +9,7 @@
 --
 
 CREATE EXTENSION earthdistance;  -- fail, must install cube first
-CREATE EXTENSION cube;
+CREATE EXTENSION "cube";
 CREATE EXTENSION earthdistance;
 
 --
@@ -284,19 +284,19 @@ SELECT earth_box(ll_to_earth(90,180),
 
 SELECT is_point(ll_to_earth(0,0));
 SELECT cube_dim(ll_to_earth(0,0)) <= 3;
-SELECT abs(cube_distance(ll_to_earth(0,0), '(0)'::cube) / earth() - 1) <
+SELECT abs(cube_distance(ll_to_earth(0,0), '(0)'::"cube") / earth() - 1) <
        '10e-12'::float8;
 SELECT is_point(ll_to_earth(30,60));
 SELECT cube_dim(ll_to_earth(30,60)) <= 3;
-SELECT abs(cube_distance(ll_to_earth(30,60), '(0)'::cube) / earth() - 1) <
+SELECT abs(cube_distance(ll_to_earth(30,60), '(0)'::"cube") / earth() - 1) <
        '10e-12'::float8;
 SELECT is_point(ll_to_earth(60,90));
 SELECT cube_dim(ll_to_earth(60,90)) <= 3;
-SELECT abs(cube_distance(ll_to_earth(60,90), '(0)'::cube) / earth() - 1) <
+SELECT abs(cube_distance(ll_to_earth(60,90), '(0)'::"cube") / earth() - 1) <
        '10e-12'::float8;
 SELECT is_point(ll_to_earth(-30,-90));
 SELECT cube_dim(ll_to_earth(-30,-90)) <= 3;
-SELECT abs(cube_distance(ll_to_earth(-30,-90), '(0)'::cube) / earth() - 1) <
+SELECT abs(cube_distance(ll_to_earth(-30,-90), '(0)'::"cube") / earth() - 1) <
        '10e-12'::float8;
 
 --
@@ -306,22 +306,22 @@ SELECT abs(cube_distance(ll_to_earth(-30,-90), '(0)'::cube) / earth() - 1) <
 -- list what's installed
 \dT
 
-drop extension cube;  -- fail, earthdistance requires it
+drop extension "cube";  -- fail, earthdistance requires it
 
 drop extension earthdistance;
 
-drop type cube;  -- fail, extension cube requires it
+drop type "cube";  -- fail, extension cube requires it
 
 -- list what's installed
 \dT
 
-create table foo (f1 cube, f2 int);
+create table foo (f1 "cube", f2 int);
 
-drop extension cube;  -- fail, foo.f1 requires it
+drop extension "cube";  -- fail, foo.f1 requires it
 
 drop table foo;
 
-drop extension cube;
+drop extension "cube";
 
 -- list what's installed
 \dT
@@ -330,7 +330,7 @@ drop extension cube;
 
 create schema c;
 
-create extension cube with schema c;
+create extension "cube" with schema c;
 
 -- list what's installed
 \dT public.*
@@ -338,13 +338,13 @@ create extension cube with schema c;
 \do public.*
 \dT c.*
 
-create table foo (f1 c.cube, f2 int);
+create table foo (f1 c."cube", f2 int);
 
-drop extension cube;  -- fail, foo.f1 requires it
+drop extension "cube";  -- fail, foo.f1 requires it
 
 drop schema c;  -- fail, cube requires it
 
-drop extension cube cascade;
+drop extension "cube" cascade;
 
 \d foo
 

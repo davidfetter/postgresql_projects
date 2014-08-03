@@ -27,10 +27,10 @@ AS 'SELECT ''6378168''::float8';
 -- and that the point must be very near the surface of the sphere
 -- centered about the origin with the radius of the earth.
 
-CREATE DOMAIN earth AS cube
+CREATE DOMAIN earth AS "cube"
   CONSTRAINT not_point check(cube_is_point(value))
   CONSTRAINT not_3d check(cube_dim(value) <= 3)
-  CONSTRAINT on_surface check(abs(cube_distance(value, '(0)'::cube) /
+  CONSTRAINT on_surface check(abs(cube_distance(value, '(0)'::"cube") /
   earth() - 1) < '10e-7'::float8);
 
 CREATE FUNCTION sec_to_gc(float8)
@@ -49,7 +49,7 @@ CREATE FUNCTION ll_to_earth(float8, float8)
 RETURNS earth
 LANGUAGE SQL
 IMMUTABLE STRICT
-AS 'SELECT cube(cube(cube(earth()*cos(radians($1))*cos(radians($2))),earth()*cos(radians($1))*sin(radians($2))),earth()*sin(radians($1)))::earth';
+AS 'SELECT "cube"("cube"("cube"(earth()*cos(radians($1))*cos(radians($2))),earth()*cos(radians($1))*sin(radians($2))),earth()*sin(radians($1)))::earth';
 
 CREATE FUNCTION latitude(earth)
 RETURNS float8
@@ -70,7 +70,7 @@ IMMUTABLE STRICT
 AS 'SELECT sec_to_gc(cube_distance($1, $2))';
 
 CREATE FUNCTION earth_box(earth, float8)
-RETURNS cube
+RETURNS "cube"
 LANGUAGE SQL
 IMMUTABLE STRICT
 AS 'SELECT cube_enlarge($1, gc_to_sec($2), 3)';
