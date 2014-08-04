@@ -1222,6 +1222,7 @@ agg_retrieve_direct(AggState *aggstate)
 	AggStatePerGroup pergroup;
 	TupleTableSlot *outerslot;
 	TupleTableSlot *firstSlot;
+	List           *currentMatchCols = node->currentMatchCols;
 	int			   aggno;
 	int            numberOfStates = 0;
 	bool           hasRollup = false;
@@ -1230,6 +1231,8 @@ agg_retrieve_direct(AggState *aggstate)
 	int            currentGroup = 0;
 	int            numReset = 1;
 	int            currentreset = 0;
+	int            currentSize = 0;
+	bool           isEqual = false;
 
 	/*
 	 * get state info from node
@@ -1248,7 +1251,20 @@ agg_retrieve_direct(AggState *aggstate)
 	hasRollup = node->hasRollup;
 
 	if (hasRollup)
-		numberOfStates = (aggstate->numaggs * (node->numCols + 1));
+		numGroups = list_length(currentMatchCols);
+	else
+		numGroups = 1;
+
+	if (hasRollup)
+	{
+		if (aggstate->curgroup_size != -1)
+			currentSize = list_nth_int(currentMatchCols, (aggstate->curgroup_size));
+		else
+			currentSize = list_nth_int(currentMatchCols, 0);
+	}
+
+	if (hasRollup)
+		numberOfStates = (aggstate->numaggs * numGroups);
 	else
 		numberOfStates = aggstate->numaggs;
 
@@ -1259,11 +1275,6 @@ agg_retrieve_direct(AggState *aggstate)
 			pergroup[stateno].reInitialize = true;
 		}
 	}
-
-	if (hasRollup)
-		numGroups = node->numCols + 1;
-	else
-		numGroups = 1;
 
 	/*
 	 * We loop retrieving groups until we find one matching
@@ -1285,7 +1296,7 @@ agg_retrieve_direct(AggState *aggstate)
 		ReScanExprContext(econtext);
 		
 		if (hasRollup && (aggstate->curgroup_size != -1))
-			numReset = numGroups - (aggstate->curgroup_size);
+			numReset = numGroups - currentSize;
 		
 		for (currentreset = 0; currentreset < numReset; currentreset++)
 		{
@@ -1294,7 +1305,7 @@ agg_retrieve_direct(AggState *aggstate)
 		}
 		
 		/* Check if input is complete and there are no more groups to project. */
-		if (aggstate->agg_done != true && aggstate->input_done == true && aggstate->curgroup_size == 0)
+		if (aggstate->agg_done != true && aggstate->input_done == true && aggstate->curgroup_size == numGroups)
 		{
 			aggstate->agg_done = true;
 			break;
@@ -1302,17 +1313,35 @@ agg_retrieve_direct(AggState *aggstate)
 		/* If a subgroup for ROLLUP for current group is present, project it */
 		else if (node->aggstrategy == AGG_SORTED
 				 && (aggstate->input_done
-					 || (aggstate->curgroup_size > 1
+					 || (aggstate->curgroup_size != -1
+						 && aggstate->curgroup_size < numGroups
+						 && currentSize > 0
 						 && !execTuplesMatch(econtext->ecxt_outertuple,
 											 tmpcontext->ecxt_outertuple,
-											 (aggstate->curgroup_size - 1),
+											 (currentSize - 1),
 											 node->grpColIdx,
 											 aggstate->eqfunctions,
 											 tmpcontext->ecxt_per_tuple_memory))))
 		{
-			--aggstate->curgroup_size;
+			int current_group_size = list_nth_int(currentMatchCols, (aggstate->curgroup_size));
+			int next_group_size = 0;
+
+			++aggstate->curgroup_size;
+
+			if (aggstate->curgroup_size < numGroups)
+			{
+				next_group_size = list_nth_int(currentMatchCols, (aggstate->curgroup_size));
+				currentSize = next_group_size;
+
+				if (current_group_size == next_group_size)
+					isEqual = true;
+				else
+					isEqual = false;
+			}
+			else
+				continue;
 		}
-		else
+		else if (isEqual == false)
 		{
 			/*
 			 * If we don't already have the first tuple of the new group, fetch it
@@ -1386,7 +1415,8 @@ agg_retrieve_direct(AggState *aggstate)
 						if (hasRollup)
 						{
 							aggstate->input_done = true;
-							aggstate->curgroup_size = node->numCols;
+							aggstate->curgroup_size = 0;
+							currentSize = list_nth_int(currentMatchCols, aggstate->curgroup_size);
 							break;
 						}
 						else
@@ -1408,12 +1438,15 @@ agg_retrieve_direct(AggState *aggstate)
 											 outerslot,
 											 (node->numCols) , node->grpColIdx,
 											 aggstate->eqfunctions,
-											 tmpcontext->ecxt_per_tuple_memory) && aggstate->curgroup_size != 0)
+											 tmpcontext->ecxt_per_tuple_memory) && aggstate->curgroup_size != numGroups)
 						{
 							aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
 							
 							if (hasRollup)
-								aggstate->curgroup_size = node->numCols;
+							{
+								aggstate->curgroup_size = 0;
+								currentSize = list_nth_int(currentMatchCols, (aggstate->curgroup_size));
+							}
 							break;
 						}
 					}
@@ -1431,12 +1464,8 @@ agg_retrieve_direct(AggState *aggstate)
 			econtext->ecxt_outertuple = firstSlot;
 		}
 
-		/* Get the current group which is being processed right now.
-		 * For non ROLLUP cases, there will be only one group hence
-		 * current group will be 0.
-		 */
 		if (aggstate->curgroup_size != -1)
-			currentGroup = (numGroups - (aggstate->curgroup_size + 1));
+			currentGroup = aggstate->curgroup_size;
 
 		for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 		{
@@ -1445,7 +1474,7 @@ agg_retrieve_direct(AggState *aggstate)
 
 			pergroupstate = &pergroup[aggno + (currentGroup * (aggstate->numaggs))];
 
-			aggstate->curgroup = currentGroup;
+			//aggstate->curgroup = currentGroup;
 
 			if (peraggstate->numSortCols > 0)
 			{
