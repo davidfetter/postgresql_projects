@@ -1626,7 +1626,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				/* Hashed aggregation produces randomly-ordered results */
 				current_pathkeys = NIL;
 			}
-			else if (parse->hasAggs)
+			else if (parse->hasAggs || parse->groupingSets)
 			{
 				/* Used for holding Agg plan for setting hasRollups attribute */
 				Agg *result_agg;
