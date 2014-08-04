@@ -2703,7 +2703,7 @@ static List* process_groupingsetnode(GroupingSet *gs)
 			List *current_result = NIL;
 
 			current_result = process_groupingsetnode(lfirst(lc));
-			lappend(result, current_result);
+			result = list_concat(result, current_result);
 		}
 	}
 	else if (gs->kind == GROUPING_SET_CUBE)
@@ -2793,70 +2793,82 @@ static List* preprocess_groupingset(PlannerInfo *root)
 
 	if (list_length(result_groups) == 1)
 	{
+		ListCell *lc_maxlengthlist;
+
 		result = linitial(result_groups);
 
-		return result;
-	}
-
-	foreach(lc_sets, result_groups)
-	{
-		List     *current_set_list = lfirst(lc_sets);
-		ListCell *lc_inner;
-		ListCell *lc_result;
-
-		foreach(lc_inner, current_set_list)
+		foreach(lc_maxlengthlist, result)
 		{
-			List     *current_result = NIL;
-			List *current_group = NIL;
-			ListCell *lc_iterate;
-			int i = current_group_set_num + 1;
-
-			foreach(lc_iterate, result_groups)
+			List *current_result_itemlist = lfirst(lc_maxlengthlist);
+			if (list_length(current_result_itemlist) > max_length)
 			{
-				if (i < list_length(result_groups))
+				max_length = list_length(current_result_itemlist);
+				max_length_list = current_result_itemlist;
+			}
+		}
+	}
+	else
+	{
+		foreach(lc_sets, result_groups)
+		{
+			List     *current_set_list = lfirst(lc_sets);
+			ListCell *lc_inner;
+			ListCell *lc_result;
+
+			foreach(lc_inner, current_set_list)
+			{
+				List     *current_result = NIL;
+				List *current_group = NIL;
+				ListCell *lc_iterate;
+				int i = current_group_set_num + 1;
+
+				foreach(lc_iterate, result_groups)
 				{
-					List *current_product_list= list_nth(result_groups, i);
-
-					foreach(lc_result, current_product_list)
+					if (i < list_length(result_groups))
 					{
-						List *current_outer_group = lfirst(lc_inner);
-						List *current_inner_group = lfirst(lc_result);
-						ListCell *lc_outer_group;
-						ListCell *lc_inner_group;
+						List *current_product_list= list_nth(result_groups, i);
 
-						current_group = NIL;
-
-						foreach(lc_outer_group, current_outer_group)
+						foreach(lc_result, current_product_list)
 						{
-							int current_val = lfirst_int(lc_outer_group);
+							List *current_outer_group = lfirst(lc_inner);
+							List *current_inner_group = lfirst(lc_result);
+							ListCell *lc_outer_group;
+							ListCell *lc_inner_group;
 
-							current_group = lappend_int(current_group, current_val);
+							current_group = NIL;
+
+							foreach(lc_outer_group, current_outer_group)
+							{
+								int current_val = lfirst_int(lc_outer_group);
+	
+								current_group = lappend_int(current_group, current_val);
+							}
+
+							foreach(lc_inner_group, current_inner_group)
+							{
+								int current_val = lfirst_int(lc_inner_group);
+
+								current_group = lappend_int(current_group, current_val);
+							}
+
+							if (list_length(current_group) > max_length)
+							{
+								max_length = list_length(current_group);
+								max_length_list = current_group;
+							}
+
+							current_result = lappend(current_result, current_group);
 						}
-
-						foreach(lc_inner_group, current_inner_group)
-						{
-							int current_val = lfirst_int(lc_inner_group);
-
-							current_group = lappend_int(current_group, current_val);
-						}
-
-						if (list_length(current_group) > max_length)
-						{
-							max_length = list_length(current_group);
-							max_length_list = current_group;
-						}
-
-						current_result = lappend(current_result, current_group);
 					}
+
+					++i;
 				}
 
-				++i;
+				result = list_concat(result, current_result);
 			}
 
-			result = list_concat(result, current_result);
+			current_group_set_num++;
 		}
-
-		current_group_set_num++;
 	}
 
 	foreach(lc_prefix, result)
