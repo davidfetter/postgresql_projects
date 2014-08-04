@@ -1732,12 +1732,14 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	if (node->hasRollup)
 	{
-		numGroups = node->numCols + 1;
+		numGroups = list_length(node->currentMatchCols);
 		aggstate->grouped_cols = palloc(numGroups * sizeof(Bitmapset *));
 		for (i = 0; i < numGroups; ++i)
 		{
+			int current_length = list_nth_int((node->currentMatchCols), i);
 			Bitmapset *cols = NULL;
-			for (j = 0; j < (node->numCols - i); ++j)
+
+			for (j = 0; j < current_length; ++j)
 				cols = bms_add_member(cols, node->grpColIdx[j]);
 			aggstate->grouped_cols[i] = cols;
 		}
