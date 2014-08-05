@@ -366,7 +366,7 @@ initialize_aggregates(AggState *aggstate,
 			if (node->hasRollup && numReinitialize > 0)
 				numSortStates = numReinitialize;
 			else if (node->hasRollup)
-				numSortStates = (node->numCols) + 1;
+				numSortStates = list_length(node->currentMatchCols);
 
 			for (currentsortstate = 0;currentsortstate < numSortStates; currentsortstate++)
 			{
@@ -405,7 +405,7 @@ initialize_aggregates(AggState *aggstate,
 		 * current aggstate.
 		 */
 		if (node->hasRollup)
-			numGroups = node->numCols + 1;
+			numGroups = list_length(node->currentMatchCols);
 		else
 			numGroups = 1;
 
@@ -608,8 +608,8 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 
 	if (hasRollup == true)
 	{
-		numGroups = (node->numCols) + 1;
-		numSortStates = (node->numCols) + 1;
+		numGroups = list_length(node->currentMatchCols);
+		numSortStates = list_length(node->currentMatchCols);
     }
 
 	for (aggno = 0; aggno < numAggs; aggno++)
@@ -2274,8 +2274,8 @@ ExecEndAgg(AggState *node)
 
 	if (aggnode->hasRollup)
 	{
-		numfree = aggnode->numCols + 1;
-		numsortstates = aggnode->numCols + 1;
+		numfree = list_length(aggnode->currentMatchCols);
+		numsortstates = list_length(aggnode->currentMatchCols);
 	}
 
 	/* Make sure we have closed any open tuplesorts */
@@ -2323,7 +2323,7 @@ ExecReScanAgg(AggState *node)
 	node->ss.ps.ps_TupFromTlist = false;
 
 	if (AggNode->hasRollup)
-		numGroups = AggNode->numCols + 1;
+		numGroups = list_length(AggNode->currentMatchCols);
 
 	if (((Agg *) node->ss.ps.plan)->aggstrategy == AGG_HASHED)
 	{

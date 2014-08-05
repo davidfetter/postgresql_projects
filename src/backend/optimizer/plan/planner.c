@@ -2703,7 +2703,11 @@ static List* process_groupingsetnode(GroupingSet *gs)
 			List *current_result = NIL;
 
 			current_result = process_groupingsetnode(lfirst(lc));
-			result = list_concat(result, current_result);
+
+			if (current_result == NIL)
+				result = lappend(result, current_result);
+			else
+				result = list_concat(result, current_result);
 		}
 	}
 	else if (gs->kind == GROUPING_SET_CUBE)
