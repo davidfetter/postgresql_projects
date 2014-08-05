@@ -1315,7 +1315,7 @@ agg_retrieve_direct(AggState *aggstate)
 				 && (aggstate->input_done
 					 || (aggstate->curgroup_size != -1
 						 && aggstate->curgroup_size < numGroups
-						 && currentSize > 0
+						 && currentSize > 1
 						 && !execTuplesMatch(econtext->ecxt_outertuple,
 											 tmpcontext->ecxt_outertuple,
 											 (currentSize - 1),
