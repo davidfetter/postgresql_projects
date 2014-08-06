@@ -1340,6 +1340,10 @@ agg_retrieve_direct(AggState *aggstate)
 			}
 			else
 				continue;
+
+			if (aggstate->curgroup_size == (numGroups - 1) && aggstate->input_done != true)
+				continue;
+
 		}
 		else if (isEqual == false)
 		{
@@ -1474,7 +1478,6 @@ agg_retrieve_direct(AggState *aggstate)
 
 			pergroupstate = &pergroup[aggno + (currentGroup * (aggstate->numaggs))];
 
-			//aggstate->curgroup = currentGroup;
 
 			if (peraggstate->numSortCols > 0)
 			{
@@ -1521,6 +1524,7 @@ agg_retrieve_direct(AggState *aggstate)
 		else
 			InstrCountFiltered1(aggstate, 1);
 	}
+		
 
 	/* No more groups */
 	return NULL;
