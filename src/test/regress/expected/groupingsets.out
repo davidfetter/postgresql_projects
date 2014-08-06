@@ -126,3 +126,19 @@ GROUP BY ROLLUP(four, ten) ORDER BY four, ten;
       |     | 15000 |     4.5000000000000000
 (25 rows)
 
+select a, b from (values (1,2),(2,3)) v(a,b) group by grouping sets((a,b),());
+ a | b 
+---+---
+ 1 | 2
+ 2 | 3
+   |  
+(3 rows)
+
+select a, b from (values (1,2),(2,3)) v(a,b) group by rollup((a,b));
+ a | b 
+---+---
+ 1 | 2
+ 2 | 3
+   |  
+(3 rows)
+

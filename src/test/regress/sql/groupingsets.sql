@@ -24,3 +24,8 @@ select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b
 SELECT four, ten, SUM(SUM(four)) OVER (PARTITION BY four), AVG(ten) FROM tenk1
 GROUP BY ROLLUP(four, ten) ORDER BY four, ten;
 
+select a, b from (values (1,2),(2,3)) v(a,b) group by grouping sets((a,b),());
+
+select a, b from (values (1,2),(2,3)) v(a,b) group by rollup((a,b));
+
+
