@@ -1296,7 +1296,6 @@ agg_retrieve_direct(AggState *aggstate)
 		
 		if (hasRollup && (aggstate->curgroup_size != -1))
 			numReset = aggstate->curgroup_size + 1;
-			//numReset = numGroups - currentSize;
 		
 		/* currentreset should be a valid index in aggcontext and less than numReset */
 		for (currentreset = 0; currentreset < numReset; currentreset++)

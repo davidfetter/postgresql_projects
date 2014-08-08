@@ -2777,6 +2777,8 @@ static List* preprocess_groupingset(PlannerInfo *root)
 	Query	   *parse = root->parse;
 	List       *groupingSets = parse->groupingSets;
 	List       *result_groups = NIL;
+	List       *groupby_result = NIL;
+	List       *result_groups_temp = NIL;
 	List       *result = NIL;
 	ListCell   *lc;
 	ListCell   *lc_sets;
@@ -2791,9 +2793,26 @@ static List* preprocess_groupingset(PlannerInfo *root)
 		GroupingSet *gs = lfirst(lc);
 
 		current_result = process_groupingsetnode(gs);
-	
-		result_groups = lappend(result_groups,current_result);
+
+		/* 
+		 * Assuming that non nested GroupingSet nodes of GROUPING_SET_SIMPLE types must
+		 * be part of GROUP BY clause.
+		 */
+		if (gs->kind == GROUPING_SET_SIMPLE)
+		{
+			groupby_result = lappend_int(groupby_result, linitial_int(linitial(current_result)));
+		}
+		else
+			result_groups_temp = lappend(result_groups_temp,current_result);
 	}
+
+	if (groupby_result != NIL)
+	{
+		result_groups = lappend(result_groups, list_make1(groupby_result));
+		result_groups = list_concat(result_groups, result_groups_temp);
+	}
+	else
+		result_groups = result_groups_temp;
 
 	if (list_length(result_groups) == 1)
 	{
