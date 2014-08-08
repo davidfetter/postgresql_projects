@@ -1232,7 +1232,6 @@ agg_retrieve_direct(AggState *aggstate)
 	int            numReset = 1;
 	int            currentreset = 0;
 	int            currentSize = 0;
-	bool           isEqual = false;
 
 	/*
 	 * get state info from node
@@ -1296,8 +1295,10 @@ agg_retrieve_direct(AggState *aggstate)
 		ReScanExprContext(econtext);
 		
 		if (hasRollup && (aggstate->curgroup_size != -1))
-			numReset = numGroups - currentSize;
+			numReset = aggstate->curgroup_size + 1;
+			//numReset = numGroups - currentSize;
 		
+		/* currentreset should be a valid index in aggcontext and less than numReset */
 		for (currentreset = 0; currentreset < numReset; currentreset++)
 		{
 			ReScanExprContext(aggstate->aggcontext[currentreset]);
@@ -1305,7 +1306,7 @@ agg_retrieve_direct(AggState *aggstate)
 		}
 		
 		/* Check if input is complete and there are no more groups to project. */
-		if (aggstate->agg_done != true && aggstate->input_done == true && aggstate->curgroup_size == numGroups)
+		if (aggstate->agg_done != true && aggstate->input_done == true && aggstate->curgroup_size == (numGroups - 1))
 		{
 			aggstate->agg_done = true;
 			break;
@@ -1314,39 +1315,34 @@ agg_retrieve_direct(AggState *aggstate)
 		else if (node->aggstrategy == AGG_SORTED
 				 && (aggstate->input_done
 					 || (aggstate->curgroup_size != -1
-						 && aggstate->curgroup_size < numGroups
-						 && currentSize > 1
+						 && aggstate->curgroup_size < (numGroups - 2)
+						 && (list_nth_int(currentMatchCols, (aggstate->curgroup_size + 1))) > 0
 						 && !execTuplesMatch(econtext->ecxt_outertuple,
 											 tmpcontext->ecxt_outertuple,
-											 (currentSize - 1),
+											 (list_nth_int(currentMatchCols, (aggstate->curgroup_size + 1))),
 											 node->grpColIdx,
 											 aggstate->eqfunctions,
 											 tmpcontext->ecxt_per_tuple_memory))))
 		{
-			int current_group_size = list_nth_int(currentMatchCols, (aggstate->curgroup_size));
-			int next_group_size = 0;
 
 			++aggstate->curgroup_size;
 
 			if (aggstate->curgroup_size < numGroups)
-			{
-				next_group_size = list_nth_int(currentMatchCols, (aggstate->curgroup_size));
-				currentSize = next_group_size;
-
-				if (current_group_size == next_group_size)
-					isEqual = true;
-				else
-					isEqual = false;
-			}
+				currentSize = list_nth_int(currentMatchCols, (aggstate->curgroup_size));
 			else
+				/* Next iteration should set agg_done to true */
 				continue;
 
-			if (aggstate->curgroup_size == (numGroups - 1) && aggstate->input_done != true)
+			if (currentSize== 0 && aggstate->input_done != true)
 				continue;
 
 		}
-		else if (isEqual == false)
+		else
 		{
+			/* If current group size is a duplicate value, do not process it.*/
+			if (aggstate->curgroup_size > 0 && ((list_nth_int(currentMatchCols, (aggstate->curgroup_size - 1))) == currentSize))
+				continue;
+
 			/*
 			 * If we don't already have the first tuple of the new group, fetch it
 			 * from the outer plan.
