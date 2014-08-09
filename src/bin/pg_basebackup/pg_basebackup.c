@@ -371,7 +371,7 @@ LogStreamerMain(logstreamer_param *param)
 	if (!ReceiveXlogStream(param->bgconn, param->startptr, param->timeline,
 						   param->sysidentifier, param->xlogdir,
 						   reached_end_position, standby_message_timeout,
-						   NULL))
+						   NULL, 0))
 
 		/*
 		 * Any errors will already have been reported in the function process,
@@ -1123,13 +1123,13 @@ update_tablespace_symlink(Oid oid, const char *old_dir)
 
 		if (unlink(linkloc) != 0 && errno != ENOENT)
 		{
-			fprintf(stderr, _("%s: could not remove symbolic link \"%s\": %s"),
+			fprintf(stderr, _("%s: could not remove symbolic link \"%s\": %s\n"),
 					progname, linkloc, strerror(errno));
 			disconnect_and_exit(1);
 		}
 		if (symlink(new_dir, linkloc) != 0)
 		{
-			fprintf(stderr, _("%s: could not create symbolic link \"%s\": %s"),
+			fprintf(stderr, _("%s: could not create symbolic link \"%s\": %s\n"),
 					progname, linkloc, strerror(errno));
 			disconnect_and_exit(1);
 		}
