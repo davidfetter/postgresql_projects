@@ -1294,7 +1294,7 @@ agg_retrieve_direct(AggState *aggstate)
 		 */
 		ReScanExprContext(econtext);
 		
-		if (hasRollup && (aggstate->curgroup_size != -1))
+		if (hasRollup && (aggstate->curgroup_size != -1) && (aggstate->curgroup_size < numGroups))
 			numReset = aggstate->curgroup_size + 1;
 		
 		/* currentreset should be a valid index in aggcontext and less than numReset */
@@ -1305,7 +1305,7 @@ agg_retrieve_direct(AggState *aggstate)
 		}
 		
 		/* Check if input is complete and there are no more groups to project. */
-		if (aggstate->agg_done != true && aggstate->input_done == true && aggstate->curgroup_size == (numGroups - 1))
+		if (aggstate->agg_done != true && aggstate->input_done == true && aggstate->curgroup_size == (numGroups))
 		{
 			aggstate->agg_done = true;
 			break;
@@ -1314,7 +1314,7 @@ agg_retrieve_direct(AggState *aggstate)
 		else if (node->aggstrategy == AGG_SORTED
 				 && (aggstate->input_done
 					 || (aggstate->curgroup_size != -1
-						 && aggstate->curgroup_size < (numGroups - 2)
+						 && aggstate->curgroup_size < (numGroups - 1)
 						 && (list_nth_int(currentMatchCols, (aggstate->curgroup_size + 1))) > 0
 						 && !execTuplesMatch(econtext->ecxt_outertuple,
 											 tmpcontext->ecxt_outertuple,
