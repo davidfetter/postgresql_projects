@@ -1673,9 +1673,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												numGroups,
 												result_plan);
 
-				if ((parse->groupClause) && (parse->groupingSets))
-					result_agg->hasRollup = true;
-
 				result_plan = (Plan *) result_agg;
 			}
 			else if (parse->groupClause)

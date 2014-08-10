@@ -3050,7 +3050,6 @@ ExecEvalGroupingExpr(GroupingState *gstate,
 	int current_val= 0;
 	ListCell *lc;
 
-
 	if (isDone)
 		*isDone = ExprSingleResult;
 
@@ -3064,7 +3063,6 @@ ExecEvalGroupingExpr(GroupingState *gstate,
 
 		if (!bms_is_member(current_val, econtext->grouped_cols))
 			result = result | 1;
-
 	}
 		
 	return (Datum) result;
@@ -4474,37 +4472,37 @@ ExecInitExpr(Expr *node, PlanState *parent)
 			state->evalfunc = ExecEvalScalarVar;
 			break;
 		case T_Grouping:
-		{
-			Grouping *grp_node = (Grouping *) node;
-			GroupingState *grp_state = makeNode(GroupingState);
-			List     *result_list = NIL;    
-			ListCell *lc;
-			Agg *agg = NULL;
-
-			if (parent != NULL)
-				if (!(IsA((parent->plan), Agg)))
-					elog(ERROR, "Parent is not Agg node");
-
-		    agg = (Agg *) (parent->plan);
-
-			if (agg->hasRollup)
 			{
-				foreach(lc, (grp_node->refs))
+				Grouping *grp_node = (Grouping *) node;
+				GroupingState *grp_state = makeNode(GroupingState);
+				List     *result_list = NIL;    
+				ListCell *lc;
+				Agg *agg = NULL;
+
+				if (parent != NULL)
+					if (!(IsA((parent->plan), Agg)))
+						elog(ERROR, "Parent is not Agg node");
+
+				agg = (Agg *) (parent->plan);
+
+				if (agg->currentMatchCols)
 				{
-					int current_index = lfirst_int(lc);
-					int result = 0;
+					foreach(lc, (grp_node->refs))
+					{
+						int current_index = lfirst_int(lc);
+						int result = 0;
 
-					result = agg->grpColIdx[(current_index - 1)];
+						result = agg->grpColIdx[(current_index - 1)];
 
-					result_list = lappend_int(result_list, result);
+						result_list = lappend_int(result_list, result);
+					}
 				}
 
 				grp_state->clauses = result_list;
-			}
 
-			state = (ExprState *) grp_state;
-			state->evalfunc = (ExprStateEvalFunc) ExecEvalGroupingExpr;
-		}
+				state = (ExprState *) grp_state;
+				state->evalfunc = (ExprStateEvalFunc) ExecEvalGroupingExpr;
+			}
 			break;
 		case T_Const:
 			state = (ExprState *) makeNode(ExprState);

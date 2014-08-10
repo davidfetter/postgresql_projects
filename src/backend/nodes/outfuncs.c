@@ -644,7 +644,8 @@ _outAgg(StringInfo str, const Agg *node)
 
 	WRITE_LONG_FIELD(numGroups);
 
-	WRITE_BOOL_FIELD(hasRollup);
+	WRITE_NODE_FIELD(groupIds);
+	WRITE_NODE_FIELD(currentMatchCols);
 }
 
 static void

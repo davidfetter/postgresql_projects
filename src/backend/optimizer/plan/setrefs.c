@@ -1271,7 +1271,7 @@ set_group_vars(PlannerInfo *root, Agg *agg)
 	int i;
 	Bitmapset *cols = NULL;
 
-	if (!agg->hasRollup)
+	if (!agg->currentMatchCols)
 		return;
 
 	context.root = root;
@@ -1305,7 +1305,7 @@ set_group_vars_mutator(Node *node, set_group_vars_context *context)
 
 		return (Node *) var;
 	}
-	else if (IsA(node, Aggref))
+	else if (IsA(node, Aggref) || IsA(node,Grouping))
 	{
 		/*
 		 * don't recurse into Aggrefs, since they see the values prior
