@@ -1654,8 +1654,11 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				}
 				else
 				{
-					aggstrategy = AGG_PLAIN;
-					/* Result will be only one row anyway; no sort order */
+					if (list_length(parse->groupingSets) > 1)
+						aggstrategy = AGG_SORTED;
+					else
+						aggstrategy = AGG_PLAIN;
+					/* Result will have no sort order */
 					current_pathkeys = NIL;
 				}
 
