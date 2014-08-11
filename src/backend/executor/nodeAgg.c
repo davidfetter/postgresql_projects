@@ -1200,9 +1200,9 @@ agg_retrieve_direct(AggState *aggstate)
 	 * aggstate->ss.ps.qual
 	 *
 	 * For grouping sets, we have the invariant that aggstate->projected_set is
-	 * either -1 (initial call or only one grouping set in play) or the index
-	 * (starting from 0) in gset_lengths for the group we just completed
-	 * (either by projecting a row or by discarding it in the qual).
+	 * either -1 (initial call) or the index (starting from 0) in gset_lengths
+	 * for the group we just completed (either by projecting a row or by
+	 * discarding it in the qual).
 	 */
 	while (!aggstate->agg_done)
 	{
