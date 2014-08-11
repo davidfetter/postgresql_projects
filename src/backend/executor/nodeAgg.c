@@ -1272,17 +1272,17 @@ agg_retrieve_direct(AggState *aggstate)
 		 *    - the previous and pending rows differ on the grouping columns
 		 *      of the next grouping set
 		 */
-		if (node->aggstrategy == AGG_SORTED
-			&& (aggstate->input_done
-				|| (aggstate->curgroup_size != -1
-					&& aggstate->curgroup_size < (numGroupingSets - 1)
-					&& currentSize > 0
-					&& !execTuplesMatch(econtext->ecxt_outertuple,
-										tmpcontext->ecxt_outertuple,
-										currentSize,
-										node->grpColIdx,
-										aggstate->eqfunctions,
-										tmpcontext->ecxt_per_tuple_memory))))
+		if (aggstate->input_done
+			|| (node->aggstrategy == AGG_SORTED
+				&& aggstate->curgroup_size != -1
+				&& aggstate->curgroup_size < (numGroupingSets - 1)
+				&& currentSize > 0
+				&& !execTuplesMatch(econtext->ecxt_outertuple,
+									tmpcontext->ecxt_outertuple,
+									currentSize,
+									node->grpColIdx,
+									aggstate->eqfunctions,
+									tmpcontext->ecxt_per_tuple_memory)))
 		{
 			++aggstate->curgroup_size;
 
