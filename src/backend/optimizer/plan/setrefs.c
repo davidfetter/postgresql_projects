@@ -1271,7 +1271,7 @@ set_group_vars(PlannerInfo *root, Agg *agg)
 	int i;
 	Bitmapset *cols = NULL;
 
-	if (!agg->currentMatchCols)
+	if (!agg->groupingSets)
 		return;
 
 	context.root = root;

@@ -4485,7 +4485,7 @@ ExecInitExpr(Expr *node, PlanState *parent)
 
 				agg = (Agg *) (parent->plan);
 
-				if (agg->currentMatchCols)
+				if (agg->groupingSets)
 				{
 					foreach(lc, (grp_node->refs))
 					{

@@ -344,11 +344,8 @@ initialize_aggregates(AggState *aggstate,
 {
 	Agg         *node = (Agg *) aggstate->ss.ps.plan;
 	int			aggno;
-	int         numGroupingSets = 1;
+	int         numGroupingSets = Max(aggstate->numsets, 1);
 	int         i = 0;
-
-	if (node->currentMatchCols)
-		numGroupingSets = list_length(node->currentMatchCols);
 
 	if (numReinitialize < 1)
 		numReinitialize = numGroupingSets;
@@ -437,7 +434,7 @@ initialize_aggregates(AggState *aggstate,
 
 /*
  * Given new input value(s), advance the transition function of one aggregate
- * within one grouping set only (already set in aggstate->curgroup)
+ * within one grouping set only (already set in aggstate->current_set)
  *
  * The new values (and null flags) have been preloaded into argument positions
  * 1 and up in peraggstate->transfn_fcinfo, so that we needn't copy them again
@@ -480,7 +477,7 @@ advance_transition_function(AggState *aggstate,
 			 * We must copy the datum into aggcontext if it is pass-by-ref. We
 			 * do not need to pfree the old transValue, since it's NULL.
 			 */
-			oldContext = MemoryContextSwitchTo(aggstate->aggcontext[aggstate->curgroup]->ecxt_per_tuple_memory);
+			oldContext = MemoryContextSwitchTo(aggstate->aggcontext[aggstate->current_set]->ecxt_per_tuple_memory);
 			pergroupstate->transValue = datumCopy(fcinfo->arg[1],
 												  peraggstate->transtypeByVal,
 												  peraggstate->transtypeLen);
@@ -528,7 +525,7 @@ advance_transition_function(AggState *aggstate,
 	{
 		if (!fcinfo->isnull)
 		{
-			MemoryContextSwitchTo(aggstate->aggcontext[aggstate->curgroup]->ecxt_per_tuple_memory);
+			MemoryContextSwitchTo(aggstate->aggcontext[aggstate->current_set]->ecxt_per_tuple_memory);
 			newVal = datumCopy(newVal,
 							   peraggstate->transtypeByVal,
 							   peraggstate->transtypeLen);
@@ -556,12 +553,9 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 {
 	int			aggno;
 	int         groupno = 0;
-	int         numGroupingSets = 1;
+	int         numGroupingSets = Max(aggstate->numsets, 1);
 	int         numAggs = aggstate->numaggs;
 	Agg         *node = (Agg *) aggstate->ss.ps.plan;
-
-	if (node->currentMatchCols)
-		numGroupingSets = list_length(node->currentMatchCols);
 
 	for (aggno = 0; aggno < numAggs; aggno++)
 	{
@@ -638,7 +632,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 			{
 				AggStatePerGroup pergroupstate = &pergroup[aggno + (groupno * numAggs)];
 
-				aggstate->curgroup = groupno;
+				aggstate->current_set = groupno;
 
 				advance_transition_function(aggstate, peraggstate, pergroupstate);
 			}
@@ -665,7 +659,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
  * but still noticeable.)
  *
  * This function handles only one grouping set (already set in
- * aggstate->curgroup).
+ * aggstate->current_set).
  *
  * When called, CurrentMemoryContext should be the per-query context.
  */
@@ -686,7 +680,7 @@ process_ordered_aggregate_single(AggState *aggstate,
 
 	Assert(peraggstate->numDistinctCols < 2);
 
-	tuplesort_performsort(peraggstate->sortstate[aggstate->curgroup]);
+	tuplesort_performsort(peraggstate->sortstate[aggstate->current_set]);
 
 	/* Load the column into argument 1 (arg 0 will be transition value) */
 	newVal = fcinfo->arg + 1;
@@ -698,7 +692,7 @@ process_ordered_aggregate_single(AggState *aggstate,
 	 * pfree them when they are no longer needed.
 	 */
 
-	while (tuplesort_getdatum(peraggstate->sortstate[aggstate->curgroup], true,
+	while (tuplesort_getdatum(peraggstate->sortstate[aggstate->current_set], true,
 							  newVal, isNull))
 	{
 		/*
@@ -742,8 +736,8 @@ process_ordered_aggregate_single(AggState *aggstate,
 	if (!oldIsNull && !peraggstate->inputtypeByVal)
 		pfree(DatumGetPointer(oldVal));
 
-	tuplesort_end(peraggstate->sortstate[aggstate->curgroup]);
-	peraggstate->sortstate[aggstate->curgroup] = NULL;
+	tuplesort_end(peraggstate->sortstate[aggstate->current_set]);
+	peraggstate->sortstate[aggstate->current_set] = NULL;
 }
 
 /*
@@ -754,7 +748,7 @@ process_ordered_aggregate_single(AggState *aggstate,
  * function on each value (applying DISTINCT if appropriate).
  *
  * This function handles only one grouping set (already set in
- * aggstate->curgroup).
+ * aggstate->current_set).
  *
  * When called, CurrentMemoryContext should be the per-query context.
  */
@@ -772,13 +766,13 @@ process_ordered_aggregate_multi(AggState *aggstate,
 	bool		haveOldValue = false;
 	int			i;
 
-	tuplesort_performsort(peraggstate->sortstate[aggstate->curgroup]);
+	tuplesort_performsort(peraggstate->sortstate[aggstate->current_set]);
 
 	ExecClearTuple(slot1);
 	if (slot2)
 		ExecClearTuple(slot2);
 
-	while (tuplesort_gettupleslot(peraggstate->sortstate[aggstate->curgroup], true, slot1))
+	while (tuplesort_gettupleslot(peraggstate->sortstate[aggstate->current_set], true, slot1))
 	{
 		/*
 		 * Extract the first numTransInputs columns as datums to pass to the
@@ -826,8 +820,8 @@ process_ordered_aggregate_multi(AggState *aggstate,
 	if (slot2)
 		ExecClearTuple(slot2);
 
-	tuplesort_end(peraggstate->sortstate[aggstate->curgroup]);
-	peraggstate->sortstate[aggstate->curgroup] = NULL;
+	tuplesort_end(peraggstate->sortstate[aggstate->current_set]);
+	peraggstate->sortstate[aggstate->current_set] = NULL;
 }
 
 /*
@@ -1179,10 +1173,9 @@ agg_retrieve_direct(AggState *aggstate)
 	AggStatePerGroup pergroup;
 	TupleTableSlot *outerslot;
 	TupleTableSlot *firstSlot;
-	List           *currentMatchCols = node->currentMatchCols;
 	int			   aggno;
-	bool           hasRollup = false;
-	int            numGroupingSets = 1;
+	bool           hasRollup = aggstate->numsets > 0;
+	int            numGroupingSets = Max(aggstate->numsets, 1);
 	int            currentGroup = 0;
 	int            currentSize = 0;
 	int            numReset = 1;
@@ -1202,19 +1195,13 @@ agg_retrieve_direct(AggState *aggstate)
 	pergroup = aggstate->pergroup;
 	firstSlot = aggstate->ss.ss_ScanTupleSlot;
 
-	if (currentMatchCols)
-	{
-		numGroupingSets = list_length(currentMatchCols);
-		hasRollup = true;
-	}
-
 	/*
 	 * We loop retrieving groups until we find one matching
 	 * aggstate->ss.ps.qual
 	 *
-	 * For grouping sets, we have the invariant that aggstate->curgroup_size is
+	 * For grouping sets, we have the invariant that aggstate->projected_set is
 	 * either -1 (initial call or only one grouping set in play) or the index
-	 * (starting from 0) in currentMatchCols for the group we just completed
+	 * (starting from 0) in gset_lengths for the group we just completed
 	 * (either by projecting a row or by discarding it in the qual).
 	 */
 	while (!aggstate->agg_done)
@@ -1232,8 +1219,8 @@ agg_retrieve_direct(AggState *aggstate)
 		 */
 		ReScanExprContext(econtext);
 		
-		if (aggstate->curgroup_size >= 0 && aggstate->curgroup_size < numGroupingSets)
-			numReset = aggstate->curgroup_size + 1;
+		if (aggstate->projected_set >= 0 && aggstate->projected_set < numGroupingSets)
+			numReset = aggstate->projected_set + 1;
 		else
 			numReset = numGroupingSets;
 		
@@ -1245,14 +1232,14 @@ agg_retrieve_direct(AggState *aggstate)
 		
 		/* Check if input is complete and there are no more groups to project. */
 		if (aggstate->input_done == true
-			&& aggstate->curgroup_size >= (numGroupingSets - 1))
+			&& aggstate->projected_set >= (numGroupingSets - 1))
 		{
 			aggstate->agg_done = true;
 			break;
 		}
 
-		if (aggstate->curgroup_size >= 0 && aggstate->curgroup_size < (numGroupingSets - 1))
-			currentSize = list_nth_int(currentMatchCols, aggstate->curgroup_size + 1);
+		if (aggstate->projected_set >= 0 && aggstate->projected_set < (numGroupingSets - 1))
+			currentSize = aggstate->gset_lengths[aggstate->projected_set + 1];
 		else
 			currentSize = 0;
 
@@ -1274,8 +1261,8 @@ agg_retrieve_direct(AggState *aggstate)
 		 */
 		if (aggstate->input_done
 			|| (node->aggstrategy == AGG_SORTED
-				&& aggstate->curgroup_size != -1
-				&& aggstate->curgroup_size < (numGroupingSets - 1)
+				&& aggstate->projected_set != -1
+				&& aggstate->projected_set < (numGroupingSets - 1)
 				&& currentSize > 0
 				&& !execTuplesMatch(econtext->ecxt_outertuple,
 									tmpcontext->ecxt_outertuple,
@@ -1284,9 +1271,9 @@ agg_retrieve_direct(AggState *aggstate)
 									aggstate->eqfunctions,
 									tmpcontext->ecxt_per_tuple_memory)))
 		{
-			++aggstate->curgroup_size;
+			++aggstate->projected_set;
 
-			Assert(aggstate->curgroup_size < numGroupingSets);
+			Assert(aggstate->projected_set < numGroupingSets);
 			Assert(currentSize > 0 || aggstate->input_done);
 		}
 		else
@@ -1295,7 +1282,7 @@ agg_retrieve_direct(AggState *aggstate)
 			 * we no longer care what group we just projected, the next projection
 			 * will always be the first (or only) grouping set.
 			 */
-			aggstate->curgroup_size = 0;
+			aggstate->projected_set = 0;
 
 			/*
 			 * If we don't already have the first tuple of the new group, fetch it
@@ -1410,9 +1397,9 @@ agg_retrieve_direct(AggState *aggstate)
 			econtext->ecxt_outertuple = firstSlot;
 		}
 
-		Assert(aggstate->curgroup_size >= 0);
+		Assert(aggstate->projected_set >= 0);
 
-		aggstate->curgroup = currentGroup = aggstate->curgroup_size;
+		aggstate->current_set = currentGroup = aggstate->projected_set;
 
 		for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 		{
@@ -1661,10 +1648,11 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	aggstate->aggs = NIL;
 	aggstate->numaggs = 0;
+	aggstate->numsets = 0;
 	aggstate->eqfunctions = NULL;
 	aggstate->hashfunctions = NULL;
-	aggstate->curgroup_size = -1;
-	aggstate->curgroup = 0;
+	aggstate->projected_set = -1;
+	aggstate->current_set = 0;
 	aggstate->peragg = NULL;
 	aggstate->curperagg = NULL;
 	aggstate->agg_done = false;
@@ -1673,20 +1661,26 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->grp_firstTuple = NULL;
 	aggstate->hashtable = NULL;
 
-	if (node->currentMatchCols)
+	if (node->groupingSets)
 	{
-		numGroupingSets = list_length(node->currentMatchCols);
+		numGroupingSets = list_length(node->groupingSets);
+		aggstate->numsets = numGroupingSets;
+		aggstate->gset_lengths = palloc(numGroupingSets * sizeof(int));
 		aggstate->grouped_cols = palloc(numGroupingSets * sizeof(Bitmapset *));
 
-		for (i = 0; i < numGroupingSets; ++i)
+		i = 0;
+		foreach(l, node->groupingSets)
 		{
-			int current_length = list_nth_int(node->currentMatchCols, i);
+			int current_length = list_length(lfirst(l));
 			Bitmapset *cols = NULL;
 
+			/* planner forces this to be correct */
 			for (j = 0; j < current_length; ++j)
 				cols = bms_add_member(cols, node->grpColIdx[j]);
 
 			aggstate->grouped_cols[i] = cols;
+			aggstate->gset_lengths[i] = current_length;
+			++i;
 		}
 	}
 
@@ -2196,11 +2190,8 @@ ExecEndAgg(AggState *node)
 	Agg		   *aggnode = (Agg *) node->ss.ps.plan;
 	PlanState  *outerPlan;
 	int			aggno;
-	int			numGroupingSets = 1;
+	int			numGroupingSets = Max(node->numsets, 1);
 	int			i = 0;
-
-	if (aggnode->currentMatchCols)
-		numGroupingSets = list_length(aggnode->currentMatchCols);
 
 	/* Make sure we have closed any open tuplesorts */
 	for (aggno = 0; aggno < node->numaggs; aggno++)
@@ -2236,9 +2227,9 @@ void
 ExecReScanAgg(AggState *node)
 {
 	ExprContext *econtext = node->ss.ps.ps_ExprContext;
-	Agg		   *AggNode = (Agg *) node->ss.ps.plan;
+	Agg		   *aggnode = (Agg *) node->ss.ps.plan;
 	int			aggno;
-	int         numGroupingSets = 1;
+	int         numGroupingSets = Max(node->numsets, 1);
 	int         groupno;
 	int         i;
 
@@ -2246,10 +2237,7 @@ ExecReScanAgg(AggState *node)
 
 	node->ss.ps.ps_TupFromTlist = false;
 
-	if (AggNode->currentMatchCols)
-		numGroupingSets = list_length(AggNode->currentMatchCols);
-
-	if (((Agg *) node->ss.ps.plan)->aggstrategy == AGG_HASHED)
+	if (aggnode->aggstrategy == AGG_HASHED)
 	{
 		/*
 		 * In the hashed case, if we haven't yet built the hash table then we
@@ -2316,7 +2304,7 @@ ExecReScanAgg(AggState *node)
 	MemSet(econtext->ecxt_aggvalues, 0, sizeof(Datum) * node->numaggs);
 	MemSet(econtext->ecxt_aggnulls, 0, sizeof(bool) * node->numaggs);
 
-	if (((Agg *) node->ss.ps.plan)->aggstrategy == AGG_HASHED)
+	if (aggnode->aggstrategy == AGG_HASHED)
 	{
 		/* Rebuild an empty hash table */
 		build_hash_table(node);
@@ -2370,7 +2358,7 @@ AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
 		if (aggcontext)
 		{
 			AggState    *aggstate = ((AggState *) fcinfo->context);
-			ExprContext *cxt  = aggstate->aggcontext[aggstate->curgroup];
+			ExprContext *cxt  = aggstate->aggcontext[aggstate->current_set];
 			*aggcontext = cxt->ecxt_per_tuple_memory;
 		}
 		return AGG_CONTEXT_AGGREGATE;
@@ -2456,7 +2444,7 @@ AggRegisterCallback(FunctionCallInfo fcinfo,
 	if (fcinfo->context && IsA(fcinfo->context, AggState))
 	{
 		AggState   *aggstate = (AggState *) fcinfo->context;
-		ExprContext *cxt  = aggstate->aggcontext[aggstate->curgroup];
+		ExprContext *cxt  = aggstate->aggcontext[aggstate->current_set];
 
 		RegisterExprContextCallback(cxt, func, arg);
 

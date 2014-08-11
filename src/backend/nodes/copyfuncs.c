@@ -779,8 +779,7 @@ _copyAgg(const Agg *from)
 		COPY_POINTER_FIELD(grpOperators, from->numCols * sizeof(Oid));
 	}
 	COPY_SCALAR_FIELD(numGroups);
-	COPY_NODE_FIELD(groupIds);
-	COPY_NODE_FIELD(currentMatchCols);
+	COPY_NODE_FIELD(groupingSets);
 
 	return newnode;
 }

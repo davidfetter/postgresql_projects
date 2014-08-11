@@ -1204,29 +1204,70 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 		elog(DEBUG1, "grouping sets 1: %s", nodeToString(parse->groupingSets));
 
-		/*
-		 * TODO - if the grouping set list can't be handled as one rollup...
-		 */
-
 		if (parse->groupingSets)
 		{
-			List *remaining_sets = NIL;
-			List *usable_sets = extract_rollup_sets(parse->groupingSets,
-													parse->sortClause,
-													&remaining_sets);
+			ListCell   *lc;
+			ListCell   *lc2;
+			int		   *refmap;
+			int			maxref = 0;
+			int			ref = 0;
+			List	   *remaining_sets = NIL;
+			List	   *usable_sets = extract_rollup_sets(parse->groupingSets,
+													  parse->sortClause,
+													  &remaining_sets);
+
+			/*
+			 * TODO - if the grouping set list can't be handled as one rollup...
+			 */
 
 			if (remaining_sets != NIL)
 				elog(ERROR, "not implemented yet");
 
 			parse->groupingSets = usable_sets;
 
+			if (parse->groupClause)
+				preprocess_groupclause(root, linitial(parse->groupingSets));
+
+			/*
+			 * Now that we've pinned down an order for the groupClause for this
+			 * list of grouping sets, remap the entries in the grouping sets
+			 * from sortgrouprefs to plain indices into the groupClause.
+			 */
+
+			foreach(lc, parse->groupClause)
+			{
+				SortGroupClause *gc = lfirst(lc);
+				if (gc->tleSortGroupRef > maxref)
+					maxref = gc->tleSortGroupRef;
+			}
+
+			refmap = palloc0(sizeof(int) * (maxref + 1));
+
+			foreach(lc, parse->groupClause)
+			{
+				SortGroupClause *gc = lfirst(lc);
+				refmap[gc->tleSortGroupRef] = ++ref;
+			}
+
+			foreach(lc, usable_sets)
+			{
+				foreach(lc2, (List *) lfirst(lc))
+				{
+					Assert(refmap[lfirst_int(lc2)] > 0);
+					lfirst_int(lc2) = refmap[lfirst_int(lc2)] - 1;
+				}
+			}
+
+			pfree(refmap);
+
 			elog(DEBUG1, "grouping sets 2: %s", nodeToString(parse->groupingSets));
 		}
-
-		/* Preprocess GROUP BY clause, if any */
-		if (parse->groupClause)
-			preprocess_groupclause(root,
-								   parse->groupingSets ? linitial(parse->groupingSets) : NIL);
+		else
+		{
+			/* Preprocess GROUP BY clause, if any */
+			if (parse->groupClause)
+				preprocess_groupclause(root, NIL);
+		}
 
 		numGroupCols = list_length(parse->groupClause);
 
@@ -1634,6 +1675,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												numGroupCols,
 												groupColIdx,
 									extract_grouping_ops(parse->groupClause),
+												NIL,
 												numGroups,
 												result_plan);
 				/* Hashed aggregation produces randomly-ordered results */
@@ -1673,15 +1715,16 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				}
 
 				result_agg = make_agg(root,
-												tlist,
-												(List *) parse->havingQual,
-												aggstrategy,
-												&agg_costs,
-												numGroupCols,
-												groupColIdx,
-									extract_grouping_ops(parse->groupClause),
-												numGroups,
-												result_plan);
+									  tlist,
+									  (List *) parse->havingQual,
+									  aggstrategy,
+									  &agg_costs,
+									  numGroupCols,
+									  groupColIdx,
+									  extract_grouping_ops(parse->groupClause),
+									  parse->groupingSets,
+									  numGroups,
+									  result_plan);
 
 				result_plan = (Plan *) result_agg;
 			}
@@ -1938,6 +1981,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 								 extract_grouping_cols(parse->distinctClause,
 													result_plan->targetlist),
 								 extract_grouping_ops(parse->distinctClause),
+											NIL,
 											numDistinctRows,
 											result_plan);
 			/* Hashed aggregation produces randomly-ordered results */
