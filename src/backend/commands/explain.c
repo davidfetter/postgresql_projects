@@ -78,6 +78,9 @@ static void show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 					   ExplainState *es);
 static void show_agg_keys(AggState *astate, List *ancestors,
 			  ExplainState *es);
+static void show_grouping_set_keys(PlanState *planstate, const char *qlabel,
+				int nkeys, AttrNumber *keycols, List *gsets,
+				List *ancestors, ExplainState *es);
 static void show_group_keys(GroupState *gstate, List *ancestors,
 				ExplainState *es);
 static void show_sort_group_keys(PlanState *planstate, const char *qlabel,
@@ -1782,11 +1785,74 @@ show_agg_keys(AggState *astate, List *ancestors,
 	{
 		/* The key columns refer to the tlist of the child plan */
 		ancestors = lcons(astate, ancestors);
-		show_sort_group_keys(outerPlanState(astate), "Group Key",
-							 plan->numCols, plan->grpColIdx,
-							 ancestors, es);
+		if (plan->groupingSets)
+			show_grouping_set_keys(outerPlanState(astate), "Grouping Sets",
+								   plan->numCols, plan->grpColIdx,
+								   plan->groupingSets,
+								   ancestors, es);
+		else
+			show_sort_group_keys(outerPlanState(astate), "Group Key",
+								 plan->numCols, plan->grpColIdx,
+								 ancestors, es);
 		ancestors = list_delete_first(ancestors);
 	}
+}
+
+static void
+show_grouping_set_keys(PlanState *planstate, const char *qlabel,
+					   int nkeys, AttrNumber *keycols, List *gsets,
+					   List *ancestors, ExplainState *es)
+{
+	Plan	   *plan = planstate->plan;
+	List	   *context;
+	List	   *result = NIL;
+	bool		useprefix;
+	char	   *exprstr;
+	StringInfoData buf;
+	ListCell   *lc;
+	ListCell   *lc2;
+
+	if (nkeys <= 0 || gsets == NIL)
+		return;
+
+	/* Set up deparsing context */
+	context = deparse_context_for_planstate((Node *) planstate,
+											ancestors,
+											es->rtable,
+											es->rtable_names);
+	useprefix = (list_length(es->rtable) > 1 || es->verbose);
+
+	foreach(lc, gsets)
+	{
+		char *sep = "";
+
+		initStringInfo(&buf);
+		appendStringInfoString(&buf, "(");
+
+		foreach(lc2, (List *) lfirst(lc))
+		{
+			Index		i = lfirst_int(lc2);
+			AttrNumber	keyresno = keycols[i];
+			TargetEntry *target = get_tle_by_resno(plan->targetlist,
+												   keyresno);
+
+			if (!target)
+				elog(ERROR, "no tlist entry for key %d", keyresno);
+			/* Deparse the expression, showing any top-level cast */
+			exprstr = deparse_expression((Node *) target->expr, context,
+										 useprefix, true);
+
+			appendStringInfoString(&buf, sep);
+			appendStringInfoString(&buf, exprstr);
+			sep = ", ";
+		}
+
+		appendStringInfoString(&buf, ")");
+
+		result = lappend(result, buf.data);
+	}
+
+	ExplainPropertyList(qlabel, result, es);
 }
 
 /*
