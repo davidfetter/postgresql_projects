@@ -1957,6 +1957,16 @@ transformGroupingSet(List **flatresult,
 		}
 	}
 
+	/* Arbitrarily cap the size of CUBE, which has exponential growth */
+	if (gset->kind == GROUPING_SET_CUBE)
+	{
+		if (list_length(content) > 16)
+			ereport(ERROR,
+					(errcode(ERRCODE_TOO_MANY_COLUMNS),
+					 errmsg("CUBE is limited to 16 elements"),
+					 parser_errposition(pstate, gset->location)));
+	}
+
 	return (Node *) makeGroupingSet(gset->kind, content, gset->location);
 }
 
@@ -2013,7 +2023,7 @@ transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
 	{
 		flat_grouplist = list_make1(makeGroupingSet(GROUPING_SET_EMPTY,
 													NIL,
-													exprLocation(grouplist)));
+													exprLocation((Node *) grouplist)));
 	}
 
 	foreach(gl, flat_grouplist)
