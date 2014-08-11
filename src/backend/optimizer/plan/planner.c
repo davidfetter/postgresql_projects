@@ -1384,7 +1384,23 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 			groupExprs = get_sortgrouplist_exprs(parse->groupClause,
 												 parse->targetList);
-			dNumGroups = estimate_num_groups(root, groupExprs, path_rows);
+			if (parse->groupingSets)
+			{
+				ListCell   *lc;
+
+				dNumGroups = 0;
+
+				foreach(lc, parse->groupingSets)
+				{
+					dNumGroups += estimate_num_groups(root,
+													  groupExprs,
+													  path_rows,
+													  (List **) &(lfirst(lc)));
+				}
+			}
+			else
+				dNumGroups = estimate_num_groups(root, groupExprs, path_rows,
+												 NULL);
 
 			/*
 			 * In GROUP BY mode, an absolute LIMIT is relative to the number
@@ -1432,7 +1448,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 			distinctExprs = get_sortgrouplist_exprs(parse->distinctClause,
 													parse->targetList);
-			dNumGroups = estimate_num_groups(root, distinctExprs, path_rows);
+			dNumGroups = estimate_num_groups(root, distinctExprs, path_rows, NULL);
 
 			/*
 			 * Adjust tuple_fraction the same way as for GROUP BY, too.

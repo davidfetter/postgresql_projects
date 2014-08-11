@@ -1338,7 +1338,7 @@ create_unique_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 	}
 
 	/* Estimate number of output rows */
-	pathnode->path.rows = estimate_num_groups(root, uniq_exprs, rel->rows);
+	pathnode->path.rows = estimate_num_groups(root, uniq_exprs, rel->rows, NULL);
 	numCols = list_length(uniq_exprs);
 
 	if (all_btree)
