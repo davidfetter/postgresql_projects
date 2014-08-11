@@ -1781,7 +1781,7 @@ show_agg_keys(AggState *astate, List *ancestors,
 {
 	Agg		   *plan = (Agg *) astate->ss.ps.plan;
 
-	if (plan->numCols > 0)
+	if (plan->numCols > 0 || plan->groupingSets)
 	{
 		/* The key columns refer to the tlist of the child plan */
 		ancestors = lcons(astate, ancestors);
@@ -1812,7 +1812,7 @@ show_grouping_set_keys(PlanState *planstate, const char *qlabel,
 	ListCell   *lc;
 	ListCell   *lc2;
 
-	if (nkeys <= 0 || gsets == NIL)
+	if (gsets == NIL)
 		return;
 
 	/* Set up deparsing context */
