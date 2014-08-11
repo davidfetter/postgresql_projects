@@ -167,8 +167,8 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 										InvalidOid, InvalidOid, -1);
 			break;
 
-	    case T_GroupingParse:
-			result = transformGroupingExpr(pstate, (GroupingParse *) expr);
+		case T_Grouping:
+			result = transformGroupingExpr(pstate, (Grouping *) expr);
 			break;
 
 		case T_TypeCast:

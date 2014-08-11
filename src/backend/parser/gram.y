@@ -424,7 +424,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				a_expr b_expr c_expr AexprConst indirection_el
 				columnref in_expr having_clause func_table array_expr
 				ExclusionWhereClause
-%type <list>	rowsfrom_item rowsfrom_list opt_col_def_list columnref_list
+%type <list>	rowsfrom_item rowsfrom_list opt_col_def_list
 %type <boolean> opt_ordinality
 %type <list>	ExclusionConstraintList ExclusionConstraintElem
 %type <list>	func_arg_list
@@ -11516,7 +11516,7 @@ c_expr:		columnref								{ $$ = $1; }
 				}
             | GROUPING '(' expr_list ')'
 			  {
-				  GroupingParse *g = makeNode(GroupingParse);
+				  Grouping *g = makeNode(Grouping);
 				  g->args = $3;
 				  g->location = @1;
 				  $$ = (Node *)g;
@@ -12568,16 +12568,6 @@ columnref:	ColId
 					$$ = makeColumnRef($1, $2, @1, yyscanner);
 				}
 		;
-
-columnref_list: columnref
-                   {
-					   $$ = list_make1($1);
-				   }
-                | columnref_list ',' columnref
-				   {
-					   $$ = lappend($1, $3);
-				   }
-				   ;
 
 indirection_el:
 			'.' attr_name

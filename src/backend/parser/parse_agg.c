@@ -453,7 +453,7 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
  * Transform a grouping expression
  */
 Node *
-transformGroupingExpr(ParseState *pstate, GroupingParse *p)
+transformGroupingExpr(ParseState *pstate, Grouping *p)
 {
 	ListCell *lc;
 	List *args = p->args;
@@ -462,8 +462,8 @@ transformGroupingExpr(ParseState *pstate, GroupingParse *p)
 
 	if (list_length(args) > 31)
 		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("Argument columns to GROUPING must be less than 32 in number"),
+				(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
+				 errmsg("GROUPING must have fewer than 32 arguments"),
 				 parser_errposition(pstate, p->location)));
 
 	foreach(lc, args)

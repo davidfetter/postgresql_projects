@@ -3889,17 +3889,6 @@ _copyAlterTSDictionaryStmt(const AlterTSDictionaryStmt *from)
 	return newnode;
 }
 
-static GroupingParse *
-_copyGroupingParse(const GroupingParse *from)
-{
-	GroupingParse *newnode = makeNode(GroupingParse);
-
-	COPY_NODE_FIELD(args);
-	COPY_LOCATION_FIELD(location);
-
-	return newnode;
-}
-
 static AlterTSConfigurationStmt *
 _copyAlterTSConfigurationStmt(const AlterTSConfigurationStmt *from)
 {
@@ -4741,9 +4730,6 @@ copyObject(const void *from)
 			break;
 		case T_XmlSerialize:
 			retval = _copyXmlSerialize(from);
-			break;
-	    case T_GroupingParse:
-			retval = _copyGroupingParse(from);
 			break;
 
 		default:
