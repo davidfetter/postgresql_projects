@@ -374,30 +374,14 @@ get_sortgrouplist_exprs(List *sgClauses, List *targetList)
 {
 	List	   *result = NIL;
 	ListCell   *l;
-	ListCell   *l2;
 
 	foreach(l, sgClauses)
 	{
-		if (IsA(lfirst(l), List))
-		{
-			foreach(l2, lfirst(l))
-			{
-				SortGroupClause *sortcl = (SortGroupClause *) lfirst(l2);
-				Node	   *sortexpr;
+		SortGroupClause *sortcl = (SortGroupClause *) lfirst(l);
+		Node	   *sortexpr;
 
-				sortexpr = get_sortgroupclause_expr(sortcl, targetList);
-				result = lappend(result, sortexpr);
-			}
-		}
-		else
-		{
-
-			SortGroupClause *sortcl = (SortGroupClause *) lfirst(l);
-			Node	   *sortexpr;
-
-			sortexpr = get_sortgroupclause_expr(sortcl, targetList);
-			result = lappend(result, sortexpr);
-		}
+		sortexpr = get_sortgroupclause_expr(sortcl, targetList);
+		result = lappend(result, sortexpr);
 	}
 	return result;
 }
@@ -449,26 +433,11 @@ extract_grouping_ops(List *groupClause)
 
 	foreach(glitem, groupClause)
 	{
-		/* If ROLLUP is present, iterate into the nested sublists */
-		if (IsA(lfirst(glitem), List))
-		{
-			foreach(glitem_inner, lfirst(glitem))
-			{
-				SortGroupClause *groupcl = (SortGroupClause *) lfirst(glitem_inner);
+		SortGroupClause *groupcl = (SortGroupClause *) lfirst(glitem);
 
-				groupOperators[colno] = groupcl->eqop;
-				Assert(OidIsValid(groupOperators[colno]));
-				colno++;
-			}
-		}
-		else
-		{
-			SortGroupClause *groupcl = (SortGroupClause *) lfirst(glitem);
-
-			groupOperators[colno] = groupcl->eqop;
-			Assert(OidIsValid(groupOperators[colno]));
-			colno++;
-		}
+		groupOperators[colno] = groupcl->eqop;
+		Assert(OidIsValid(groupOperators[colno]));
+		colno++;
 	}
 
 	return groupOperators;

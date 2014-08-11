@@ -40,7 +40,6 @@
 #include "rewrite/rewriteManip.h"
 #include "utils/rel.h"
 #include "utils/selfuncs.h"
-#include "math.h"
 
 
 /* GUC parameter */
@@ -1094,7 +1093,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 	bool		use_hashed_distinct = false;
 	bool		tested_hashed_distinct = false;
 
-
 	/* Tweak caller-supplied tuple_fraction if have LIMIT/OFFSET */
 	if (parse->limitCount || parse->limitOffset)
 	{
@@ -1517,7 +1515,8 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		{
 			/*
 			 * If grouping, decide whether to use sorted or hashed grouping.
-			 * If ROLLUP clause is present, we shall use only sorted grouping
+			 * If grouping sets are present, we can currently do only sorted
+			 * grouping
 			 */
 
 			if (parse->groupingSets)
@@ -1683,9 +1682,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			}
 			else if (parse->hasAggs || parse->groupingSets)
 			{
-				/* Used for holding Agg plan for setting hasRollups attribute */
-				Agg *result_agg;
-
 				/* Plain aggregate plan --- sort if needed */
 				AggStrategy aggstrategy;
 
@@ -1714,19 +1710,17 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 					current_pathkeys = NIL;
 				}
 
-				result_agg = make_agg(root,
-									  tlist,
-									  (List *) parse->havingQual,
-									  aggstrategy,
-									  &agg_costs,
-									  numGroupCols,
-									  groupColIdx,
-									  extract_grouping_ops(parse->groupClause),
-									  parse->groupingSets,
-									  numGroups,
-									  result_plan);
-
-				result_plan = (Plan *) result_agg;
+				result_plan = (Plan *) make_agg(root,
+												tlist,
+												(List *) parse->havingQual,
+												aggstrategy,
+												&agg_costs,
+												numGroupCols,
+												groupColIdx,
+									extract_grouping_ops(parse->groupClause),
+												parse->groupingSets,
+												numGroups,
+												result_plan);
 			}
 			else if (parse->groupClause)
 			{
@@ -2901,6 +2895,20 @@ preprocess_groupingsets(List *groupingSets)
 	return result;
 }
 
+/*
+ * Extract a list of grouping sets that can be implemented using a single
+ * rollup-type aggregate pass. The order of elements in each returned set is
+ * modified to ensure proper prefix relationships; the sets are returned in
+ * decreasing order of size. (The input must also be in descending order of
+ * size.)
+ *
+ * If we're passed in a sortclause, we follow its order of columns to the
+ * extent possible, to minimize the chance that we add unnecessary sorts.
+ *
+ * Sets that can't be accomodated within a rollup that includes the first
+ * (and therefore largest) grouping set in the input are added to the
+ * remainder list.
+ */
 
 static List *
 extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder)
@@ -3106,8 +3114,6 @@ choose_hashed_grouping(PlannerInfo *root,
 		if (can_hash)
 			return true;
 		else if (can_sort)
-			return false;
-		else if (IsA(linitial(parse->groupClause), List))
 			return false;
 		else
 			ereport(ERROR,

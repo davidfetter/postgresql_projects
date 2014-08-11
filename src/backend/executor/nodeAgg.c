@@ -1663,6 +1663,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	if (node->groupingSets)
 	{
+		Assert(node->aggstrategy != AGG_HASHED);
+
 		numGroupingSets = list_length(node->groupingSets);
 		aggstate->numsets = numGroupingSets;
 		aggstate->gset_lengths = palloc(numGroupingSets * sizeof(int));

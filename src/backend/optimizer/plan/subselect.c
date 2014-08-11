@@ -348,7 +348,7 @@ replace_outer_grouping(PlannerInfo *root, Grouping *grp)
 
 	Assert(grp->agglevelsup > 0 && grp->agglevelsup < root->query_level);
 
-	/* Find the query level the Aggref belongs to */
+	/* Find the query level the Grouping belongs to */
 	for (levelsup = grp->agglevelsup; levelsup > 0; levelsup--)
 		root = root->parent_root;
 
