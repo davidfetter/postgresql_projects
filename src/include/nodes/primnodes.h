@@ -178,7 +178,7 @@ typedef struct Grouping
 	int location;
 	int agglevelsup;
 } Grouping;
-	
+
 /*
  * Const
  */

@@ -4133,13 +4133,13 @@ copyObject(const void *from)
 		case T_Var:
 			retval = _copyVar(from);
 			break;
-        case T_GroupedVar:
+		case T_GroupedVar:
 			retval = _copyGroupedVar(from);
 			break;
-        case T_Grouping:
+		case T_Grouping:
 			retval = _copyGrouping(from);
 			break;
-        case T_GroupingSet:
+		case T_GroupingSet:
 			retval = _copyGroupingSet(from);
 			break;
 		case T_Const:

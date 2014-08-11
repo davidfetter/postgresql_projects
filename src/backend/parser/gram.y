@@ -11514,7 +11514,7 @@ c_expr:		columnref								{ $$ = $1; }
 					r->location = @1;
 					$$ = (Node *)r;
 				}
-            | GROUPING '(' expr_list ')'
+			| GROUPING '(' expr_list ')'
 			  {
 				  Grouping *g = makeNode(Grouping);
 				  g->args = $3;

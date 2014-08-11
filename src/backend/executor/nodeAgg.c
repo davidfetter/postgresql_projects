@@ -305,7 +305,7 @@ typedef struct AggHashEntryData
 static void initialize_aggregates(AggState *aggstate,
 					  AggStatePerAgg peragg,
 					  AggStatePerGroup pergroup,
-	                  int numReinitialize);
+					  int numReinitialize);
 static void advance_transition_function(AggState *aggstate,
 							AggStatePerAgg peraggstate,
 							AggStatePerGroup pergroupstate);
@@ -340,7 +340,7 @@ static void
 initialize_aggregates(AggState *aggstate,
 					  AggStatePerAgg peragg,
 					  AggStatePerGroup pergroup,
-	                  int numReinitialize)
+					  int numReinitialize)
 {
 	Agg         *node = (Agg *) aggstate->ss.ps.plan;
 	int			aggno;
@@ -1218,18 +1218,18 @@ agg_retrieve_direct(AggState *aggstate)
 		 * resources.
 		 */
 		ReScanExprContext(econtext);
-		
+
 		if (aggstate->projected_set >= 0 && aggstate->projected_set < numGroupingSets)
 			numReset = aggstate->projected_set + 1;
 		else
 			numReset = numGroupingSets;
-		
+
 		for (i = 0; i < numReset; i++)
 		{
 			ReScanExprContext(aggstate->aggcontext[i]);
 			MemoryContextDeleteChildren(aggstate->aggcontext[i]->ecxt_per_tuple_memory);
 		}
-		
+
 		/* Check if input is complete and there are no more groups to project. */
 		if (aggstate->input_done == true
 			&& aggstate->projected_set >= (numGroupingSets - 1))
@@ -1344,10 +1344,10 @@ agg_retrieve_direct(AggState *aggstate)
 				for (;;)
 				{
 					advance_aggregates(aggstate, pergroup);
-					
+
 					/* Reset per-input-tuple context after each tuple */
 					ResetExprContext(tmpcontext);
-					
+
 					outerslot = ExecProcNode(outerPlan);
 					if (TupIsNull(outerslot))
 					{
@@ -1365,7 +1365,7 @@ agg_retrieve_direct(AggState *aggstate)
 					}
 					/* set up for next advance_aggregates call */
 					tmpcontext->ecxt_outertuple = outerslot;
-					
+
 					/*
 					 * If we are grouping, check whether we've crossed a group
 					 * boundary.
@@ -1453,7 +1453,7 @@ agg_retrieve_direct(AggState *aggstate)
 		else
 			InstrCountFiltered1(aggstate, 1);
 	}
-		
+
 	/* No more groups */
 	return NULL;
 }
@@ -1815,7 +1815,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		AggStatePerGroup pergroup;
 
 		pergroup = (AggStatePerGroup) palloc0(sizeof(AggStatePerGroupData) * numaggs * numGroupingSets);
-			
+
 		aggstate->pergroup = pergroup;
 	}
 

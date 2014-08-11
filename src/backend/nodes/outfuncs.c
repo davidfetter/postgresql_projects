@@ -2954,13 +2954,13 @@ _outNode(StringInfo str, const void *obj)
 			case T_Var:
 				_outVar(str, obj);
 				break;
-		    case T_GroupedVar:
+			case T_GroupedVar:
 				_outGroupedVar(str, obj);
 				break;
-            case T_Grouping:
+			case T_Grouping:
 				_outGrouping(str, obj);
 				break;
-            case T_GroupingSet:
+			case T_GroupingSet:
 				_outGroupingSet(str, obj);
 				break;
 			case T_Const:

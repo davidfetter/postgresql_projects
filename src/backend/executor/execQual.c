@@ -3034,7 +3034,7 @@ ExecEvalCaseTestExpr(ExprState *exprstate,
 	return econtext->caseValue_datum;
 }
 
-/* 
+/*
  * ExecEvalGroupingExpr
  * Return a bitmask with a bit for each column.
  * A bit is set if the column is not a part of grouping.
@@ -3055,7 +3055,7 @@ ExecEvalGroupingExpr(GroupingState *gstate,
 
 	*isNull = false;
 
-	foreach(lc, (gstate->clauses)) 
+	foreach(lc, (gstate->clauses))
 	{
 		current_val = lfirst_int(lc);
 
@@ -3064,7 +3064,7 @@ ExecEvalGroupingExpr(GroupingState *gstate,
 		if (!bms_is_member(current_val, econtext->grouped_cols))
 			result = result | 1;
 	}
-		
+
 	return (Datum) result;
 }
 
@@ -4475,7 +4475,7 @@ ExecInitExpr(Expr *node, PlanState *parent)
 			{
 				Grouping *grp_node = (Grouping *) node;
 				GroupingState *grp_state = makeNode(GroupingState);
-				List     *result_list = NIL;    
+				List     *result_list = NIL;
 				ListCell *lc;
 				Agg *agg = NULL;
 

@@ -6762,7 +6762,7 @@ get_rule_expr(Node *node, deparse_context *context,
 			(void) get_variable((Var *) node, 0, false, context);
 			break;
 
-        case T_GroupedVar:
+		case T_GroupedVar:
 			(void) get_variable((Var *) node, 0, false, context);
 			break;
 

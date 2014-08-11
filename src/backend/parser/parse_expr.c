@@ -1531,7 +1531,7 @@ transformSubLink(ParseState *pstate, SubLink *sublink)
 		case EXPR_KIND_UPDATE_SOURCE:
 		case EXPR_KIND_UPDATE_TARGET:
 		case EXPR_KIND_GROUP_BY:
-	    case EXPR_KIND_GROUPING:
+		case EXPR_KIND_GROUPING:
 		case EXPR_KIND_ORDER_BY:
 		case EXPR_KIND_DISTINCT_ON:
 		case EXPR_KIND_LIMIT:
@@ -2682,7 +2682,7 @@ ParseExprKindName(ParseExprKind exprKind)
 			return "UPDATE";
 		case EXPR_KIND_GROUP_BY:
 			return "GROUP BY";
-	    case EXPR_KIND_GROUPING:
+		case EXPR_KIND_GROUPING:
 			return "GROUPING";
 		case EXPR_KIND_ORDER_BY:
 			return "ORDER BY";

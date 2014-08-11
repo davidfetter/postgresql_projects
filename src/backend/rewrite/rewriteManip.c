@@ -177,7 +177,7 @@ locate_agg_of_level_walker(Node *node,
 	}
 	if (IsA(node, Grouping))
 	{
-    	if (((Grouping *) node)->agglevelsup == context->sublevels_up &&
+		if (((Grouping *) node)->agglevelsup == context->sublevels_up &&
 			((Grouping *) node)->location >= 0)
 		{
 			context->agg_location = ((Aggref *) node)->location;

@@ -2603,13 +2603,13 @@ equal(const void *a, const void *b)
 		case T_Var:
 			retval = _equalVar(a, b);
 			break;
-	    case T_GroupedVar:
+		case T_GroupedVar:
 			retval = _equalGroupedVar(a, b);
 			break;
-        case T_Grouping:
+		case T_Grouping:
 			retval = _equalGrouping(a, b);
 			break;
-        case T_GroupingSet:
+		case T_GroupingSet:
 			retval = _equalGroupingSet(a, b);
 			break;
 		case T_Const:

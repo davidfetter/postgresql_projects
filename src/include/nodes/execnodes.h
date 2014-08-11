@@ -131,7 +131,7 @@ typedef struct ExprContext
 	bool	   *ecxt_aggnulls;	/* null flags for aggs/windowfuncs */
 
 	Bitmapset  *grouped_cols;   /* which columns exist in current grouping set */
-	
+
 	/* Value to substitute for CaseTestExpr nodes in expression */
 	Datum		caseValue_datum;
 	bool		caseValue_isNull;

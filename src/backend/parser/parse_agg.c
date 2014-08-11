@@ -201,7 +201,7 @@ static void check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 		case EXPR_KIND_GROUP_BY:
 			errkind = true;
 			break;
-	    case EXPR_KIND_GROUPING:
+		case EXPR_KIND_GROUPING:
 			errkind = true;
 			break;
 		case EXPR_KIND_ORDER_BY:
@@ -768,8 +768,8 @@ transformWindowFuncCall(ParseState *pstate, WindowFunc *wfunc,
 		case EXPR_KIND_GROUP_BY:
 			errkind = true;
 			break;
-	    case EXPR_KIND_GROUPING:
-			/* okay */
+		case EXPR_KIND_GROUPING:
+			errkind = true;
 			break;
 		case EXPR_KIND_ORDER_BY:
 			/* okay */
@@ -1201,7 +1201,7 @@ check_ungrouped_columns_walker(Node *node,
 
 		return false;
 	}
-				
+
 	/*
 	 * If we have any GROUP BY items that are not simple Vars, check to see if
 	 * subexpression as a whole matches any GROUP BY item. We need to do this
@@ -1251,7 +1251,6 @@ check_ungrouped_columns_walker(Node *node,
 				{
 					return false;		/* acceptable, we're okay */
 				}
-			
 			}
 		}
 

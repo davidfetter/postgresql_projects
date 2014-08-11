@@ -45,7 +45,7 @@ exprType(const Node *expr)
 		case T_Var:
 			type = ((const Var *) expr)->vartype;
 			break;
-	    case T_Grouping:
+		case T_Grouping:
 			type = INT4OID;
 			break;
 		case T_GroupedVar:
@@ -267,9 +267,9 @@ exprTypmod(const Node *expr)
 	{
 		case T_Var:
 			return ((const Var *) expr)->vartypmod;
-	    case T_Grouping:
+		case T_Grouping:
 			return -1;
-	    case T_GroupedVar:
+		case T_GroupedVar:
 			return ((const GroupedVar *) expr)->vartypmod;
 		case T_Const:
 			return ((const Const *) expr)->consttypmod;
@@ -744,10 +744,10 @@ exprCollation(const Node *expr)
 		case T_Var:
 			coll = ((const Var *) expr)->varcollid;
 			break;
-	    case T_Grouping:
+		case T_Grouping:
 			coll = InvalidOid;
 			break;
-	    case T_GroupedVar:
+		case T_GroupedVar:
 			coll = ((const GroupedVar *) expr)->varcollid;
 			break;
 		case T_Const:
@@ -983,7 +983,7 @@ exprSetCollation(Node *expr, Oid collation)
 		case T_Var:
 			((Var *) expr)->varcollid = collation;
 			break;
-	    case T_GroupedVar:
+		case T_GroupedVar:
 			((GroupedVar *) expr)->varcollid = collation;
 			break;
 		case T_Const:
@@ -1022,7 +1022,7 @@ exprSetCollation(Node *expr, Oid collation)
 		case T_BoolExpr:
 			Assert(!OidIsValid(collation));		/* result is always boolean */
 			break;
-	    case T_Grouping:
+		case T_Grouping:
 			Assert(!OidIsValid(collation));
 			break;
 		case T_SubLink:
@@ -1204,7 +1204,7 @@ exprLocation(const Node *expr)
 		case T_Var:
 			loc = ((const Var *) expr)->location;
 			break;
-	    case T_Grouping:
+		case T_Grouping:
 			loc = ((const Grouping *) expr)->location;
 			break;
 		case T_GroupedVar:
@@ -1653,7 +1653,7 @@ expression_tree_walker(Node *node,
 	switch (nodeTag(node))
 	{
 		case T_Var:
-	    case T_GroupedVar:
+		case T_GroupedVar:
 		case T_Const:
 		case T_Param:
 		case T_CoerceToDomainValue:
@@ -1687,7 +1687,7 @@ expression_tree_walker(Node *node,
 					return true;
 			}
 			break;
-	    case T_Grouping:
+		case T_Grouping:
 			{
 				Grouping   *grouping = (Grouping *) node;
 
@@ -2185,7 +2185,7 @@ expression_tree_mutator(Node *node,
 				return (Node *) newnode;
 			}
 			break;
-	    case T_GroupedVar:
+		case T_GroupedVar:
 			{
 				GroupedVar         *groupedvar = (GroupedVar *) node;
 				GroupedVar		   *newnode;
