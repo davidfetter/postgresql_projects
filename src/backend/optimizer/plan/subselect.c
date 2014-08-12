@@ -357,7 +357,7 @@ replace_outer_grouping(PlannerInfo *root, Grouping *grp)
 	 * make a new slot every time.
 	 */
 	grp = (Grouping *) copyObject(grp);
-	grp->agglevelsup = 0;
+	IncrementVarSublevelsUp((Node *) grp, -((int) grp->agglevelsup), 0);
 	Assert(grp->agglevelsup == 0);
 
 	pitem = makeNode(PlannerParamItem);
