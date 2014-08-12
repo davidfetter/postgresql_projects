@@ -37,6 +37,7 @@
 #include "optimizer/tlist.h"
 #include "parser/analyze.h"
 #include "parser/parsetree.h"
+#include "parser/parse_agg.h"
 #include "rewrite/rewriteManip.h"
 #include "utils/rel.h"
 #include "utils/selfuncs.h"
@@ -78,7 +79,6 @@ static double preprocess_limit(PlannerInfo *root,
 				 int64 *offset_est, int64 *count_est);
 static bool limit_needed(Query *parse);
 static void preprocess_groupclause(PlannerInfo *root, List *force);
-static List *preprocess_groupingsets(List *groupingSets);
 static List *extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder);
 static void standard_qp_callback(PlannerInfo *root, void *extra);
 static bool choose_hashed_grouping(PlannerInfo *root,
@@ -1198,7 +1198,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 		/* Preprocess Grouping set, if any */
 		if (parse->groupingSets)
-			parse->groupingSets = preprocess_groupingsets(parse->groupingSets);
+			parse->groupingSets = expand_grouping_sets(parse->groupingSets);
 
 		elog(DEBUG1, "grouping sets 1: %s", nodeToString(parse->groupingSets));
 
@@ -1211,8 +1211,8 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			int			ref = 0;
 			List	   *remaining_sets = NIL;
 			List	   *usable_sets = extract_rollup_sets(parse->groupingSets,
-													  parse->sortClause,
-													  &remaining_sets);
+														  parse->sortClause,
+														  &remaining_sets);
 
 			/*
 			 * TODO - if the grouping set list can't be handled as one rollup...
@@ -2713,203 +2713,6 @@ preprocess_groupclause(PlannerInfo *root, List *force)
 	parse->groupClause = new_groupclause;
 }
 
-/*
- * Given a GroupingSet node, expand it and return a list of lists.
- *
- * For EMPTY nodes, return a list of one empty list.
- *
- * For SIMPLE nodes, return a list of one list, which is the node content.
- *
- * For CUBE and ROLLUP nodes, return a list of the expansions.
- *
- * For SET nodes, recursively expand contained CUBE and ROLLUP.
- */
-static List*
-preprocess_groupingset_node(GroupingSet *gs)
-{
-	List * result = NIL;
-
-	switch (gs->kind)
-	{
-		case GROUPING_SET_EMPTY:
-			result = list_make1(NIL);
-			break;
-
-		case GROUPING_SET_SIMPLE:
-			result = list_make1(gs->content);
-			break;
-
-		case GROUPING_SET_ROLLUP:
-			{
-				List *rollup_val = gs->content;
-				ListCell *lc;
-				int curgroup_size = list_length(gs->content);
-
-				while (curgroup_size > 0)
-				{
-					List *current_result = NIL;
-					int i = curgroup_size;
-
-					foreach(lc, rollup_val)
-					{
-						GroupingSet *gs_current = (GroupingSet *) lfirst(lc);
-
-						Assert(gs_current->kind == GROUPING_SET_SIMPLE);
-
-						current_result = list_concat(current_result, list_copy(gs_current->content));
-
-						/* If we are done with making the current group, break */
-						if (--i == 0)
-							break;
-					}
-
-					result = lappend(result, current_result);
-					--curgroup_size;
-				}
-
-				result = lappend(result, NIL);
-			}
-			break;
-
-		case GROUPING_SET_CUBE:
-			{
-				List   *cube_list = gs->content;
-				int number_bits = list_length(cube_list);
-				uint32 num_sets;
-				uint32 i;
-
-				/* planner should cap this much lower */
-				Assert(number_bits < 31);
-
-				num_sets = (1U << number_bits);
-
-				for (i = 0; i < num_sets; i++)
-				{
-					List *current_result = NIL;
-					ListCell *lc;
-					uint32 mask = 1U;
-
-					foreach(lc, cube_list)
-					{
-						GroupingSet *gs_current = (GroupingSet *) lfirst(lc);
-
-						Assert(gs_current->kind == GROUPING_SET_SIMPLE);
-
-						if (mask & i)
-						{
-							current_result = list_concat(current_result,
-														 list_copy(gs_current->content));
-						}
-
-						mask <<= 1;
-					}
-
-					result = lappend(result, current_result);
-				}
-			}
-			break;
-
-		case GROUPING_SET_SETS:
-			{
-				ListCell *lc;
-
-				foreach(lc, gs->content)
-				{
-					List *current_result = preprocess_groupingset_node(lfirst(lc));
-
-					result = list_concat(result, current_result);
-				}
-			}
-			break;
-	}
-
-	return result;
-}
-
-static int
-cmp_list_len_desc(const void *a, const void *b)
-{
-	int la = list_length(*(List*const*)a);
-	int lb = list_length(*(List*const*)b);
-	return (la > lb) ? -1 : (la == lb) ? 0 : 1;
-}
-
-static List *
-preprocess_groupingsets(List *groupingSets)
-{
-	List	   *expanded_groups = NIL;
-	List       *result = NIL;
-	ListCell   *lc;
-
-	if (groupingSets == NIL)
-		return NIL;
-
-	foreach(lc, groupingSets)
-	{
-		List *current_result = NIL;
-		GroupingSet *gs = lfirst(lc);
-
-		current_result = preprocess_groupingset_node(gs);
-
-		Assert(current_result != NIL);
-
-		expanded_groups = lappend(expanded_groups, current_result);
-	}
-
-	/*
-	 * Do cartesian product between sublists of expanded_groups.
-	 * While at it, remove any duplicate elements from individual
-	 * grouping sets (we must NOT change the number of sets though)
-	 */
-
-	foreach(lc, (List *) linitial(expanded_groups))
-	{
-		result = lappend(result, list_union_int(NIL, (List *) lfirst(lc)));
-	}
-
-	for_each_cell(lc, lnext(list_head(expanded_groups)))
-	{
-		List	   *p = lfirst(lc);
-		List	   *new_result = NIL;
-		ListCell   *lc2;
-
-		foreach(lc2, result)
-		{
-			List	   *q = lfirst(lc2);
-			ListCell   *lc3;
-
-			foreach(lc3, p)
-			{
-				new_result = lappend(new_result, list_union_int(q, (List *) lfirst(lc3)));
-			}
-		}
-		result = new_result;
-	}
-
-	if (list_length(result) > 1)
-	{
-		int		result_len = list_length(result);
-		List  **buf = palloc(sizeof(List*) * result_len);
-		List  **ptr = buf;
-
-		foreach(lc, result)
-		{
-			*ptr++ = lfirst(lc);
-		}
-
-		qsort(buf, result_len, sizeof(List*), cmp_list_len_desc);
-
-		result = NIL;
-		ptr = buf;
-
-		while (result_len-- > 0)
-			result = lappend(result, *ptr++);
-
-		pfree(buf);
-	}
-
-	return result;
-}
 
 /*
  * Extract a list of grouping sets that can be implemented using a single
@@ -2929,16 +2732,16 @@ preprocess_groupingsets(List *groupingSets)
 static List *
 extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder)
 {
-	ListCell *lc;
-	ListCell *lc2;
-	List *previous = linitial(groupingSets);
-	List *tmp_result = list_make1(previous);
-	List *result = NIL;
+	ListCell   *lc;
+	ListCell   *lc2;
+	List	   *previous = linitial(groupingSets);
+	List	   *tmp_result = list_make1(previous);
+	List	   *result = NIL;
 
 	for_each_cell(lc, lnext(list_head(groupingSets)))
 	{
-		List *candidate = lfirst(lc);
-		bool ok = true;
+		List   *candidate = lfirst(lc);
+		bool	ok = true;
 
 		foreach(lc2, candidate)
 		{
@@ -2971,8 +2774,8 @@ extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder)
 
 	foreach(lc, tmp_result)
 	{
-		List *candidate = lfirst(lc);
-		List *new_elems = list_difference_int(candidate, previous);
+		List   *candidate = lfirst(lc);
+		List   *new_elems = list_difference_int(candidate, previous);
 
 		if (list_length(new_elems) > 0)
 		{

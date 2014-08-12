@@ -26,6 +26,8 @@ extern void transformWindowFuncCall(ParseState *pstate, WindowFunc *wfunc,
 
 extern void parseCheckAggregates(ParseState *pstate, Query *qry);
 
+extern List *expand_grouping_sets(List *groupingSets);
+
 extern int	get_aggregate_argtypes(Aggref *aggref, Oid *inputTypes);
 
 extern Oid resolve_aggregate_transtype(Oid aggfuncid,

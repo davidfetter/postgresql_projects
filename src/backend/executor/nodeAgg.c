@@ -342,7 +342,6 @@ initialize_aggregates(AggState *aggstate,
 					  AggStatePerGroup pergroup,
 					  int numReinitialize)
 {
-	Agg         *node = (Agg *) aggstate->ss.ps.plan;
 	int			aggno;
 	int         numGroupingSets = Max(aggstate->numsets, 1);
 	int         i = 0;
@@ -555,7 +554,6 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 	int         groupno = 0;
 	int         numGroupingSets = Max(aggstate->numsets, 1);
 	int         numAggs = aggstate->numaggs;
-	Agg         *node = (Agg *) aggstate->ss.ps.plan;
 
 	for (aggno = 0; aggno < numAggs; aggno++)
 	{
@@ -1279,12 +1277,6 @@ agg_retrieve_direct(AggState *aggstate)
 		else
 		{
 			/*
-			 * we no longer care what group we just projected, the next projection
-			 * will always be the first (or only) grouping set.
-			 */
-			aggstate->projected_set = 0;
-
-			/*
 			 * If we don't already have the first tuple of the new group, fetch it
 			 * from the outer plan.
 			 */
@@ -1304,7 +1296,29 @@ agg_retrieve_direct(AggState *aggstate)
 					/* outer plan produced no tuples at all */
 					if (hasRollup)
 					{
+						/*
+						 * If there was no input at all, we need to project
+						 * rows only if there are grouping sets of size 0.
+						 * Note that this implies that there can't be any
+						 * references to ungrouped Vars, which would otherwise
+						 * cause issues with the null output slot.
+						 *
+						 * So we advance projected_set to make it look like we
+						 * just projected the last non-empty set. If there are
+						 * none, then leaving -1 in projected_set will do the
+						 * right thing.
+						 */
 						aggstate->input_done = true;
+						aggstate->projected_set = -1;
+
+						while (aggstate->gset_lengths[aggstate->projected_set + 1] > 0)
+						{
+							aggstate->projected_set += 1;
+							if (aggstate->projected_set >= (numGroupingSets - 1))
+								return NULL;
+						}
+
+						continue;
 					}
 					else
 					{
@@ -1315,6 +1329,12 @@ agg_retrieve_direct(AggState *aggstate)
 					}
 				}
 			}
+
+			/*
+			 * we no longer care what group we just projected, the next projection
+			 * will always be the first (or only) grouping set.
+			 */
+			aggstate->projected_set = 0;
 
 			/*
 			 * Initialize working state for a new input tuple group
@@ -2189,7 +2209,6 @@ GetAggInitVal(Datum textInitVal, Oid transtype)
 void
 ExecEndAgg(AggState *node)
 {
-	Agg		   *aggnode = (Agg *) node->ss.ps.plan;
 	PlanState  *outerPlan;
 	int			aggno;
 	int			numGroupingSets = Max(node->numsets, 1);

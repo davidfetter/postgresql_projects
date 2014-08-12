@@ -63,18 +63,19 @@ static void check_ungrouped_columns(Node *node, ParseState *pstate, Query *qry,
 static bool check_ungrouped_columns_walker(Node *node,
 							   check_ungrouped_columns_context *context);
 static void check_agglevels_and_constraints(ParseState *pstate,Node *expr);
+static List *expand_groupingset_node(GroupingSet *gs);
 
 
 static void check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 {
-	List *directargs = NULL;
-	List *args = NULL;
-	Expr *filter = NULL;
-	int min_varlevel;
-	int location;
+	List	   *directargs = NULL;
+	List	   *args = NULL;
+	Expr	   *filter = NULL;
+	int			min_varlevel;
+	int			location;
 	const char *err;
 	bool		errkind;
-	bool        isAgg = false;
+	bool		isAgg = false;
 
 	if (IsA(expr, Aggref))
 	{
@@ -455,10 +456,10 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 Node *
 transformGroupingExpr(ParseState *pstate, Grouping *p)
 {
-	ListCell *lc;
-	List *args = p->args;
-	List *result_list = NIL;
-	Grouping *result = makeNode(Grouping);
+	ListCell   *lc;
+	List	   *args = p->args;
+	List	   *result_list = NIL;
+	Grouping   *result = makeNode(Grouping);
 
 	if (list_length(args) > 31)
 		ereport(ERROR,
@@ -918,6 +919,7 @@ transformWindowFuncCall(ParseState *pstate, WindowFunc *wfunc,
 void
 parseCheckAggregates(ParseState *pstate, Query *qry)
 {
+	List       *gset_common = NIL;
 	List	   *groupClauses = NIL;
 	List	   *groupClauseVars = NIL;
 	bool		have_non_var_grouping;
@@ -930,6 +932,28 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 
 	/* This should only be called if we found aggregates or grouping */
 	Assert(pstate->p_hasAggs || qry->groupClause || qry->havingQual || qry->groupingSets);
+
+	/*
+	 * If we have grouping sets, expand them and find the intersection of
+	 * all sets (which will often be empty, so help things along by
+	 * seeding the intersect with the smallest set).
+	 */
+	if (qry->groupingSets)
+	{
+		List *gsets = expand_grouping_sets(qry->groupingSets);
+
+		gset_common = llast(gsets);
+
+		if (gset_common)
+		{
+			foreach(l, gsets)
+			{
+				gset_common = list_intersection_int(gset_common, lfirst(l));
+				if (!gset_common)
+					break;
+			}
+		}
+	}
 
 	/*
 	 * Scan the range table to see if there are JOIN or self-reference CTE
@@ -990,6 +1014,10 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	 * Detect whether any of the grouping expressions aren't simple Vars; if
 	 * they're all Vars then we don't have to work so hard in the recursive
 	 * scans.  (Note we have to flatten aliases before this.)
+	 *
+	 * Track Vars that are included in all grouping sets separately in
+	 * groupClauseVars, since these are the only ones we can use to check
+	 * for functional dependencies.
 	 */
 	have_non_var_grouping = false;
 	foreach(l, groupClauses)
@@ -999,7 +1027,8 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 		{
 			have_non_var_grouping = true;
 		}
-		else
+		else if (!qry->groupingSets
+				 || list_member_int(gset_common, tle->ressortgroupref))
 		{
 			groupClauseVars = lappend(groupClauseVars, tle->expr);
 		}
@@ -1323,6 +1352,213 @@ check_ungrouped_columns_walker(Node *node,
 	}
 	return expression_tree_walker(node, check_ungrouped_columns_walker,
 								  (void *) context);
+}
+
+
+/*
+ * Given a GroupingSet node, expand it and return a list of lists.
+ *
+ * For EMPTY nodes, return a list of one empty list.
+ *
+ * For SIMPLE nodes, return a list of one list, which is the node content.
+ *
+ * For CUBE and ROLLUP nodes, return a list of the expansions.
+ *
+ * For SET nodes, recursively expand contained CUBE and ROLLUP.
+ */
+static List*
+expand_groupingset_node(GroupingSet *gs)
+{
+	List * result = NIL;
+
+	switch (gs->kind)
+	{
+		case GROUPING_SET_EMPTY:
+			result = list_make1(NIL);
+			break;
+
+		case GROUPING_SET_SIMPLE:
+			result = list_make1(gs->content);
+			break;
+
+		case GROUPING_SET_ROLLUP:
+			{
+				List	   *rollup_val = gs->content;
+				ListCell   *lc;
+				int			curgroup_size = list_length(gs->content);
+
+				while (curgroup_size > 0)
+				{
+					List   *current_result = NIL;
+					int		i = curgroup_size;
+
+					foreach(lc, rollup_val)
+					{
+						GroupingSet *gs_current = (GroupingSet *) lfirst(lc);
+
+						Assert(gs_current->kind == GROUPING_SET_SIMPLE);
+
+						current_result = list_concat(current_result,
+													 list_copy(gs_current->content));
+
+						/* If we are done with making the current group, break */
+						if (--i == 0)
+							break;
+					}
+
+					result = lappend(result, current_result);
+					--curgroup_size;
+				}
+
+				result = lappend(result, NIL);
+			}
+			break;
+
+		case GROUPING_SET_CUBE:
+			{
+				List   *cube_list = gs->content;
+				int		number_bits = list_length(cube_list);
+				uint32	num_sets;
+				uint32	i;
+
+				/* parser should cap this much lower */
+				Assert(number_bits < 31);
+
+				num_sets = (1U << number_bits);
+
+				for (i = 0; i < num_sets; i++)
+				{
+					List *current_result = NIL;
+					ListCell *lc;
+					uint32 mask = 1U;
+
+					foreach(lc, cube_list)
+					{
+						GroupingSet *gs_current = (GroupingSet *) lfirst(lc);
+
+						Assert(gs_current->kind == GROUPING_SET_SIMPLE);
+
+						if (mask & i)
+						{
+							current_result = list_concat(current_result,
+														 list_copy(gs_current->content));
+						}
+
+						mask <<= 1;
+					}
+
+					result = lappend(result, current_result);
+				}
+			}
+			break;
+
+		case GROUPING_SET_SETS:
+			{
+				ListCell   *lc;
+
+				foreach(lc, gs->content)
+				{
+					List *current_result = expand_groupingset_node(lfirst(lc));
+
+					result = list_concat(result, current_result);
+				}
+			}
+			break;
+	}
+
+	return result;
+}
+
+static int
+cmp_list_len_desc(const void *a, const void *b)
+{
+	int la = list_length(*(List*const*)a);
+	int lb = list_length(*(List*const*)b);
+	return (la > lb) ? -1 : (la == lb) ? 0 : 1;
+}
+
+/*
+ * Expand a groupingSets clause to a flat list of grouping sets.
+ *
+ * This is mainly for the planner, but we use it here too to do
+ * some consistency checks.
+ */
+
+List *
+expand_grouping_sets(List *groupingSets)
+{
+	List	   *expanded_groups = NIL;
+	List       *result = NIL;
+	ListCell   *lc;
+
+	if (groupingSets == NIL)
+		return NIL;
+
+	foreach(lc, groupingSets)
+	{
+		List *current_result = NIL;
+		GroupingSet *gs = lfirst(lc);
+
+		current_result = expand_groupingset_node(gs);
+
+		Assert(current_result != NIL);
+
+		expanded_groups = lappend(expanded_groups, current_result);
+	}
+
+	/*
+	 * Do cartesian product between sublists of expanded_groups.
+	 * While at it, remove any duplicate elements from individual
+	 * grouping sets (we must NOT change the number of sets though)
+	 */
+
+	foreach(lc, (List *) linitial(expanded_groups))
+	{
+		result = lappend(result, list_union_int(NIL, (List *) lfirst(lc)));
+	}
+
+	for_each_cell(lc, lnext(list_head(expanded_groups)))
+	{
+		List	   *p = lfirst(lc);
+		List	   *new_result = NIL;
+		ListCell   *lc2;
+
+		foreach(lc2, result)
+		{
+			List	   *q = lfirst(lc2);
+			ListCell   *lc3;
+
+			foreach(lc3, p)
+			{
+				new_result = lappend(new_result, list_union_int(q, (List *) lfirst(lc3)));
+			}
+		}
+		result = new_result;
+	}
+
+	if (list_length(result) > 1)
+	{
+		int		result_len = list_length(result);
+		List  **buf = palloc(sizeof(List*) * result_len);
+		List  **ptr = buf;
+
+		foreach(lc, result)
+		{
+			*ptr++ = lfirst(lc);
+		}
+
+		qsort(buf, result_len, sizeof(List*), cmp_list_len_desc);
+
+		result = NIL;
+		ptr = buf;
+
+		while (result_len-- > 0)
+			result = lappend(result, *ptr++);
+
+		pfree(buf);
+	}
+
+	return result;
 }
 
 /*
