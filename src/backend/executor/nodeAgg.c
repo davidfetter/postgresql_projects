@@ -1277,6 +1277,13 @@ agg_retrieve_direct(AggState *aggstate)
 		else
 		{
 			/*
+			 * we no longer care what group we just projected, the next projection
+			 * will always be the first (or only) grouping set (unless the input
+			 * proves to be empty).
+			 */
+			aggstate->projected_set = 0;
+
+			/*
 			 * If we don't already have the first tuple of the new group, fetch it
 			 * from the outer plan.
 			 */
@@ -1301,24 +1308,19 @@ agg_retrieve_direct(AggState *aggstate)
 						 * rows only if there are grouping sets of size 0.
 						 * Note that this implies that there can't be any
 						 * references to ungrouped Vars, which would otherwise
-						 * cause issues with the null output slot.
-						 *
-						 * So we advance projected_set to make it look like we
-						 * just projected the last non-empty set. If there are
-						 * none, then leaving -1 in projected_set will do the
-						 * right thing.
+						 * cause issues with the empty output slot.
 						 */
 						aggstate->input_done = true;
-						aggstate->projected_set = -1;
 
-						while (aggstate->gset_lengths[aggstate->projected_set + 1] > 0)
+						while (aggstate->gset_lengths[aggstate->projected_set] > 0)
 						{
 							aggstate->projected_set += 1;
-							if (aggstate->projected_set >= (numGroupingSets - 1))
+							if (aggstate->projected_set >= numGroupingSets)
+							{
+								aggstate->agg_done = true;
 								return NULL;
+							}
 						}
-
-						continue;
 					}
 					else
 					{
@@ -1329,12 +1331,6 @@ agg_retrieve_direct(AggState *aggstate)
 					}
 				}
 			}
-
-			/*
-			 * we no longer care what group we just projected, the next projection
-			 * will always be the first (or only) grouping set.
-			 */
-			aggstate->projected_set = 0;
 
 			/*
 			 * Initialize working state for a new input tuple group
