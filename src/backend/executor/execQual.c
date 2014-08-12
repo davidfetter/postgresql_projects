@@ -4492,7 +4492,7 @@ ExecInitExpr(Expr *node, PlanState *parent)
 						int current_index = lfirst_int(lc);
 						int result = 0;
 
-						result = agg->grpColIdx[(current_index - 1)];
+						result = agg->grpColIdx[current_index];
 
 						result_list = lappend_int(result_list, result);
 					}

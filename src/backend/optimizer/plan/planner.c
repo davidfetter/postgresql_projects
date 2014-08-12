@@ -22,6 +22,7 @@
 #include "executor/nodeAgg.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
+#include "nodes/nodeFuncs.h"
 #ifdef OPTIMIZER_DEBUG
 #include "nodes/print.h"
 #endif
@@ -80,6 +81,8 @@ static double preprocess_limit(PlannerInfo *root,
 static bool limit_needed(Query *parse);
 static void preprocess_groupclause(PlannerInfo *root, List *force);
 static List *extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder);
+static void fixup_grouping_exprs(Node *clause, int *refmap);
+static bool fixup_grouping_exprs_walker(Node *clause, int *refmap);
 static void standard_qp_callback(PlannerInfo *root, void *extra);
 static bool choose_hashed_grouping(PlannerInfo *root,
 					   double tuple_fraction, double limit_tuples,
@@ -1190,6 +1193,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		bool		use_hashed_grouping = false;
 		WindowFuncLists *wflists = NULL;
 		List	   *activeWindows = NIL;
+		int		   *refmap = NULL;
 
 		MemSet(&agg_costs, 0, sizeof(AggClauseCosts));
 
@@ -1206,7 +1210,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		{
 			ListCell   *lc;
 			ListCell   *lc2;
-			int		   *refmap;
 			int			maxref = 0;
 			int			ref = 0;
 			List	   *remaining_sets = NIL;
@@ -1255,8 +1258,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 					lfirst_int(lc2) = refmap[lfirst_int(lc2)] - 1;
 				}
 			}
-
-			pfree(refmap);
 
 			elog(DEBUG1, "grouping sets 2: %s", nodeToString(parse->groupingSets));
 		}
@@ -1312,6 +1313,13 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		if (parse->hasAggs)
 		{
 			/*
+			 * Fix up any GROUPING nodes to refer to indexes in the final
+			 * groupClause list.
+			 */
+			fixup_grouping_exprs((Node *) tlist, refmap);
+			fixup_grouping_exprs(parse->havingQual, refmap);
+
+			/*
 			 * Collect statistics about aggregates for estimating costs. Note:
 			 * we do not attempt to detect duplicate aggregates here; a
 			 * somewhat-overestimated cost is okay for our present purposes.
@@ -1327,6 +1335,9 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			 */
 			preprocess_minmax_aggregates(root, tlist);
 		}
+
+		if (refmap)
+			pfree(refmap);
 
 		/* Make tuple_fraction accessible to lower-level routines */
 		root->tuple_fraction = tuple_fraction;
@@ -2810,6 +2821,47 @@ extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder)
 
 	return result;
 }
+
+
+static void
+fixup_grouping_exprs(Node *clause, int *refmap)
+{
+	(void) fixup_grouping_exprs_walker(clause, refmap);
+}
+
+static bool
+fixup_grouping_exprs_walker(Node *node, int *refmap)
+{
+	if (node == NULL)
+		return false;
+	if (IsA(node, Grouping))
+	{
+		Grouping *g = (Grouping *) node;
+
+		/* If there are no grouping sets, we don't need this. */
+		if (!refmap)
+		{
+			g->refs = NIL;
+		}
+		else
+		{
+			ListCell *lc;
+
+			foreach(lc, g->refs)
+			{
+				Assert(refmap[lfirst_int(lc)] > 0);
+				lfirst_int(lc) = refmap[lfirst_int(lc)] - 1;
+			}
+		}
+
+		/* No need to recurse into args. */
+		return false;
+	}
+	Assert(!IsA(node, SubLink));
+	return expression_tree_walker(node, fixup_grouping_exprs_walker,
+								  (void *) refmap);
+}
+
 
 /*
  * Compute query_pathkeys and other pathkeys during plan generation
