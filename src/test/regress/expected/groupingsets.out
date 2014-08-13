@@ -168,3 +168,98 @@ select a,b, sum(g) from tv2 group by grouping sets ((a,b,c),(a,b));
  2 | 2 |   6
 (7 rows)
 
+SELECT grouping(onek.four),grouping(tenk1.four) FROM onek,tenk1 GROUP BY ROLLUP(onek.four,tenk1.four);
+ grouping | grouping 
+----------+----------
+        0 |        0
+        0 |        0
+        0 |        0
+        0 |        0
+        0 |        1
+        0 |        0
+        0 |        0
+        0 |        0
+        0 |        0
+        0 |        1
+        0 |        0
+        0 |        0
+        0 |        0
+        0 |        0
+        0 |        1
+        0 |        0
+        0 |        0
+        0 |        0
+        0 |        0
+        0 |        1
+        1 |        1
+(21 rows)
+
+CREATE TEMP TABLE testgs_emptytable(a int,b int,c int);
+SELECT sum(a) FROM testgs_emptytable GROUP BY ROLLUP(a,b);
+ sum 
+-----
+    
+(1 row)
+
+SELECT grouping(four), ten FROM tenk1
+GROUP BY ROLLUP(four, ten) ORDER BY four, ten;
+ grouping | ten 
+----------+-----
+        0 |   0
+        0 |   2
+        0 |   4
+        0 |   6
+        0 |   8
+        0 |    
+        0 |   1
+        0 |   3
+        0 |   5
+        0 |   7
+        0 |   9
+        0 |    
+        0 |   0
+        0 |   2
+        0 |   4
+        0 |   6
+        0 |   8
+        0 |    
+        0 |   1
+        0 |   3
+        0 |   5
+        0 |   7
+        0 |   9
+        0 |    
+        1 |    
+(25 rows)
+
+SELECT grouping(four), ten FROM tenk1
+GROUP BY ROLLUP(four, ten) ORDER BY ten;
+ grouping | ten 
+----------+-----
+        0 |   0
+        0 |   0
+        0 |   1
+        0 |   1
+        0 |   2
+        0 |   2
+        0 |   3
+        0 |   3
+        0 |   4
+        0 |   4
+        0 |   5
+        0 |   5
+        0 |   6
+        0 |   6
+        0 |   7
+        0 |   7
+        0 |   8
+        0 |   8
+        0 |   9
+        0 |   9
+        0 |    
+        0 |    
+        0 |    
+        0 |    
+        1 |    
+(25 rows)
+

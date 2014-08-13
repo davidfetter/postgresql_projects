@@ -78,7 +78,7 @@ static void check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 	List	   *args = NULL;
 	Expr	   *filter = NULL;
 	int			min_varlevel;
-	int			location;
+	int			location = -1;
 	const char *err;
 	bool		errkind;
 	bool		isAgg = false;

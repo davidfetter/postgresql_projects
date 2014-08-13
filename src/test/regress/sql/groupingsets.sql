@@ -36,8 +36,14 @@ select a,b, sum(g) from tv2 group by grouping sets ((a,b,c),(a,b));
 
 SELECT grouping(onek.four),grouping(tenk1.four) FROM onek,tenk1 GROUP BY ROLLUP(onek.four,tenk1.four);
 
-CREATE TEMP TABLE test1(a int,b int,c int);
+CREATE TEMP TABLE testgs_emptytable(a int,b int,c int);
 
-SELECT sum(a) FROM test1 GROUP BY ROLLUP(a,b);
+SELECT sum(a) FROM testgs_emptytable GROUP BY ROLLUP(a,b);
+
+SELECT grouping(four), ten FROM tenk1
+GROUP BY ROLLUP(four, ten) ORDER BY four, ten;
+
+SELECT grouping(four), ten FROM tenk1
+GROUP BY ROLLUP(four, ten) ORDER BY ten;
 
 

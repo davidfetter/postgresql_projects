@@ -427,7 +427,6 @@ extract_grouping_ops(List *groupClause)
 	int			colno = 0;
 	Oid		   *groupOperators;
 	ListCell   *glitem;
-	ListCell   *glitem_inner;
 
 	groupOperators = (Oid *) palloc(sizeof(Oid) * numCols);
 
