@@ -208,9 +208,6 @@ static void check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 		case EXPR_KIND_GROUP_BY:
 			errkind = true;
 			break;
-		case EXPR_KIND_GROUPING:
-			errkind = true;
-			break;
 		case EXPR_KIND_ORDER_BY:
 			/* okay */
 			break;
@@ -477,7 +474,7 @@ transformGroupingExpr(ParseState *pstate, Grouping *p)
 	{
 		Node *current_result;
 
-		current_result = transformExpr(pstate, (Node*) lfirst(lc), EXPR_KIND_GROUPING);
+		current_result = transformExpr(pstate, (Node*) lfirst(lc), pstate->p_expr_kind);
 
 		/* acceptability of expressions is checked later */
 
@@ -773,9 +770,6 @@ transformWindowFuncCall(ParseState *pstate, WindowFunc *wfunc,
 			errkind = true;
 			break;
 		case EXPR_KIND_GROUP_BY:
-			errkind = true;
-			break;
-		case EXPR_KIND_GROUPING:
 			errkind = true;
 			break;
 		case EXPR_KIND_ORDER_BY:
