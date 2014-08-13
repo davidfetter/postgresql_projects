@@ -134,7 +134,7 @@ typedef struct Query
 
 	List	   *groupClause;	/* a list of SortGroupClause's */
 
-	List       *groupingSets;   /* a list of grouping sets if present */
+	List	   *groupingSets;	/* a list of grouping sets if present */
 
 	Node	   *havingQual;		/* qualifications applied to groups */
 
