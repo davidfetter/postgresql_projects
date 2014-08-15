@@ -653,7 +653,7 @@ get_last_attnums(Node *node, ProjectionInfo *projInfo)
 	 * because those do not represent expressions to be evaluated within the
 	 * overall targetlist's econtext.
 	 */
-	if (IsA(node, Aggref))
+	if (IsA(node, Aggref) || IsA(node, Grouping))
 		return false;
 	if (IsA(node, WindowFunc))
 		return false;
