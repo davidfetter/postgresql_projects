@@ -34,8 +34,6 @@ create temp view tv2(a,b,c,d,e,f,g) as select a[1], a[2], a[3], a[4], a[5], a[6]
 
 select a,b, sum(g) from tv2 group by grouping sets ((a,b,c),(a,b));
 
-SELECT grouping(onek.four),grouping(tenk1.four) FROM onek,tenk1 GROUP BY ROLLUP(onek.four,tenk1.four);
-
 CREATE TEMP TABLE testgs_emptytable(a int,b int,c int);
 
 SELECT sum(a) FROM testgs_emptytable GROUP BY ROLLUP(a,b);

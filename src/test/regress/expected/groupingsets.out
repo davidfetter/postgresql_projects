@@ -168,32 +168,6 @@ select a,b, sum(g) from tv2 group by grouping sets ((a,b,c),(a,b));
  2 | 2 |   6
 (7 rows)
 
-SELECT grouping(onek.four),grouping(tenk1.four) FROM onek,tenk1 GROUP BY ROLLUP(onek.four,tenk1.four);
- grouping | grouping 
-----------+----------
-        0 |        0
-        0 |        0
-        0 |        0
-        0 |        0
-        0 |        1
-        0 |        0
-        0 |        0
-        0 |        0
-        0 |        0
-        0 |        1
-        0 |        0
-        0 |        0
-        0 |        0
-        0 |        0
-        0 |        1
-        0 |        0
-        0 |        0
-        0 |        0
-        0 |        0
-        0 |        1
-        1 |        1
-(21 rows)
-
 CREATE TEMP TABLE testgs_emptytable(a int,b int,c int);
 SELECT sum(a) FROM testgs_emptytable GROUP BY ROLLUP(a,b);
  sum 
