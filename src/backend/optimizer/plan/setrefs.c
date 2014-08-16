@@ -1268,16 +1268,24 @@ static void
 set_group_vars(PlannerInfo *root, Agg *agg)
 {
 	set_group_vars_context context;
-	int i;
-	Bitmapset *cols = NULL;
+	AttrNumber *groupColIdx = root->groupColIdx;
+	int			numCols = list_length(root->parse->groupClause);
+	int 		i;
+	Bitmapset  *cols = NULL;
 
 	if (!agg->groupingSets)
 		return;
 
+	if (!groupColIdx)
+	{
+		Assert(numCols == agg->numCols);
+		groupColIdx = agg->grpColIdx;
+	}
+
 	context.root = root;
 
-	for (i = 0; i < agg->numCols; ++i)
-		cols = bms_add_member(cols, agg->grpColIdx[i]);
+	for (i = 0; i < numCols; ++i)
+		cols = bms_add_member(cols, groupColIdx[i]);
 
 	context.groupedcols = cols;
 
