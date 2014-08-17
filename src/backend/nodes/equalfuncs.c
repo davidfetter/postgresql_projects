@@ -158,13 +158,8 @@ _equalGrouping(const Grouping *a, const Grouping *b)
 	COMPARE_NODE_FIELD(args);
 
 	/*
-	 * Special-case the refs field: we might compare nodes where one has been
-	 * filled in and the other has not yet.  (But out of sheer paranoia, if
-	 * both are filled in, compare them.)
+	 * We must not compare the refs field
 	 */
-
-	if (a->refs != NIL && b->refs != NIL)
-		COMPARE_NODE_FIELD(refs);
 
 	COMPARE_LOCATION_FIELD(location);
 	COMPARE_SCALAR_FIELD(agglevelsup);
