@@ -1960,10 +1960,10 @@ transformGroupingSet(List **flatresult,
 	/* Arbitrarily cap the size of CUBE, which has exponential growth */
 	if (gset->kind == GROUPING_SET_CUBE)
 	{
-		if (list_length(content) > 16)
+		if (list_length(content) > 12)
 			ereport(ERROR,
 					(errcode(ERRCODE_TOO_MANY_COLUMNS),
-					 errmsg("CUBE is limited to 16 elements"),
+					 errmsg("CUBE is limited to 12 elements"),
 					 parser_errposition(pstate, gset->location)));
 	}
 
