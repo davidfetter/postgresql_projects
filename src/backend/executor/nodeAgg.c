@@ -2316,6 +2316,7 @@ ExecReScanAgg(AggState *node)
 		heap_freetuple(node->grp_firstTuple);
 		node->grp_firstTuple = NULL;
 	}
+	ExecClearTuple(node->ss.ss_ScanTupleSlot);
 
 	/* Forget current agg values */
 	MemSet(econtext->ecxt_aggvalues, 0, sizeof(Datum) * node->numaggs);
@@ -2334,6 +2335,8 @@ ExecReScanAgg(AggState *node)
 		 */
 		MemSet(node->pergroup, 0,
 			   sizeof(AggStatePerGroupData) * node->numaggs * numGroupingSets);
+
+		node->input_done = false;
 	}
 
 	/*
