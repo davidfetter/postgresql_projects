@@ -1674,6 +1674,24 @@ show_plan_tlist(PlanState *planstate, List *ancestors, ExplainState *es)
 
 	/* Print results */
 	ExplainPropertyList("Output", result, es);
+
+	if (IsA(plan, Agg) && ((Agg *) plan)->aggstrategy == AGG_CHAINED)
+	{
+		result = NIL;
+
+		/* Deparse each result column (we now include resjunk ones) */
+		foreach(lc, ((Agg *)plan)->chain_tlist)
+		{
+			TargetEntry *tle = (TargetEntry *) lfirst(lc);
+
+			result = lappend(result,
+							 deparse_expression((Node *) tle->expr, context,
+												useprefix, false));
+		}
+
+		/* Print results */
+		ExplainPropertyList("Chain Output", result, es);
+	}
 }
 
 /*
