@@ -632,6 +632,7 @@ _outAgg(StringInfo str, const Agg *node)
 	_outPlanInfo(str, (const Plan *) node);
 
 	WRITE_ENUM_FIELD(aggstrategy, AggStrategy);
+	WRITE_BOOL_FIELD(chain_head);
 	WRITE_INT_FIELD(numCols);
 
 	appendStringInfoString(str, " :grpColIdx");
@@ -645,6 +646,7 @@ _outAgg(StringInfo str, const Agg *node)
 	WRITE_LONG_FIELD(numGroups);
 
 	WRITE_NODE_FIELD(groupingSets);
+	WRITE_NODE_FIELD(chain_tlist);
 }
 
 static void

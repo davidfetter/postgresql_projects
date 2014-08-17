@@ -655,8 +655,22 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 			}
 			break;
 		case T_Agg:
-			set_upper_references(root, plan, rtoffset);
-			set_group_vars(root, (Agg *) plan);
+			if (((Agg *) plan)->aggstrategy == AGG_CHAINED)
+			{
+				Agg *agg = (Agg *) plan;
+				List *tmp_tlist = plan->targetlist;
+				plan->targetlist = agg->chain_tlist;
+				set_upper_references(root, plan, rtoffset);
+				set_group_vars(root, (Agg *) plan);
+				agg->chain_tlist = plan->targetlist;
+				plan->targetlist = tmp_tlist;
+				set_dummy_tlist_references(plan, rtoffset);
+			}
+			else
+			{
+				set_upper_references(root, plan, rtoffset);
+				set_group_vars(root, (Agg *) plan);
+			}
 			break;
 		case T_Group:
 			set_upper_references(root, plan, rtoffset);
@@ -1268,16 +1282,24 @@ static void
 set_group_vars(PlannerInfo *root, Agg *agg)
 {
 	set_group_vars_context context;
-	int i;
-	Bitmapset *cols = NULL;
+	AttrNumber *groupColIdx = root->groupColIdx;
+	int			numCols = list_length(root->parse->groupClause);
+	int 		i;
+	Bitmapset  *cols = NULL;
 
 	if (!agg->groupingSets)
 		return;
 
+	if (!groupColIdx)
+	{
+		Assert(numCols == agg->numCols);
+		groupColIdx = agg->grpColIdx;
+	}
+
 	context.root = root;
 
-	for (i = 0; i < agg->numCols; ++i)
-		cols = bms_add_member(cols, agg->grpColIdx[i]);
+	for (i = 0; i < numCols; ++i)
+		cols = bms_add_member(cols, groupColIdx[i]);
 
 	context.groupedcols = cols;
 

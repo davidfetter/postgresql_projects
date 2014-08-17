@@ -960,6 +960,10 @@ ExplainNode(PlanState *planstate, List *ancestors,
 					pname = "GroupAggregate";
 					strategy = "Sorted";
 					break;
+				case AGG_CHAINED:
+					pname = "ChainAggregate";
+					strategy = "Chained";
+					break;
 				case AGG_HASHED:
 					pname = "HashAggregate";
 					strategy = "Hashed";

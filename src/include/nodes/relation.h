@@ -256,6 +256,9 @@ typedef struct PlannerInfo
 
 	/* optional private data for join_search_hook, e.g., GEQO */
 	void	   *join_search_private;
+
+	/* for GroupedVar fixup in setrefs */
+	AttrNumber *groupColIdx;
 } PlannerInfo;
 
 

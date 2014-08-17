@@ -1016,6 +1016,7 @@ create_unique_plan(PlannerInfo *root, UniquePath *best_path)
 								 groupColIdx,
 								 groupOperators,
 								 NIL,
+								 false,
 								 numGroups,
 								 subplan);
 	}
@@ -4266,7 +4267,7 @@ Agg *
 make_agg(PlannerInfo *root, List *tlist, List *qual,
 		 AggStrategy aggstrategy, const AggClauseCosts *aggcosts,
 		 int numGroupCols, AttrNumber *grpColIdx, Oid *grpOperators,
-		 List *groupingSets,
+		 List *groupingSets, bool chain_head,
 		 long numGroups,
 		 Plan *lefttree)
 {
@@ -4276,10 +4277,12 @@ make_agg(PlannerInfo *root, List *tlist, List *qual,
 	QualCost	qual_cost;
 
 	node->aggstrategy = aggstrategy;
+	node->chain_head = chain_head;
 	node->numCols = numGroupCols;
 	node->grpColIdx = grpColIdx;
 	node->grpOperators = grpOperators;
 	node->numGroups = numGroups;
+	node->chain_tlist = NIL;
 
 	copy_plan_costsize(plan, lefttree); /* only care about copying size */
 	cost_agg(&agg_path, root,
@@ -4320,8 +4323,21 @@ make_agg(PlannerInfo *root, List *tlist, List *qual,
 	}
 	add_tlist_costs_to_plan(root, plan, tlist);
 
+	if (aggstrategy == AGG_CHAINED)
+	{
+		Assert(!chain_head);
+		plan->plan_rows = lefttree->plan_rows;
+		plan->plan_width = lefttree->plan_width;
+	}
+
 	plan->qual = qual;
-	plan->targetlist = tlist;
+	if (aggstrategy == AGG_CHAINED)
+	{
+		plan->targetlist = lefttree->targetlist;
+		node->chain_tlist = tlist;
+	}
+	else
+		plan->targetlist = tlist;
 	plan->lefttree = lefttree;
 	plan->righttree = NULL;
 
