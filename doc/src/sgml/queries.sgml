@@ -1159,7 +1159,7 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
 
    <para>
     More complex grouping operations than those described above are possible
-    using the concept of <replaceable>grouping sets</>.  The data selected by
+    using the concept of <firstterm>grouping sets</>.  The data selected by
     the <literal>FROM</> and <literal>WHERE</> clauses is grouped separately
     by each specified grouping set, aggregates computed for each group just as
     for simple <literal>GROUP BY</> clauses, and then the results returned.
@@ -1174,14 +1174,15 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
  Bar   | L    |  5
 (4 rows)
 
-<prompt>=&gt;</> <userinput>SELECT brand, size, sum(sales) FROM items_sold GROUP BY GROUPING SETS ((brand), (size));</>
+<prompt>=&gt;</> <userinput>SELECT brand, size, sum(sales) FROM items_sold GROUP BY GROUPING SETS ((brand), (size), ());</>
  brand | size | sum
 -------+------+-----
  Foo   |      |  30
  Bar   |      |  20
        | L    |  15
        | M    |  35
-(4 rows)
+       |      |  50
+(5 rows)
 </screen>
    </para>
 
@@ -1239,6 +1240,39 @@ GROUPING SETS (
    </para>
 
    <para>
+    The individual elements of a <literal>CUBE</> or <literal>ROLLUP</>
+    clause may be either individual expressions, or sub-lists of elements in
+    parentheses.  In the latter case, the sub-lists are treated as single
+    units for the purposes of generating the individual grouping sets.
+    For example:
+<programlisting>
+CUBE ( (a,b), (c,d) )
+</programlisting>
+    is equivalent to
+<programlisting>
+GROUPING SETS (
+    ( a, b, c, d )
+    ( a, b       )
+    (       c, d )
+    (            )
+)
+</programlisting>
+    and
+<programlisting>
+ROLLUP ( a, (b,c), d )
+</programlisting>
+    is equivalent to
+<programlisting>
+GROUPING SETS (
+    ( a, b, c, d )
+    ( a, b, c    )
+    ( a          )
+    (            )
+)
+</programlisting>
+   </para>
+
+   <para>
     The <literal>CUBE</> and <literal>ROLLUP</> constructs can be used either
     directly in the <literal>GROUP BY</> clause, or nested inside a
     <literal>GROUPING SETS</> clause.
@@ -1261,6 +1295,17 @@ GROUP BY GROUPING SETS (
 )
 </programlisting>
    </para>
+
+  <note>
+   <para>
+    The construct <literal>(a,b)</> is normally recognized in expressions as
+    a row constructor.  Within the <literal>GROUP BY</> clause, this does not
+    apply at the top levels of expressions, and <literal>(a,b)</> is parsed
+    as a list of expressions as described above.  If for some reason you
+    <emphasis>need</> a row constructor in a grouping expression, use
+    <literal>ROW(a,b)</>.
+   </para>
+  </note>
 
   <sect2 id="queries-window">
    <title>Window Function Processing</title>
