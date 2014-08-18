@@ -1141,6 +1141,127 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
    </para>
   </sect2>
 
+  <sect2 id="queries-grouping-sets">
+   <title><literal>GROUPING SETS</>, <literal>CUBE</>, and <literal>ROLLUP</></title>
+
+   <indexterm zone="queries-grouping-sets">
+    <primary>GROUPING SETS</primary>
+   </indexterm>
+   <indexterm zone="queries-grouping-sets">
+    <primary>CUBE</primary>
+   </indexterm>
+   <indexterm zone="queries-grouping-sets">
+    <primary>ROLLUP</primary>
+   </indexterm>
+   <indexterm zone="queries-grouping-sets">
+    <primary>grouping sets</primary>
+   </indexterm>
+
+   <para>
+    More complex grouping operations than those described above are possible
+    using the concept of <replaceable>grouping sets</>.  The data selected by
+    the <literal>FROM</> and <literal>WHERE</> clauses is grouped separately
+    by each specified grouping set, aggregates computed for each group just as
+    for simple <literal>GROUP BY</> clauses, and then the results returned.
+    For example:
+<screen>
+<prompt>=&gt;</> <userinput>SELECT * FROM items_sold;</>
+ brand | size | sales
+-------+------+-------
+ Foo   | L    |  10
+ Foo   | M    |  20
+ Bar   | M    |  15
+ Bar   | L    |  5
+(4 rows)
+
+<prompt>=&gt;</> <userinput>SELECT brand, size, sum(sales) FROM items_sold GROUP BY GROUPING SETS ((brand), (size));</>
+ brand | size | sum
+-------+------+-----
+ Foo   |      |  30
+ Bar   |      |  20
+       | L    |  15
+       | M    |  35
+(4 rows)
+</screen>
+   </para>
+
+   <para>
+    Each sublist of <literal>GROUPING SETS</> may specify zero or more columns or
+    expressions and is interpreted the same way as though it were directly in
+    the <literal>GROUP BY</> clause.  An empty grouping set means that all rows
+    are aggregated down to a single group (which is output even if no input rows
+    were present), as described above for the case of aggregate functions with no
+    <literal>GROUP BY</> clause.
+   </para>
+
+   <para>
+    To distinguish which grouping operation a particular output row resulted from,
+    see <xref linkend="functions-grouping-table">.
+   </para>
+
+   <para>
+    A shorthand notation is provided for specifying two common types of grouping set.
+    A clause of the form
+<programlisting>
+ROLLUP ( <replaceable>e1</>, <replaceable>e2</>, <replaceable>e3</>, ... )
+</programlisting>
+    is equivalent to
+<programlisting>
+GROUPING SETS (
+    ( <replaceable>e1</>, <replaceable>e2</>, <replaceable>e3</>, ... ),
+    ...
+    ( <replaceable>e1</>, <replaceable>e2</> )
+    ( <replaceable>e1</> )
+    ( )
+)
+</programlisting>
+    This is commonly used for analysis over hierarchical data; e.g. total salary by
+    department, division, and company-wide total.  A clause of the form
+<programlisting>
+CUBE ( <replaceable>e1</>, <replaceable>e2</>, <replaceable>e3</> )
+</programlisting>
+    is equivalent to
+<programlisting>
+GROUPING SETS (
+    ( <replaceable>e1</>, <replaceable>e2</>, <replaceable>e3</> ),
+    ( <replaceable>e1</>, <replaceable>e2</>  <replaceable>  </> ),
+    ( <replaceable>e1</>, <replaceable>  </>  <replaceable>e3</> ),
+    ( <replaceable>e1</>, <replaceable>  </>  <replaceable>  </> ),
+    ( <replaceable>  </>  <replaceable>e2</>, <replaceable>e3</> ),
+    ( <replaceable>  </>  <replaceable>e2</>  <replaceable>  </> ),
+    ( <replaceable>  </>  <replaceable>  </>  <replaceable>e3</> ),
+    ( <replaceable>  </>  <replaceable>  </>  <replaceable>  </> )
+)
+</programlisting>
+    (The number of columns need not be 3 (though it may not exceed 12); but
+    the number of grouping sets generated is 2 to the power of the number of
+    columns, so high-dimension hypercubes become unwieldy quite quickly.)
+   </para>
+
+   <para>
+    The <literal>CUBE</> and <literal>ROLLUP</> constructs can be used either
+    directly in the <literal>GROUP BY</> clause, or nested inside a
+    <literal>GROUPING SETS</> clause.
+   </para>
+
+   <para>
+    If multiple grouping items are specified in a single <literal>GROUP BY</>
+    clause, then the final list of grouping sets is the cross product of the
+    individual items.  For example:
+<programlisting>
+GROUP BY a, CUBE(b,c), GROUPING SETS ((d), (e))
+</programlisting>
+    is equivalent to
+<programlisting>
+GROUP BY GROUPING SETS (
+  (a,b,c,d), (a,b,c,e),
+  (a,b,d),   (a,b,e),
+  (a,c,d),   (a,c,e),
+  (a,d),     (a,e)
+)
+</programlisting>
+   </para>
+
   <sect2 id="queries-window">
    <title>Window Function Processing</title>
 
