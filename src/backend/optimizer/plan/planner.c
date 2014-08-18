@@ -1715,8 +1715,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			}
 			else if (parse->hasAggs || parse->groupingSets)
 			{
-				/* Plain aggregate plan --- sort if needed */
-				AggStrategy aggstrategy;
 				bool		is_chained = false;
 
 				/*
@@ -1727,76 +1725,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				if (list_length(rollup_groupclauses) > 1)
 					root->groupColIdx = groupColIdx;
 
-				while (list_length(rollup_groupclauses) > 1)
-				{
-					List	   *groupClause = linitial(rollup_groupclauses);
-					List	   *gsets = linitial(rollup_lists);
-					Node	   *havingQual = parse->havingQual;
-					List	   *cur_tlist = tlist;
-					int		   *refmap = linitial(refmaps);
-					AttrNumber *new_grpColIdx = groupColIdx;
-					ListCell   *lc;
-					int			i;
-
-					if (parse->hasAggs)
-					{
-						/*
-						 * Fix up any GROUPING nodes to refer to indexes in the final
-						 * groupClause list.
-						 */
-						cur_tlist = (List *) fixup_grouping_exprs((Node *) tlist, refmap);
-						havingQual = fixup_grouping_exprs(havingQual, refmap);
-					}
-
-					/* need to remap groupColIdx */
-
-					Assert(refmap);
-
-					new_grpColIdx = palloc0(sizeof(AttrNumber) * list_length(linitial(gsets)));
-
-					i = 0;
-					foreach(lc, parse->groupClause)
-					{
-						int j = refmap[((SortGroupClause *)lfirst(lc))->tleSortGroupRef];
-						if (j > 0)
-							new_grpColIdx[j - 1] = groupColIdx[i];
-						++i;
-					}
-
-					if (need_sort_for_grouping)
-					{
-						result_plan = (Plan *)
-							make_sort_from_groupcols(root,
-													 groupClause,
-													 new_grpColIdx,
-													 result_plan);
-					}
-					else
-						need_sort_for_grouping = true;
-
-					result_plan = (Plan *) make_agg(root,
-													cur_tlist,
-													(List *) havingQual,
-													AGG_CHAINED,
-													&agg_costs,
-													list_length(linitial(gsets)),
-													new_grpColIdx,
-													extract_grouping_ops(groupClause),
-													gsets,
-													false,
-													numGroups,
-													result_plan);
-
-					current_pathkeys = NIL;
-					is_chained = true;
-
-					list_free(groupClause);
-					pfree(refmap);
-					rollup_lists = list_delete_first(rollup_lists);
-					rollup_groupclauses = list_delete_first(rollup_groupclauses);
-					refmaps = list_delete_first(refmaps);
-				}
-
+				do
 				{
 					List	   *groupClause = linitial(rollup_groupclauses);
 					List	   *gsets = rollup_lists ? linitial(rollup_lists) : NIL;
@@ -1804,6 +1733,9 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 					List	   *cur_tlist = tlist;
 					int		   *refmap = refmaps ? linitial(refmaps) : NULL;
 					AttrNumber *new_grpColIdx = groupColIdx;
+					ListCell   *lc;
+					int			i;
+					AggStrategy aggstrategy = AGG_CHAINED;
 
 					if (parse->hasAggs)
 					{
@@ -1817,13 +1749,10 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 					if (groupClause)
 					{
-						/* need to remap groupColIdx? */
+						/* need to remap groupColIdx */
 
 						if (gsets)
 						{
-							ListCell   *lc;
-							int			i;
-
 							Assert(refmap);
 
 							new_grpColIdx = palloc0(sizeof(AttrNumber) * list_length(linitial(gsets)));
@@ -1845,19 +1774,22 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 														 groupClause,
 														 new_grpColIdx,
 														 result_plan);
-							current_pathkeys = root->group_pathkeys;
 						}
-						aggstrategy = AGG_SORTED;
+						else
+							need_sort_for_grouping = true;
 
-						/*
-						 * The AGG node will not change the sort ordering of its
-						 * groups, so current_pathkeys describes the result too.
-						 */
+						if (list_length(rollup_groupclauses) == 1)
+						{
+							aggstrategy = AGG_SORTED;
+							if (!is_chained)
+								current_pathkeys = root->group_pathkeys;
+						}
+						else
+							current_pathkeys = NIL;
 					}
 					else
 					{
 						aggstrategy = AGG_PLAIN;
-						/* Result will have no sort order */
 						current_pathkeys = NIL;
 					}
 
@@ -1870,13 +1802,19 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 													new_grpColIdx,
 													extract_grouping_ops(groupClause),
 													gsets,
-													is_chained,
+													is_chained && (aggstrategy != AGG_CHAINED),
 													numGroups,
 													result_plan);
 
-					if (is_chained)
-						current_pathkeys = NIL;
+					is_chained = true;
+
+					list_free(groupClause);
+					pfree(refmap);
+					rollup_lists = list_delete_first(rollup_lists);
+					rollup_groupclauses = list_delete_first(rollup_groupclauses);
+					refmaps = list_delete_first(refmaps);
 				}
+				while (rollup_groupclauses);
 			}
 			else if (parse->groupClause)
 			{
