@@ -1808,11 +1808,14 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 					is_chained = true;
 
-					list_free(groupClause);
-					pfree(refmap);
-					rollup_lists = list_delete_first(rollup_lists);
+					if (refmap)
+						pfree(refmap);
+					if (rollup_lists)
+						rollup_lists = list_delete_first(rollup_lists);
+					if (refmaps)
+						refmaps = list_delete_first(refmaps);
+
 					rollup_groupclauses = list_delete_first(rollup_groupclauses);
-					refmaps = list_delete_first(refmaps);
 				}
 				while (rollup_groupclauses);
 			}
