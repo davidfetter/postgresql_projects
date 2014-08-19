@@ -1,239 +1,378 @@
-select a, b from (values (1,2)) v(a,b) group by rollup (a,b);
- a | b 
----+---
- 1 | 2
- 1 |  
-   |  
-(3 rows)
+--
+-- grouping sets
+--
 
-select a, sum(b) from (values (1,10),(1,20),(2,40)) v(a,b) group by rollup (a);
- a | sum 
----+-----
- 1 |  30
- 2 |  40
-   |  70
-(3 rows)
+-- test data sources
 
-select a, b, sum(c) from (values (1,1,10),(1,1,11),(1,2,12),(1,2,13),(1,3,14),(2,3,15),(3,3,16),(3,4,17),(4,1,18),(4,1,19)) v(a,b,c) group by rollup (a,b); 
- a | b | sum 
----+---+-----
- 1 | 1 |  21
- 1 | 2 |  25
- 1 | 3 |  14
- 1 |   |  60
- 2 | 3 |  15
- 2 |   |  15
- 3 | 3 |  16
- 3 | 4 |  17
- 3 |   |  33
- 4 | 1 |  37
- 4 |   |  37
-   |   | 145
+create temp view gstest1(a,b,v)
+  as values (1,1,10),(1,1,11),(1,2,12),(1,2,13),(1,3,14),
+            (2,3,15),
+            (3,3,16),(3,4,17),
+            (4,1,18),(4,1,19);
+
+create temp table gstest2 (a integer, b integer, c integer, d integer,
+                           e integer, f integer, g integer, h integer);
+copy gstest2 from stdin;
+
+create temp table gstest_empty (a integer, b integer, v integer);
+
+create function gstest_data(v integer, out a integer, out b integer)
+  returns setof record
+  as $f$
+    begin
+      return query select v, i from generate_series(1,3) i;
+    end;
+  $f$ language plpgsql;
+
+-- basic functionality
+
+--XX
+-- the idea here is to test the "normal" usage of the feature, but including
+-- combinations like multiple aggs to catch simple errors in state handling
+-- (if these fail, something pretty fundamental broke)
+-- these cover: basic planning, construction and execution of GroupedVar and
+-- Grouping nodes, checking things like reinitialization of groups and so on
+-- note, we use count() as an example of an agg with a non-null init val, and
+-- sum() as an example of one with a null init val. Testing with ordered set
+-- aggs also gives the context reset logic a workout and verifies the setting
+-- of current_set.
+
+-- simple rollup with multiple plain aggregates, with and without ordering
+-- (and with ordering differing from grouping)
+select a, b, grouping(a,b), sum(v), count(*), max(v)
+  from gstest1 group by rollup (a,b);
+ a | b | grouping | sum | count | max 
+---+---+----------+-----+-------+-----
+ 1 | 1 |        0 |  21 |     2 |  11
+ 1 | 2 |        0 |  25 |     2 |  13
+ 1 | 3 |        0 |  14 |     1 |  14
+ 1 |   |        1 |  60 |     5 |  14
+ 2 | 3 |        0 |  15 |     1 |  15
+ 2 |   |        1 |  15 |     1 |  15
+ 3 | 3 |        0 |  16 |     1 |  16
+ 3 | 4 |        0 |  17 |     1 |  17
+ 3 |   |        1 |  33 |     2 |  17
+ 4 | 1 |        0 |  37 |     2 |  19
+ 4 |   |        1 |  37 |     2 |  19
+   |   |        3 | 145 |    10 |  19
 (12 rows)
 
-select (select grouping(a,b) from (values (1)) v2(b)) from (values (1)) v1(a) group by a;
-ERROR:  Arguments to GROUPING must be grouping expressions of the associated query level
-LINE 1: select (select grouping(a,b) from (values (1)) v2(b)) from (...
-                       ^
-select grouping(p), percentile_disc(p) within group (order by x::float8), array_agg(p)
-from generate_series(1,5) x,
-     (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p)
-group by rollup (p) order by p;
- grouping | percentile_disc |                                                                                  array_agg                                                                                  
-----------+-----------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-        0 |               1 | {0,0,0,0,0}
-        0 |               1 | {0.1,0.1,0.1,0.1,0.1}
-        0 |               2 | {0.25,0.25,0.25,0.25,0.25}
-        0 |               2 | {0.4,0.4,0.4,0.4,0.4}
-        0 |               3 | {0.5,0.5,0.5,0.5,0.5}
-        0 |               3 | {0.6,0.6,0.6,0.6,0.6}
-        0 |               4 | {0.75,0.75,0.75,0.75,0.75}
-        0 |               5 | {0.9,0.9,0.9,0.9,0.9}
-        0 |               5 | {1,1,1,1,1}
-        1 |               5 | {0,0,0,0,0,0.1,0.1,0.1,0.1,0.1,0.25,0.25,0.25,0.25,0.25,0.4,0.4,0.4,0.4,0.4,0.5,0.5,0.5,0.5,0.5,0.6,0.6,0.6,0.6,0.6,0.75,0.75,0.75,0.75,0.75,0.9,0.9,0.9,0.9,0.9,1,1,1,1,1}
-(10 rows)
+select a, b, grouping(a,b), sum(v), count(*), max(v)
+  from gstest1 group by rollup (a,b) order by a,b;
+ a | b | grouping | sum | count | max 
+---+---+----------+-----+-------+-----
+ 1 | 1 |        0 |  21 |     2 |  11
+ 1 | 2 |        0 |  25 |     2 |  13
+ 1 | 3 |        0 |  14 |     1 |  14
+ 1 |   |        1 |  60 |     5 |  14
+ 2 | 3 |        0 |  15 |     1 |  15
+ 2 |   |        1 |  15 |     1 |  15
+ 3 | 3 |        0 |  16 |     1 |  16
+ 3 | 4 |        0 |  17 |     1 |  17
+ 3 |   |        1 |  33 |     2 |  17
+ 4 | 1 |        0 |  37 |     2 |  19
+ 4 |   |        1 |  37 |     2 |  19
+   |   |        3 | 145 |    10 |  19
+(12 rows)
 
-select a, array_agg(b) from (values (1,10),(1,20),(2,40)) v(a,b) group by rollup (a);
- a | array_agg  
----+------------
- 1 | {10,20}
- 2 | {40}
-   | {10,20,40}
+select a, b, grouping(a,b), sum(v), count(*), max(v)
+  from gstest1 group by rollup (a,b) order by b desc, a;
+ a | b | grouping | sum | count | max 
+---+---+----------+-----+-------+-----
+ 1 |   |        1 |  60 |     5 |  14
+ 2 |   |        1 |  15 |     1 |  15
+ 3 |   |        1 |  33 |     2 |  17
+ 4 |   |        1 |  37 |     2 |  19
+   |   |        3 | 145 |    10 |  19
+ 3 | 4 |        0 |  17 |     1 |  17
+ 1 | 3 |        0 |  14 |     1 |  14
+ 2 | 3 |        0 |  15 |     1 |  15
+ 3 | 3 |        0 |  16 |     1 |  16
+ 1 | 2 |        0 |  25 |     2 |  13
+ 1 | 1 |        0 |  21 |     2 |  11
+ 4 | 1 |        0 |  37 |     2 |  19
+(12 rows)
+
+select a, b, grouping(a,b), sum(v), count(*), max(v)
+  from gstest1 group by rollup (a,b) order by coalesce(a,0)+coalesce(b,0);
+ a | b | grouping | sum | count | max 
+---+---+----------+-----+-------+-----
+   |   |        3 | 145 |    10 |  19
+ 1 |   |        1 |  60 |     5 |  14
+ 1 | 1 |        0 |  21 |     2 |  11
+ 2 |   |        1 |  15 |     1 |  15
+ 3 |   |        1 |  33 |     2 |  17
+ 1 | 2 |        0 |  25 |     2 |  13
+ 1 | 3 |        0 |  14 |     1 |  14
+ 4 |   |        1 |  37 |     2 |  19
+ 4 | 1 |        0 |  37 |     2 |  19
+ 2 | 3 |        0 |  15 |     1 |  15
+ 3 | 3 |        0 |  16 |     1 |  16
+ 3 | 4 |        0 |  17 |     1 |  17
+(12 rows)
+
+
+-- various types of ordered aggs
+select a, b, grouping(a,b),
+       array_agg(v order by v),
+       string_agg(v::text, ':' order by v desc),
+       percentile_disc(0.5) within group (order by v),
+       rank(1,2,12) within group (order by a,b,v)
+  from gstest1 group by rollup (a,b) order by a,b;
+ a | b | grouping |            array_agg            |          string_agg           | percentile_disc | rank 
+---+---+----------+---------------------------------+-------------------------------+-----------------+------
+ 1 | 1 |        0 | {10,11}                         | 11:10                         |              10 |    3
+ 1 | 2 |        0 | {12,13}                         | 13:12                         |              12 |    1
+ 1 | 3 |        0 | {14}                            | 14                            |              14 |    1
+ 1 |   |        1 | {10,11,12,13,14}                | 14:13:12:11:10                |              12 |    3
+ 2 | 3 |        0 | {15}                            | 15                            |              15 |    1
+ 2 |   |        1 | {15}                            | 15                            |              15 |    1
+ 3 | 3 |        0 | {16}                            | 16                            |              16 |    1
+ 3 | 4 |        0 | {17}                            | 17                            |              17 |    1
+ 3 |   |        1 | {16,17}                         | 17:16                         |              16 |    1
+ 4 | 1 |        0 | {18,19}                         | 19:18                         |              18 |    1
+ 4 |   |        1 | {18,19}                         | 19:18                         |              18 |    1
+   |   |        3 | {10,11,12,13,14,15,16,17,18,19} | 19:18:17:16:15:14:13:12:11:10 |              14 |    3
+(12 rows)
+
+
+-- nesting with window functions
+select a, b, sum(c), sum(sum(c)) over (order by a,b) as rsum
+  from gstest2 group by rollup (a,b) order by rsum, a, b;
+ a | b | sum | rsum 
+---+---+-----+------
+ 1 | 1 |   8 |    8
+ 1 | 2 |   2 |   10
+ 1 |   |  10 |   20
+ 2 | 2 |   2 |   22
+ 2 |   |   2 |   24
+   |   |  12 |   36
+(6 rows)
+
+
+-- empty input: first is 0 rows, second 1, third 3 etc.
+select a, b, sum(v), count(*) from gstest_empty group by grouping sets ((a,b),a);
+ a | b | sum | count 
+---+---+-----+-------
+(0 rows)
+
+select a, b, sum(v), count(*) from gstest_empty group by grouping sets ((a,b),());
+ a | b | sum | count 
+---+---+-----+-------
+   |   |     |     0
+(1 row)
+
+select a, b, sum(v), count(*) from gstest_empty group by grouping sets ((a,b),(),(),());
+ a | b | sum | count 
+---+---+-----+-------
+   |   |     |     0
+   |   |     |     0
+   |   |     |     0
 (3 rows)
 
-select grouping(a), array_agg(b) from (values (1,10),(1,20),(2,40)) v(a,b) group by rollup (a);
- grouping | array_agg  
-----------+------------
-        0 | {10,20}
-        0 | {40}
-        1 | {10,20,40}
+select sum(v), count(*) from gstest_empty group by grouping sets ((),(),());
+ sum | count 
+-----+-------
+     |     0
+     |     0
+     |     0
 (3 rows)
 
-select a, sum(b) from aggtest v(a,b) group by rollup (a);
-  a  |   sum   
------+---------
-   0 | 0.09561
-  42 |  324.78
-  56 |     7.8
- 100 |  99.097
-     | 431.773
+
+-- empty input with joins tests some important code paths
+select t1.a, t2.b, sum(t1.v), count(*) from gstest_empty t1, gstest_empty t2
+ group by grouping sets ((t1.a,t2.b),());
+ a | b | sum | count 
+---+---+-----+-------
+   |   |     |     0
+(1 row)
+
+
+-- simple joins, var resolution, GROUPING on join vars
+select t1.a, t2.b, grouping(t1.a, t2.b), sum(t1.v), max(t2.a)
+  from gstest1 t1, gstest2 t2
+ group by grouping sets ((t1.a, t2.b), ());
+ a | b | grouping | sum  | max 
+---+---+----------+------+-----
+ 1 | 1 |        0 |  420 |   1
+ 1 | 2 |        0 |  120 |   2
+ 2 | 1 |        0 |  105 |   1
+ 2 | 2 |        0 |   30 |   2
+ 3 | 1 |        0 |  231 |   1
+ 3 | 2 |        0 |   66 |   2
+ 4 | 1 |        0 |  259 |   1
+ 4 | 2 |        0 |   74 |   2
+   |   |        3 | 1305 |   2
+(9 rows)
+
+
+select t1.a, t2.b, grouping(t1.a, t2.b), sum(t1.v), max(t2.a)
+  from gstest1 t1 join gstest2 t2 on (t1.a=t2.a)
+ group by grouping sets ((t1.a, t2.b), ());
+ a | b | grouping | sum | max 
+---+---+----------+-----+-----
+ 1 | 1 |        0 | 420 |   1
+ 1 | 2 |        0 |  60 |   1
+ 2 | 2 |        0 |  15 |   2
+   |   |        3 | 495 |   2
+(4 rows)
+
+
+select a, b, grouping(a, b), sum(t1.v), max(t2.c)
+  from gstest1 t1 join gstest2 t2 using (a,b)
+ group by grouping sets ((a, b), ());
+ a | b | grouping | sum | max 
+---+---+----------+-----+-----
+ 1 | 1 |        0 | 147 |   2
+ 1 | 2 |        0 |  25 |   2
+   |   |        3 | 172 |   2
+(3 rows)
+
+
+
+
+--XX
+-- simple rescan tests
+
+select a, b, sum(v)
+  from (values (1),(2)) v(x), gstest_data(v.x)
+ group by rollup (a,b);
+ERROR:  function sum(record) does not exist
+LINE 1: select a, b, sum(v)
+                     ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+
+select *
+  from (values (1),(2)) v(x),
+       lateral (select a, b, sum(v) from gstest_data(v.x) group by rollup (a,b)) s;
+ERROR:  function sum(record) does not exist
+LINE 3:        lateral (select a, b, sum(v) from gstest_data(v.x) gr...
+                                     ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+
+-- min max optimisation should still work with GROUP BY ()
+explain (costs off)
+  select min(unique1) from tenk1 GROUP BY ();
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Result
+   InitPlan 1 (returns $0)
+     ->  Limit
+           ->  Index Only Scan using tenk1_unique1 on tenk1
+                 Index Cond: (unique1 IS NOT NULL)
 (5 rows)
 
-select grouping(a), sum(b) from aggtest v(a,b) group by rollup (a);
- grouping |   sum   
-----------+---------
-        0 | 0.09561
-        0 |  324.78
-        0 |     7.8
-        0 |  99.097
-        1 | 431.773
-(5 rows)
 
-select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by a,b;
+-- Views with GROUPING SET queries
+CREATE VIEW gstest_view AS select a, b, grouping(a,b), sum(v), count(*), max(v)
+  from gstest1 group by rollup (a,b);
+NOTICE:  view "gstest_view" will be a temporary view
+
+select pg_get_viewdef('gstest_view'::regclass, true);
+                  pg_get_viewdef                   
+---------------------------------------------------
+  SELECT gstest1.a,                               +
+     gstest1.b,                                   +
+     GROUPING(gstest1.a, gstest1.b) AS "grouping",+
+     sum(gstest1.v) AS sum,                       +
+     count(*) AS count,                           +
+     max(gstest1.v) AS max                        +
+    FROM gstest1                                  +
+   GROUP BY ROLLUP(gstest1.a, gstest1.b);
+(1 row)
+
+
+-- Nested queries with 3 or more levels of nesting
+select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP(e,f);
  grouping 
 ----------
         0
-(1 row)
+        0
+        0
+(3 rows)
 
-SELECT four, ten, SUM(SUM(four)) OVER (PARTITION BY four), AVG(ten) FROM tenk1
-GROUP BY ROLLUP(four, ten) ORDER BY four, ten;
- four | ten |  sum  |          avg           
-------+-----+-------+------------------------
-    0 |   0 |     0 | 0.00000000000000000000
-    0 |   2 |     0 |     2.0000000000000000
-    0 |   4 |     0 |     4.0000000000000000
-    0 |   6 |     0 |     6.0000000000000000
-    0 |   8 |     0 |     8.0000000000000000
-    0 |     |     0 |     4.0000000000000000
-    1 |   1 |  5000 | 1.00000000000000000000
-    1 |   3 |  5000 |     3.0000000000000000
-    1 |   5 |  5000 |     5.0000000000000000
-    1 |   7 |  5000 |     7.0000000000000000
-    1 |   9 |  5000 |     9.0000000000000000
-    1 |     |  5000 |     5.0000000000000000
-    2 |   0 | 10000 | 0.00000000000000000000
-    2 |   2 | 10000 |     2.0000000000000000
-    2 |   4 | 10000 |     4.0000000000000000
-    2 |   6 | 10000 |     6.0000000000000000
-    2 |   8 | 10000 |     8.0000000000000000
-    2 |     | 10000 |     4.0000000000000000
-    3 |   1 | 15000 | 1.00000000000000000000
-    3 |   3 | 15000 |     3.0000000000000000
-    3 |   5 | 15000 |     5.0000000000000000
-    3 |   7 | 15000 |     7.0000000000000000
-    3 |   9 | 15000 |     9.0000000000000000
-    3 |     | 15000 |     5.0000000000000000
-      |     | 15000 |     4.5000000000000000
-(25 rows)
+select(select (select grouping(e,f) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP(e,f);
+ grouping 
+----------
+        0
+        1
+        3
+(3 rows)
 
-select a, b from (values (1,2),(2,3)) v(a,b) group by grouping sets((a,b),());
+select(select (select grouping(c) from (values (1)) v2(c) GROUP BY c) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP(e,f);
+ grouping 
+----------
+        0
+        0
+        0
+(3 rows)
+
+
+-- Combinations of operations
+select a, b, c, d from gstest2 group by rollup(a,b),grouping sets(c,d);
+ a | b | c | d 
+---+---+---+---
+ 1 | 1 | 1 |  
+ 1 |   | 1 |  
+   |   | 1 |  
+ 1 | 1 | 2 |  
+ 1 | 2 | 2 |  
+ 1 |   | 2 |  
+ 2 | 2 | 2 |  
+ 2 |   | 2 |  
+   |   | 2 |  
+ 1 | 1 |   | 1
+ 1 |   |   | 1
+   |   |   | 1
+ 1 | 1 |   | 2
+ 1 | 2 |   | 2
+ 1 |   |   | 2
+ 2 | 2 |   | 2
+ 2 |   |   | 2
+   |   |   | 2
+(18 rows)
+
+select a, b from (values (1,2),(2,3)) v(a,b) group by a,b, grouping sets(a);
  a | b 
 ---+---
  1 | 2
  2 | 3
-   |  
+(2 rows)
+
+
+-- Tests for chained aggregates
+select a, b, grouping(a,b), sum(v), count(*), max(v)
+  from gstest1 group by grouping sets ((a,b),(a+1,b+1),(a+2,b+2));
+ a | b | grouping | sum | count | max 
+---+---+----------+-----+-------+-----
+ 1 | 1 |        0 |  21 |     2 |  11
+ 1 | 2 |        0 |  25 |     2 |  13
+ 1 | 3 |        0 |  14 |     1 |  14
+ 2 | 3 |        0 |  15 |     1 |  15
+ 3 | 3 |        0 |  16 |     1 |  16
+ 3 | 4 |        0 |  17 |     1 |  17
+ 4 | 1 |        0 |  37 |     2 |  19
+   |   |        3 |  21 |     2 |  11
+   |   |        3 |  25 |     2 |  13
+   |   |        3 |  14 |     1 |  14
+   |   |        3 |  15 |     1 |  15
+   |   |        3 |  16 |     1 |  16
+   |   |        3 |  17 |     1 |  17
+   |   |        3 |  37 |     2 |  19
+   |   |        3 |  21 |     2 |  11
+   |   |        3 |  25 |     2 |  13
+   |   |        3 |  14 |     1 |  14
+   |   |        3 |  15 |     1 |  15
+   |   |        3 |  16 |     1 |  16
+   |   |        3 |  17 |     1 |  17
+   |   |        3 |  37 |     2 |  19
+(21 rows)
+
+select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP((e+1),(f+1));
+ grouping 
+----------
+        0
+        0
+        0
 (3 rows)
-
-select a, b from (values (1,2),(2,3)) v(a,b) group by rollup((a,b));
- a | b 
----+---
- 1 | 2
- 2 | 3
-   |  
-(3 rows)
-
-select a, b, sum(c) from (values (1,1,10,5),(1,1,11,5),(1,2,12,5),(1,2,13,5),(1,3,14,5),(2,3,15,5),(3,3,16,5),(3,4,17,5),(4,1,18,5),(4,1,19,5)) v(a,b,c,d) group by rollup ((a,b));
- a | b | sum 
----+---+-----
- 1 | 1 |  21
- 1 | 2 |  25
- 1 | 3 |  14
- 2 | 3 |  15
- 3 | 3 |  16
- 3 | 4 |  17
- 4 | 1 |  37
-   |   | 145
-(8 rows)
-
-create temp view tv2(a,b,c,d,e,f,g) as select a[1], a[2], a[3], a[4], a[5], a[6], generate_series(1,3) from (select (array[1,1,1,1,1,1])[1:6-i] || (array[2,2,2,2,2,2])[7-i:6] as a from generate_series(0,6) i) s;
-select a,b, sum(g) from tv2 group by grouping sets ((a,b,c),(a,b));
- a | b | sum 
----+---+-----
- 1 | 1 |  24
- 1 | 1 |   6
- 1 | 1 |  30
- 1 | 2 |   6
- 1 | 2 |   6
- 2 | 2 |   6
- 2 | 2 |   6
-(7 rows)
-
-CREATE TEMP TABLE testgs_emptytable(a int,b int,c int);
-SELECT sum(a) FROM testgs_emptytable GROUP BY ROLLUP(a,b);
- sum 
------
-    
-(1 row)
-
-SELECT grouping(four), ten FROM tenk1
-GROUP BY ROLLUP(four, ten) ORDER BY four, ten;
- grouping | ten 
-----------+-----
-        0 |   0
-        0 |   2
-        0 |   4
-        0 |   6
-        0 |   8
-        0 |    
-        0 |   1
-        0 |   3
-        0 |   5
-        0 |   7
-        0 |   9
-        0 |    
-        0 |   0
-        0 |   2
-        0 |   4
-        0 |   6
-        0 |   8
-        0 |    
-        0 |   1
-        0 |   3
-        0 |   5
-        0 |   7
-        0 |   9
-        0 |    
-        1 |    
-(25 rows)
-
-SELECT grouping(four), ten FROM tenk1
-GROUP BY ROLLUP(four, ten) ORDER BY ten;
- grouping | ten 
-----------+-----
-        0 |   0
-        0 |   0
-        0 |   1
-        0 |   1
-        0 |   2
-        0 |   2
-        0 |   3
-        0 |   3
-        0 |   4
-        0 |   4
-        0 |   5
-        0 |   5
-        0 |   6
-        0 |   6
-        0 |   7
-        0 |   7
-        0 |   8
-        0 |   8
-        0 |   9
-        0 |   9
-        0 |    
-        0 |    
-        0 |    
-        0 |    
-        1 |    
-(25 rows)
 
