@@ -1306,6 +1306,7 @@ GROUP BY GROUPING SETS (
     <literal>ROW(a,b)</>.
    </para>
   </note>
+  </sect2>
 
   <sect2 id="queries-window">
    <title>Window Function Processing</title>
