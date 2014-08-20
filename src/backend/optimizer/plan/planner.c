@@ -2731,20 +2731,6 @@ preprocess_groupclause(PlannerInfo *root, List *force)
 			new_groupclause = lappend(new_groupclause, cl);
 		}
 
-#if 0
-		if (list_length(new_groupclause) < list_length(parse->groupClause))
-		{
-			foreach (sl, parse->groupClause)
-			{
-				SortGroupClause *cl = lfirst(sl);
-
-				if (!list_member_ptr(new_groupclause, cl))
-					new_groupclause = lappend(new_groupclause, cl);
-			}
-		}
-		Assert(list_length(parse->groupClause) == list_length(new_groupclause));
-#endif
-
 		return new_groupclause;
 	}
 
