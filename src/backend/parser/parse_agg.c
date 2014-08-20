@@ -454,7 +454,11 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 }
 
 /* transformGroupingExpr
- * Transform a grouping expression
+ * Transform a GROUPING expression
+ *
+ * GROUPING() behaves very like an aggregate (in the spec they are grouped with
+ * aggregates as "set operations").  Processing of levels and nesting is done
+ * as for aggregates.  We set p_hasAggs for these expressions too.
  */
 Node *
 transformGroupingExpr(ParseState *pstate, Grouping *p)
@@ -488,6 +492,7 @@ transformGroupingExpr(ParseState *pstate, Grouping *p)
 
 	return (Node *) result;
 }
+
 /*
  * check_agg_arguments
  *	  Scan the arguments of an aggregate function to determine the
@@ -639,6 +644,21 @@ check_agg_arguments_walker(Node *node,
 		/* no need to examine args of the inner aggregate */
 		return false;
 	}
+	if (IsA(node, Grouping))
+	{
+		int			agglevelsup = ((Grouping *) node)->agglevelsup;
+
+		/* convert levelsup to frame of reference of original query */
+		agglevelsup -= context->sublevels_up;
+		/* ignore local aggs of subqueries */
+		if (agglevelsup >= 0)
+		{
+			if (context->min_agglevel < 0 ||
+				context->min_agglevel > agglevelsup)
+				context->min_agglevel = agglevelsup;
+		}
+		/* Continue and descend into subtree */
+	}
 	/* We can throw error on sight for a window function */
 	if (IsA(node, WindowFunc))
 		ereport(ERROR,
@@ -658,22 +678,6 @@ check_agg_arguments_walker(Node *node,
 								   0);
 		context->sublevels_up--;
 		return result;
-	}
-
-	if (IsA(node, Grouping))
-	{
-		int			agglevelsup = ((Grouping *) node)->agglevelsup;
-
-		/* convert levelsup to frame of reference of original query */
-		agglevelsup -= context->sublevels_up;
-		/* ignore local aggs of subqueries */
-		if (agglevelsup >= 0)
-		{
-			if (context->min_agglevel < 0 ||
-				context->min_agglevel > agglevelsup)
-				context->min_agglevel = agglevelsup;
-		}
-		/* Continue and descend into subtree */
 	}
 
 	return expression_tree_walker(node,
@@ -934,14 +938,30 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	Assert(pstate->p_hasAggs || qry->groupClause || qry->havingQual || qry->groupingSets);
 
 	/*
-	 * If we have grouping sets, expand them and find the intersection of
-	 * all sets (which will often be empty, so help things along by
-	 * seeding the intersect with the smallest set).
+	 * If we have grouping sets, expand them and find the intersection of all
+	 * sets.
 	 */
 	if (qry->groupingSets)
 	{
-		List *gsets = expand_grouping_sets(qry->groupingSets);
+		/*
+		 * The limit of 4096 is arbitrary and exists simply to avoid resource
+		 * issues from pathological constructs.
+		 */
+		List *gsets = expand_grouping_sets(qry->groupingSets, 4096);
 
+		if (!gsets)
+			ereport(ERROR,
+					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
+					 errmsg("Too many grouping sets present (max 4096)"),
+					 parser_errposition(pstate,
+										qry->groupClause
+										? exprLocation(qry->groupClause)
+										: exprLocation(qry->groupingSets))));
+
+		/*
+		 * The intersection will often be empty, so help things along by
+		 * seeding the intersect with the smallest set.
+		 */
 		gset_common = llast(gsets);
 
 		if (gset_common)
@@ -1039,6 +1059,9 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	 * this will also find ungrouped variables that came from ORDER BY and
 	 * WINDOW clauses.  For that matter, it's also going to examine the
 	 * grouping expressions themselves --- but they'll all pass the test ...
+	 *
+	 * We also finalize GROUPING expressions, but for that we need to traverse
+	 * the original (unflattened) clause in order to modify nodes.
 	 */
 	clause = (Node *) qry->targetList;
 	finalize_grouping_exprs(clause, pstate, qry,
@@ -1381,7 +1404,7 @@ finalize_grouping_exprs_walker(Node *node,
 			ListCell  *lc;
 			List 	  *ref_list = NIL;
 
-			foreach(lc, (grp->args))
+			foreach(lc, grp->args)
 			{
 				Node   *expr = lfirst(lc);
 				Index	ref = 0;
@@ -1417,7 +1440,8 @@ finalize_grouping_exprs_walker(Node *node,
 						}
 					}
 				}
-				else if (context->have_non_var_grouping && context->sublevels_up == 0)
+				else if (context->have_non_var_grouping
+						 && context->sublevels_up == 0)
 				{
 					foreach(gl, context->groupClauses)
 					{
@@ -1435,7 +1459,8 @@ finalize_grouping_exprs_walker(Node *node,
 					ereport(ERROR,
 							(errcode(ERRCODE_GROUPING_ERROR),
 							 errmsg("Arguments to GROUPING must be grouping expressions of the associated query level"),
-							 parser_errposition(context->pstate, grp->location)));
+							 parser_errposition(context->pstate,
+												exprLocation(expr))));
 
 				ref_list = lappend_int(ref_list, ref);
 			}
@@ -1595,10 +1620,11 @@ cmp_list_len_desc(const void *a, const void *b)
  */
 
 List *
-expand_grouping_sets(List *groupingSets)
+expand_grouping_sets(List *groupingSets, int limit)
 {
 	List	   *expanded_groups = NIL;
 	List       *result = NIL;
+	double		numsets = 1;
 	ListCell   *lc;
 
 	if (groupingSets == NIL)
@@ -1612,6 +1638,11 @@ expand_grouping_sets(List *groupingSets)
 		current_result = expand_groupingset_node(gs);
 
 		Assert(current_result != NIL);
+
+		numsets *= list_length(current_result);
+
+		if (limit >= 0 && numsets > limit)
+			return NIL;
 
 		expanded_groups = lappend(expanded_groups, current_result);
 	}

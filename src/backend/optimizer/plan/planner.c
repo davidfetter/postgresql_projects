@@ -1205,7 +1205,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 		/* Preprocess Grouping set, if any */
 		if (parse->groupingSets)
-			parse->groupingSets = expand_grouping_sets(parse->groupingSets);
+			parse->groupingSets = expand_grouping_sets(parse->groupingSets, -1);
 
 		elog(DEBUG1, "grouping sets 1: %s", nodeToString(parse->groupingSets));
 
