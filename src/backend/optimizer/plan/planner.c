@@ -1827,7 +1827,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												  (List *) parse->havingQual,
 												  numGroupCols,
 												  groupColIdx,
-												  extract_grouping_ops(parse->groupClause),
+									extract_grouping_ops(parse->groupClause),
 												  dNumGroups,
 												  result_plan);
 				/* The Group node won't change sort ordering */
