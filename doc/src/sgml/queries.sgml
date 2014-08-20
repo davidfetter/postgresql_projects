@@ -1187,17 +1187,19 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
    </para>
 
    <para>
-    Each sublist of <literal>GROUPING SETS</> may specify zero or more columns or
-    expressions and is interpreted the same way as though it were directly in
-    the <literal>GROUP BY</> clause.  An empty grouping set means that all rows
-    are aggregated down to a single group (which is output even if no input rows
-    were present), as described above for the case of aggregate functions with no
-    <literal>GROUP BY</> clause.
+    Each sublist of <literal>GROUPING SETS</> may specify zero or more columns
+    or expressions and is interpreted the same way as though it were directly
+    in the <literal>GROUP BY</> clause.  An empty grouping set means that all
+    rows are aggregated down to a single group (which is output even if no
+    input rows were present), as described above for the case of aggregate
+    functions with no <literal>GROUP BY</> clause.
    </para>
 
    <para>
-    To distinguish which grouping operation a particular output row resulted from,
-    see <xref linkend="functions-grouping-table">.
+    References to the grouping columns or expressions are replaced
+    by <literal>NULL</> values in result rows for grouping sets in which those
+    columns do not appear.  To distinguish which grouping a particular output
+    row resulted from, see <xref linkend="functions-grouping-table">.
    </para>
 
    <para>
@@ -1206,7 +1208,8 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
 <programlisting>
 ROLLUP ( <replaceable>e1</>, <replaceable>e2</>, <replaceable>e3</>, ... )
 </programlisting>
-    is equivalent to
+    represents the given list of expressions and all prefixes of the list including
+    the empty list; thus it is equivalent to
 <programlisting>
 GROUPING SETS (
     ( <replaceable>e1</>, <replaceable>e2</>, <replaceable>e3</>, ... ),
@@ -1216,27 +1219,33 @@ GROUPING SETS (
     ( )
 )
 </programlisting>
-    This is commonly used for analysis over hierarchical data; e.g. total salary by
-    department, division, and company-wide total.  A clause of the form
+    This is commonly used for analysis over hierarchical data; e.g. total
+    salary by department, division, and company-wide total.
+   </para>
+
+   <para>
+    A clause of the form
 <programlisting>
-CUBE ( <replaceable>e1</>, <replaceable>e2</>, <replaceable>e3</> )
+CUBE ( <replaceable>e1</>, <replaceable>e2</>, ... )
+</programlisting>
+    represents the given list and all of its possible subsets (i.e. the power
+    set).  Thus
+<programlisting>
+CUBE ( a, b, c )
 </programlisting>
     is equivalent to
 <programlisting>
 GROUPING SETS (
-    ( <replaceable>e1</>, <replaceable>e2</>, <replaceable>e3</> ),
-    ( <replaceable>e1</>, <replaceable>e2</>  <replaceable>  </> ),
-    ( <replaceable>e1</>, <replaceable>  </>  <replaceable>e3</> ),
-    ( <replaceable>e1</>, <replaceable>  </>  <replaceable>  </> ),
-    ( <replaceable>  </>  <replaceable>e2</>, <replaceable>e3</> ),
-    ( <replaceable>  </>  <replaceable>e2</>  <replaceable>  </> ),
-    ( <replaceable>  </>  <replaceable>  </>  <replaceable>e3</> ),
-    ( <replaceable>  </>  <replaceable>  </>  <replaceable>  </> )
+    ( a, b, c ),
+    ( a, b    ),
+    ( a,    c ),
+    ( a       ),
+    (    b, c ),
+    (    b    ),
+    (       c ),
+    (         ),
 )
 </programlisting>
-    (The number of columns need not be 3 (though it may not exceed 12); but
-    the number of grouping sets generated is 2 to the power of the number of
-    columns, so high-dimension hypercubes become unwieldy quite quickly.)
    </para>
 
    <para>
@@ -1275,7 +1284,9 @@ GROUPING SETS (
    <para>
     The <literal>CUBE</> and <literal>ROLLUP</> constructs can be used either
     directly in the <literal>GROUP BY</> clause, or nested inside a
-    <literal>GROUPING SETS</> clause.
+    <literal>GROUPING SETS</> clause.  If one <literal>GROUPING SETS</> clause
+    is nested inside another, the effect is the same as if all the elements of
+    the inner clause had been written directly in the outer clause.
    </para>
 
    <para>
@@ -1299,11 +1310,11 @@ GROUP BY GROUPING SETS (
   <note>
    <para>
     The construct <literal>(a,b)</> is normally recognized in expressions as
-    a row constructor.  Within the <literal>GROUP BY</> clause, this does not
-    apply at the top levels of expressions, and <literal>(a,b)</> is parsed
-    as a list of expressions as described above.  If for some reason you
-    <emphasis>need</> a row constructor in a grouping expression, use
-    <literal>ROW(a,b)</>.
+    a <link linkend="sql-syntax-row-constructors">row constructor</link>.
+    Within the <literal>GROUP BY</> clause, this does not apply at the top
+    levels of expressions, and <literal>(a,b)</> is parsed as a list of
+    expressions as described above.  If for some reason you <emphasis>need</>
+    a row constructor in a grouping expression, use <literal>ROW(a,b)</>.
    </para>
   </note>
   </sect2>
