@@ -158,7 +158,7 @@ _equalGrouping(const Grouping *a, const Grouping *b)
 	COMPARE_NODE_FIELD(args);
 
 	/*
-	 * We must not compare the refs field
+	 * We must not compare the refs or cols field
 	 */
 
 	COMPARE_LOCATION_FIELD(location);

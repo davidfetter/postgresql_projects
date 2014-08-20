@@ -4487,15 +4487,10 @@ ExecInitExpr(Expr *node, PlanState *parent)
 
 				if (agg->groupingSets)
 				{
-					foreach(lc, (grp_node->refs))
+					foreach(lc, grp_node->cols)
 					{
 						int current_index = lfirst_int(lc);
-						int result = 0;
-
-						if (current_index >= 0)
-							result = agg->grpColIdx[current_index];
-
-						result_list = lappend_int(result_list, result);
+						result_list = lappend_int(result_list, current_index);
 					}
 				}
 

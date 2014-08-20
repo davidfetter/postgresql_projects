@@ -1919,6 +1919,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	ExecInitResultTupleSlot(estate, &aggstate->ss.ps);
 	aggstate->hashslot = ExecInitExtraTupleSlot(estate);
 
+
 	/*
 	 * initialize child expressions
 	 *
@@ -1928,17 +1929,29 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 * that is true, we don't need to worry about evaluating the aggs in any
 	 * particular order.
 	 */
-	if (node->chain_tlist)
+	if (node->aggstrategy == AGG_CHAINED)
+	{
+		aggstate->chain_head = estate->agg_chain_head;
+
+		/*
+		 * Snarf the real targetlist and qual from the chain head node
+		 */
 		aggstate->ss.ps.targetlist = (List *)
-			ExecInitExpr((Expr *) node->chain_tlist,
+			ExecInitExpr((Expr *) aggstate->chain_head->ss.ps.plan->targetlist,
 						 (PlanState *) aggstate);
+		aggstate->ss.ps.qual = (List *)
+			ExecInitExpr((Expr *) aggstate->chain_head->ss.ps.plan->qual,
+						 (PlanState *) aggstate);
+	}
 	else
+	{
 		aggstate->ss.ps.targetlist = (List *)
 			ExecInitExpr((Expr *) node->plan.targetlist,
 						 (PlanState *) aggstate);
-	aggstate->ss.ps.qual = (List *)
-		ExecInitExpr((Expr *) node->plan.qual,
-					 (PlanState *) aggstate);
+		aggstate->ss.ps.qual = (List *)
+			ExecInitExpr((Expr *) node->plan.qual,
+						 (PlanState *) aggstate);
+	}
 
 	if (node->chain_head)
 	{
@@ -1974,16 +1987,25 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 */
 	if (node->aggstrategy == AGG_CHAINED)
 	{
+		PlanState  *head_ps = &aggstate->chain_head->ss.ps;
+		bool		hasoid;
+
+		/*
+		 * We must calculate this the same way that the chain head does,
+		 * regardless of intermediate nodes, for consistency
+		 */
+		if (!ExecContextForcesOids(head_ps, &hasoid))
+			hasoid = false;
+
 		ExecAssignResultType(&aggstate->ss.ps, ExecGetScanType(&aggstate->ss));
 		ExecSetSlotDescriptor(aggstate->hashslot,
-							  ExecTypeFromTL(node->chain_tlist, false));
+							  ExecTypeFromTL(head_ps->plan->targetlist, hasoid));
 		aggstate->ss.ps.ps_ProjInfo =
 			ExecBuildProjectionInfo(aggstate->ss.ps.targetlist,
 									aggstate->ss.ps.ps_ExprContext,
 									aggstate->hashslot,
 									NULL);
 
-		aggstate->chain_head = estate->agg_chain_head;
 		aggstate->chain_tuplestore = aggstate->chain_head->chain_tuplestore;
 		Assert(aggstate->chain_tuplestore);
 	}

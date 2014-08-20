@@ -82,8 +82,6 @@ static double preprocess_limit(PlannerInfo *root,
 static bool limit_needed(Query *parse);
 static List *preprocess_groupclause(PlannerInfo *root, List *force);
 static List *extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder);
-static Node *fixup_grouping_exprs(Node *clause, int *refmap);
-static Node *fixup_grouping_exprs_mutator(Node *clause, int *refmap);
 static void standard_qp_callback(PlannerInfo *root, void *extra);
 static bool choose_hashed_grouping(PlannerInfo *root,
 					   double tuple_fraction, double limit_tuples,
@@ -321,6 +319,8 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	root->append_rel_list = NIL;
 	root->rowMarks = NIL;
 	root->hasInheritedTarget = false;
+	root->groupColIdx = NULL;
+	root->grouping_map = NULL;
 
 	root->hasRecursion = hasRecursion;
 	if (hasRecursion)
@@ -1189,6 +1189,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		bool		use_hashed_grouping = false;
 		WindowFuncLists *wflists = NULL;
 		List	   *activeWindows = NIL;
+		int			maxref = 0;
 		List	   *refmaps = NIL;
 		List	   *rollup_lists = NIL;
 		List	   *rollup_groupclauses = NIL;
@@ -1207,14 +1208,9 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		if (parse->groupingSets)
 			parse->groupingSets = expand_grouping_sets(parse->groupingSets, -1);
 
-		elog(DEBUG1, "grouping sets 1: %s", nodeToString(parse->groupingSets));
-
-		if (parse->groupingSets)
+		if (parse->groupClause)
 		{
 			ListCell   *lc;
-			ListCell   *lc2;
-			List	   *sets = parse->groupingSets;
-			int			maxref = 0;
 
 			foreach(lc, parse->groupClause)
 			{
@@ -1222,6 +1218,13 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				if (gc->tleSortGroupRef > maxref)
 					maxref = gc->tleSortGroupRef;
 			}
+		}
+
+		if (parse->groupingSets)
+		{
+			ListCell   *lc;
+			ListCell   *lc2;
+			List	   *sets = parse->groupingSets;
 
 			do
 			{
@@ -1259,8 +1262,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				rollup_lists = lcons(usable_sets, rollup_lists);
 				rollup_groupclauses = lcons(groupclause, rollup_groupclauses);
 				refmaps = lcons(refmap, refmaps);
-
-				elog(DEBUG1, "grouping sets 2: %s %s", nodeToString(usable_sets), nodeToString(groupclause));
 
 				sets = remaining_sets;
 			}
@@ -1307,8 +1308,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		 */
 		sub_tlist = make_subplanTargetList(root, tlist,
 										   &groupColIdx, &need_tlist_eval);
-		if (list_length(rollup_lists) > 1)
-			need_tlist_eval = true;
 
 		/*
 		 * Do aggregate preprocessing, if the query has any aggs.
@@ -1722,30 +1721,15 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				 * all except the last are chained.
 				 */
 
-				if (list_length(rollup_groupclauses) > 1)
-					root->groupColIdx = groupColIdx;
-
 				do
 				{
 					List	   *groupClause = linitial(rollup_groupclauses);
 					List	   *gsets = rollup_lists ? linitial(rollup_lists) : NIL;
-					Node	   *havingQual = parse->havingQual;
-					List	   *cur_tlist = tlist;
 					int		   *refmap = refmaps ? linitial(refmaps) : NULL;
 					AttrNumber *new_grpColIdx = groupColIdx;
 					ListCell   *lc;
 					int			i;
 					AggStrategy aggstrategy = AGG_CHAINED;
-
-					if (parse->hasAggs)
-					{
-						/*
-						 * Fix up any GROUPING nodes to refer to indexes in the final
-						 * groupClause list.
-						 */
-						cur_tlist = (List *) fixup_grouping_exprs((Node *) tlist, refmap);
-						havingQual = fixup_grouping_exprs(havingQual, refmap);
-					}
 
 					if (groupClause)
 					{
@@ -1794,8 +1778,8 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 					}
 
 					result_plan = (Plan *) make_agg(root,
-													cur_tlist,
-													(List *) havingQual,
+													tlist,
+													(List *) parse->havingQual,
 													aggstrategy,
 													&agg_costs,
 													gsets ? list_length(linitial(gsets)) : numGroupCols,
@@ -1868,6 +1852,24 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												   NULL);
 			}
 		}						/* end of non-minmax-aggregate case */
+
+		/* Record grouping_map based on final groupColIdx, for setrefs */
+
+		if (parse->groupingSets)
+		{
+			AttrNumber *grouping_map = palloc0(sizeof(AttrNumber) * (maxref + 1));
+			ListCell   *lc;
+			int			i = 0;
+
+			foreach(lc, parse->groupClause)
+			{
+				SortGroupClause *gc = lfirst(lc);
+				grouping_map[gc->tleSortGroupRef] = groupColIdx[i++];
+			}
+
+			root->groupColIdx = groupColIdx;
+			root->grouping_map = grouping_map;
+		}
 
 		/*
 		 * Since each window function could require a different sort order, we
@@ -2904,46 +2906,6 @@ extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder)
 
 	return result;
 }
-
-
-static Node *
-fixup_grouping_exprs(Node *clause, int *refmap)
-{
-	return fixup_grouping_exprs_mutator(clause, refmap);
-}
-
-static Node *
-fixup_grouping_exprs_mutator(Node *node, int *refmap)
-{
-	if (node == NULL)
-		return false;
-	if (IsA(node, Grouping))
-	{
-		Grouping *g = (Grouping *) copyObject(node);
-
-		/* If there are no grouping sets, we don't need this. */
-		if (!refmap)
-		{
-			g->refs = NIL;
-		}
-		else
-		{
-			ListCell *lc;
-
-			foreach(lc, g->refs)
-			{
-				lfirst_int(lc) = refmap[lfirst_int(lc)] - 1;
-			}
-		}
-
-		/* No need to recurse into args. */
-		return (Node *) g;
-	}
-	Assert(!IsA(node, SubLink));
-	return expression_tree_mutator(node, fixup_grouping_exprs_mutator,
-								   (void *) refmap);
-}
-
 
 /*
  * Compute query_pathkeys and other pathkeys during plan generation

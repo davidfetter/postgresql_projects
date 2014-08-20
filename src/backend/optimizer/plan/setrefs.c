@@ -657,13 +657,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 		case T_Agg:
 			if (((Agg *) plan)->aggstrategy == AGG_CHAINED)
 			{
-				Agg *agg = (Agg *) plan;
-				List *tmp_tlist = plan->targetlist;
-				plan->targetlist = agg->chain_tlist;
-				set_upper_references(root, plan, rtoffset);
-				set_group_vars(root, (Agg *) plan);
-				agg->chain_tlist = plan->targetlist;
-				plan->targetlist = tmp_tlist;
+				/* chained agg does not evaluate tlist */
 				set_dummy_tlist_references(plan, rtoffset);
 			}
 			else
@@ -1144,6 +1138,31 @@ fix_expr_common(PlannerInfo *root, Node *node)
 				lappend_oid(root->glob->relationOids,
 							DatumGetObjectId(con->constvalue));
 	}
+	else if (IsA(node, Grouping))
+	{
+		Grouping   *g = (Grouping *) node;
+		AttrNumber *refmap = root->grouping_map;
+
+		/* If there are no grouping sets, we don't need this. */
+
+		Assert(refmap || g->cols == NIL);
+
+		if (refmap)
+		{
+			ListCell   *lc;
+			List	   *cols = NIL;
+
+			foreach(lc, g->refs)
+			{
+				cols = lappend_int(cols, refmap[lfirst_int(lc)]);
+			}
+
+			Assert(!g->cols || equal(cols, g->cols));
+
+			if (!g->cols)
+				g->cols = cols;
+		}
+	}
 }
 
 /*
@@ -1277,6 +1296,7 @@ fix_scan_expr_walker(Node *node, fix_scan_expr_context *context)
  *    Modify any Var references in the target list of a non-trivial
  *    (i.e. contains grouping sets) Agg node to use GroupedVar instead,
  *    which will conditionally replace them with nulls at runtime.
+ *    Also fill in the cols list of any GROUPING() node.
  */
 static void
 set_group_vars(PlannerInfo *root, Agg *agg)
@@ -1327,7 +1347,7 @@ set_group_vars_mutator(Node *node, set_group_vars_context *context)
 
 		return (Node *) var;
 	}
-	else if (IsA(node, Aggref) || IsA(node,Grouping))
+	else if (IsA(node, Aggref) || IsA(node, Grouping))
 	{
 		/*
 		 * don't recurse into Aggrefs, since they see the values prior

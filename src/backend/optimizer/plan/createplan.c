@@ -4282,7 +4282,6 @@ make_agg(PlannerInfo *root, List *tlist, List *qual,
 	node->grpColIdx = grpColIdx;
 	node->grpOperators = grpOperators;
 	node->numGroups = numGroups;
-	node->chain_tlist = NIL;
 
 	copy_plan_costsize(plan, lefttree); /* only care about copying size */
 	cost_agg(&agg_path, root,
@@ -4328,16 +4327,16 @@ make_agg(PlannerInfo *root, List *tlist, List *qual,
 		Assert(!chain_head);
 		plan->plan_rows = lefttree->plan_rows;
 		plan->plan_width = lefttree->plan_width;
-	}
 
-	plan->qual = qual;
-	if (aggstrategy == AGG_CHAINED)
-	{
+		/* supplied tlist is ignored, this is dummy */
 		plan->targetlist = lefttree->targetlist;
-		node->chain_tlist = tlist;
+		plan->qual = NULL;
 	}
 	else
+	{
+		plan->qual = qual;
 		plan->targetlist = tlist;
+	}
 	plan->lefttree = lefttree;
 	plan->righttree = NULL;
 

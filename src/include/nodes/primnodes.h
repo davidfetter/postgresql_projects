@@ -175,6 +175,7 @@ typedef struct Grouping
 	Expr xpr;
 	List *args;
 	List *refs;
+	List *cols;
 	int location;
 	int agglevelsup;
 } Grouping;

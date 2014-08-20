@@ -646,7 +646,6 @@ _outAgg(StringInfo str, const Agg *node)
 	WRITE_LONG_FIELD(numGroups);
 
 	WRITE_NODE_FIELD(groupingSets);
-	WRITE_NODE_FIELD(chain_tlist);
 }
 
 static void
@@ -922,6 +921,7 @@ _outGrouping(StringInfo str, const Grouping *node)
 
 	WRITE_NODE_FIELD(args);
 	WRITE_NODE_FIELD(refs);
+	WRITE_NODE_FIELD(cols);
 	WRITE_LOCATION_FIELD(location);
 	WRITE_INT_FIELD(agglevelsup);
 }
