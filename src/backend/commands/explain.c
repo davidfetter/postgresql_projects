@@ -1675,11 +1675,15 @@ show_plan_tlist(PlanState *planstate, List *ancestors, ExplainState *es)
 	/* Print results */
 	ExplainPropertyList("Output", result, es);
 
+	/*
+	 * ChainAggregate has a second tlist for the chain output; it's not very
+	 * interesting (should match the chain head's tlist in semantics) but we
+	 * dump it for diagnostic purposes.
+	 */
 	if (IsA(plan, Agg) && ((Agg *) plan)->aggstrategy == AGG_CHAINED)
 	{
 		result = NIL;
 
-		/* Deparse each result column (we now include resjunk ones) */
 		foreach(lc, ((Agg *)plan)->chain_tlist)
 		{
 			TargetEntry *tle = (TargetEntry *) lfirst(lc);
@@ -1689,7 +1693,6 @@ show_plan_tlist(PlanState *planstate, List *ancestors, ExplainState *es)
 												useprefix, false));
 		}
 
-		/* Print results */
 		ExplainPropertyList("Chain Output", result, es);
 	}
 }
