@@ -79,7 +79,8 @@ static Node *process_sublinks_mutator(Node *node,
 static Bitmapset *finalize_plan(PlannerInfo *root,
 			  Plan *plan,
 			  Bitmapset *valid_params,
-			  Bitmapset *scan_params);
+			  Bitmapset *scan_params,
+			  Agg *agg_chain_head);
 static bool finalize_primnode(Node *node, finalize_primnode_context *context);
 
 
@@ -2091,7 +2092,7 @@ SS_finalize_plan(PlannerInfo *root, Plan *plan, bool attach_initplans)
 	/*
 	 * Now recurse through plan tree.
 	 */
-	(void) finalize_plan(root, plan, valid_params, NULL);
+	(void) finalize_plan(root, plan, valid_params, NULL, NULL);
 
 	bms_free(valid_params);
 
@@ -2142,7 +2143,7 @@ SS_finalize_plan(PlannerInfo *root, Plan *plan, bool attach_initplans)
  */
 static Bitmapset *
 finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
-			  Bitmapset *scan_params)
+			  Bitmapset *scan_params, Agg *agg_chain_head)
 {
 	finalize_primnode_context context;
 	int			locally_added_param;
@@ -2351,7 +2352,8 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 										finalize_plan(root,
 													  (Plan *) lfirst(l),
 													  valid_params,
-													  scan_params));
+													  scan_params,
+													  NULL));
 				}
 			}
 			break;
@@ -2367,7 +2369,8 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 										finalize_plan(root,
 													  (Plan *) lfirst(l),
 													  valid_params,
-													  scan_params));
+													  scan_params,
+													  NULL));
 				}
 			}
 			break;
@@ -2383,7 +2386,8 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 										finalize_plan(root,
 													  (Plan *) lfirst(l),
 													  valid_params,
-													  scan_params));
+													  scan_params,
+													  NULL));
 				}
 			}
 			break;
@@ -2399,7 +2403,8 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 										finalize_plan(root,
 													  (Plan *) lfirst(l),
 													  valid_params,
-													  scan_params));
+													  scan_params,
+													  NULL));
 				}
 			}
 			break;
@@ -2415,7 +2420,8 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 										finalize_plan(root,
 													  (Plan *) lfirst(l),
 													  valid_params,
-													  scan_params));
+													  scan_params,
+													  NULL));
 				}
 			}
 			break;
@@ -2482,8 +2488,30 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 							  &context);
 			break;
 
-		case T_Hash:
 		case T_Agg:
+			{
+				Agg	   *agg = (Agg *) plan;
+
+				if (agg->aggstrategy == AGG_CHAINED)
+				{
+					Assert(agg_chain_head);
+
+					/*
+					 * our real tlist and qual are the ones in the chain head,
+					 * not the local ones which are dummy for passthrough.
+					 * Fortunately we can call finalize_primnode more than
+					 * once.
+					 */
+
+					finalize_primnode((Node *) agg_chain_head->plan.targetlist, &context);
+					finalize_primnode((Node *) agg_chain_head->plan.qual, &context);
+				}
+				else if (agg->chain_head)
+					agg_chain_head = agg;
+			}
+			break;
+
+		case T_Hash:
 		case T_Material:
 		case T_Sort:
 		case T_Unique:
@@ -2500,7 +2528,8 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 	child_params = finalize_plan(root,
 								 plan->lefttree,
 								 valid_params,
-								 scan_params);
+								 scan_params,
+								 agg_chain_head);
 	context.paramids = bms_add_members(context.paramids, child_params);
 
 	if (nestloop_params)
@@ -2509,7 +2538,8 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 		child_params = finalize_plan(root,
 									 plan->righttree,
 									 bms_union(nestloop_params, valid_params),
-									 scan_params);
+									 scan_params,
+									 agg_chain_head);
 		/* ... and they don't count as parameters used at my level */
 		child_params = bms_difference(child_params, nestloop_params);
 		bms_free(nestloop_params);
@@ -2520,7 +2550,8 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 		child_params = finalize_plan(root,
 									 plan->righttree,
 									 valid_params,
-									 scan_params);
+									 scan_params,
+									 agg_chain_head);
 	}
 	context.paramids = bms_add_members(context.paramids, child_params);
 

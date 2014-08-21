@@ -1857,6 +1857,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->pergroup = NULL;
 	aggstate->grp_firstTuple = NULL;
 	aggstate->hashtable = NULL;
+	aggstate->chain_depth = 0;
+	aggstate->chain_rescan = 0;
 	aggstate->chain_head = NULL;
 	aggstate->chain_tuplestore = NULL;
 
@@ -1930,7 +1932,10 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 */
 	if (node->aggstrategy == AGG_CHAINED)
 	{
+		Assert(estate->agg_chain_head);
+
 		aggstate->chain_head = estate->agg_chain_head;
+		aggstate->chain_head->chain_depth++;
 
 		/*
 		 * Snarf the real targetlist and qual from the chain head node
@@ -2584,25 +2589,54 @@ ExecReScanAgg(AggState *node)
 	}
 
 	/*
+	 * If we're in a chain, let the chain head know whether we
+	 * rescanned. (This is nonsense if it happens as a result of chgParam,
+	 * but the chain head only cares about this when rescanning explicitly
+	 * when chgParam is empty.)
+	 */
+
+	if (aggnode->aggstrategy == AGG_CHAINED)
+		node->chain_head->chain_rescan++;
+
+	/*
 	 * If we're a chain head, we reset the tuplestore if parameters changed,
-	 * and let subplans repopulate it. If they did not, then leave it, since
-	 * the subplans won't be rescanned.
+	 * and let subplans repopulate it.
+	 *
+	 * If we're a chain head and the subplan parameters did NOT change, then
+	 * whether we need to reset the tuplestore depends on whether anything
+	 * (specifically the Sort nodes) protects the child ChainAggs from rescan.
+	 * Since this is hard to know in advance, we have the ChainAggs signal us
+	 * as to whether the reset is needed. (We assume that either all children
+	 * in the chain are protected or none are; since all Sort nodes in the
+	 * chain should have the same flags. If this changes, it would probably be
+	 * necessary to add a signalling param to force child rescan.)
 	 */
 	if (aggnode->chain_head)
 	{
 		if (node->ss.ps.lefttree->chgParam)
 			tuplestore_clear(node->chain_tuplestore);
 		else
-			tuplestore_rescan(node->chain_tuplestore);
+		{
+			node->chain_rescan = 0;
+
+			ExecReScan(node->ss.ps.lefttree);
+
+			if (node->chain_rescan == node->chain_depth)
+				tuplestore_clear(node->chain_tuplestore);
+			else if (node->chain_rescan == 0)
+				tuplestore_rescan(node->chain_tuplestore);
+			else
+				elog(ERROR, "chained aggregate rescan depth error");
+		}
 		node->chain_done = false;
 	}
+	else if (node->ss.ps.lefttree->chgParam == NULL)
+	{
 
-	/*
-	 * if chgParam of subnode is not null then plan will be re-scanned by
-	 * first ExecProcNode.
-	 */
-	if (node->ss.ps.lefttree->chgParam == NULL)
+
+
 		ExecReScan(node->ss.ps.lefttree);
+	}
 }
 
 
