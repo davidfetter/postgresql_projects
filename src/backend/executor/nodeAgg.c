@@ -1482,7 +1482,6 @@ agg_retrieve_direct(AggState *aggstate)
 			ExprDoneCond isDone;
 
 			result = ExecProject(aggstate->ss.ps.ps_ProjInfo, &isDone);
-			slot_getallattrs(result);
 
 			if (isDone != ExprEndResult)
 			{
