@@ -5637,10 +5637,10 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 		 * Force parentheses because our caller probably assumed a Var is a
 		 * simple expression.
 		 */
-		if (!IsA(tle->expr, Var))
+		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
 			appendStringInfoChar(buf, '(');
 		get_rule_expr((Node *) tle->expr, context, true);
-		if (!IsA(tle->expr, Var))
+		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
 			appendStringInfoChar(buf, ')');
 
 		pop_child_plan(dpns, &save_dpns);
@@ -5662,10 +5662,10 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 		 * Force parentheses because our caller probably assumed a Var is a
 		 * simple expression.
 		 */
-		if (!IsA(tle->expr, Var))
+		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
 			appendStringInfoChar(buf, '(');
 		get_rule_expr((Node *) tle->expr, context, true);
-		if (!IsA(tle->expr, Var))
+		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
 			appendStringInfoChar(buf, ')');
 
 		pop_child_plan(dpns, &save_dpns);
@@ -5685,10 +5685,10 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 		 * Force parentheses because our caller probably assumed a Var is a
 		 * simple expression.
 		 */
-		if (!IsA(tle->expr, Var))
+		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
 			appendStringInfoChar(buf, '(');
 		get_rule_expr((Node *) tle->expr, context, true);
-		if (!IsA(tle->expr, Var))
+		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
 			appendStringInfoChar(buf, ')');
 
 		return NULL;
@@ -5728,10 +5728,10 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 		 * Force parentheses because our caller probably assumed a Var is a
 		 * simple expression.
 		 */
-		if (!IsA(tle->expr, Var))
+		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
 			appendStringInfoChar(buf, '(');
 		get_rule_expr((Node *) tle->expr, context, true);
-		if (!IsA(tle->expr, Var))
+		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
 			appendStringInfoChar(buf, ')');
 
 		pop_child_plan(dpns, &save_dpns);
