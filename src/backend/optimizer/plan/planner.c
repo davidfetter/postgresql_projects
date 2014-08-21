@@ -1205,8 +1205,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		if (parse->groupingSets)
 			parse->groupingSets = expand_grouping_sets(parse->groupingSets, -1);
 
-		elog(DEBUG1, "grouping sets 1: %s", nodeToString(parse->groupingSets));
-
 		if (parse->groupingSets)
 		{
 			ListCell   *lc;
@@ -1258,8 +1256,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 					lfirst_int(lc2) = refmap[lfirst_int(lc2)] - 1;
 				}
 			}
-
-			elog(DEBUG1, "grouping sets 2: %s", nodeToString(parse->groupingSets));
 		}
 		else
 		{
