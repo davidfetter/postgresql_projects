@@ -1696,7 +1696,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				/* Hashed aggregation produces randomly-ordered results */
 				current_pathkeys = NIL;
 			}
-			else if (parse->hasAggs || parse->groupingSets)
+			else if (parse->hasAggs || (parse->groupingSets && parse->groupClause))
 			{
 				/* Plain aggregate plan --- sort if needed */
 				AggStrategy aggstrategy;
@@ -1767,24 +1767,45 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												  result_plan);
 				/* The Group node won't change sort ordering */
 			}
-			else if (root->hasHavingQual)
+			else if (root->hasHavingQual || parse->groupingSets)
 			{
+				int		nrows = list_length(parse->groupingSets);
+
 				/*
-				 * No aggregates, and no GROUP BY, but we have a HAVING qual.
+				 * No aggregates, and no GROUP BY, but we have a HAVING qual or
+				 * grouping sets (which by elimination of cases above must
+				 * consist solely of empty grouping sets, since otherwise
+				 * groupClause will be non-empty).
+				 *
 				 * This is a degenerate case in which we are supposed to emit
-				 * either 0 or 1 row depending on whether HAVING succeeds.
-				 * Furthermore, there cannot be any variables in either HAVING
-				 * or the targetlist, so we actually do not need the FROM
-				 * table at all!  We can just throw away the plan-so-far and
-				 * generate a Result node.  This is a sufficiently unusual
-				 * corner case that it's not worth contorting the structure of
-				 * this routine to avoid having to generate the plan in the
-				 * first place.
+				 * either 0 or 1 row for each grouping set depending on whether
+				 * HAVING succeeds.  Furthermore, there cannot be any variables
+				 * in either HAVING or the targetlist, so we actually do not
+				 * need the FROM table at all!  We can just throw away the
+				 * plan-so-far and generate a Result node.  This is a
+				 * sufficiently unusual corner case that it's not worth
+				 * contorting the structure of this routine to avoid having to
+				 * generate the plan in the first place.
 				 */
 				result_plan = (Plan *) make_result(root,
 												   tlist,
 												   parse->havingQual,
 												   NULL);
+
+				/*
+				 * Doesn't seem worthwhile writing code to cons up a
+				 * generate_series or a values scan to emit multiple rows.
+				 * Instead just clone the result in an Append.
+				 */
+				if (nrows > 1)
+				{
+					List   *plans = list_make1(result_plan);
+
+					while (--nrows > 0)
+						plans = lappend(plans, copyObject(result_plan));
+
+					result_plan = (Plan *) make_append(plans, tlist);
+				}
 			}
 		}						/* end of non-minmax-aggregate case */
 
