@@ -1488,8 +1488,6 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 	return (Node *) newc;
 }
 
-
-
 static Node *
 transformSubLink(ParseState *pstate, SubLink *sublink)
 {

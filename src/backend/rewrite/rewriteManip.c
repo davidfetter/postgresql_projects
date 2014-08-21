@@ -109,7 +109,6 @@ contain_aggs_of_level_walker(Node *node,
 		context->sublevels_up--;
 		return result;
 	}
-
 	return expression_tree_walker(node, contain_aggs_of_level_walker,
 								  (void *) context);
 }
@@ -184,7 +183,6 @@ locate_agg_of_level_walker(Node *node,
 		context->sublevels_up--;
 		return result;
 	}
-
 	return expression_tree_walker(node, locate_agg_of_level_walker,
 								  (void *) context);
 }

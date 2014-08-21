@@ -1703,6 +1703,9 @@ findTargetlistEntrySQL99(ParseState *pstate, Node *node, List **tlist,
 static Node *
 flatten_grouping_sets(Node *expr, bool toplevel, bool *hasGroupingSets)
 {
+	/* just in case of pathological input */
+	check_stack_depth();
+
 	if (expr == (Node *) NIL)
 		return (Node *) NIL;
 
