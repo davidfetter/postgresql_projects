@@ -1995,6 +1995,12 @@ transformGroupingSet(List **flatresult,
  * out; while CUBE and ROLLUP can contain only SIMPLE nodes).
  *
  * We skip much of the hard work if there are no grouping sets.
+ *
+ * One subtlety is that the groupClause list can end up empty while the
+ * groupingSets list is not; this happens if there are only empty grouping
+ * sets, or an explicit GROUP BY (). This has the same effect as specifying
+ * aggregates or a HAVING clause with no GROUP BY; the output is one row per
+ * grouping set even if the input is empty.
  */
 List *
 transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
