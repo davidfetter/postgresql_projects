@@ -104,7 +104,7 @@ select a, b, sum(v.x)
 
 select *
   from (values (1),(2)) v(x),
-       lateral (select a, b, sum(v) from gstest_data(v.x) group by rollup (a,b)) s;
+       lateral (select a, b, sum(v.x) from gstest_data(v.x) group by rollup (a,b)) s;
 
 -- min max optimisation should still work with GROUP BY ()
 explain (costs off)
@@ -112,7 +112,7 @@ explain (costs off)
 
 -- Views with GROUPING SET queries
 CREATE VIEW gstest_view AS select a, b, grouping(a,b), sum(v), count(*), max(v)
-  from gstest1 group by rollup (a,b);
+  from gstest2 group by rollup ((a,b,c),(c,d));
 
 select pg_get_viewdef('gstest_view'::regclass, true);
 
@@ -132,7 +132,11 @@ select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2))
 select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY CUBE((e+1));
 select a, b, sum(c), sum(sum(c)) over (order by a,b) as rsum
   from gstest2 group by cube (a,b) order by rsum, a, b;
-select a, b, sum(c) from (values (1,1,10),(1,1,11),(1,2,12),(1,2,13),(1,3,14),(2,3,15),(3,3,16),(3,4,17),(4,1,18),(4,1,19)) v(a,b,c) group by rollup (a,b); 
+select a, b, sum(c) from (values (1,1,10),(1,1,11),(1,2,12),(1,2,13),(1,3,14),(2,3,15),(3,3,16),(3,4,17),(4,1,18),(4,1,19)) v(a,b,c) group by rollup (a,b);
+select a, b, sum(v.x)
+  from (values (1),(2)) v(x), gstest_data(v.x)
+ group by cube (a,b);
+
 
 -- Agg level check. This query should error out.
 select (select grouping(a,b) from gstest2) from gstest2 group by a,b;
@@ -148,3 +152,7 @@ having exists (select 1 from onek b where sum(distinct a.four) = b.four);
 -- FILTER queries
 select ten, sum(distinct four) filter (where four::text ~ '123') from onek a
 group by rollup(ten);
+
+
+select * from (values (1),(2)) v(a) left join lateral (select v.a, four, ten, count(*) from onek group by cube(four,ten)) s on true;
+select array(select row(v.a,s1.*) from (select two,four, count(*) from onek group by cube(two,four)) s1) from (values (1),(2)) v(a);
