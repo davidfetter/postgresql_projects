@@ -4473,11 +4473,9 @@ ExecInitExpr(Expr *node, PlanState *parent)
 			break;
 		case T_Grouping:
 			{
-				Grouping *grp_node = (Grouping *) node;
-				GroupingState *grp_state = makeNode(GroupingState);
-				List     *result_list = NIL;
-				ListCell *lc;
-				Agg *agg = NULL;
+				Grouping	   *grp_node = (Grouping *) node;
+				GroupingState  *grp_state = makeNode(GroupingState);
+				Agg			   *agg = NULL;
 
 				if (!parent
 					|| !IsA(parent->plan, Agg))
