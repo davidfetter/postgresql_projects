@@ -276,7 +276,7 @@ check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 	Expr	   *filter = NULL;
 	int			min_varlevel;
 	int			location = -1;
-	int		   *p_levelsup;
+	Index	   *p_levelsup;
 	const char *err;
 	bool		errkind;
 	bool		isAgg = IsA(expr, Aggref);
@@ -958,8 +958,8 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 					 errmsg("Too many grouping sets present (max 4096)"),
 					 parser_errposition(pstate,
 										qry->groupClause
-										? exprLocation(qry->groupClause)
-										: exprLocation(qry->groupingSets))));
+										? exprLocation((Node *) qry->groupClause)
+										: exprLocation((Node *) qry->groupingSets))));
 
 		/*
 		 * The intersection will often be empty, so help things along by
@@ -1341,7 +1341,7 @@ finalize_grouping_exprs(Node *node, ParseState *pstate, Query *qry,
 	context.qry = qry;
 	context.root = root;
 	context.groupClauses = groupClauses;
-	context.groupClauseVars = NIL;
+	context.groupClauseCommonVars = NIL;
 	context.have_non_var_grouping = have_non_var_grouping;
 	context.func_grouped_rels = NULL;
 	context.sublevels_up = 0;
