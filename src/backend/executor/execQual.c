@@ -4479,26 +4479,16 @@ ExecInitExpr(Expr *node, PlanState *parent)
 				ListCell *lc;
 				Agg *agg = NULL;
 
-				if (parent != NULL)
-					if (!(IsA((parent->plan), Agg)))
-						elog(ERROR, "Parent is not Agg node");
+				if (!parent
+					|| !IsA(parent->plan, Agg))
+					elog(ERROR, "Parent of GROUPING is not Agg node");
 
 				agg = (Agg *) (parent->plan);
 
 				if (agg->groupingSets)
-				{
-					foreach(lc, (grp_node->refs))
-					{
-						int current_index = lfirst_int(lc);
-						int result = 0;
-
-						result = agg->grpColIdx[current_index];
-
-						result_list = lappend_int(result_list, result);
-					}
-				}
-
-				grp_state->clauses = result_list;
+					grp_state->clauses = grp_node->cols;
+				else
+					grp_state->clauses = NIL;
 
 				state = (ExprState *) grp_state;
 				state->evalfunc = (ExprStateEvalFunc) ExecEvalGroupingExpr;

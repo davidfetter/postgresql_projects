@@ -1075,6 +1075,7 @@ _copyGrouping(const Grouping *from)
 
 	COPY_NODE_FIELD(args);
 	COPY_NODE_FIELD(refs);
+	COPY_NODE_FIELD(cols);
 	COPY_LOCATION_FIELD(location);
 	COPY_SCALAR_FIELD(agglevelsup);
 

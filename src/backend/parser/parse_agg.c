@@ -44,7 +44,7 @@ typedef struct
 	Query	   *qry;
 	PlannerInfo *root;
 	List	   *groupClauses;
-	List	   *groupClauseVars;
+	List	   *groupClauseCommonVars;
 	bool		have_non_var_grouping;
 	List	  **func_grouped_rels;
 	int			sublevels_up;
@@ -70,236 +70,6 @@ static bool finalize_grouping_exprs_walker(Node *node,
 							   check_ungrouped_columns_context *context);
 static void check_agglevels_and_constraints(ParseState *pstate,Node *expr);
 static List *expand_groupingset_node(GroupingSet *gs);
-
-
-static void check_agglevels_and_constraints(ParseState *pstate, Node *expr)
-{
-	List	   *directargs = NULL;
-	List	   *args = NULL;
-	Expr	   *filter = NULL;
-	int			min_varlevel;
-	int			location = -1;
-	const char *err;
-	bool		errkind;
-	bool		isAgg = false;
-
-	if (IsA(expr, Aggref))
-	{
-		Aggref *agg = (Aggref *) expr;
-
-		directargs = agg->aggdirectargs;
-		args = agg->args;
-		filter = agg->aggfilter;
-
-		location = agg->location;
-
-		isAgg = true;
-	}
-	else if (IsA(expr, Grouping))
-	{
-		Grouping *grp = (Grouping *) expr;
-
-		args = grp->args;
-
-		location = grp->location;
-	}
-
-	/*
-	 * Check the arguments to compute the aggregate's level and detect
-	 * improper nesting.
-	 */
-	min_varlevel = check_agg_arguments(pstate,
-									   directargs,
-									   args,
-									   filter);
-
-	if (IsA(expr, Aggref))
-		((Aggref *) expr)->agglevelsup = min_varlevel;
-	else if (IsA(expr, Grouping))
-		((Grouping *) expr)->agglevelsup = min_varlevel;
-
-	/* Mark the correct pstate level as having aggregates */
-	while (min_varlevel-- > 0)
-		pstate = pstate->parentParseState;
-	pstate->p_hasAggs = true;
-
-	/*
-	 * Check to see if the aggregate function is in an invalid place within
-	 * its aggregation query.
-	 *
-	 * For brevity we support two schemes for reporting an error here: set
-	 * "err" to a custom message, or set "errkind" true if the error context
-	 * is sufficiently identified by what ParseExprKindName will return, *and*
-	 * what it will return is just a SQL keyword.  (Otherwise, use a custom
-	 * message to avoid creating translation problems.)
-	 */
-	err = NULL;
-	errkind = false;
-	switch (pstate->p_expr_kind)
-	{
-		case EXPR_KIND_NONE:
-			Assert(false);		/* can't happen */
-			break;
-		case EXPR_KIND_OTHER:
-			/* Accept aggregate/grouping here; caller must throw error if wanted */
-			break;
-		case EXPR_KIND_JOIN_ON:
-		case EXPR_KIND_JOIN_USING:
-			if (isAgg)
-				err = _("aggregate functions are not allowed in JOIN conditions");
-			else
-				err = _("Grouping is not allowed in JOIN conditions");
-
-			break;
-		case EXPR_KIND_FROM_SUBSELECT:
-			/* Should only be possible in a LATERAL subquery */
-			Assert(pstate->p_lateral_active);
-			/* Aggregate/grouping scope rules make it worth being explicit here */
-			if (isAgg)
-				err = _("aggregate functions are not allowed in FROM clause of their own query level");
-			else
-				err = _("Grouping is not allowed in FROM clause of its own query level");
-
-			break;
-		case EXPR_KIND_FROM_FUNCTION:
-			if (isAgg)
-				err = _("aggregate functions are not allowed in functions in FROM");
-			else
-				err = _("Grouping is not allowed in functions in FROM");
-
-			break;
-		case EXPR_KIND_WHERE:
-			errkind = true;
-			break;
-		case EXPR_KIND_HAVING:
-			/* okay */
-			break;
-		case EXPR_KIND_FILTER:
-			errkind = true;
-			break;
-		case EXPR_KIND_WINDOW_PARTITION:
-			/* okay */
-			break;
-		case EXPR_KIND_WINDOW_ORDER:
-			/* okay */
-			break;
-		case EXPR_KIND_WINDOW_FRAME_RANGE:
-			if (isAgg)
-				err = _("aggregate functions are not allowed in window RANGE");
-			else
-				err = _("Grouping is not allowed in window RANGE");
-
-			break;
-		case EXPR_KIND_WINDOW_FRAME_ROWS:
-			if (isAgg)
-				err = _("aggregate functions are not allowed in window ROWS");
-			else
-				err = _("Grouping is not allowed in window ROWS");
-
-			break;
-		case EXPR_KIND_SELECT_TARGET:
-			/* okay */
-			break;
-		case EXPR_KIND_INSERT_TARGET:
-		case EXPR_KIND_UPDATE_SOURCE:
-		case EXPR_KIND_UPDATE_TARGET:
-			errkind = true;
-			break;
-		case EXPR_KIND_GROUP_BY:
-			errkind = true;
-			break;
-		case EXPR_KIND_ORDER_BY:
-			/* okay */
-			break;
-		case EXPR_KIND_DISTINCT_ON:
-			/* okay */
-			break;
-		case EXPR_KIND_LIMIT:
-		case EXPR_KIND_OFFSET:
-			errkind = true;
-			break;
-		case EXPR_KIND_RETURNING:
-			errkind = true;
-			break;
-		case EXPR_KIND_VALUES:
-			errkind = true;
-			break;
-		case EXPR_KIND_CHECK_CONSTRAINT:
-		case EXPR_KIND_DOMAIN_CHECK:
-			if (isAgg)
-				err = _("aggregate functions are not allowed in check constraints");
-			else
-				err = _("Grouping is not allowed in check constraints");
-
-			break;
-		case EXPR_KIND_COLUMN_DEFAULT:
-		case EXPR_KIND_FUNCTION_DEFAULT:
-
-			if (isAgg)
-				err = _("aggregate functions are not allowed in DEFAULT expressions");
-			else
-				err = _("Grouping is not allowed in DEFAULT expressions");
-
-			break;
-		case EXPR_KIND_INDEX_EXPRESSION:
-			if (isAgg)
-				err = _("aggregate functions are not allowed in index expressions");
-			else
-				err = _("Grouping is not allowed in index expressions");
-
-			break;
-		case EXPR_KIND_INDEX_PREDICATE:
-			if (isAgg)
-				err = _("aggregate functions are not allowed in index predicates");
-			else
-				err = _("Grouping is not allowed in index predicates");
-
-			break;
-		case EXPR_KIND_ALTER_COL_TRANSFORM:
-			if (isAgg)
-				err = _("aggregate functions are not allowed in transform expressions");
-			else
-				err = _("Grouping is not allowed in transform expressions");
-
-			break;
-		case EXPR_KIND_EXECUTE_PARAMETER:
-			if (isAgg)
-				err = _("aggregate functions are not allowed in EXECUTE parameters");
-			else
-				err = _("Grouping is not allowed in EXECUTE parameters");
-
-			break;
-		case EXPR_KIND_TRIGGER_WHEN:
-			if (isAgg)
-				err = _("aggregate functions are not allowed in trigger WHEN conditions");
-			else
-				err = _("Grouping is not allowed in trigger WHEN conditions");
-
-			break;
-
-			/*
-			 * There is intentionally no default: case here, so that the
-			 * compiler will warn if we add a new ParseExprKind without
-			 * extending this switch.  If we do see an unrecognized value at
-			 * runtime, the behavior will be the same as for EXPR_KIND_OTHER,
-			 * which is sane anyway.
-			 */
-	}
-
-	if (err)
-		ereport(ERROR,
-				(errcode(ERRCODE_GROUPING_ERROR),
-				 errmsg_internal("%s", err),
-				 parser_errposition(pstate, location)));
-
-	if (errkind)
-		ereport(ERROR,
-				(errcode(ERRCODE_GROUPING_ERROR),
-				 /* translator: %s is name of a SQL construct, eg GROUP BY */
-				 errmsg("aggregate functions are not allowed in %s",
-						ParseExprKindName(pstate->p_expr_kind)),
-				 parser_errposition(pstate, location)));
-}
 
 /*
  * transformAggregateCall -
@@ -456,9 +226,8 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 /* transformGroupingExpr
  * Transform a GROUPING expression
  *
- * GROUPING() behaves very like an aggregate (in the spec they are grouped with
- * aggregates as "set operations").  Processing of levels and nesting is done
- * as for aggregates.  We set p_hasAggs for these expressions too.
+ * GROUPING() behaves very like an aggregate.  Processing of levels and nesting
+ * is done as for aggregates.  We set p_hasAggs for these expressions too.
  */
 Node *
 transformGroupingExpr(ParseState *pstate, Grouping *p)
@@ -491,6 +260,240 @@ transformGroupingExpr(ParseState *pstate, Grouping *p)
 	check_agglevels_and_constraints(pstate, (Node *) result);
 
 	return (Node *) result;
+}
+
+/*
+ * Aggregate functions and grouping operations (which are combined in the spec
+ * as <set function specification>) are very similar with regard to level and
+ * nesting restrictions (though we allow a lot more things than the spec does).
+ * Centralise those restrictions here.
+ */
+static void
+check_agglevels_and_constraints(ParseState *pstate, Node *expr)
+{
+	List	   *directargs = NIL;
+	List	   *args = NIL;
+	Expr	   *filter = NULL;
+	int			min_varlevel;
+	int			location = -1;
+	Index	   *p_levelsup;
+	const char *err;
+	bool		errkind;
+	bool		isAgg = IsA(expr, Aggref);
+
+	if (isAgg)
+	{
+		Aggref *agg = (Aggref *) expr;
+
+		directargs = agg->aggdirectargs;
+		args = agg->args;
+		filter = agg->aggfilter;
+		location = agg->location;
+		p_levelsup = &agg->agglevelsup;
+	}
+	else
+	{
+		Grouping *grp = (Grouping *) expr;
+
+		args = grp->args;
+		location = grp->location;
+		p_levelsup = &grp->agglevelsup;
+	}
+
+	/*
+	 * Check the arguments to compute the aggregate's level and detect
+	 * improper nesting.
+	 */
+	min_varlevel = check_agg_arguments(pstate,
+									   directargs,
+									   args,
+									   filter);
+
+	*p_levelsup = min_varlevel;
+
+	/* Mark the correct pstate level as having aggregates */
+	while (min_varlevel-- > 0)
+		pstate = pstate->parentParseState;
+	pstate->p_hasAggs = true;
+
+	/*
+	 * Check to see if the aggregate function is in an invalid place within
+	 * its aggregation query.
+	 *
+	 * For brevity we support two schemes for reporting an error here: set
+	 * "err" to a custom message, or set "errkind" true if the error context
+	 * is sufficiently identified by what ParseExprKindName will return, *and*
+	 * what it will return is just a SQL keyword.  (Otherwise, use a custom
+	 * message to avoid creating translation problems.)
+	 */
+	err = NULL;
+	errkind = false;
+	switch (pstate->p_expr_kind)
+	{
+		case EXPR_KIND_NONE:
+			Assert(false);		/* can't happen */
+			break;
+		case EXPR_KIND_OTHER:
+			/* Accept aggregate/grouping here; caller must throw error if wanted */
+			break;
+		case EXPR_KIND_JOIN_ON:
+		case EXPR_KIND_JOIN_USING:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in JOIN conditions");
+			else
+				err = _("grouping operations are not allowed in JOIN conditions");
+
+			break;
+		case EXPR_KIND_FROM_SUBSELECT:
+			/* Should only be possible in a LATERAL subquery */
+			Assert(pstate->p_lateral_active);
+			/* Aggregate/grouping scope rules make it worth being explicit here */
+			if (isAgg)
+				err = _("aggregate functions are not allowed in FROM clause of their own query level");
+			else
+				err = _("grouping operations are not allowed in FROM clause of their own query level");
+
+			break;
+		case EXPR_KIND_FROM_FUNCTION:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in functions in FROM");
+			else
+				err = _("grouping operations are not allowed in functions in FROM");
+
+			break;
+		case EXPR_KIND_WHERE:
+			errkind = true;
+			break;
+		case EXPR_KIND_HAVING:
+			/* okay */
+			break;
+		case EXPR_KIND_FILTER:
+			errkind = true;
+			break;
+		case EXPR_KIND_WINDOW_PARTITION:
+			/* okay */
+			break;
+		case EXPR_KIND_WINDOW_ORDER:
+			/* okay */
+			break;
+		case EXPR_KIND_WINDOW_FRAME_RANGE:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in window RANGE");
+			else
+				err = _("grouping operations are not allowed in window RANGE");
+
+			break;
+		case EXPR_KIND_WINDOW_FRAME_ROWS:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in window ROWS");
+			else
+				err = _("grouping operations are not allowed in window ROWS");
+
+			break;
+		case EXPR_KIND_SELECT_TARGET:
+			/* okay */
+			break;
+		case EXPR_KIND_INSERT_TARGET:
+		case EXPR_KIND_UPDATE_SOURCE:
+		case EXPR_KIND_UPDATE_TARGET:
+			errkind = true;
+			break;
+		case EXPR_KIND_GROUP_BY:
+			errkind = true;
+			break;
+		case EXPR_KIND_ORDER_BY:
+			/* okay */
+			break;
+		case EXPR_KIND_DISTINCT_ON:
+			/* okay */
+			break;
+		case EXPR_KIND_LIMIT:
+		case EXPR_KIND_OFFSET:
+			errkind = true;
+			break;
+		case EXPR_KIND_RETURNING:
+			errkind = true;
+			break;
+		case EXPR_KIND_VALUES:
+			errkind = true;
+			break;
+		case EXPR_KIND_CHECK_CONSTRAINT:
+		case EXPR_KIND_DOMAIN_CHECK:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in check constraints");
+			else
+				err = _("grouping operations are not allowed in check constraints");
+
+			break;
+		case EXPR_KIND_COLUMN_DEFAULT:
+		case EXPR_KIND_FUNCTION_DEFAULT:
+
+			if (isAgg)
+				err = _("aggregate functions are not allowed in DEFAULT expressions");
+			else
+				err = _("grouping operations are not allowed in DEFAULT expressions");
+
+			break;
+		case EXPR_KIND_INDEX_EXPRESSION:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in index expressions");
+			else
+				err = _("grouping operations are not allowed in index expressions");
+
+			break;
+		case EXPR_KIND_INDEX_PREDICATE:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in index predicates");
+			else
+				err = _("grouping operations are not allowed in index predicates");
+
+			break;
+		case EXPR_KIND_ALTER_COL_TRANSFORM:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in transform expressions");
+			else
+				err = _("grouping operations are not allowed in transform expressions");
+
+			break;
+		case EXPR_KIND_EXECUTE_PARAMETER:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in EXECUTE parameters");
+			else
+				err = _("grouping operations are not allowed in EXECUTE parameters");
+
+			break;
+		case EXPR_KIND_TRIGGER_WHEN:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in trigger WHEN conditions");
+			else
+				err = _("grouping operations are not allowed in trigger WHEN conditions");
+
+			break;
+
+			/*
+			 * There is intentionally no default: case here, so that the
+			 * compiler will warn if we add a new ParseExprKind without
+			 * extending this switch.  If we do see an unrecognized value at
+			 * runtime, the behavior will be the same as for EXPR_KIND_OTHER,
+			 * which is sane anyway.
+			 */
+	}
+
+	if (err)
+		ereport(ERROR,
+				(errcode(ERRCODE_GROUPING_ERROR),
+				 errmsg_internal("%s", err),
+				 parser_errposition(pstate, location)));
+
+	if (errkind)
+		ereport(ERROR,
+				(errcode(ERRCODE_GROUPING_ERROR),
+				 /* translator: %s is name of a SQL construct, eg GROUP BY */
+				 errmsg(isAgg
+						? "aggregate functions are not allowed in %s"
+						: "grouping operations are not allowed in %s",
+						ParseExprKindName(pstate->p_expr_kind)),
+				 parser_errposition(pstate, location)));
 }
 
 /*
@@ -925,7 +928,7 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 {
 	List       *gset_common = NIL;
 	List	   *groupClauses = NIL;
-	List	   *groupClauseVars = NIL;
+	List	   *groupClauseCommonVars = NIL;
 	bool		have_non_var_grouping;
 	List	   *func_grouped_rels = NIL;
 	ListCell   *l;
@@ -955,8 +958,8 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 					 errmsg("Too many grouping sets present (max 4096)"),
 					 parser_errposition(pstate,
 										qry->groupClause
-										? exprLocation(qry->groupClause)
-										: exprLocation(qry->groupingSets))));
+										? exprLocation((Node *) qry->groupClause)
+										: exprLocation((Node *) qry->groupingSets))));
 
 		/*
 		 * The intersection will often be empty, so help things along by
@@ -1034,7 +1037,7 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	 * scans.  (Note we have to flatten aliases before this.)
 	 *
 	 * Track Vars that are included in all grouping sets separately in
-	 * groupClauseVars, since these are the only ones we can use to check
+	 * groupClauseCommonVars, since these are the only ones we can use to check
 	 * for functional dependencies.
 	 */
 	have_non_var_grouping = false;
@@ -1048,7 +1051,7 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 		else if (!qry->groupingSets
 				 || list_member_int(gset_common, tle->ressortgroupref))
 		{
-			groupClauseVars = lappend(groupClauseVars, tle->expr);
+			groupClauseCommonVars = lappend(groupClauseCommonVars, tle->expr);
 		}
 	}
 
@@ -1070,7 +1073,7 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	if (hasJoinRTEs)
 		clause = flatten_join_alias_vars(root, clause);
 	check_ungrouped_columns(clause, pstate, qry,
-							groupClauses, groupClauseVars,
+							groupClauses, groupClauseCommonVars,
 							have_non_var_grouping,
 							&func_grouped_rels);
 
@@ -1081,7 +1084,7 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 	if (hasJoinRTEs)
 		clause = flatten_join_alias_vars(root, clause);
 	check_ungrouped_columns(clause, pstate, qry,
-							groupClauses, groupClauseVars,
+							groupClauses, groupClauseCommonVars,
 							have_non_var_grouping,
 							&func_grouped_rels);
 
@@ -1119,7 +1122,7 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
  */
 static void
 check_ungrouped_columns(Node *node, ParseState *pstate, Query *qry,
-						List *groupClauses, List *groupClauseVars,
+						List *groupClauses, List *groupClauseCommonVars,
 						bool have_non_var_grouping,
 						List **func_grouped_rels)
 {
@@ -1129,7 +1132,7 @@ check_ungrouped_columns(Node *node, ParseState *pstate, Query *qry,
 	context.qry = qry;
 	context.root = NULL;
 	context.groupClauses = groupClauses;
-	context.groupClauseVars = groupClauseVars;
+	context.groupClauseCommonVars = groupClauseCommonVars;
 	context.have_non_var_grouping = have_non_var_grouping;
 	context.func_grouped_rels = func_grouped_rels;
 	context.sublevels_up = 0;
@@ -1272,7 +1275,7 @@ check_ungrouped_columns_walker(Node *node,
 			if (check_functional_grouping(rte->relid,
 										  var->varno,
 										  0,
-										  context->groupClauseVars,
+										  context->groupClauseCommonVars,
 										  &context->qry->constraintDeps))
 			{
 				*context->func_grouped_rels =
@@ -1338,7 +1341,7 @@ finalize_grouping_exprs(Node *node, ParseState *pstate, Query *qry,
 	context.qry = qry;
 	context.root = root;
 	context.groupClauses = groupClauses;
-	context.groupClauseVars = NIL;
+	context.groupClauseCommonVars = NIL;
 	context.have_non_var_grouping = have_non_var_grouping;
 	context.func_grouped_rels = NULL;
 	context.sublevels_up = 0;
@@ -1533,8 +1536,9 @@ expand_groupingset_node(GroupingSet *gs)
 
 						Assert(gs_current->kind == GROUPING_SET_SIMPLE);
 
-						current_result = list_concat(current_result,
-													 list_copy(gs_current->content));
+						current_result
+							= list_concat(current_result,
+										  list_copy(gs_current->content));
 
 						/* If we are done with making the current group, break */
 						if (--i == 0)
@@ -1575,8 +1579,9 @@ expand_groupingset_node(GroupingSet *gs)
 
 						if (mask & i)
 						{
-							current_result = list_concat(current_result,
-														 list_copy(gs_current->content));
+							current_result
+								= list_concat(current_result,
+											  list_copy(gs_current->content));
 						}
 
 						mask <<= 1;
@@ -1614,6 +1619,7 @@ cmp_list_len_desc(const void *a, const void *b)
 
 /*
  * Expand a groupingSets clause to a flat list of grouping sets.
+ * The returned list is sorted by length, longest sets first.
  *
  * This is mainly for the planner, but we use it here too to do
  * some consistency checks.
@@ -1671,7 +1677,8 @@ expand_grouping_sets(List *groupingSets, int limit)
 
 			foreach(lc3, p)
 			{
-				new_result = lappend(new_result, list_union_int(q, (List *) lfirst(lc3)));
+				new_result = lappend(new_result,
+									 list_union_int(q, (List *) lfirst(lc3)));
 			}
 		}
 		result = new_result;

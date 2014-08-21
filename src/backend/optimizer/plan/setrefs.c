@@ -1130,6 +1130,31 @@ fix_expr_common(PlannerInfo *root, Node *node)
 				lappend_oid(root->glob->relationOids,
 							DatumGetObjectId(con->constvalue));
 	}
+	else if (IsA(node, Grouping))
+	{
+		Grouping   *g = (Grouping *) node;
+		AttrNumber *refmap = root->grouping_map;
+
+		/* If there are no grouping sets, we don't need this. */
+
+		Assert(refmap || g->cols == NIL);
+
+		if (refmap)
+		{
+			ListCell   *lc;
+			List	   *cols = NIL;
+
+			foreach(lc, g->refs)
+			{
+				cols = lappend_int(cols, refmap[lfirst_int(lc)]);
+			}
+
+			Assert(!g->cols || equal(cols, g->cols));
+
+			if (!g->cols)
+				g->cols = cols;
+		}
+	}
 }
 
 /*
@@ -1305,7 +1330,7 @@ set_group_vars_mutator(Node *node, set_group_vars_context *context)
 
 		return (Node *) var;
 	}
-	else if (IsA(node, Aggref) || IsA(node,Grouping))
+	else if (IsA(node, Aggref) || IsA(node, Grouping))
 	{
 		/*
 		 * don't recurse into Aggrefs, since they see the values prior
