@@ -36,17 +36,6 @@ create function gstest_data(v integer, out a integer, out b integer)
 
 -- basic functionality
 
---XX
--- the idea here is to test the "normal" usage of the feature, but including
--- combinations like multiple aggs to catch simple errors in state handling
--- (if these fail, something pretty fundamental broke)
--- these cover: basic planning, construction and execution of GroupedVar and
--- Grouping nodes, checking things like reinitialization of groups and so on
--- note, we use count() as an example of an agg with a non-null init val, and
--- sum() as an example of one with a null init val. Testing with ordered set
--- aggs also gives the context reset logic a workout and verifies the setting
--- of current_set.
-
 -- simple rollup with multiple plain aggregates, with and without ordering
 -- (and with ordering differing from grouping)
 select a, b, grouping(a,b), sum(v), count(*), max(v)
@@ -93,9 +82,6 @@ select a, b, grouping(a, b), sum(t1.v), max(t2.c)
   from gstest1 t1 join gstest2 t2 using (a,b)
  group by grouping sets ((a, b), ());
 
-
-
---XX
 -- simple rescan tests
 
 select a, b, sum(v.x)
@@ -111,7 +97,7 @@ explain (costs off)
   select min(unique1) from tenk1 GROUP BY ();
 
 -- Views with GROUPING SET queries
-CREATE VIEW gstest_view AS select a, b, grouping(a,b), sum(v), count(*), max(v)
+CREATE VIEW gstest_view AS select a, b, grouping(a,b), sum(c), count(*), max(c)
   from gstest2 group by rollup ((a,b,c),(c,d));
 
 select pg_get_viewdef('gstest_view'::regclass, true);
@@ -153,6 +139,6 @@ having exists (select 1 from onek b where sum(distinct a.four) = b.four);
 select ten, sum(distinct four) filter (where four::text ~ '123') from onek a
 group by rollup(ten);
 
-
+-- More rescan tests
 select * from (values (1),(2)) v(a) left join lateral (select v.a, four, ten, count(*) from onek group by cube(four,ten)) s on true;
 select array(select row(v.a,s1.*) from (select two,four, count(*) from onek group by cube(two,four)) s1) from (values (1),(2)) v(a);
