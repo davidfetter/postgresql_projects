@@ -1820,7 +1820,7 @@ AggState *
 ExecInitAgg(Agg *node, EState *estate, int eflags)
 {
 	AggState   *aggstate;
-	AggState   *save_chain_head;
+	AggState   *save_chain_head = NULL;
 	AggStatePerAgg peragg;
 	Plan	   *outerPlan;
 	ExprContext *econtext;

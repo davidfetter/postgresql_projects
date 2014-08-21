@@ -1869,7 +1869,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 					while (--nrows > 0)
 						plans = lappend(plans, copyObject(result_plan));
 
-					result_plan = make_append(plans, tlist);
+					result_plan = (Plan *) make_append(plans, tlist);
 				}
 			}
 		}						/* end of non-minmax-aggregate case */
