@@ -361,9 +361,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				create_generic_options alter_generic_options
 				relation_expr_list dostmt_opt_list
 
-%type <list>	group_by_list grouping_set_list
+%type <list>	group_by_list
 %type <node>	group_by_item empty_grouping_set rollup_clause cube_clause
-%type <node>	grouping_sets_clause grouping_set
+%type <node>	grouping_sets_clause
 
 %type <list>	opt_fdw_options fdw_options
 %type <defelt>	fdw_option
@@ -9855,8 +9855,8 @@ group_by_list:
 group_by_item:
 			a_expr									{ $$ = $1; }
 			| empty_grouping_set					{ $$ = $1; }
-			| rollup_clause							{ $$ = $1; }
 			| cube_clause							{ $$ = $1; }
+			| rollup_clause							{ $$ = $1; }
 			| grouping_sets_clause					{ $$ = $1; }
 		;
 
@@ -9882,23 +9882,10 @@ cube_clause:
 		;
 
 grouping_sets_clause:
-			GROUPING SETS '(' grouping_set_list ')'
+			GROUPING SETS '(' group_by_list ')'
 				{
 					$$ = (Node *) makeGroupingSet(GROUPING_SET_SETS, $4, @1);
 				}
-		;
-
-grouping_set:
-			a_expr									{ $$ = $1; }
-			| empty_grouping_set					{ $$ = $1; }
-			| rollup_clause							{ $$ = $1; }
-			| cube_clause							{ $$ = $1; }
-			| grouping_sets_clause					{ $$ = $1; }
-		;
-
-grouping_set_list:
-			grouping_set 							{ $$ = list_make1($1); }
-			| grouping_set_list ',' grouping_set	{ $$ = lappend($1,$3); }
 		;
 
 having_clause:
