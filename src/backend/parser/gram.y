@@ -361,9 +361,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				create_generic_options alter_generic_options
 				relation_expr_list dostmt_opt_list
 
-%type <list>	group_by_list grouping_set_list
+%type <list>	group_by_list
 %type <node>	group_by_item empty_grouping_set rollup_clause cube_clause
-%type <node>	grouping_sets_clause grouping_set
+%type <node>	grouping_sets_clause
 
 %type <list>	opt_fdw_options fdw_options
 %type <defelt>	fdw_option
@@ -662,6 +662,11 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
  * and for NULL so that it can follow b_expr in ColQualList without creating
  * postfix-operator problems.
  *
+ * To support CUBE and ROLLUP in GROUP BY without reserving them, we give them
+ * an explicit priority lower than '(', so that a rule with CUBE '(' will shift
+ * rather than reducing a conflicting rule that takes CUBE as a function name.
+ * Using the same precedence as IDENT seems right for the reasons given above.
+ *
  * The frame_bound productions UNBOUNDED PRECEDING and UNBOUNDED FOLLOWING
  * are even messier: since UNBOUNDED is an unreserved keyword (per spec!),
  * there is no principled way to distinguish these from the productions
@@ -672,7 +677,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
  * blame any funny behavior of UNBOUNDED on the SQL standard, though.
  */
 %nonassoc	UNBOUNDED		/* ideally should have same precedence as IDENT */
-%nonassoc	IDENT NULL_P PARTITION RANGE ROWS PRECEDING FOLLOWING
+%nonassoc	IDENT NULL_P PARTITION RANGE ROWS PRECEDING FOLLOWING CUBE ROLLUP
 %left		Op OPERATOR		/* multi-character ops and user-defined operators */
 %nonassoc	NOTNULL
 %nonassoc	ISNULL
@@ -9870,8 +9875,8 @@ group_by_list:
 group_by_item:
 			a_expr									{ $$ = $1; }
 			| empty_grouping_set					{ $$ = $1; }
-			| rollup_clause							{ $$ = $1; }
 			| cube_clause							{ $$ = $1; }
+			| rollup_clause							{ $$ = $1; }
 			| grouping_sets_clause					{ $$ = $1; }
 		;
 
@@ -9881,6 +9886,12 @@ empty_grouping_set:
 					$$ = (Node *) makeGroupingSet(GROUPING_SET_EMPTY, NIL, @1);
 				}
 		;
+
+/*
+ * These hacks rely on setting precedence of CUBE and ROLLUP below that of '(',
+ * so that they shift in these rules rather than reducing the conflicting
+ * unreserved_keyword rule.
+ */
 
 rollup_clause:
 			ROLLUP '(' expr_list ')'
@@ -9897,23 +9908,10 @@ cube_clause:
 		;
 
 grouping_sets_clause:
-			GROUPING SETS '(' grouping_set_list ')'
+			GROUPING SETS '(' group_by_list ')'
 				{
 					$$ = (Node *) makeGroupingSet(GROUPING_SET_SETS, $4, @1);
 				}
-		;
-
-grouping_set:
-			a_expr									{ $$ = $1; }
-			| empty_grouping_set					{ $$ = $1; }
-			| rollup_clause							{ $$ = $1; }
-			| cube_clause							{ $$ = $1; }
-			| grouping_sets_clause					{ $$ = $1; }
-		;
-
-grouping_set_list:
-			grouping_set 							{ $$ = list_make1($1); }
-			| grouping_set_list ',' grouping_set	{ $$ = lappend($1,$3); }
 		;
 
 having_clause:
@@ -13016,6 +13014,7 @@ unreserved_keyword:
 			| COPY
 			| COST
 			| CSV
+			| CUBE
 			| CURRENT_P
 			| CURSOR
 			| CYCLE
@@ -13161,6 +13160,7 @@ unreserved_keyword:
 			| REVOKE
 			| ROLE
 			| ROLLBACK
+			| ROLLUP
 			| ROWS
 			| RULE
 			| SAVEPOINT
@@ -13252,13 +13252,13 @@ col_name_keyword:
 			| CHAR_P
 			| CHARACTER
 			| COALESCE
-			| CUBE
 			| DEC
 			| DECIMAL_P
 			| EXISTS
 			| EXTRACT
 			| FLOAT_P
 			| GREATEST
+			| GROUPING
 			| INOUT
 			| INT_P
 			| INTEGER
@@ -13274,7 +13274,6 @@ col_name_keyword:
 			| POSITION
 			| PRECISION
 			| REAL
-			| ROLLUP
 			| ROW
 			| SETOF
 			| SMALLINT
@@ -13376,7 +13375,6 @@ reserved_keyword:
 			| FROM
 			| GRANT
 			| GROUP_P
-			| GROUPING
 			| HAVING
 			| IN_P
 			| INITIALLY

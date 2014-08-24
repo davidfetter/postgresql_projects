@@ -4888,12 +4888,13 @@ get_rule_sortgroupclause(Index ref, List *tlist, bool force_colno,
 	expr = (Node *) tle->expr;
 
 	/*
-	 * Use column-number form if requested by caller.  Otherwise, if
-	 * expression is a constant, force it to be dumped with an explicit cast
-	 * as decoration --- this is because a simple integer constant is
-	 * ambiguous (and will be misinterpreted by findTargetlistEntry()) if we
-	 * dump it without any decoration.  Otherwise, just dump the expression
-	 * normally.
+	 * Use column-number form if requested by caller.  Otherwise, if expression
+	 * is a constant, force it to be dumped with an explicit cast as decoration
+	 * --- this is because a simple integer constant is ambiguous (and will be
+	 * misinterpreted by findTargetlistEntry()) if we dump it without any
+	 * decoration.  If it's anything more complex than a simple Var, then force
+	 * extra parens around it, to ensure it can't be misinterpreted as a cube()
+	 * or rollup() construct.
 	 */
 	if (force_colno)
 	{
@@ -4902,8 +4903,27 @@ get_rule_sortgroupclause(Index ref, List *tlist, bool force_colno,
 	}
 	else if (expr && IsA(expr, Const))
 		get_const_expr((Const *) expr, context, 1);
-	else
+	else if (!expr || IsA(expr, Var))
 		get_rule_expr(expr, context, true);
+	else
+	{
+		/*
+		 * We must force parens for function-like expressions even if
+		 * PRETTY_PAREN is off, since those are the ones in danger of
+		 * misparsing. For other expressions we need to force them
+		 * only if PRETTY_PAREN is on, since otherwise the expression
+		 * will output them itself. (We can't skip the parens.)
+		 */
+		bool	need_paren = (PRETTY_PAREN(context)
+							  || IsA(expr, FuncExpr)
+							  || IsA(expr, Aggref)
+							  || IsA(expr, WindowFunc));
+		if (need_paren)
+			appendStringInfoString(context->buf, "(");
+		get_rule_expr(expr, context, true);
+		if (need_paren)
+			appendStringInfoString(context->buf, ")");
+	}
 
 	return expr;
 }
