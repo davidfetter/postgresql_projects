@@ -50,6 +50,7 @@
 #include "commands/tablespace.h"
 #include "commands/trigger.h"
 #include "commands/typecmds.h"
+#include "commands/user.h"
 #include "executor/executor.h"
 #include "foreign/foreign.h"
 #include "miscadmin.h"
@@ -151,6 +152,8 @@ typedef struct AlteredTableInfo
 	bool		new_notnull;	/* T if we added new NOT NULL constraints */
 	bool		rewrite;		/* T if a rewrite is forced */
 	Oid			newTableSpace;	/* new tablespace; 0 means no change */
+	bool		chgLoggedness;	/* T if SET LOGGED/UNLOGGED is used */
+	char		newrelpersistence;		/* if above is true */
 	/* Objects to rebuild after completing ALTER TYPE operations */
 	List	   *changedConstraintOids;	/* OIDs of constraints to rebuild */
 	List	   *changedConstraintDefs;	/* string definitions of same */
@@ -371,7 +374,8 @@ static void ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 					  AlterTableCmd *cmd, LOCKMODE lockmode);
 static void ATExecAlterColumnGenericOptions(Relation rel, const char *colName,
 								List *options, LOCKMODE lockmode);
-static void ATPostAlterTypeCleanup(List **wqueue, AlteredTableInfo *tab, LOCKMODE lockmode);
+static void ATPostAlterTypeCleanup(List **wqueue, AlteredTableInfo *tab,
+					   LOCKMODE lockmode);
 static void ATPostAlterTypeParse(Oid oldId, Oid oldRelId, Oid refRelId,
 					 char *cmd, List **wqueue, LOCKMODE lockmode,
 					 bool rewrite);
@@ -381,8 +385,11 @@ static void change_owner_fix_column_acls(Oid relationOid,
 							 Oid oldOwnerId, Oid newOwnerId);
 static void change_owner_recurse_to_sequences(Oid relationOid,
 								  Oid newOwnerId, LOCKMODE lockmode);
-static void ATExecClusterOn(Relation rel, const char *indexName, LOCKMODE lockmode);
+static void ATExecClusterOn(Relation rel, const char *indexName,
+				LOCKMODE lockmode);
 static void ATExecDropCluster(Relation rel, LOCKMODE lockmode);
+static bool ATPrepChangeLoggedness(Relation rel, bool toLogged);
+static void ATChangeIndexesLoggedness(Oid relid, char relpersistence);
 static void ATPrepSetTableSpace(AlteredTableInfo *tab, Relation rel,
 					char *tablespacename, LOCKMODE lockmode);
 static void ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmode);
@@ -2948,6 +2955,11 @@ AlterTableGetLockLevel(List *cmds)
 				cmd_lockmode = ShareUpdateExclusiveLock;
 				break;
 
+			case AT_SetLogged:
+			case AT_SetUnLogged:
+				cmd_lockmode = AccessExclusiveLock;
+				break;
+
 			case AT_ValidateConstraint: /* Uses MVCC in
 												 * getConstraints() */
 				cmd_lockmode = ShareUpdateExclusiveLock;
@@ -3158,6 +3170,24 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 			ATSimplePermissions(rel, ATT_TABLE | ATT_MATVIEW);
 			/* These commands never recurse */
 			/* No command-specific prep needed */
+			pass = AT_PASS_MISC;
+			break;
+		case AT_SetLogged:		/* SET LOGGED */
+			ATSimplePermissions(rel, ATT_TABLE);
+			tab->chgLoggedness = ATPrepChangeLoggedness(rel, true);
+			tab->newrelpersistence = RELPERSISTENCE_PERMANENT;
+			/* force rewrite if necessary */
+			if (tab->chgLoggedness)
+				tab->rewrite = true;
+			pass = AT_PASS_MISC;
+			break;
+		case AT_SetUnLogged:	/* SET UNLOGGED */
+			ATSimplePermissions(rel, ATT_TABLE);
+			tab->chgLoggedness = ATPrepChangeLoggedness(rel, false);
+			tab->newrelpersistence = RELPERSISTENCE_UNLOGGED;
+			/* force rewrite if necessary */
+			if (tab->chgLoggedness)
+				tab->rewrite = true;
 			pass = AT_PASS_MISC;
 			break;
 		case AT_AddOids:		/* SET WITH OIDS */
@@ -3430,6 +3460,9 @@ ATExecCmd(List **wqueue, AlteredTableInfo *tab, Relation rel,
 		case AT_DropCluster:	/* SET WITHOUT CLUSTER */
 			ATExecDropCluster(rel, lockmode);
 			break;
+		case AT_SetLogged:		/* SET LOGGED */
+		case AT_SetUnLogged:	/* SET UNLOGGED */
+			break;
 		case AT_AddOids:		/* SET WITH OIDS */
 			/* Use the ADD COLUMN code, unless prep decided to do nothing */
 			if (cmd->def != NULL)
@@ -3583,7 +3616,8 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 
 		/*
 		 * We only need to rewrite the table if at least one column needs to
-		 * be recomputed, or we are adding/removing the OID column.
+		 * be recomputed, we are adding/removing the OID column, or we are
+		 * changing its persistence.
 		 */
 		if (tab->rewrite)
 		{
@@ -3591,6 +3625,7 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 			Relation	OldHeap;
 			Oid			OIDNewHeap;
 			Oid			NewTableSpace;
+			char		persistence;
 
 			OldHeap = heap_open(tab->relid, NoLock);
 
@@ -3629,10 +3664,31 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 			else
 				NewTableSpace = OldHeap->rd_rel->reltablespace;
 
+			/*
+			 * Select persistence of transient table (same as original unless
+			 * user requested a change)
+			 */
+			persistence = tab->chgLoggedness ?
+				tab->newrelpersistence : OldHeap->rd_rel->relpersistence;
+
 			heap_close(OldHeap, NoLock);
 
-			/* Create transient table that will receive the modified data */
-			OIDNewHeap = make_new_heap(tab->relid, NewTableSpace, false,
+			/*
+			 * Create transient table that will receive the modified data.
+			 *
+			 * Ensure it is marked correctly as logged or unlogged.  We have
+			 * to do this here so that buffers for the new relfilenode will
+			 * have the right persistence set, and at the same time ensure
+			 * that the original filenode's buffers will get read in with the
+			 * correct setting (i.e. the original one).  Otherwise a rollback
+			 * after the rewrite would possibly result with buffers for the
+			 * original filenode having the wrong persistence setting.
+			 *
+			 * NB: This relies on swap_relation_files() also swapping the
+			 * persistence. That wouldn't work for pg_class, but that can't be
+			 * unlogged anyway.
+			 */
+			OIDNewHeap = make_new_heap(tab->relid, NewTableSpace, persistence,
 									   lockmode);
 
 			/*
@@ -3641,6 +3697,16 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 			 * against new constraints generated by ALTER TABLE commands.
 			 */
 			ATRewriteTable(tab, OIDNewHeap, lockmode);
+
+			/*
+			 * Change the persistence marking of indexes, if necessary.  This
+			 * is so that the new copies are built with the right persistence
+			 * in the reindex step below.  Note we cannot do this earlier,
+			 * because the rewrite step might read the indexes, and that would
+			 * cause buffers for them to have the wrong setting.
+			 */
+			if (tab->chgLoggedness)
+				ATChangeIndexesLoggedness(tab->relid, tab->newrelpersistence);
 
 			/*
 			 * Swap the physical files of the old and new heaps, then rebuild
@@ -4052,6 +4118,8 @@ ATGetQueueEntry(List **wqueue, Relation rel)
 	tab->relid = relid;
 	tab->relkind = rel->rd_rel->relkind;
 	tab->oldDesc = CreateTupleDescCopy(RelationGetDescr(rel));
+	tab->newrelpersistence = RELPERSISTENCE_PERMANENT;
+	tab->chgLoggedness = false;
 
 	*wqueue = lappend(*wqueue, tab);
 
@@ -9204,6 +9272,176 @@ ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmode)
 }
 
 /*
+ * Alter Table ALL ... SET TABLESPACE
+ *
+ * Allows a user to move all objects of some type in a given tablespace in the
+ * current database to another tablespace.  Objects can be chosen based on the
+ * owner of the object also, to allow users to move only their objects.
+ * The user must have CREATE rights on the new tablespace, as usual.   The main
+ * permissions handling is done by the lower-level table move function.
+ *
+ * All to-be-moved objects are locked first. If NOWAIT is specified and the
+ * lock can't be acquired then we ereport(ERROR).
+ */
+Oid
+AlterTableMoveAll(AlterTableMoveAllStmt *stmt)
+{
+	List	   *relations = NIL;
+	ListCell   *l;
+	ScanKeyData key[1];
+	Relation	rel;
+	HeapScanDesc scan;
+	HeapTuple	tuple;
+	Oid			orig_tablespaceoid;
+	Oid			new_tablespaceoid;
+	List	   *role_oids = roleNamesToIds(stmt->roles);
+
+	/* Ensure we were not asked to move something we can't */
+	if (stmt->objtype != OBJECT_TABLE && stmt->objtype != OBJECT_INDEX &&
+		stmt->objtype != OBJECT_MATVIEW)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("only tables, indexes, and materialized views exist in tablespaces")));
+
+	/* Get the orig and new tablespace OIDs */
+	orig_tablespaceoid = get_tablespace_oid(stmt->orig_tablespacename, false);
+	new_tablespaceoid = get_tablespace_oid(stmt->new_tablespacename, false);
+
+	/* Can't move shared relations in to or out of pg_global */
+	/* This is also checked by ATExecSetTableSpace, but nice to stop earlier */
+	if (orig_tablespaceoid == GLOBALTABLESPACE_OID ||
+		new_tablespaceoid == GLOBALTABLESPACE_OID)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("cannot move relations in to or out of pg_global tablespace")));
+
+	/*
+	 * Must have CREATE rights on the new tablespace, unless it is the
+	 * database default tablespace (which all users implicitly have CREATE
+	 * rights on).
+	 */
+	if (OidIsValid(new_tablespaceoid) && new_tablespaceoid != MyDatabaseTableSpace)
+	{
+		AclResult	aclresult;
+
+		aclresult = pg_tablespace_aclcheck(new_tablespaceoid, GetUserId(),
+										   ACL_CREATE);
+		if (aclresult != ACLCHECK_OK)
+			aclcheck_error(aclresult, ACL_KIND_TABLESPACE,
+						   get_tablespace_name(new_tablespaceoid));
+	}
+
+	/*
+	 * Now that the checks are done, check if we should set either to
+	 * InvalidOid because it is our database's default tablespace.
+	 */
+	if (orig_tablespaceoid == MyDatabaseTableSpace)
+		orig_tablespaceoid = InvalidOid;
+
+	if (new_tablespaceoid == MyDatabaseTableSpace)
+		new_tablespaceoid = InvalidOid;
+
+	/* no-op */
+	if (orig_tablespaceoid == new_tablespaceoid)
+		return new_tablespaceoid;
+
+	/*
+	 * Walk the list of objects in the tablespace and move them. This will
+	 * only find objects in our database, of course.
+	 */
+	ScanKeyInit(&key[0],
+				Anum_pg_class_reltablespace,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(orig_tablespaceoid));
+
+	rel = heap_open(RelationRelationId, AccessShareLock);
+	scan = heap_beginscan_catalog(rel, 1, key);
+	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		Oid			relOid = HeapTupleGetOid(tuple);
+		Form_pg_class relForm;
+
+		relForm = (Form_pg_class) GETSTRUCT(tuple);
+
+		/*
+		 * Do not move objects in pg_catalog as part of this, if an admin
+		 * really wishes to do so, they can issue the individual ALTER
+		 * commands directly.
+		 *
+		 * Also, explicitly avoid any shared tables, temp tables, or TOAST
+		 * (TOAST will be moved with the main table).
+		 */
+		if (IsSystemNamespace(relForm->relnamespace) || relForm->relisshared ||
+			isAnyTempNamespace(relForm->relnamespace) ||
+			relForm->relnamespace == PG_TOAST_NAMESPACE)
+			continue;
+
+		/* Only move the object type requested */
+		if ((stmt->objtype == OBJECT_TABLE &&
+			 relForm->relkind != RELKIND_RELATION) ||
+			(stmt->objtype == OBJECT_INDEX &&
+			 relForm->relkind != RELKIND_INDEX) ||
+			(stmt->objtype == OBJECT_MATVIEW &&
+			 relForm->relkind != RELKIND_MATVIEW))
+			continue;
+
+		/* Check if we are only moving objects owned by certain roles */
+		if (role_oids != NIL && !list_member_oid(role_oids, relForm->relowner))
+			continue;
+
+		/*
+		 * Handle permissions-checking here since we are locking the tables
+		 * and also to avoid doing a bunch of work only to fail part-way. Note
+		 * that permissions will also be checked by AlterTableInternal().
+		 *
+		 * Caller must be considered an owner on the table to move it.
+		 */
+		if (!pg_class_ownercheck(relOid, GetUserId()))
+			aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_CLASS,
+						   NameStr(relForm->relname));
+
+		if (stmt->nowait &&
+			!ConditionalLockRelationOid(relOid, AccessExclusiveLock))
+			ereport(ERROR,
+					(errcode(ERRCODE_OBJECT_IN_USE),
+			   errmsg("aborting due to \"%s\".\"%s\" --- lock not available",
+					  get_namespace_name(relForm->relnamespace),
+					  NameStr(relForm->relname))));
+		else
+			LockRelationOid(relOid, AccessExclusiveLock);
+
+		/* Add to our list of objects to move */
+		relations = lappend_oid(relations, relOid);
+	}
+
+	heap_endscan(scan);
+	heap_close(rel, AccessShareLock);
+
+	if (relations == NIL)
+		ereport(NOTICE,
+				(errcode(ERRCODE_NO_DATA_FOUND),
+				 errmsg("no matching relations in tablespace \"%s\" found",
+					orig_tablespaceoid == InvalidOid ? "(database default)" :
+						get_tablespace_name(orig_tablespaceoid))));
+
+	/* Everything is locked, loop through and move all of the relations. */
+	foreach(l, relations)
+	{
+		List	   *cmds = NIL;
+		AlterTableCmd *cmd = makeNode(AlterTableCmd);
+
+		cmd->subtype = AT_SetTableSpace;
+		cmd->name = stmt->new_tablespacename;
+
+		cmds = lappend(cmds, cmd);
+
+		AlterTableInternal(lfirst_oid(l), cmds, false);
+	}
+
+	return new_tablespaceoid;
+}
+
+/*
  * Copy data, block by block
  */
 static void
@@ -10427,6 +10665,168 @@ ATExecGenericOptions(Relation rel, List *options)
 	heap_close(ftrel, RowExclusiveLock);
 
 	heap_freetuple(tuple);
+}
+
+/*
+ * Preparation phase for SET LOGGED/UNLOGGED
+ *
+ * This verifies that we're not trying to change a temp table.  Also,
+ * existing foreign key constraints are checked to avoid ending up with
+ * permanent tables referencing unlogged tables.
+ *
+ * Return value is false if the operation is a no-op (in which case the
+ * checks are skipped), otherwise true.
+ */
+static bool
+ATPrepChangeLoggedness(Relation rel, bool toLogged)
+{
+	Relation	pg_constraint;
+	HeapTuple	tuple;
+	SysScanDesc scan;
+	ScanKeyData skey[1];
+
+	/*
+	 * Disallow changing status for a temp table.  Also verify whether we can
+	 * get away with doing nothing; in such cases we don't need to run the
+	 * checks below, either.
+	 */
+	switch (rel->rd_rel->relpersistence)
+	{
+		case RELPERSISTENCE_TEMP:
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+					 errmsg("cannot change logged status of table %s",
+							RelationGetRelationName(rel)),
+					 errdetail("Table %s is temporary.",
+							   RelationGetRelationName(rel)),
+					 errtable(rel)));
+			break;
+		case RELPERSISTENCE_PERMANENT:
+			if (toLogged)
+				/* nothing to do */
+				return false;
+			break;
+		case RELPERSISTENCE_UNLOGGED:
+			if (!toLogged)
+				/* nothing to do */
+				return false;
+			break;
+	}
+
+	/*
+	 * Check existing foreign key constraints to preserve the invariant that
+	 * no permanent tables cannot reference unlogged ones.  Self-referencing
+	 * foreign keys can safely be ignored.
+	 */
+	pg_constraint = heap_open(ConstraintRelationId, AccessShareLock);
+
+	/*
+	 * Scan conrelid if changing to permanent, else confrelid.  This also
+	 * determines whether an useful index exists.
+	 */
+	ScanKeyInit(&skey[0],
+				toLogged ? Anum_pg_constraint_conrelid :
+				Anum_pg_constraint_confrelid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(RelationGetRelid(rel)));
+	scan = systable_beginscan(pg_constraint,
+							  toLogged ? ConstraintRelidIndexId : InvalidOid,
+							  true, NULL, 1, skey);
+
+	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
+	{
+		Form_pg_constraint con = (Form_pg_constraint) GETSTRUCT(tuple);
+
+		if (con->contype == CONSTRAINT_FOREIGN)
+		{
+			Oid			foreignrelid;
+			Relation	foreignrel;
+
+			/* the opposite end of what we used as scankey */
+			foreignrelid = toLogged ? con->confrelid : con->conrelid;
+
+			/* ignore if self-referencing */
+			if (RelationGetRelid(rel) == foreignrelid)
+				continue;
+
+			foreignrel = relation_open(foreignrelid, AccessShareLock);
+
+			if (toLogged)
+			{
+				if (foreignrel->rd_rel->relpersistence != RELPERSISTENCE_PERMANENT)
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						 errmsg("cannot change status of table %s to logged",
+								RelationGetRelationName(rel)),
+						  errdetail("Table %s references unlogged table %s.",
+									RelationGetRelationName(rel),
+									RelationGetRelationName(foreignrel)),
+							 errtableconstraint(rel, NameStr(con->conname))));
+			}
+			else
+			{
+				if (foreignrel->rd_rel->relpersistence == RELPERSISTENCE_PERMANENT)
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+					   errmsg("cannot change status of table %s to unlogged",
+							  RelationGetRelationName(rel)),
+					  errdetail("Logged table %s is referenced by table %s.",
+								RelationGetRelationName(foreignrel),
+								RelationGetRelationName(rel)),
+							 errtableconstraint(rel, NameStr(con->conname))));
+			}
+
+			relation_close(foreignrel, AccessShareLock);
+		}
+	}
+
+	systable_endscan(scan);
+
+	heap_close(pg_constraint, AccessShareLock);
+
+	return true;
+}
+
+/*
+ * Update the pg_class entry of each index for the given relation to the
+ * given persistence.
+ */
+static void
+ATChangeIndexesLoggedness(Oid relid, char relpersistence)
+{
+	Relation	rel;
+	Relation	pg_class;
+	List	   *indexes;
+	ListCell   *cell;
+
+	pg_class = heap_open(RelationRelationId, RowExclusiveLock);
+
+	/* We already have a lock on the table */
+	rel = relation_open(relid, NoLock);
+	indexes = RelationGetIndexList(rel);
+	foreach(cell, indexes)
+	{
+		Oid			indexid = lfirst_oid(cell);
+		HeapTuple	tuple;
+		Form_pg_class pg_class_form;
+
+		tuple = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(indexid));
+		if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for relation %u",
+				 indexid);
+
+		pg_class_form = (Form_pg_class) GETSTRUCT(tuple);
+		pg_class_form->relpersistence = relpersistence;
+		simple_heap_update(pg_class, &tuple->t_self, tuple);
+
+		/* keep catalog indexes current */
+		CatalogUpdateIndexes(pg_class, tuple);
+
+		heap_freetuple(tuple);
+	}
+
+	heap_close(pg_class, RowExclusiveLock);
+	heap_close(rel, NoLock);
 }
 
 /*
