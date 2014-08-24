@@ -581,7 +581,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 	LABEL LANGUAGE LARGE_P LAST_P LATERAL_P
 	LEADING LEAKPROOF LEAST LEFT LEVEL LIKE LIMIT LISTEN LOAD LOCAL
-	LOCALTIME LOCALTIMESTAMP LOCATION LOCK_P
+	LOCALTIME LOCALTIMESTAMP LOCATION LOCK_P LOGGED
 
 	MAPPING MATCH MATERIALIZED MAXVALUE MINUTE_P MINVALUE MODE MONTH_P MOVE
 
@@ -1772,6 +1772,28 @@ AlterTableStmt:
 					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
+		|	ALTER TABLE ALL IN_P TABLESPACE name SET TABLESPACE name opt_nowait
+				{
+					AlterTableMoveAllStmt *n =
+						makeNode(AlterTableMoveAllStmt);
+					n->orig_tablespacename = $6;
+					n->objtype = OBJECT_TABLE;
+					n->roles = NIL;
+					n->new_tablespacename = $9;
+					n->nowait = $10;
+					$$ = (Node *)n;
+				}
+		|	ALTER TABLE ALL IN_P TABLESPACE name OWNED BY role_list SET TABLESPACE name opt_nowait
+				{
+					AlterTableMoveAllStmt *n =
+						makeNode(AlterTableMoveAllStmt);
+					n->orig_tablespacename = $6;
+					n->objtype = OBJECT_TABLE;
+					n->roles = $9;
+					n->new_tablespacename = $12;
+					n->nowait = $13;
+					$$ = (Node *)n;
+				}
 		|	ALTER INDEX qualified_name alter_table_cmds
 				{
 					AlterTableStmt *n = makeNode(AlterTableStmt);
@@ -1788,6 +1810,28 @@ AlterTableStmt:
 					n->cmds = $6;
 					n->relkind = OBJECT_INDEX;
 					n->missing_ok = true;
+					$$ = (Node *)n;
+				}
+		|	ALTER INDEX ALL IN_P TABLESPACE name SET TABLESPACE name opt_nowait
+				{
+					AlterTableMoveAllStmt *n =
+						makeNode(AlterTableMoveAllStmt);
+					n->orig_tablespacename = $6;
+					n->objtype = OBJECT_INDEX;
+					n->roles = NIL;
+					n->new_tablespacename = $9;
+					n->nowait = $10;
+					$$ = (Node *)n;
+				}
+		|	ALTER INDEX ALL IN_P TABLESPACE name OWNED BY role_list SET TABLESPACE name opt_nowait
+				{
+					AlterTableMoveAllStmt *n =
+						makeNode(AlterTableMoveAllStmt);
+					n->orig_tablespacename = $6;
+					n->objtype = OBJECT_INDEX;
+					n->roles = $9;
+					n->new_tablespacename = $12;
+					n->nowait = $13;
 					$$ = (Node *)n;
 				}
 		|	ALTER SEQUENCE qualified_name alter_table_cmds
@@ -1842,6 +1886,28 @@ AlterTableStmt:
 					n->cmds = $7;
 					n->relkind = OBJECT_MATVIEW;
 					n->missing_ok = true;
+					$$ = (Node *)n;
+				}
+		|	ALTER MATERIALIZED VIEW ALL IN_P TABLESPACE name SET TABLESPACE name opt_nowait
+				{
+					AlterTableMoveAllStmt *n =
+						makeNode(AlterTableMoveAllStmt);
+					n->orig_tablespacename = $7;
+					n->objtype = OBJECT_MATVIEW;
+					n->roles = NIL;
+					n->new_tablespacename = $10;
+					n->nowait = $11;
+					$$ = (Node *)n;
+				}
+		|	ALTER MATERIALIZED VIEW ALL IN_P TABLESPACE name OWNED BY role_list SET TABLESPACE name opt_nowait
+				{
+					AlterTableMoveAllStmt *n =
+						makeNode(AlterTableMoveAllStmt);
+					n->orig_tablespacename = $7;
+					n->objtype = OBJECT_MATVIEW;
+					n->roles = $10;
+					n->new_tablespacename = $13;
+					n->nowait = $14;
 					$$ = (Node *)n;
 				}
 		;
@@ -2055,6 +2121,20 @@ alter_table_cmd:
 					AlterTableCmd *n = makeNode(AlterTableCmd);
 					n->subtype = AT_DropCluster;
 					n->name = NULL;
+					$$ = (Node *)n;
+				}
+			/* ALTER TABLE <name> SET LOGGED  */
+			| SET LOGGED
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_SetLogged;
+					$$ = (Node *)n;
+				}
+			/* ALTER TABLE <name> SET UNLOGGED  */
+			| SET UNLOGGED
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_SetUnLogged;
 					$$ = (Node *)n;
 				}
 			/* ALTER TABLE <name> ENABLE TRIGGER <trig> */
@@ -7011,103 +7091,8 @@ opt_force:	FORCE									{  $$ = TRUE; }
  *
  *****************************************************************************/
 
-AlterTblSpcStmt: ALTER TABLESPACE name MOVE ALL TO name opt_nowait
-				{
-					AlterTableSpaceMoveStmt *n =
-						makeNode(AlterTableSpaceMoveStmt);
-					n->orig_tablespacename = $3;
-					n->objtype = -1;
-					n->move_all = true;
-					n->roles = NIL;
-					n->new_tablespacename = $7;
-					n->nowait = $8;
-					$$ = (Node *)n;
-				}
-			| ALTER TABLESPACE name MOVE TABLES TO name opt_nowait
-				{
-					AlterTableSpaceMoveStmt *n =
-						makeNode(AlterTableSpaceMoveStmt);
-					n->orig_tablespacename = $3;
-					n->objtype = OBJECT_TABLE;
-					n->move_all = false;
-					n->roles = NIL;
-					n->new_tablespacename = $7;
-					n->nowait = $8;
-					$$ = (Node *)n;
-				}
-			| ALTER TABLESPACE name MOVE INDEXES TO name opt_nowait
-				{
-					AlterTableSpaceMoveStmt *n =
-						makeNode(AlterTableSpaceMoveStmt);
-					n->orig_tablespacename = $3;
-					n->objtype = OBJECT_INDEX;
-					n->move_all = false;
-					n->roles = NIL;
-					n->new_tablespacename = $7;
-					n->nowait = $8;
-					$$ = (Node *)n;
-				}
-			| ALTER TABLESPACE name MOVE MATERIALIZED VIEWS TO name opt_nowait
-				{
-					AlterTableSpaceMoveStmt *n =
-						makeNode(AlterTableSpaceMoveStmt);
-					n->orig_tablespacename = $3;
-					n->objtype = OBJECT_MATVIEW;
-					n->move_all = false;
-					n->roles = NIL;
-					n->new_tablespacename = $8;
-					n->nowait = $9;
-					$$ = (Node *)n;
-				}
-			| ALTER TABLESPACE name MOVE ALL OWNED BY role_list TO name opt_nowait
-				{
-					AlterTableSpaceMoveStmt *n =
-						makeNode(AlterTableSpaceMoveStmt);
-					n->orig_tablespacename = $3;
-					n->objtype = -1;
-					n->move_all = true;
-					n->roles = $8;
-					n->new_tablespacename = $10;
-					n->nowait = $11;
-					$$ = (Node *)n;
-				}
-			| ALTER TABLESPACE name MOVE TABLES OWNED BY role_list TO name opt_nowait
-				{
-					AlterTableSpaceMoveStmt *n =
-						makeNode(AlterTableSpaceMoveStmt);
-					n->orig_tablespacename = $3;
-					n->objtype = OBJECT_TABLE;
-					n->move_all = false;
-					n->roles = $8;
-					n->new_tablespacename = $10;
-					n->nowait = $11;
-					$$ = (Node *)n;
-				}
-			| ALTER TABLESPACE name MOVE INDEXES OWNED BY role_list TO name opt_nowait
-				{
-					AlterTableSpaceMoveStmt *n =
-						makeNode(AlterTableSpaceMoveStmt);
-					n->orig_tablespacename = $3;
-					n->objtype = OBJECT_INDEX;
-					n->move_all = false;
-					n->roles = $8;
-					n->new_tablespacename = $10;
-					n->nowait = $11;
-					$$ = (Node *)n;
-				}
-			| ALTER TABLESPACE name MOVE MATERIALIZED VIEWS OWNED BY role_list TO name opt_nowait
-				{
-					AlterTableSpaceMoveStmt *n =
-						makeNode(AlterTableSpaceMoveStmt);
-					n->orig_tablespacename = $3;
-					n->objtype = OBJECT_MATVIEW;
-					n->move_all = false;
-					n->roles = $9;
-					n->new_tablespacename = $11;
-					n->nowait = $12;
-					$$ = (Node *)n;
-				}
-			| ALTER TABLESPACE name SET reloptions
+AlterTblSpcStmt:
+			ALTER TABLESPACE name SET reloptions
 				{
 					AlterTableSpaceOptionsStmt *n =
 						makeNode(AlterTableSpaceOptionsStmt);
@@ -13095,6 +13080,7 @@ unreserved_keyword:
 			| LOCAL
 			| LOCATION
 			| LOCK_P
+			| LOGGED
 			| MAPPING
 			| MATCH
 			| MATERIALIZED
