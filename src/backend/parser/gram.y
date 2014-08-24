@@ -13259,6 +13259,7 @@ col_name_keyword:
 			| EXTRACT
 			| FLOAT_P
 			| GREATEST
+			| GROUPING
 			| INOUT
 			| INT_P
 			| INTEGER
@@ -13376,7 +13377,6 @@ reserved_keyword:
 			| FROM
 			| GRANT
 			| GROUP_P
-			| GROUPING
 			| HAVING
 			| IN_P
 			| INITIALLY
