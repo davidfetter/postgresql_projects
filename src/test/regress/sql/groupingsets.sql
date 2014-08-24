@@ -142,3 +142,5 @@ group by rollup(ten);
 -- More rescan tests
 select * from (values (1),(2)) v(a) left join lateral (select v.a, four, ten, count(*) from onek group by cube(four,ten)) s on true;
 select array(select row(v.a,s1.*) from (select two,four, count(*) from onek group by cube(two,four)) s1) from (values (1),(2)) v(a);
+
+-- end
