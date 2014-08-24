@@ -1,47 +1,128 @@
-select a, b from (values (1,2)) v(a,b) group by rollup (a,b);
+--
+-- grouping sets
+--
 
-select a, sum(b) from (values (1,10),(1,20),(2,40)) v(a,b) group by rollup (a);
+-- test data sources
 
-select a, b, sum(c) from (values (1,1,10),(1,1,11),(1,2,12),(1,2,13),(1,3,14),(2,3,15),(3,3,16),(3,4,17),(4,1,18),(4,1,19)) v(a,b,c) group by rollup (a,b); 
+create temp view gstest1(a,b,v)
+  as values (1,1,10),(1,1,11),(1,2,12),(1,2,13),(1,3,14),
+            (2,3,15),
+            (3,3,16),(3,4,17),
+            (4,1,18),(4,1,19);
 
-select (select grouping(a,b) from (values (1)) v2(b)) from (values (1)) v1(a) group by a;
+create temp table gstest2 (a integer, b integer, c integer, d integer,
+                           e integer, f integer, g integer, h integer);
+copy gstest2 from stdin;
+1	1	1	1	1	1	1	1
+1	1	1	1	1	1	1	2
+1	1	1	1	1	1	2	2
+1	1	1	1	1	2	2	2
+1	1	1	1	2	2	2	2
+1	1	1	2	2	2	2	2
+1	1	2	2	2	2	2	2
+1	2	2	2	2	2	2	2
+2	2	2	2	2	2	2	2
+\.
 
-select grouping(p), percentile_disc(p) within group (order by x::float8), array_agg(p)
-from generate_series(1,5) x,
-     (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p)
-group by rollup (p) order by p;
+create temp table gstest_empty (a integer, b integer, v integer);
 
-select a, array_agg(b) from (values (1,10),(1,20),(2,40)) v(a,b) group by rollup (a);
+create function gstest_data(v integer, out a integer, out b integer)
+  returns setof record
+  as $f$
+    begin
+      return query select v, i from generate_series(1,3) i;
+    end;
+  $f$ language plpgsql;
 
-select grouping(a), array_agg(b) from (values (1,10),(1,20),(2,40)) v(a,b) group by rollup (a);
+-- basic functionality
 
-select a, sum(b) from aggtest v(a,b) group by rollup (a);
+-- simple rollup with multiple plain aggregates, with and without ordering
+-- (and with ordering differing from grouping)
+select a, b, grouping(a,b), sum(v), count(*), max(v)
+  from gstest1 group by rollup (a,b);
+select a, b, grouping(a,b), sum(v), count(*), max(v)
+  from gstest1 group by rollup (a,b) order by a,b;
+select a, b, grouping(a,b), sum(v), count(*), max(v)
+  from gstest1 group by rollup (a,b) order by b desc, a;
+select a, b, grouping(a,b), sum(v), count(*), max(v)
+  from gstest1 group by rollup (a,b) order by coalesce(a,0)+coalesce(b,0);
 
-select grouping(a), sum(b) from aggtest v(a,b) group by rollup (a);
+-- various types of ordered aggs
+select a, b, grouping(a,b),
+       array_agg(v order by v),
+       string_agg(v::text, ':' order by v desc),
+       percentile_disc(0.5) within group (order by v),
+       rank(1,2,12) within group (order by a,b,v)
+  from gstest1 group by rollup (a,b) order by a,b;
 
-select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by a,b;
+-- nesting with window functions
+select a, b, sum(c), sum(sum(c)) over (order by a,b) as rsum
+  from gstest2 group by rollup (a,b) order by rsum, a, b;
 
-SELECT four, ten, SUM(SUM(four)) OVER (PARTITION BY four), AVG(ten) FROM tenk1
-GROUP BY ROLLUP(four, ten) ORDER BY four, ten;
+-- empty input: first is 0 rows, second 1, third 3 etc.
+select a, b, sum(v), count(*) from gstest_empty group by grouping sets ((a,b),a);
+select a, b, sum(v), count(*) from gstest_empty group by grouping sets ((a,b),());
+select a, b, sum(v), count(*) from gstest_empty group by grouping sets ((a,b),(),(),());
+select sum(v), count(*) from gstest_empty group by grouping sets ((),(),());
 
-select a, b from (values (1,2),(2,3)) v(a,b) group by grouping sets((a,b),());
+-- empty input with joins tests some important code paths
+select t1.a, t2.b, sum(t1.v), count(*) from gstest_empty t1, gstest_empty t2
+ group by grouping sets ((t1.a,t2.b),());
 
-select a, b from (values (1,2),(2,3)) v(a,b) group by rollup((a,b));
+-- simple joins, var resolution, GROUPING on join vars
+select t1.a, t2.b, grouping(t1.a, t2.b), sum(t1.v), max(t2.a)
+  from gstest1 t1, gstest2 t2
+ group by grouping sets ((t1.a, t2.b), ());
 
-select a, b, sum(c) from (values (1,1,10,5),(1,1,11,5),(1,2,12,5),(1,2,13,5),(1,3,14,5),(2,3,15,5),(3,3,16,5),(3,4,17,5),(4,1,18,5),(4,1,19,5)) v(a,b,c,d) group by rollup ((a,b));
+select t1.a, t2.b, grouping(t1.a, t2.b), sum(t1.v), max(t2.a)
+  from gstest1 t1 join gstest2 t2 on (t1.a=t2.a)
+ group by grouping sets ((t1.a, t2.b), ());
 
-create temp view tv2(a,b,c,d,e,f,g) as select a[1], a[2], a[3], a[4], a[5], a[6], generate_series(1,3) from (select (array[1,1,1,1,1,1])[1:6-i] || (array[2,2,2,2,2,2])[7-i:6] as a from generate_series(0,6) i) s;
+select a, b, grouping(a, b), sum(t1.v), max(t2.c)
+  from gstest1 t1 join gstest2 t2 using (a,b)
+ group by grouping sets ((a, b), ());
 
-select a,b, sum(g) from tv2 group by grouping sets ((a,b,c),(a,b));
+-- simple rescan tests
 
-CREATE TEMP TABLE testgs_emptytable(a int,b int,c int);
+select a, b, sum(v.x)
+  from (values (1),(2)) v(x), gstest_data(v.x)
+ group by rollup (a,b);
 
-SELECT sum(a) FROM testgs_emptytable GROUP BY ROLLUP(a,b);
+select *
+  from (values (1),(2)) v(x),
+       lateral (select a, b, sum(v.x) from gstest_data(v.x) group by rollup (a,b)) s;
 
-SELECT grouping(four), ten FROM tenk1
-GROUP BY ROLLUP(four, ten) ORDER BY four, ten;
+-- min max optimisation should still work with GROUP BY ()
+explain (costs off)
+  select min(unique1) from tenk1 GROUP BY ();
 
-SELECT grouping(four), ten FROM tenk1
-GROUP BY ROLLUP(four, ten) ORDER BY ten;
+-- Views with GROUPING SET queries
+CREATE VIEW gstest_view AS select a, b, grouping(a,b), sum(c), count(*), max(c)
+  from gstest2 group by rollup ((a,b,c),(c,d));
 
+select pg_get_viewdef('gstest_view'::regclass, true);
 
+-- Nested queries with 3 or more levels of nesting
+select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP(e,f);
+select(select (select grouping(e,f) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP(e,f);
+select(select (select grouping(c) from (values (1)) v2(c) GROUP BY c) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP(e,f);
+
+-- Combinations of operations
+select a, b from (values (1,2),(2,3)) v(a,b) group by a,b, grouping sets(a);
+
+-- Agg level check. This query should error out.
+select (select grouping(a,b) from gstest2) from gstest2 group by a,b;
+
+--Nested queries
+select a, b, sum(c), count(*) from gstest2 group by grouping sets (rollup(a,b),a);
+
+-- HAVING queries
+select ten, sum(distinct four) from onek a
+group by grouping sets((ten,four),(ten))
+having exists (select 1 from onek b where sum(distinct a.four) = b.four);
+
+-- FILTER queries
+select ten, sum(distinct four) filter (where four::text ~ '123') from onek a
+group by rollup(ten);
+
+-- end
