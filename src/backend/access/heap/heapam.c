@@ -109,8 +109,7 @@ static void MultiXactIdWait(MultiXactId multi, MultiXactStatus status, uint16 in
 				Relation rel, ItemPointer ctid, XLTW_Oper oper,
 				int *remaining);
 static bool ConditionalMultiXactIdWait(MultiXactId multi, MultiXactStatus status,
-						   uint16 infomask, Relation rel, ItemPointer ctid,
-						   XLTW_Oper oper, int *remaining);
+						   uint16 infomask, Relation rel, int *remaining);
 static XLogRecPtr log_heap_new_cid(Relation relation, HeapTuple tup);
 static HeapTuple ExtractReplicaIdentity(Relation rel, HeapTuple tup, bool key_modified,
 					   bool *copy);
@@ -2818,7 +2817,7 @@ l1:
 		if (result == HeapTupleSelfUpdated)
 			hufd->cmax = HeapTupleHeaderGetCmax(tp.t_data);
 		else
-			hufd->cmax = 0;		/* for lack of an InvalidCommandId value */
+			hufd->cmax = InvalidCommandId;
 		UnlockReleaseBuffer(buffer);
 		if (have_tuple_lock)
 			UnlockTupleTuplock(relation, &(tp.t_self), LockTupleExclusive);
@@ -3415,7 +3414,7 @@ l2:
 		if (result == HeapTupleSelfUpdated)
 			hufd->cmax = HeapTupleHeaderGetCmax(oldtup.t_data);
 		else
-			hufd->cmax = 0;		/* for lack of an InvalidCommandId value */
+			hufd->cmax = InvalidCommandId;
 		UnlockReleaseBuffer(buffer);
 		if (have_tuple_lock)
 			UnlockTupleTuplock(relation, &(oldtup.t_self), *lockmode);
@@ -4438,8 +4437,7 @@ l3:
 				{
 					if (!ConditionalMultiXactIdWait((MultiXactId) xwait,
 												  status, infomask, relation,
-													&tuple->t_data->t_ctid,
-													XLTW_Lock, NULL))
+													NULL))
 						ereport(ERROR,
 								(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
 								 errmsg("could not obtain lock on row in relation \"%s\"",
@@ -4573,7 +4571,7 @@ failed:
 		if (result == HeapTupleSelfUpdated)
 			hufd->cmax = HeapTupleHeaderGetCmax(tuple->t_data);
 		else
-			hufd->cmax = 0;		/* for lack of an InvalidCommandId value */
+			hufd->cmax = InvalidCommandId;
 		LockBuffer(*buffer, BUFFER_LOCK_UNLOCK);
 		if (have_tuple_lock)
 			UnlockTupleTuplock(relation, tid, mode);
@@ -6246,11 +6244,10 @@ MultiXactIdWait(MultiXactId multi, MultiXactStatus status, uint16 infomask,
  */
 static bool
 ConditionalMultiXactIdWait(MultiXactId multi, MultiXactStatus status,
-						   uint16 infomask, Relation rel, ItemPointer ctid,
-						   XLTW_Oper oper, int *remaining)
+						   uint16 infomask, Relation rel, int *remaining)
 {
 	return Do_MultiXactIdWait(multi, status, infomask, true,
-							  rel, ctid, oper, remaining);
+							  rel, NULL, XLTW_None, remaining);
 }
 
 /*
