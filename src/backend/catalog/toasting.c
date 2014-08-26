@@ -254,12 +254,16 @@ create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
 	 * Toast tables for regular relations go in pg_toast; those for temp
 	 * relations go into the per-backend temp-toast-table namespace.
 	 */
-	if (isTempOrToastNamespace(rel->rd_rel->relnamespace))
+	if (isTempOrTempToastNamespace(rel->rd_rel->relnamespace))
 		namespaceid = GetTempToastNamespace();
 	else
 		namespaceid = PG_TOAST_NAMESPACE;
 
-	/* Use binary-upgrade override for pg_type.oid, if supplied. */
+	/*
+	 * Use binary-upgrade override for pg_type.oid, if supplied.  We might
+	 * be in the post-schema-restore phase where we are doing ALTER TABLE
+	 * to create TOAST tables that didn't exist in the old cluster.
+	 */
 	if (IsBinaryUpgrade && OidIsValid(binary_upgrade_next_toast_pg_type_oid))
 	{
 		toast_typid = binary_upgrade_next_toast_pg_type_oid;
