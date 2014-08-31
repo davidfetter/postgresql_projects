@@ -12192,7 +12192,8 @@ NULL baz</literallayout>(3 rows)</entry>
        </indexterm>
        <function>max(<replaceable class="parameter">expression</replaceable>)</function>
       </entry>
-      <entry>any array, numeric, string, or date/time type</entry>
+      <entry>any numeric, string, date/time, network, or enum type,
+             or arrays of these types</entry>
       <entry>same as argument type</entry>
       <entry>
        maximum value of <replaceable
@@ -12208,7 +12209,8 @@ NULL baz</literallayout>(3 rows)</entry>
        </indexterm>
        <function>min(<replaceable class="parameter">expression</replaceable>)</function>
       </entry>
-      <entry>any array, numeric, string, or date/time type</entry>
+      <entry>any numeric, string, date/time, network, or enum type,
+             or arrays of these types</entry>
       <entry>same as argument type</entry>
       <entry>
        minimum value of <replaceable
@@ -15606,7 +15608,7 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
    <parameter>schema</> is the schema name that the object belongs in, or
    <literal>NULL</> for object types that do not belong to schemas;
    <parameter>name</> is the name of the object, quoted if necessary, only
-   present if it can be used (alongside schema name, if pertinent) as an unique
+   present if it can be used (alongside schema name, if pertinent) as a unique
    identifier of the object, otherwise <literal>NULL</>;
    <parameter>identity</> is the complete object identity, with the precise format
    depending on object type, and each part within the format being
@@ -16469,7 +16471,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
         <literal><function>pg_xlog_replay_pause()</function></literal>
         </entry>
        <entry><type>void</type></entry>
-       <entry>Pauses recovery immediately.
+       <entry>Pauses recovery immediately (restricted to superusers).
        </entry>
       </row>
       <row>
@@ -16477,7 +16479,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
         <literal><function>pg_xlog_replay_resume()</function></literal>
         </entry>
        <entry><type>void</type></entry>
-       <entry>Restarts recovery if it was paused.
+       <entry>Restarts recovery if it was paused (restricted to superusers).
        </entry>
       </row>
      </tbody>
@@ -16585,7 +16587,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
     for controlling and interacting with replication features.
     See <xref linkend="streaming-replication">
     and <xref linkend="streaming-replication-slots"> for information about the
-    underlying features.
+    underlying features.  Use of these functions is restricted to superusers.
    </para>
 
    <para>
@@ -17581,7 +17583,7 @@ FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger();
         <entry><type>text</type></entry>
         <entry>
          Name of the object, if the combination of schema and name can be
-         used as an unique identifier for the object; otherwise <literal>NULL</>.
+         used as a unique identifier for the object; otherwise <literal>NULL</>.
          No quoting is applied, and name is never schema-qualified.
         </entry>
        </row>
