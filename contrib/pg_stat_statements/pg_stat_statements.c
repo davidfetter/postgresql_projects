@@ -2656,23 +2656,22 @@ JumbleExpr(pgssJumbleState *jstate, Node *node)
 				JumbleExpr(jstate, rtfunc->funcexpr);
 			}
 			break;
-
-	    case T_GroupingSet:
-		    {
+		case T_GroupingSet:
+			{
 				GroupingSet *gsnode = (GroupingSet *) node;
 
 				JumbleExpr(jstate, (Node *) gsnode->content);
 			}
 			break;
-	    case T_Grouping:
-		    {
+		case T_Grouping:
+			{
 				Grouping *grpnode = (Grouping *) node;
 
 				JumbleExpr(jstate, (Node *) grpnode->refs);
 			}
 			break;
 		case T_IntList:
-		    {
+			{
 				foreach(temp, (List *) node)
 				{
 					APP_JUMB(lfirst_int(temp));
