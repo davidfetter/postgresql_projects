@@ -16,6 +16,7 @@
 #include "postgres.h"
 
 #include <limits.h>
+#include <math.h>
 
 #include "access/htup_details.h"
 #include "executor/executor.h"
@@ -81,7 +82,8 @@ static double preprocess_limit(PlannerInfo *root,
 				 int64 *offset_est, int64 *count_est);
 static bool limit_needed(Query *parse);
 static List *preprocess_groupclause(PlannerInfo *root, List *force);
-static List *extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder);
+static List *extract_rollup_sets(List *groupingSets);
+static List *reorder_grouping_sets(List *groupingSets, List *sortclause);
 static void standard_qp_callback(PlannerInfo *root, void *extra);
 static bool choose_hashed_grouping(PlannerInfo *root,
 					   double tuple_fraction, double limit_tuples,
@@ -1224,15 +1226,16 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		{
 			ListCell   *lc;
 			ListCell   *lc2;
-			List	   *sets = parse->groupingSets;
+			ListCell   *lc_set;
+			List	   *sets = extract_rollup_sets(parse->groupingSets);
 
-			do
+			foreach(lc_set, sets)
 			{
-				List   *remaining_sets = NIL;
-				List   *usable_sets = extract_rollup_sets(sets,
-														  parse->sortClause,
-														  &remaining_sets);
-				List   *groupclause = preprocess_groupclause(root, linitial(usable_sets));
+				List   *current_sets = reorder_grouping_sets(lfirst(lc_set),
+													(list_length(sets) == 1
+													 ? parse->sortClause
+													 : NIL));
+				List   *groupclause = preprocess_groupclause(root, linitial(current_sets));
 				int		ref = 0;
 				int	   *refmap;
 
@@ -1250,7 +1253,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 					refmap[gc->tleSortGroupRef] = ++ref;
 				}
 
-				foreach(lc, usable_sets)
+				foreach(lc, current_sets)
 				{
 					foreach(lc2, (List *) lfirst(lc))
 					{
@@ -1259,13 +1262,10 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 					}
 				}
 
-				rollup_lists = lcons(usable_sets, rollup_lists);
+				rollup_lists = lcons(current_sets, rollup_lists);
 				rollup_groupclauses = lcons(groupclause, rollup_groupclauses);
 				refmaps = lcons(refmap, refmaps);
-
-				sets = remaining_sets;
 			}
-			while (sets);
 		}
 		else
 		{
@@ -2818,64 +2818,390 @@ preprocess_groupclause(PlannerInfo *root, List *force)
 
 
 /*
- * Extract a list of grouping sets that can be implemented using a single
- * rollup-type aggregate pass. The order of elements in each returned set is
- * modified to ensure proper prefix relationships; the sets are returned in
- * decreasing order of size. (The input must also be in descending order of
- * size.)
+ * We want to produce the absolute minimum possible number of lists here to
+ * avoid excess sorts. Fortunately, there is an algorithm for this; the problem
+ * of finding the minimal partition of a poset into chains (which is what we
+ * need, taking the list of grouping sets as a poset ordered by set inclusion)
+ * can be mapped to the problem of finding the maximum cardinality matching on
+ * a bipartite graph, which is solvable in polynomial time with a worst case of
+ * no worse than O(n^2.5) and usually much better. Since our N is at most 4096,
+ * we don't need to consider fallbacks to heuristic or approximate methods.
+ * (Planning time for a 12-d cube is under half a second on my modest system
+ * even with optimization off and assertions on.)
  *
- * If we're passed in a sortclause, we follow its order of columns to the
- * extent possible, to minimize the chance that we add unnecessary sorts.
+ * We use the Hopcroft-Karp algorithm for the graph matching; it seems to work
+ * well enough for our purposes.
+ */
+
+struct hk_state
+{
+	int		graph_size;		/* size of half the graph plus NIL node */
+	int		matching;
+	short **adjacency;		/* adjacency[u] = [n, v1,v2,v3,...,vn] */
+	short  *pair_uv;		/* pair_uv[u] -> v */
+	short  *pair_vu;		/* pair_vu[v] -> u */
+	float  *distance;		/* distance[u] */
+	short  *queue;			/* queue storage for breadth search */
+};
+
+static bool
+hk_breadth_search(struct hk_state *state)
+{
+	int		qhead = 0;		/* we never enqueue any node more than once */
+	int		qtail = 0;		/* so these don't have to worry about wrapping */
+	int		gsize = state->graph_size;
+	short  *queue = state->queue;
+	float  *distance = state->distance;
+	int		u;
+
+	distance[0] = INFINITY;
+
+	for (u = 1; u < gsize; ++u)
+	{
+		if (state->pair_uv[u] == 0)
+		{
+			distance[u] = 0;
+			queue[qhead++] = u;
+		}
+		else
+			distance[u] = INFINITY;
+	}
+
+	while (qtail < qhead)
+	{
+		u = queue[qtail++];
+		if (distance[u] < distance[0])
+		{
+			int		i;
+			short  *u_adj = state->adjacency[u];
+			int		n = u_adj ? u_adj[0] : 0;
+
+			for (i = 1; i <= n; ++i)
+			{
+				int	v = u_adj[i];
+				int	u2 = state->pair_vu[v];
+				if (isinf(distance[u2]))
+				{
+					distance[u2] = 1 + distance[u];
+					queue[qhead++] = u2;
+					Assert(qhead <= gsize+1);
+				}
+			}
+		}
+	}
+
+	return !isinf(distance[0]);
+}
+
+static bool
+hk_depth_search(struct hk_state *state, int u, int depth)
+{
+	int		i;
+	float  *distance = state->distance;
+	short  *pair_uv = state->pair_uv;
+	short  *pair_vu = state->pair_vu;
+	short  *u_adj = state->adjacency[u];
+	int		n = u_adj ? u_adj[0] : 0;
+
+	if (u == 0)
+		return true;
+
+	if ((depth % 8) == 0)
+		check_stack_depth();
+
+	for (i = 1; i <= n; ++i)
+	{
+		int		v = u_adj[i];
+
+		if (distance[pair_vu[v]] == distance[u] + 1)
+		{
+			if (hk_depth_search(state, pair_vu[v], depth+1))
+			{
+				pair_vu[v] = u;
+				pair_uv[u] = v;
+				return true;
+			}
+		}
+	}
+
+	distance[u] = INFINITY;
+	return false;
+}
+
+static struct hk_state *
+hk_match(int graph_size, short **adjacency)
+{
+	struct hk_state *state = palloc(sizeof(struct hk_state));
+
+	state->graph_size = graph_size;
+	state->matching = 0;
+	state->adjacency = adjacency;
+	state->pair_uv = palloc0(graph_size * sizeof(short));
+	state->pair_vu = palloc0(graph_size * sizeof(short));
+	state->distance = palloc(graph_size * sizeof(float));
+	state->queue = palloc((graph_size + 2) * sizeof(short));
+
+	while (hk_breadth_search(state))
+	{
+		int		u;
+
+		for (u = 1; u < graph_size; ++u)
+			if (state->pair_uv[u] == 0)
+				if (hk_depth_search(state, u, 1))
+					state->matching++;
+
+		CHECK_FOR_INTERRUPTS();		/* just in case */
+	}
+
+	return state;
+}
+
+static void
+hk_free(struct hk_state *state)
+{
+	/* adjacency matrix is treated as owned by the caller */
+	pfree(state->pair_uv);
+	pfree(state->pair_vu);
+	pfree(state->distance);
+	pfree(state->queue);
+	pfree(state);
+}
+
+/*
+ * Extract lists of grouping sets that can be implemented using a single
+ * rollup-type aggregate pass each. Returns a list of lists of grouping sets.
  *
- * Sets that can't be accomodated within a rollup that includes the first
- * (and therefore largest) grouping set in the input are added to the
- * remainder list.
+ * Input must be sorted with smallest sets first. Result has each sublist
+ * sorted with smallest sets first.
  */
 
 static List *
-extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder)
+extract_rollup_sets(List *groupingSets)
 {
-	ListCell   *lc;
-	ListCell   *lc2;
-	List	   *previous = linitial(groupingSets);
-	List	   *tmp_result = list_make1(previous);
+	int			num_sets_raw = list_length(groupingSets);
+	int			num_empty = 0;
+	int			num_sets = 0;		/* distinct sets */
+	int			num_chains = 0;
 	List	   *result = NIL;
+	List	  **results;
+	List	  **orig_sets;
+	Bitmapset **set_masks;
+	int		   *chains;
+	short	  **adjacency;
+	short	   *adjacency_buf;
+	struct hk_state *state;
+	int			i;
+	int			j;
+	int			j_size;
+	ListCell   *lc1 = list_head(groupingSets);
+	ListCell   *lc;
 
-	for_each_cell(lc, lnext(list_head(groupingSets)))
+	/*
+	 * Start by stripping out empty sets.  The algorithm doesn't require this,
+	 * but the planner currently needs all empty sets to be returned in the
+	 * first list, so we strip them here and add them back after.
+	 */
+
+	while (lc1 && lfirst(lc1) == NIL)
 	{
-		List   *candidate = lfirst(lc);
-		bool	ok = true;
+		++num_empty;
+		lc1 = lnext(lc1);
+	}
+
+	/* bail out now if it turns out that all we had were empty sets. */
+
+	if (!lc1)
+		return list_make1(groupingSets);
+
+	/*
+	 * We don't strictly need to remove duplicate sets here, but if we
+	 * don't, they tend to become scattered through the result, which is
+	 * a bit confusing (and irritating if we ever decide to optimize them
+	 * out). So we remove them here and add them back after.
+	 *
+	 * For each non-duplicate set, we fill in the following:
+	 *
+	 *  orig_sets[i] = list of the original set lists
+	 *  set_masks[i] = bitmapset for testing inclusion
+	 *  adjacency[i] = array [n, v1, v2, ... vn] of adjacency links
+	 *
+	 *  groups[i] will be the result group this set is assigned to
+	 *
+	 * We index all of these from 1 rather than 0 because it is convenient
+	 * to leave 0 free for the NIL node in the graph algorithm.
+	 */
+
+	orig_sets = palloc0((num_sets_raw + 1) * sizeof(List*));
+	set_masks = palloc0((num_sets_raw + 1) * sizeof(Bitmapset *));
+	adjacency = palloc0((num_sets_raw + 1) * sizeof(short *));
+	adjacency_buf = palloc((num_sets_raw + 1) * sizeof(short));
+
+	j_size = 0;
+	j = 0;
+	i = 1;
+
+	for_each_cell(lc, lc1)
+	{
+		List	   *candidate = lfirst(lc);
+		Bitmapset  *candidate_set = NULL;
+		ListCell   *lc2;
+		int			dup_of = 0;
 
 		foreach(lc2, candidate)
 		{
-			int ref = lfirst_int(lc2);
-			if (!list_member_int(previous, ref))
+			candidate_set = bms_add_member(candidate_set, lfirst_int(lc2));
+		}
+
+		/* we can only be a dup if we're the same length as a previous set */
+		if (j_size == list_length(candidate))
+		{
+			int		k;
+			for (k = j; k < i; ++k)
 			{
-				ok = false;
-				break;
+				if (bms_equal(set_masks[k], candidate_set))
+				{
+					dup_of = k;
+					break;
+				}
 			}
 		}
-
-		if (ok)
+		else if (j_size < list_length(candidate))
 		{
-			tmp_result = lcons(candidate, tmp_result);
-			previous = candidate;
+			j_size = list_length(candidate);
+			j = i;
+		}
+
+		if (dup_of > 0)
+		{
+			orig_sets[dup_of] = lappend(orig_sets[dup_of], candidate);
+			bms_free(candidate_set);
 		}
 		else
-			*remainder = lappend(*remainder, candidate);
+		{
+			int		k;
+			int		n_adj = 0;
+
+			orig_sets[i] = list_make1(candidate);
+			set_masks[i] = candidate_set;
+
+			/* fill in adjacency list; no need to compare equal-size sets */
+
+			for (k = 1; k < j; ++k)
+			{
+				if (bms_is_subset(set_masks[k], candidate_set))
+					adjacency_buf[++n_adj] = k;
+			}
+
+			if (n_adj > 0)
+			{
+				adjacency_buf[0] = n_adj;
+				adjacency[i] = palloc((n_adj + 1) * sizeof(short));
+				memcpy(adjacency[i], adjacency_buf, (n_adj + 1) * sizeof(short));
+			}
+			else
+				adjacency[i] = NULL;
+
+			++i;
+		}
 	}
 
+	num_sets = i - 1;
+
 	/*
-	 * reorder the list elements so that shorter sets are strict
-	 * prefixes of longer ones, and if we ever have a choice, try
-	 * and follow the sortclause if there is one. (We're trying
-	 * here to ensure that GROUPING SETS ((a,b),(b)) ORDER BY b,a
-	 * gets implemented in one pass.)
+	 * Apply the matching algorithm to do the work.
 	 */
 
-	previous = NIL;
+	state = hk_match(num_sets + 1, adjacency);
 
-	foreach(lc, tmp_result)
+	/*
+	 * Now, the state->pair* fields have the info we need to assign sets to
+	 * chains. Two sets (u,v) belong to the same chain if pair_uv[u] = v
+	 * or pair_vu[v] = u  (both will be true, but we check both so that we
+	 * can do it in one pass)
+	 */
+
+	chains = palloc0((num_sets + 1) * sizeof(int));
+
+	for (i = 1; i <= num_sets; ++i)
+	{
+		int u = state->pair_vu[i];
+		int v = state->pair_uv[i];
+
+		if (u > 0 && u < i)
+			chains[i] = chains[u];
+		else if (v > 0 && v < i)
+			chains[i] = chains[v];
+		else
+			chains[i] = ++num_chains;
+	}
+
+	/* build result lists. */
+
+	results = palloc0((num_chains + 1) * sizeof(List*));
+
+	for (i = 1; i <= num_sets; ++i)
+	{
+		int c = chains[i];
+
+		Assert(c > 0);
+
+		results[c] = list_concat(results[c], orig_sets[i]);
+	}
+
+	/* push any empty sets back on the first list. */
+
+	while (num_empty-- > 0)
+		results[1] = lcons(NIL, results[1]);
+
+	/* make result list */
+
+	for (i = 1; i <= num_chains; ++i)
+		result = lappend(result, results[i]);
+
+	/*
+	 * free all the things
+	 *
+	 * this is over-fussy for small sets but for large sets we could
+	 * have tied up a nontrivial amount of memory
+	 */
+
+	hk_free(state);
+	pfree(results);
+	pfree(chains);
+	for (i = 1; i <= num_sets; ++i)
+		if (adjacency[i])
+			pfree(adjacency[i]);
+	pfree(adjacency);
+	pfree(adjacency_buf);
+	pfree(orig_sets);
+	for (i = 1; i <= num_sets; ++i)
+		bms_free(set_masks[i]);
+	pfree(set_masks);
+
+	return result;
+}
+
+/*
+ * Reorder the elements of a list of grouping sets such that they have
+ * correct prefix relationships.
+ *
+ * The input must be ordered with smallest sets first; the result is
+ * returned with largest sets first.
+ *
+ * If we're passed in a sortclause, we follow its order of columns to the
+ * extent possible, to minimize the chance that we add unnecessary sorts.
+ * (We're trying here to ensure that GROUPING SETS ((a,b,c),(c)) ORDER BY c,b,a
+ * gets implemented in one pass.)
+ */
+static List *
+reorder_grouping_sets(List *groupingsets, List *sortclause)
+{
+	ListCell   *lc;
+	ListCell   *lc2;
+	List	   *previous = NIL;
+	List	   *result = NIL;
+
+	foreach(lc, groupingsets)
 	{
 		List   *candidate = lfirst(lc);
 		List   *new_elems = list_difference_int(candidate, previous);
@@ -2893,6 +3219,7 @@ extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder)
 				}
 				else
 				{
+					/* diverged from the sortclause; give up on it */
 					sortclause = NIL;
 					break;
 				}
@@ -2909,7 +3236,6 @@ extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder)
 	}
 
 	list_free(previous);
-	list_free(tmp_result);
 
 	return result;
 }
