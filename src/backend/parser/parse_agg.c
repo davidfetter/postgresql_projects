@@ -965,11 +965,11 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 		 * The intersection will often be empty, so help things along by
 		 * seeding the intersect with the smallest set.
 		 */
-		gset_common = llast(gsets);
+		gset_common = linitial(gsets);
 
 		if (gset_common)
 		{
-			foreach(l, gsets)
+			for_each_cell(l, lnext(list_head(gsets)))
 			{
 				gset_common = list_intersection_int(gset_common, lfirst(l));
 				if (!gset_common)
@@ -1610,16 +1610,16 @@ expand_groupingset_node(GroupingSet *gs)
 }
 
 static int
-cmp_list_len_desc(const void *a, const void *b)
+cmp_list_len_asc(const void *a, const void *b)
 {
 	int la = list_length(*(List*const*)a);
 	int lb = list_length(*(List*const*)b);
-	return (la > lb) ? -1 : (la == lb) ? 0 : 1;
+	return (la > lb) ? 1 : (la == lb) ? 0 : -1;
 }
 
 /*
  * Expand a groupingSets clause to a flat list of grouping sets.
- * The returned list is sorted by length, longest sets first.
+ * The returned list is sorted by length, shortest sets first.
  *
  * This is mainly for the planner, but we use it here too to do
  * some consistency checks.
@@ -1695,7 +1695,7 @@ expand_grouping_sets(List *groupingSets, int limit)
 			*ptr++ = lfirst(lc);
 		}
 
-		qsort(buf, result_len, sizeof(List*), cmp_list_len_desc);
+		qsort(buf, result_len, sizeof(List*), cmp_list_len_asc);
 
 		result = NIL;
 		ptr = buf;
