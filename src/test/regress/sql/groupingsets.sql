@@ -115,13 +115,13 @@ select a, b from (values (1,2),(2,3)) v(a,b) group by a,b, grouping sets(a);
 select a, b, grouping(a,b), sum(v), count(*), max(v)
   from gstest1 group by grouping sets ((a,b),(a+1,b+1),(a+2,b+2));
 select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP((e+1),(f+1));
-select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY CUBE((e+1));
+select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY CUBE((e+1),(f+1)) ORDER BY (e+1),(f+1);
 select a, b, sum(c), sum(sum(c)) over (order by a,b) as rsum
   from gstest2 group by cube (a,b) order by rsum, a, b;
 select a, b, sum(c) from (values (1,1,10),(1,1,11),(1,2,12),(1,2,13),(1,3,14),(2,3,15),(3,3,16),(3,4,17),(4,1,18),(4,1,19)) v(a,b,c) group by rollup (a,b);
 select a, b, sum(v.x)
   from (values (1),(2)) v(x), gstest_data(v.x)
- group by cube (a,b);
+ group by cube (a,b) order by a,b;
 
 
 -- Agg level check. This query should error out.
@@ -140,7 +140,7 @@ select ten, sum(distinct four) filter (where four::text ~ '123') from onek a
 group by rollup(ten);
 
 -- More rescan tests
-select * from (values (1),(2)) v(a) left join lateral (select v.a, four, ten, count(*) from onek group by cube(four,ten)) s on true;
-select array(select row(v.a,s1.*) from (select two,four, count(*) from onek group by cube(two,four)) s1) from (values (1),(2)) v(a);
+select * from (values (1),(2)) v(a) left join lateral (select v.a, four, ten, count(*) from onek group by cube(four,ten)) s on true order by v.a,four,ten;
+select array(select row(v.a,s1.*) from (select two,four, count(*) from onek group by cube(two,four) order by two,four) s1) from (values (1),(2)) v(a);
 
 -- end
