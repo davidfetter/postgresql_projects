@@ -2831,28 +2831,33 @@ preprocess_groupclause(PlannerInfo *root, List *force)
  *
  * We use the Hopcroft-Karp algorithm for the graph matching; it seems to work
  * well enough for our purposes.
+ *
+ * This implementation uses the same indices for elements of U and V (the two
+ * halves of the graph) because in our case they are always the same size, and
+ * we always know whether an index represents a u or a v. Index 0 is reserved
+ * for the NIL node.
  */
 
 struct hk_state
 {
-	int		graph_size;		/* size of half the graph plus NIL node */
-	int		matching;
-	short **adjacency;		/* adjacency[u] = [n, v1,v2,v3,...,vn] */
-	short  *pair_uv;		/* pair_uv[u] -> v */
-	short  *pair_vu;		/* pair_vu[v] -> u */
-	float  *distance;		/* distance[u] */
-	short  *queue;			/* queue storage for breadth search */
+	int			graph_size;		/* size of half the graph plus NIL node */
+	int			matching;
+	short	  **adjacency;		/* adjacency[u] = [n, v1,v2,v3,...,vn] */
+	short	   *pair_uv;		/* pair_uv[u] -> v */
+	short	   *pair_vu;		/* pair_vu[v] -> u */
+	float	   *distance;		/* distance[u], float so we can have +inf */
+	short	   *queue;			/* queue storage for breadth search */
 };
 
 static bool
 hk_breadth_search(struct hk_state *state)
 {
-	int		qhead = 0;		/* we never enqueue any node more than once */
-	int		qtail = 0;		/* so these don't have to worry about wrapping */
-	int		gsize = state->graph_size;
-	short  *queue = state->queue;
-	float  *distance = state->distance;
-	int		u;
+	int			gsize = state->graph_size;
+	short	   *queue = state->queue;
+	float	   *distance = state->distance;
+	int			qhead = 0;		/* we never enqueue any node more than once */
+	int			qtail = 0;		/* so don't have to worry about wrapping */
+	int			u;
 
 	distance[0] = INFINITY;
 
@@ -2870,20 +2875,20 @@ hk_breadth_search(struct hk_state *state)
 	while (qtail < qhead)
 	{
 		u = queue[qtail++];
+
 		if (distance[u] < distance[0])
 		{
-			int		i;
 			short  *u_adj = state->adjacency[u];
-			int		n = u_adj ? u_adj[0] : 0;
+			int		i = u_adj ? u_adj[0] : 0;
 
-			for (i = 1; i <= n; ++i)
+			for (; i > 0; --i)
 			{
-				int	v = u_adj[i];
-				int	u2 = state->pair_vu[v];
-				if (isinf(distance[u2]))
+				int	u_next = state->pair_vu[u_adj[i]];
+
+				if (isinf(distance[u_next]))
 				{
-					distance[u2] = 1 + distance[u];
-					queue[qhead++] = u2;
+					distance[u_next] = 1 + distance[u];
+					queue[qhead++] = u_next;
 					Assert(qhead <= gsize+1);
 				}
 			}
@@ -2896,12 +2901,11 @@ hk_breadth_search(struct hk_state *state)
 static bool
 hk_depth_search(struct hk_state *state, int u, int depth)
 {
-	int		i;
-	float  *distance = state->distance;
-	short  *pair_uv = state->pair_uv;
-	short  *pair_vu = state->pair_vu;
-	short  *u_adj = state->adjacency[u];
-	int		n = u_adj ? u_adj[0] : 0;
+	float	   *distance = state->distance;
+	short	   *pair_uv = state->pair_uv;
+	short	   *pair_vu = state->pair_vu;
+	short	   *u_adj = state->adjacency[u];
+	int			i = u_adj ? u_adj[0] : 0;
 
 	if (u == 0)
 		return true;
@@ -2909,7 +2913,7 @@ hk_depth_search(struct hk_state *state, int u, int depth)
 	if ((depth % 8) == 0)
 		check_stack_depth();
 
-	for (i = 1; i <= n; ++i)
+	for (; i > 0; --i)
 	{
 		int		v = u_adj[i];
 
@@ -3021,11 +3025,11 @@ extract_rollup_sets(List *groupingSets)
 	 *
 	 * For each non-duplicate set, we fill in the following:
 	 *
-	 *  orig_sets[i] = list of the original set lists
-	 *  set_masks[i] = bitmapset for testing inclusion
-	 *  adjacency[i] = array [n, v1, v2, ... vn] of adjacency links
+	 * orig_sets[i] = list of the original set lists
+	 * set_masks[i] = bitmapset for testing inclusion
+	 * adjacency[i] = array [n, v1, v2, ... vn] of adjacency indices
 	 *
-	 *  groups[i] will be the result group this set is assigned to
+	 * chains[i] will be the result group this set is assigned to.
 	 *
 	 * We index all of these from 1 rather than 0 because it is convenient
 	 * to leave 0 free for the NIL node in the graph algorithm.
@@ -3115,9 +3119,9 @@ extract_rollup_sets(List *groupingSets)
 
 	/*
 	 * Now, the state->pair* fields have the info we need to assign sets to
-	 * chains. Two sets (u,v) belong to the same chain if pair_uv[u] = v
-	 * or pair_vu[v] = u  (both will be true, but we check both so that we
-	 * can do it in one pass)
+	 * chains. Two sets (u,v) belong to the same chain if pair_uv[u] = v or
+	 * pair_vu[v] = u (both will be true, but we check both so that we can do
+	 * it in one pass)
 	 */
 
 	chains = palloc0((num_sets + 1) * sizeof(int));
@@ -3159,10 +3163,10 @@ extract_rollup_sets(List *groupingSets)
 		result = lappend(result, results[i]);
 
 	/*
-	 * free all the things
+	 * Free all the things.
 	 *
-	 * this is over-fussy for small sets but for large sets we could
-	 * have tied up a nontrivial amount of memory
+	 * (This is over-fussy for small sets but for large sets we could have tied
+	 * up a nontrivial amount of memory.)
 	 */
 
 	hk_free(state);
@@ -3182,11 +3186,11 @@ extract_rollup_sets(List *groupingSets)
 }
 
 /*
- * Reorder the elements of a list of grouping sets such that they have
- * correct prefix relationships.
+ * Reorder the elements of a list of grouping sets such that they have correct
+ * prefix relationships.
  *
- * The input must be ordered with smallest sets first; the result is
- * returned with largest sets first.
+ * The input must be ordered with smallest sets first; the result is returned
+ * with largest sets first.
  *
  * If we're passed in a sortclause, we follow its order of columns to the
  * extent possible, to minimize the chance that we add unnecessary sorts.
