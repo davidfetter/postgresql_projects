@@ -1088,20 +1088,8 @@ exec_command(const char *cmd,
 		char	   *fname = psql_scan_slash_option(scan_state,
 												   OT_NORMAL, NULL, true);
 
-#if defined(WIN32) && !defined(__CYGWIN__)
-
-		/*
-		 * XXX This does not work for all terminal environments or for output
-		 * containing non-ASCII characters; see comments in simple_prompt().
-		 */
-#define DEVTTY	"con"
-#else
-#define DEVTTY	"/dev/tty"
-#endif
-
 		expand_tilde(&fname);
-		/* This scrolls off the screen when using /dev/tty */
-		success = saveHistory(fname ? fname : DEVTTY, -1, false, false);
+		success = printHistory(fname, pset.popt.topt.pager);
 		if (success && !pset.quiet && fname)
 			printf(_("Wrote history to file \"%s\".\n"), fname);
 		if (!fname)
@@ -1503,7 +1491,19 @@ exec_command(const char *cmd,
 
 	/* \? -- slash command help */
 	else if (strcmp(cmd, "?") == 0)
-		slashUsage(pset.popt.topt.pager);
+	{
+		char	   *opt0 = psql_scan_slash_option(scan_state,
+													OT_NORMAL, NULL, false);
+
+		if (!opt0 || strcmp(opt0, "commands") == 0)
+			slashUsage(pset.popt.topt.pager);
+		else if (strcmp(opt0, "options") == 0)
+			usage(pset.popt.topt.pager);
+		else if (strcmp(opt0, "variables") == 0)
+			helpVariables(pset.popt.topt.pager);
+		else
+			slashUsage(pset.popt.topt.pager);
+	}
 
 #if 0
 
