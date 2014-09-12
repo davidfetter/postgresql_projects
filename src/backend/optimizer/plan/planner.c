@@ -3090,7 +3090,7 @@ extract_rollup_sets(List *groupingSets)
 
 			/* fill in adjacency list; no need to compare equal-size sets */
 
-			for (k = 1; k < j; ++k)
+			for (k = j - 1; k > 0; --k)
 			{
 				if (bms_is_subset(set_masks[k], candidate_set))
 					adjacency_buf[++n_adj] = k;
