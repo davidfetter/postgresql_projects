@@ -1907,6 +1907,7 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	Node	   *qual;
 	ListCell   *origTargetList;
 	ListCell   *tl;
+	bool        isStar = false;
 
 	qry->commandType = CMD_UPDATE;
 	pstate->p_is_update = true;
@@ -1940,6 +1941,41 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	/* remaining clauses can reference the result relation normally */
 	nsitem->p_lateral_only = false;
 	nsitem->p_lateral_ok = true;
+
+	if (list_length(stmt->targetList) == 1)
+	{
+		ResTarget *current_val = linitial(stmt->targetList);
+
+		if (IsA((current_val->val), List))
+		{
+			Node *inner_val = linitial((List *) (current_val->val));
+			List *rel_cols_list;
+			int rteindex = 0;
+			int sublevels_up = 0;
+			int i = 0;
+
+			expandRTE(pstate->p_target_rangetblentry, rteindex, sublevels_up,
+					  current_val->location, false,
+					  &(rel_cols_list), NULL);
+
+			if (IsA(inner_val, MultiAssignRef))
+			{
+				for (i = 1;i < list_length(rel_cols_list);i++)
+				{
+					MultiAssignRef *orig_val = (MultiAssignRef *) (inner_val);
+					MultiAssignRef *r = makeNode(MultiAssignRef);
+				   
+					orig_val->ncolumns = list_length(rel_cols_list);
+					r->source = orig_val->source;
+					r->colno = i + 1;
+					r->ncolumns = list_length(rel_cols_list);
+
+					lappend((List *) (current_val->val), r);
+				}
+			}
+		}
+	}
+			
 
 	qry->targetList = transformTargetList(pstate, stmt->targetList,
 										  EXPR_KIND_UPDATE_SOURCE);
@@ -1986,30 +2022,54 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 			continue;
 		}
 		if (origTargetList == NULL)
-			elog(ERROR, "UPDATE target count mismatch --- internal error");
-		origTarget = (ResTarget *) lfirst(origTargetList);
-		Assert(IsA(origTarget, ResTarget));
+		{
+			if (!isStar)
+				elog(ERROR, "UPDATE target count mismatch --- internal error");
+		}
+		else
+		{
+			origTarget = (ResTarget *) lfirst(origTargetList);
+			Assert(IsA(origTarget, ResTarget));
+		}
 
-		attrno = attnameAttNum(pstate->p_target_relation,
-							   origTarget->name, true);
-		if (attrno == InvalidAttrNumber)
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_COLUMN),
-					 errmsg("column \"%s\" of relation \"%s\" does not exist",
-							origTarget->name,
-						 RelationGetRelationName(pstate->p_target_relation)),
-					 parser_errposition(pstate, origTarget->location)));
+		if (!(origTarget) || !(origTarget->name))
+			isStar = true;
 
-		updateTargetListEntry(pstate, tle, origTarget->name,
-							  attrno,
-							  origTarget->indirection,
-							  origTarget->location);
+		if (!isStar)
+			attrno = attnameAttNum(pstate->p_target_relation,
+								   origTarget->name, true);
+		else
+			attrno = attnameAttNum(pstate->p_target_relation,
+								   tle->resname, true);
+
+		/*
+		 * Check only if we do not have SET (*) else the expansion happened
+		 * with relation's attribute names.
+		 * No need for updating target list entry for SET (*) since it is already
+		 * processed.
+		 */
+		if (!isStar)
+		{
+			if (attrno == InvalidAttrNumber)
+				ereport(ERROR,
+						(errcode(ERRCODE_UNDEFINED_COLUMN),
+						 errmsg("column \"%s\" of relation \"%s\" does not exist",
+								origTarget->name,
+								RelationGetRelationName(pstate->p_target_relation)),
+						 parser_errposition(pstate, origTarget->location)));
+
+			updateTargetListEntry(pstate, tle, origTarget->name,
+								  attrno,
+								  origTarget->indirection,
+								  origTarget->location);
+		}
 
 		/* Mark the target column as requiring update permissions */
 		target_rte->modifiedCols = bms_add_member(target_rte->modifiedCols,
 								attrno - FirstLowInvalidHeapAttributeNumber);
 
-		origTargetList = lnext(origTargetList);
+		if (origTargetList)
+			origTargetList = lnext(origTargetList);
 	}
 	if (origTargetList != NULL)
 		elog(ERROR, "UPDATE target count mismatch --- internal error");

@@ -1295,7 +1295,7 @@ transformMultiAssignRef(ParseState *pstate, MultiAssignRef *maref)
 		Assert(IsA(qtree, Query));
 
 		/* Check subquery returns required number of columns */
-		if (count_nonjunk_tlist_entries(qtree->targetList) != maref->ncolumns)
+		if ((count_nonjunk_tlist_entries(qtree->targetList) != maref->ncolumns) && maref->ncolumns != -1)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("number of columns does not match number of values"),

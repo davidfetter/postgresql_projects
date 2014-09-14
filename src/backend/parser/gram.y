@@ -9319,6 +9319,41 @@ multiple_set_clause:
 
 					$$ = $2;
 				}
+            | '(' '*' ')' '=' ctext_row
+			    {
+					ResTarget *res_col = makeNode(ResTarget);
+
+					res_col->val = (Node *) $5;
+					res_col->location = @2;
+
+					$$ = list_make1(res_col);
+				}
+            | '(' '*' ')' '=' select_with_parens
+				{
+					SubLink *sl = makeNode(SubLink);
+					int ncolumns = -1;  /* We do not know the number of columns yet */
+
+					/* Create a MultiAssignRef source for each target */
+					ResTarget *res_col = makeNode(ResTarget);
+					MultiAssignRef *r = makeNode(MultiAssignRef);
+
+					/* First, convert bare SelectStmt into a SubLink */
+					sl->subLinkType = MULTIEXPR_SUBLINK;
+					sl->subLinkId = 0;		/* will be assigned later */
+					sl->testexpr = NULL;
+					sl->operName = NIL;
+					sl->subselect = $5;
+					sl->location = @5;
+
+					r->source = (Node *) sl;
+					r->colno = 1;
+					r->ncolumns = ncolumns;
+					res_col->val = (Node *) list_make1(r);
+
+					res_col->location = @2;
+
+					$$ = list_make1(res_col);
+				}
 		;
 
 set_target:
