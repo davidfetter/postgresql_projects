@@ -1954,6 +1954,9 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 			int sublevels_up = 0;
 			int i = 0;
 
+			rteindex = RTERangeTablePosn(pstate, pstate->p_target_rangetblentry,
+										 &sublevels_up);
+
 			expandRTE(pstate->p_target_rangetblentry, rteindex, sublevels_up,
 					  current_val->location, false,
 					  &(rel_cols_list), NULL);

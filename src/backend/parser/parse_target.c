@@ -288,7 +288,7 @@ transformTargetList(ParseState *pstate, List *targetlist,
 /*
  * transformExpressionList()
  *
- * This is the identical transformation to transformTargetist, except that
+ * This is the identical transformation to transformTargetList, except that
  * the input list elements are bare expressions without ResTarget decoration,
  * and the output elements are likewise just expressions without TargetEntry
  * decoration.  We use this for ROW() and VALUES() constructs.
