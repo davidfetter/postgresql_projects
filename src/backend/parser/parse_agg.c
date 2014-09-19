@@ -976,6 +976,16 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 					break;
 			}
 		}
+
+		/*
+		 * If there was only one grouping set in the expansion, AND if the
+		 * groupClause is non-empty (meaning that the grouping set is not empty
+		 * either), then we can ditch the grouping set and pretend we just had
+		 * a normal GROUP BY.
+		 */
+
+		if (list_length(gsets) == 1 && qry->groupClause)
+			qry->groupingSets = NIL;
 	}
 
 	/*
