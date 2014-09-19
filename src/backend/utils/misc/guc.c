@@ -61,6 +61,7 @@
 #include "replication/syncrep.h"
 #include "replication/walreceiver.h"
 #include "replication/walsender.h"
+#include "rewrite/rowsecurity.h"
 #include "storage/bufmgr.h"
 #include "storage/dsm_impl.h"
 #include "storage/standby.h"
@@ -401,6 +402,23 @@ static const struct config_enum_entry huge_pages_options[] = {
 };
 
 /*
+ * Although only "on", "off", and "force" are documented, we
+ * accept all the likely variants of "on" and "off".
+ */
+static const struct config_enum_entry row_security_options[] = {
+	{"on", ROW_SECURITY_ON, false},
+	{"off", ROW_SECURITY_OFF, false},
+	{"force", ROW_SECURITY_FORCE, false},
+	{"true", ROW_SECURITY_ON, true},
+	{"false", ROW_SECURITY_OFF, true},
+	{"yes", ROW_SECURITY_ON, true},
+	{"no", ROW_SECURITY_OFF, true},
+	{"1", ROW_SECURITY_ON, true},
+	{"0", ROW_SECURITY_OFF, true},
+	{NULL, 0, false}
+};
+
+/*
  * Options for enum values stored in other modules
  */
 extern const struct config_enum_entry wal_level_options[];
@@ -456,6 +474,8 @@ int			tcp_keepalives_idle;
 int			tcp_keepalives_interval;
 int			tcp_keepalives_count;
 
+int			row_security = true;
+
 /*
  * This really belongs in pg_shmem.c, but is defined here so that it doesn't
  * need to be duplicated in all the different implementations of pg_shmem.c.
@@ -493,7 +513,7 @@ static bool data_checksums;
 static int	wal_segment_size;
 static bool integer_datetimes;
 static int	effective_io_concurrency;
-static bool	assert_enabled;
+static bool assert_enabled;
 
 /* should be static, but commands/variable.c needs to get at this */
 char	   *role_string;
@@ -509,6 +529,7 @@ const char *const GucContext_Names[] =
 	 /* PGC_INTERNAL */ "internal",
 	 /* PGC_POSTMASTER */ "postmaster",
 	 /* PGC_SIGHUP */ "sighup",
+	 /* PGC_SU_BACKEND */ "superuser-backend",
 	 /* PGC_BACKEND */ "backend",
 	 /* PGC_SUSET */ "superuser",
 	 /* PGC_USERSET */ "user"
@@ -907,7 +928,7 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
-		{"log_connections", PGC_BACKEND, LOGGING_WHAT,
+		{"log_connections", PGC_SU_BACKEND, LOGGING_WHAT,
 			gettext_noop("Logs each successful connection."),
 			NULL
 		},
@@ -916,11 +937,20 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
-		{"log_disconnections", PGC_BACKEND, LOGGING_WHAT,
+		{"log_disconnections", PGC_SU_BACKEND, LOGGING_WHAT,
 			gettext_noop("Logs end of a session, including duration."),
 			NULL
 		},
 		&Log_disconnections,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"log_replication_commands", PGC_SUSET, LOGGING_WHAT,
+			gettext_noop("Logs each replication command."),
+			NULL
+		},
+		&log_replication_commands,
 		false,
 		NULL, NULL, NULL
 	},
@@ -3507,6 +3537,16 @@ static struct config_enum ConfigureNamesEnum[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"row_security", PGC_USERSET, CONN_AUTH_SECURITY,
+			gettext_noop("Enable row security."),
+			gettext_noop("When enabled, row security will be applied to all users.")
+		},
+		&row_security,
+		ROW_SECURITY_ON, row_security_options,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, 0, NULL, NULL, NULL, NULL
@@ -4380,10 +4420,10 @@ SelectConfigFiles(const char *userDoption, const char *progname)
 	SetConfigOption("data_directory", DataDir, PGC_POSTMASTER, PGC_S_OVERRIDE);
 
 	/*
-	 * Now read the config file a second time, allowing any settings in
-	 * the PG_AUTOCONF_FILENAME file to take effect.  (This is pretty ugly,
-	 * but since we have to determine the DataDir before we can find the
-	 * autoconf file, the alternatives seem worse.)
+	 * Now read the config file a second time, allowing any settings in the
+	 * PG_AUTOCONF_FILENAME file to take effect.  (This is pretty ugly, but
+	 * since we have to determine the DataDir before we can find the autoconf
+	 * file, the alternatives seem worse.)
 	 */
 	ProcessConfigFile(PGC_POSTMASTER);
 
@@ -5685,16 +5725,27 @@ set_config_option(const char *name, const char *value,
 			 * signals to individual backends only.
 			 */
 			break;
+		case PGC_SU_BACKEND:
+			/* Reject if we're connecting but user is not superuser */
+			if (context == PGC_BACKEND)
+			{
+				ereport(elevel,
+						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						 errmsg("permission denied to set parameter \"%s\"",
+								name)));
+				return 0;
+			}
+			/* FALL THRU to process the same as PGC_BACKEND */
 		case PGC_BACKEND:
 			if (context == PGC_SIGHUP)
 			{
 				/*
-				 * If a PGC_BACKEND parameter is changed in the config file,
-				 * we want to accept the new value in the postmaster (whence
-				 * it will propagate to subsequently-started backends), but
-				 * ignore it in existing backends.  This is a tad klugy, but
-				 * necessary because we don't re-read the config file during
-				 * backend start.
+				 * If a PGC_BACKEND or PGC_SU_BACKEND parameter is changed in
+				 * the config file, we want to accept the new value in the
+				 * postmaster (whence it will propagate to
+				 * subsequently-started backends), but ignore it in existing
+				 * backends.  This is a tad klugy, but necessary because we
+				 * don't re-read the config file during backend start.
 				 *
 				 * In EXEC_BACKEND builds, this works differently: we load all
 				 * nondefault settings from the CONFIG_EXEC_PARAMS file during
@@ -5713,7 +5764,9 @@ set_config_option(const char *name, const char *value,
 					return -1;
 #endif
 			}
-			else if (context != PGC_POSTMASTER && context != PGC_BACKEND &&
+			else if (context != PGC_POSTMASTER &&
+					 context != PGC_BACKEND &&
+					 context != PGC_SU_BACKEND &&
 					 source != PGC_S_CLIENT)
 			{
 				ereport(elevel,
@@ -6762,7 +6815,8 @@ AlterSystemSetConfigFile(AlterSystemStmt *altersysstmt)
 		if (record == NULL)
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
-				   errmsg("unrecognized configuration parameter \"%s\"", name)));
+					 errmsg("unrecognized configuration parameter \"%s\"",
+							name)));
 
 		/*
 		 * Don't allow the parameters which can't be set in configuration
@@ -6771,16 +6825,17 @@ AlterSystemSetConfigFile(AlterSystemStmt *altersysstmt)
 		if ((record->context == PGC_INTERNAL) ||
 			(record->flags & GUC_DISALLOW_IN_FILE) ||
 			(record->flags & GUC_DISALLOW_IN_AUTO_FILE))
-			 ereport(ERROR,
-					 (errcode(ERRCODE_CANT_CHANGE_RUNTIME_PARAM),
-					  errmsg("parameter \"%s\" cannot be changed",
-							 name)));
+			ereport(ERROR,
+					(errcode(ERRCODE_CANT_CHANGE_RUNTIME_PARAM),
+					 errmsg("parameter \"%s\" cannot be changed",
+							name)));
 
 		if (!validate_conf_option(record, name, value, PGC_S_FILE,
 								  ERROR, true, NULL,
 								  &newextra))
 			ereport(ERROR,
-			(errmsg("invalid value for parameter \"%s\": \"%s\"", name, value)));
+					(errmsg("invalid value for parameter \"%s\": \"%s\"",
+							name, value)));
 	}
 
 
@@ -6808,7 +6863,7 @@ AlterSystemSetConfigFile(AlterSystemStmt *altersysstmt)
 	if (Tmpfd < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
-				 errmsg("failed to open auto conf temp file \"%s\": %m ",
+				 errmsg("failed to open auto conf temp file \"%s\": %m",
 						AutoConfTmpFileName)));
 
 	PG_TRY();
@@ -6826,8 +6881,8 @@ AlterSystemSetConfigFile(AlterSystemStmt *altersysstmt)
 				infile = AllocateFile(AutoConfFileName, "r");
 				if (infile == NULL)
 					ereport(ERROR,
-							(errmsg("failed to open auto conf file \"%s\": %m ",
-									AutoConfFileName)));
+						  (errmsg("failed to open auto conf file \"%s\": %m",
+								  AutoConfFileName)));
 
 				/* parse it */
 				ParseConfigFp(infile, AutoConfFileName, 0, LOG, &head, &tail);
@@ -8379,8 +8434,8 @@ read_nondefault_variables(void)
 	GucContext	varscontext;
 
 	/*
-	 * Assert that PGC_BACKEND case in set_config_option() will do the right
-	 * thing.
+	 * Assert that PGC_BACKEND/PGC_SU_BACKEND case in set_config_option() will
+	 * do the right thing.
 	 */
 	Assert(IsInitProcessingMode());
 

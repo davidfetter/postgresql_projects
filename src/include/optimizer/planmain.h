@@ -137,6 +137,7 @@ extern void set_sa_opfuncid(ScalarArrayOpExpr *opexpr);
 extern void record_plan_function_dependency(PlannerInfo *root, Oid funcid);
 extern void extract_query_dependencies(Node *query,
 						   List **relationOids,
-						   List **invalItems);
+						   List **invalItems,
+						   bool *hasRowSecurity);
 
 #endif   /* PLANMAIN_H */
