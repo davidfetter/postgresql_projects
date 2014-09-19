@@ -4345,8 +4345,9 @@ local0.*    /var/log/postgresql
        <para>
         Causes each attempted connection to the server to be logged,
         as well as successful completion of client authentication.
-        This parameter cannot be changed after session start.
-        The default is off.
+        Only superusers can change this parameter at session start,
+        and it cannot be changed at all within a session.
+        The default is <literal>off</>.
        </para>
 
        <note>
@@ -4368,11 +4369,12 @@ local0.*    /var/log/postgresql
       </term>
       <listitem>
        <para>
-        This outputs a line in the server log similar to
-        <varname>log_connections</varname> but at session termination,
-        and includes the duration of the session.  This is off by
-        default.
-        This parameter cannot be changed after session start.
+        Causes session terminations to be logged.  The log output
+        provides information similar to <varname>log_connections</varname>,
+        plus the duration of the session.
+        Only superusers can change this parameter at session start,
+        and it cannot be changed at all within a session.
+        The default is <literal>off</>.
        </para>
       </listitem>
      </varlistentry>
@@ -4669,6 +4671,22 @@ FROM pg_stat_activity;
          <literal>ERROR</> (or lower) to log such statements.
         </para>
        </note>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-log-replication-commands" xreflabel="log_replication_commands">
+      <term><varname>log_replication_commands</varname> (<type>boolean</type>)
+      <indexterm>
+       <primary><varname>log_replication_commands</> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Causes each replication command to be logged in the server log.
+        See <xref linkend="protocol-replication"> for more information about
+        replication command. The default value is <literal>off</>.
+        Only superusers can change this setting.
+       </para>
       </listitem>
      </varlistentry>
 
@@ -5407,6 +5425,46 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
 
        <para>
         For more information on schema handling, see <xref linkend="ddl-schemas">.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-row-security" xreflabel="row_security">
+      <term><varname>row_security</varname> (<type>enum</type>)
+      <indexterm>
+       <primary><varname>row_security</> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        This variable controls if row security policies are to be applied
+        to queries which are run against tables that have row security enabled.
+        The default is 'on'.  When set to 'on', all users, except superusers
+        and the owner of the table, will have the row policies for the table
+        applied to their queries.  The table owner and superuser can request
+        that row policies be applied to their queries by setting this to
+        'force'.  Lastly, this can also be set to 'off' which will bypass row
+        policies for the table, if possible, and error if not.
+       </para>
+
+       <para>
+        For a user who is not a superuser and not the table owner to bypass
+        row policies for the table, they must have the BYPASSRLS role attribute.
+        If this is set to 'off' and the user queries a table which has row
+        policies enabled and the user does not have the right to bypass
+        row policies then a permission denied error will be returned.
+       </para>
+
+       <para>
+        The allowed values of <varname>row_security</> are
+        <literal>on</> (apply normally- not to superuser or table owner),
+        <literal>off</> (fail if row security would be applied), and
+        <literal>force</> (apply always- even to superuser and table owner).
+       </para>
+
+       <para>
+        For more information on row security policies,
+        see <xref linkend="SQL-CREATEPOLICY">.
        </para>
       </listitem>
      </varlistentry>
