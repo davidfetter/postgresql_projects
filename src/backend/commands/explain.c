@@ -1809,12 +1809,9 @@ show_grouping_set_keys(PlanState *planstate, const char *qlabel,
 {
 	Plan	   *plan = planstate->plan;
 	List	   *context;
-	List	   *result = NIL;
 	bool		useprefix;
 	char	   *exprstr;
-	StringInfoData buf;
 	ListCell   *lc;
-	ListCell   *lc2;
 
 	if (gsets == NIL)
 		return;
@@ -1826,12 +1823,12 @@ show_grouping_set_keys(PlanState *planstate, const char *qlabel,
 											es->rtable_names);
 	useprefix = (list_length(es->rtable) > 1 || es->verbose);
 
+	ExplainOpenGroup("Grouping Sets", "Grouping Sets", false, es);
+
 	foreach(lc, gsets)
 	{
-		char *sep = "";
-
-		initStringInfo(&buf);
-		appendStringInfoString(&buf, "(");
+		List	   *result = NIL;
+		ListCell   *lc2;
 
 		foreach(lc2, (List *) lfirst(lc))
 		{
@@ -1846,17 +1843,16 @@ show_grouping_set_keys(PlanState *planstate, const char *qlabel,
 			exprstr = deparse_expression((Node *) target->expr, context,
 										 useprefix, true);
 
-			appendStringInfoString(&buf, sep);
-			appendStringInfoString(&buf, exprstr);
-			sep = ", ";
+			result = lappend(result, exprstr);
 		}
 
-		appendStringInfoString(&buf, ")");
-
-		result = lappend(result, buf.data);
+		if (!result && es->format == EXPLAIN_FORMAT_TEXT)
+			ExplainPropertyText("Group Key", "()", es);
+		else
+			ExplainPropertyListNested("Group Key", result, es);
 	}
 
-	ExplainPropertyList(qlabel, result, es);
+	ExplainCloseGroup("Grouping Sets", "Grouping Sets", false, es);
 }
 
 /*
@@ -2400,6 +2396,52 @@ ExplainPropertyList(const char *qlabel, List *data, ExplainState *es)
 				appendStringInfoString(es->str, "- ");
 				escape_yaml(es->str, (const char *) lfirst(lc));
 			}
+			break;
+	}
+}
+
+/*
+ * Explain a property that takes the form of a list of unlabeled items within
+ * another list.  "data" is a list of C strings.
+ */
+void
+ExplainPropertyListNested(const char *qlabel, List *data, ExplainState *es)
+{
+	ListCell   *lc;
+	bool		first = true;
+
+	switch (es->format)
+	{
+		case EXPLAIN_FORMAT_TEXT:
+		case EXPLAIN_FORMAT_XML:
+			ExplainPropertyList(qlabel, data, es);
+			return;
+
+		case EXPLAIN_FORMAT_JSON:
+			ExplainJSONLineEnding(es);
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			appendStringInfoChar(es->str, '[');
+			foreach(lc, data)
+			{
+				if (!first)
+					appendStringInfoString(es->str, ", ");
+				escape_json(es->str, (const char *) lfirst(lc));
+				first = false;
+			}
+			appendStringInfoChar(es->str, ']');
+			break;
+
+		case EXPLAIN_FORMAT_YAML:
+			ExplainYAMLLineStarting(es);
+			appendStringInfoString(es->str, "- [");
+			foreach(lc, data)
+			{
+				if (!first)
+					appendStringInfoString(es->str, ", ");
+				escape_yaml(es->str, (const char *) lfirst(lc));
+				first = false;
+			}
+			appendStringInfoChar(es->str, ']');
 			break;
 	}
 }
