@@ -1942,6 +1942,11 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	nsitem->p_lateral_only = false;
 	nsitem->p_lateral_ok = true;
 
+	/* 
+	 * Check if (SET(*) = SELECT ...)  is present. If it is present we 
+	 * resolve and populate the remaining needed MultiAssignRefs in the
+     * target list.
+     */
 	if (list_length(stmt->targetList) == 1)
 	{
 		ResTarget *current_val = linitial(stmt->targetList);
@@ -1963,15 +1968,17 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 
 			if (IsA(inner_val, MultiAssignRef))
 			{
+				MultiAssignRef *orig_val = (MultiAssignRef *) (inner_val);
+
+				orig_val->ncolumns = list_length(rel_cols_list);
+
 				for (i = 1;i < list_length(rel_cols_list);i++)
 				{
-					MultiAssignRef *orig_val = (MultiAssignRef *) (inner_val);
 					MultiAssignRef *r = makeNode(MultiAssignRef);
 				   
-					orig_val->ncolumns = list_length(rel_cols_list);
 					r->source = orig_val->source;
 					r->colno = i + 1;
-					r->ncolumns = list_length(rel_cols_list);
+					r->ncolumns = orig_val->ncolumns;
 
 					lappend((List *) (current_val->val), r);
 				}

@@ -172,6 +172,7 @@ transformTargetList(ParseState *pstate, List *targetlist,
 			int rteindex;
 			int sublevels_up;
 
+			/* SET (*) = ... is present */
 			isStar = true;
 
 			rteindex = RTERangeTablePosn(pstate, pstate->p_target_rangetblentry,
@@ -256,7 +257,8 @@ transformTargetList(ParseState *pstate, List *targetlist,
 		if (!isStar)
 		{
 			/*
-			 * Not "something.*", so transform as a single expression
+			 * Not "SET (*) =... " and "something.*", 
+			 * so transform as a single expression
 			 */
 			p_target = lappend(p_target,
 							   transformTargetEntry(pstate,

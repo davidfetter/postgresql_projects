@@ -25,7 +25,9 @@ PostgreSQL documentation
 UPDATE [ ONLY ] <replaceable class="PARAMETER">table_name</replaceable> [ * ] [ [ AS ] <replaceable class="parameter">alias</replaceable> ]
     SET { <replaceable class="PARAMETER">column_name</replaceable> = { <replaceable class="PARAMETER">expression</replaceable> | DEFAULT } |
           ( <replaceable class="PARAMETER">column_name</replaceable> [, ...] ) = ( { <replaceable class="PARAMETER">expression</replaceable> | DEFAULT } [, ...] ) |
-          ( <replaceable class="PARAMETER">column_name</replaceable> [, ...] ) = ( <replaceable class="PARAMETER">sub-SELECT</replaceable> )
+          ( <replaceable class="PARAMETER">column_name</replaceable> [, ...] ) = ( <replaceable class="PARAMETER">sub-SELECT</replaceable> ) |
+          ( <replaceable class="PARAMETER">*</replaceable> [, ...] ) = ( { <replaceable class="PARAMETER">expression</replaceable> | DEFAULT } [, ...] ) |
+          ( <replaceable class="PARAMETER">*</replaceable> [, ...] ) = ( <replaceable class="PARAMETER">sub-SELECT</replaceable> )
         } [, ...]
     [ FROM <replaceable class="PARAMETER">from_list</replaceable> ]
     [ WHERE <replaceable class="PARAMETER">condition</replaceable> | WHERE CURRENT OF <replaceable class="PARAMETER">cursor_name</replaceable> ]

@@ -9323,6 +9323,7 @@ multiple_set_clause:
 			    {
 					ResTarget *res_col = makeNode(ResTarget);
 
+					/* Make a single node having all target values in a list */
 					res_col->val = (Node *) $5;
 					res_col->location = @2;
 
@@ -9333,7 +9334,10 @@ multiple_set_clause:
 					SubLink *sl = makeNode(SubLink);
 					int ncolumns = -1;  /* We do not know the number of columns yet */
 
-					/* Create a MultiAssignRef source for each target */
+					/* 
+					 * Create a MultiAssignRef source as representative for the entire set
+					 * since we cannot look up attributes of target relation here.
+					 */
 					ResTarget *res_col = makeNode(ResTarget);
 					MultiAssignRef *r = makeNode(MultiAssignRef);
 
