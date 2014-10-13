@@ -44,6 +44,10 @@ OBJS += ip.o md5.o
 # utils/mb
 OBJS += encnames.o wchar.o
 
+ifeq ($(with_openssl),yes)
+OBJS += fe-secure-openssl.o
+endif
+
 ifeq ($(PORTNAME), cygwin)
 override shlib = cyg$(NAME)$(DLSUFFIX)
 endif
@@ -122,7 +126,7 @@ install: all installdirs install-lib
 	$(INSTALL_DATA) $(srcdir)/pqexpbuffer.h '$(DESTDIR)$(includedir_internal)'
 	$(INSTALL_DATA) $(srcdir)/pg_service.conf.sample '$(DESTDIR)$(datadir)/pg_service.conf.sample'
 ifneq (,$(findstring $(PORTNAME), win32 cygwin))
-	$(INSTALL_DATA) $(shlib) '$(DESTDIR)$(bindir)/$(shlib)'
+	$(INSTALL_SHLIB) $(shlib) '$(DESTDIR)$(bindir)/$(shlib)'
 endif
 
 installcheck:

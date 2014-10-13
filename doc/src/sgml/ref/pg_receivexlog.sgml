@@ -106,6 +106,21 @@ PostgreSQL documentation
      </varlistentry>
 
      <varlistentry>
+       <term><option>-F <replaceable class="parameter">interval</replaceable></option></term>
+       <term><option>--fsync-interval=<replaceable class="parameter">interval</replaceable></option></term>
+       <listitem>
+        <para>
+        Specifies the maximum time to issue sync commands to ensure the
+        received WAL file is safely flushed to disk, in seconds. The default
+        value is zero, which disables issuing fsyncs except when WAL file is
+        closed. If <literal>-1</literal> is specified, WAL file is flushed as
+        soon as possible, that is, as soon as there are WAL data which has
+        not been flushed yet.
+        </para>
+       </listitem>
+      </varlistentry>
+
+     <varlistentry>
       <term><option>-v</option></term>
       <term><option>--verbose</option></term>
       <listitem>
@@ -227,6 +242,7 @@ PostgreSQL documentation
      </varlistentry>
 
      <varlistentry>
+      <term><option>-S <replaceable>slotname</replaceable></option></term>
       <term><option>--slot=<replaceable class="parameter">slotname</replaceable></option></term>
       <listitem>
         <para>
@@ -239,8 +255,37 @@ PostgreSQL documentation
          to make sure that <application>pg_receivexlog</> cannot become the
          synchronous standby through an incautious setting of
          <xref linkend="guc-synchronous-standby-names">; it does not flush
-         data frequently enough for this to work correctly.
+         data frequently enough for this to work correctly. In
+         <option>--create-slot</option> mode, create the slot with this name.
+         In <option>--drop-slot</option> mode, delete the slot with this name.
         </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </para>
+
+   <para>
+    <application>pg_receivexlog</application> can perform one of the two
+    following actions in order to control physical replication slots:
+
+    <variablelist>
+     <varlistentry>
+      <term><option>--create-slot</option></term>
+      <listitem>
+       <para>
+        Create a new physical replication slot with the name specified in
+        <option>--slot</option>, then start to stream WAL.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><option>--drop-slot</option></term>
+      <listitem>
+       <para>
+        Drop the replication slot with the name specified in
+        <option>--slot</option>, then exit.
+       </para>
       </listitem>
      </varlistentry>
     </variablelist>

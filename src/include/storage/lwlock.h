@@ -89,7 +89,7 @@ extern PGDLLIMPORT LWLockPadded *MainLWLockArray;
  * if you remove a lock, consider leaving a gap in the numbering sequence for
  * the benefit of DTrace and other external debugging scripts.
  */
-#define BufFreelistLock				(&MainLWLockArray[0].lock)
+/* 0 is available; was formerly BufFreelistLock */
 #define ShmemIndexLock				(&MainLWLockArray[1].lock)
 #define OidGenLock					(&MainLWLockArray[2].lock)
 #define XidGenLock					(&MainLWLockArray[3].lock)
@@ -136,7 +136,7 @@ extern PGDLLIMPORT LWLockPadded *MainLWLockArray;
  */
 
 /* Number of partitions of the shared buffer mapping hashtable */
-#define NUM_BUFFER_PARTITIONS  16
+#define NUM_BUFFER_PARTITIONS  128
 
 /* Number of partitions the shared lock tables are divided into */
 #define LOG2_NUM_LOCK_PARTITIONS  4

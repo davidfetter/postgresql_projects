@@ -839,10 +839,12 @@ dropdb(const char *dbname, bool missing_ok)
 	if (ReplicationSlotsCountDBSlots(db_id, &nslots, &nslots_active))
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_IN_USE),
-				 errmsg("database \"%s\" is used by a logical decoding slot",
+				 errmsg("database \"%s\" is used by a logical replication slot",
 						dbname),
-				 errdetail("There are %d slot(s), %d of them active",
-						   nslots, nslots_active)));
+				 errdetail_plural("There is %d slot, %d of them active.",
+								  "There are %d slots, %d of them active.",
+								  nslots,
+								  nslots, nslots_active)));
 
 	/*
 	 * Check for other backends in the target database.  (Because we hold the

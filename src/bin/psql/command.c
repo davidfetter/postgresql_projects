@@ -30,7 +30,7 @@
 #include <sys/types.h>			/* for umask() */
 #include <sys/stat.h>			/* for stat() */
 #endif
-#ifdef USE_SSL
+#ifdef USE_OPENSSL
 #include <openssl/ssl.h>
 #endif
 
@@ -270,7 +270,7 @@ exec_command(const char *cmd,
 			pw = getpwuid(user_id);
 			if (!pw)
 			{
-				psql_error("could not get home directory for user id %ld: %s\n",
+				psql_error("could not get home directory for user ID %ld: %s\n",
 						   (long) user_id,
 						 errno ? strerror(errno) : _("user does not exist"));
 				exit(EXIT_FAILURE);
@@ -1054,6 +1054,9 @@ exec_command(const char *cmd,
 				"footer", "format", "linestyle", "null",
 				"numericlocale", "pager", "recordsep",
 				"tableattr", "title", "tuples_only",
+				"unicode_border_linestyle",
+				"unicode_column_linestyle",
+				"unicode_header_linestyle",
 				NULL
 			};
 
@@ -1088,20 +1091,8 @@ exec_command(const char *cmd,
 		char	   *fname = psql_scan_slash_option(scan_state,
 												   OT_NORMAL, NULL, true);
 
-#if defined(WIN32) && !defined(__CYGWIN__)
-
-		/*
-		 * XXX This does not work for all terminal environments or for output
-		 * containing non-ASCII characters; see comments in simple_prompt().
-		 */
-#define DEVTTY	"con"
-#else
-#define DEVTTY	"/dev/tty"
-#endif
-
 		expand_tilde(&fname);
-		/* This scrolls off the screen when using /dev/tty */
-		success = saveHistory(fname ? fname : DEVTTY, -1, false, false);
+		success = printHistory(fname, pset.popt.topt.pager);
 		if (success && !pset.quiet && fname)
 			printf(_("Wrote history to file \"%s\".\n"), fname);
 		if (!fname)
@@ -1503,7 +1494,19 @@ exec_command(const char *cmd,
 
 	/* \? -- slash command help */
 	else if (strcmp(cmd, "?") == 0)
-		slashUsage(pset.popt.topt.pager);
+	{
+		char	   *opt0 = psql_scan_slash_option(scan_state,
+													OT_NORMAL, NULL, false);
+
+		if (!opt0 || strcmp(opt0, "commands") == 0)
+			slashUsage(pset.popt.topt.pager);
+		else if (strcmp(opt0, "options") == 0)
+			usage(pset.popt.topt.pager);
+		else if (strcmp(opt0, "variables") == 0)
+			helpVariables(pset.popt.topt.pager);
+		else
+			slashUsage(pset.popt.topt.pager);
+	}
 
 #if 0
 
@@ -1791,7 +1794,7 @@ connection_warnings(bool in_startup)
 static void
 printSSLInfo(void)
 {
-#ifdef USE_SSL
+#ifdef USE_OPENSSL
 	int			sslbits = -1;
 	SSL		   *ssl;
 
@@ -2248,6 +2251,41 @@ _align2string(enum printFormat in)
 	return "unknown";
 }
 
+/*
+ * Parse entered unicode linestyle. Returns true, when entered string is
+ * known linestyle: single, double else returns false.
+ */
+static bool
+set_unicode_line_style(printQueryOpt *popt, const char *value, size_t vallen,
+					   unicode_linestyle *linestyle)
+{
+	if (pg_strncasecmp("single", value, vallen) == 0)
+		*linestyle = UNICODE_LINESTYLE_SINGLE;
+	else if (pg_strncasecmp("double", value, vallen) == 0)
+		*linestyle = UNICODE_LINESTYLE_DOUBLE;
+	else
+		return false;
+
+	/* input is ok, generate new unicode style */
+	refresh_utf8format(&(popt->topt));
+
+	return true;
+}
+
+static const char *
+_unicode_linestyle2string(int linestyle)
+{
+	switch (linestyle)
+	{
+		case UNICODE_LINESTYLE_SINGLE:
+			return "single";
+			break;
+		case UNICODE_LINESTYLE_DOUBLE:
+			return "double";
+			break;
+	}
+	return "unknown";
+}
 
 bool
 do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
@@ -2303,6 +2341,45 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 			return false;
 		}
 
+	}
+
+	/* set unicode border line style */
+	else if (strcmp(param, "unicode_border_linestyle") == 0)
+	{
+		if (!value)
+			;
+		else if (!set_unicode_line_style(popt, value, vallen,
+										 &popt->topt.unicode_border_linestyle))
+		{
+			psql_error("\\pset: allowed unicode border linestyle are single, double\n");
+			return false;
+		}
+	}
+
+	/* set unicode column line style */
+	else if (strcmp(param, "unicode_column_linestyle") == 0)
+	{
+		if (!value)
+			;
+		else if (!set_unicode_line_style(popt, value, vallen,
+										 &popt->topt.unicode_column_linestyle))
+		{
+			psql_error("\\pset: allowed unicode column linestyle are single, double\n");
+			return false;
+		}
+	}
+
+	/* set unicode header line style */
+	else if (strcmp(param, "unicode_header_linestyle") == 0)
+	{
+		if (!value)
+			;
+		else if (!set_unicode_line_style(popt, value, vallen,
+										 &popt->topt.unicode_header_linestyle))
+		{
+			psql_error("\\pset: allowed unicode header linestyle are single, double\n");
+			return false;
+		}
 	}
 
 	/* set border style/width */
@@ -2509,7 +2586,7 @@ printPsetInfo(const char *param, struct printQueryOpt *popt)
 		if (popt->topt.default_footer)
 			printf(_("Default footer (%s) is on.\n"), param);
 		else
-			printf(_("Default footer (%s) is off."), param);
+			printf(_("Default footer (%s) is off.\n"), param);
 	}
 
 	/* show format */
@@ -2601,6 +2678,25 @@ printPsetInfo(const char *param, struct printQueryOpt *popt)
 			printf(_("Tuples only (%s) is off.\n"), param);
 	}
 
+	/* unicode style formatting */
+	else if (strcmp(param, "unicode_border_linestyle") == 0)
+	{
+		printf(_("Unicode border linestyle is \"%s\".\n"),
+				_unicode_linestyle2string(popt->topt.unicode_border_linestyle));
+	}
+
+	else if (strcmp(param, "unicode_column_linestyle") == 0)
+	{
+		printf(_("Unicode column linestyle is \"%s\".\n"),
+				_unicode_linestyle2string(popt->topt.unicode_column_linestyle));
+	}
+
+	else if (strcmp(param, "unicode_header_linestyle") == 0)
+	{
+		printf(_("Unicode border linestyle is \"%s\".\n"),
+				_unicode_linestyle2string(popt->topt.unicode_header_linestyle));
+	}
+
 	else
 	{
 		psql_error("\\pset: unknown option: %s\n", param);
@@ -2687,7 +2783,7 @@ do_watch(PQExpBuffer query_buf, long sleep)
 
 	for (;;)
 	{
-		PGresult   *res;
+		int	res;
 		time_t		timer;
 		long		i;
 
@@ -2700,65 +2796,22 @@ do_watch(PQExpBuffer query_buf, long sleep)
 				 sleep, asctime(localtime(&timer)));
 		myopt.title = title;
 
-		/*
-		 * Run the query.  We use PSQLexec, which is kind of cheating, but
-		 * SendQuery doesn't let us suppress autocommit behavior.
-		 */
-		res = PSQLexec(query_buf->data, false);
-
-		/* PSQLexec handles failure results and returns NULL */
-		if (res == NULL)
-			break;
+		/* Run the query and print out the results */
+		res = PSQLexecWatch(query_buf->data, &myopt);
 
 		/*
-		 * If SIGINT is sent while the query is processing, PSQLexec will
-		 * consume the interrupt.  The user's intention, though, is to cancel
-		 * the entire watch process, so detect a sent cancellation request and
-		 * exit in this case.
+		 * PSQLexecWatch handles the case where we can no longer
+		 * repeat the query, and returns 0 or -1.
 		 */
-		if (cancel_pressed)
-		{
-			PQclear(res);
+		if (res == 0)
 			break;
-		}
-
-		switch (PQresultStatus(res))
-		{
-			case PGRES_TUPLES_OK:
-				printQuery(res, &myopt, pset.queryFout, pset.logfile);
-				break;
-
-			case PGRES_COMMAND_OK:
-				fprintf(pset.queryFout, "%s\n%s\n\n", title, PQcmdStatus(res));
-				break;
-
-			case PGRES_EMPTY_QUERY:
-				psql_error(_("\\watch cannot be used with an empty query\n"));
-				PQclear(res);
-				return false;
-
-			case PGRES_COPY_OUT:
-			case PGRES_COPY_IN:
-			case PGRES_COPY_BOTH:
-				psql_error(_("\\watch cannot be used with COPY\n"));
-				PQclear(res);
-				return false;
-
-			default:
-				/* other cases should have been handled by PSQLexec */
-				psql_error(_("unexpected result status for \\watch\n"));
-				PQclear(res);
-				return false;
-		}
-
-		PQclear(res);
-
-		fflush(pset.queryFout);
+		if (res == -1)
+			return false;
 
 		/*
 		 * Set up cancellation of 'watch' via SIGINT.  We redo this each time
-		 * through the loop since it's conceivable something inside PSQLexec
-		 * could change sigint_interrupt_jmp.
+		 * through the loop since it's conceivable something inside
+		 * PSQLexecWatch could change sigint_interrupt_jmp.
 		 */
 		if (sigsetjmp(sigint_interrupt_jmp, 1) != 0)
 			break;

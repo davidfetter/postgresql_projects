@@ -89,35 +89,97 @@ const printTextFormat pg_asciiformat_old =
 	false
 };
 
-const printTextFormat pg_utf8format =
-{
-	"unicode",
+/* Default unicode linestyle format */
+const printTextFormat pg_utf8format;
+
+typedef struct unicodeStyleRowFormat {
+	const char *horizontal;
+	const char *vertical_and_right[2];
+	const char *vertical_and_left[2];
+} unicodeStyleRowFormat;
+
+typedef struct unicodeStyleColumnFormat {
+	const char *vertical;
+	const char *vertical_and_horizontal[2];
+	const char *up_and_horizontal[2];
+	const char *down_and_horizontal[2];
+} unicodeStyleColumnFormat;
+
+typedef struct unicodeStyleBorderFormat {
+	const char *up_and_right;
+	const char *vertical;
+	const char *down_and_right;
+	const char *horizontal;
+	const char *down_and_left;
+	const char *left_and_right;
+} unicodeStyleBorderFormat;
+
+typedef struct unicodeStyleFormat {
+	unicodeStyleRowFormat row_style[2];
+	unicodeStyleColumnFormat column_style[2];
+	unicodeStyleBorderFormat border_style[2];
+	const char *header_nl_left;
+	const char *header_nl_right;
+	const char *nl_left;
+	const char *nl_right;
+	const char *wrap_left;
+	const char *wrap_right;
+	bool wrap_right_border;
+} unicodeStyleFormat;
+
+const unicodeStyleFormat unicode_style = {
 	{
-		/* ─, ┌, ┬, ┐ */
-		{"\342\224\200", "\342\224\214", "\342\224\254", "\342\224\220"},
-		/* ─, ├, ┼, ┤ */
-		{"\342\224\200", "\342\224\234", "\342\224\274", "\342\224\244"},
-		/* ─, └, ┴, ┘ */
-		{"\342\224\200", "\342\224\224", "\342\224\264", "\342\224\230"},
-		/* N/A, │, │, │ */
-		{"", "\342\224\202", "\342\224\202", "\342\224\202"}
+		{
+			/* ─ */
+			"\342\224\200",
+			/* ├╟ */
+			{"\342\224\234", "\342\225\237"},
+			/* ┤╢ */
+			{"\342\224\244", "\342\225\242"},
+		},
+		{
+			/* ═ */
+			"\342\225\220",
+			/* ╞╠ */
+			{"\342\225\236", "\342\225\240"},
+			/* ╡╣ */
+			{"\342\225\241", "\342\225\243"},
+		},
 	},
-	/* │ */
-	"\342\224\202",
-	/* │ */
-	"\342\224\202",
-	/* │ */
-	"\342\224\202",
+	{
+		{
+			/* │ */
+			"\342\224\202",
+			/* ┼╪ */
+			{"\342\224\274", "\342\225\252"},
+			/* ┴╧ */
+			{"\342\224\264", "\342\225\247"},
+			/* ┬╤ */
+			{"\342\224\254", "\342\225\244"},
+		},
+		{
+			/* ║ */
+			"\342\225\221",
+			/* ╫╬ */
+			{"\342\225\253", "\342\225\254"},
+			/* ╨╩ */
+			{"\342\225\250", "\342\225\251"},
+			/* ╥╦ */
+			{"\342\225\245", "\342\225\246"},
+		},
+	},
+	{
+		/* └│┌─┐┘ */
+		{"\342\224\224", "\342\224\202", "\342\224\214", "\342\224\200", "\342\224\220", "\342\224\230"},
+		/* ╚║╔═╗╝ */
+		{"\342\225\232", "\342\225\221", "\342\225\224", "\342\225\220", "\342\225\227", "\342\225\235"},
+	},
 	" ",
-	/* ↵ */
-	"\342\206\265",
+	"\342\206\265", /* ↵ */
 	" ",
-	/* ↵ */
-	"\342\206\265",
-	/* … */
-	"\342\200\246",
-	/* … */
-	"\342\200\246",
+	"\342\206\265", /* ↵ */
+	"\342\200\246", /* … */
+	"\342\200\246", /* … */
 	true
 };
 
@@ -1085,16 +1147,15 @@ cleanup:
 
 
 static void
-print_aligned_vertical_line(const printTableContent *cont,
+print_aligned_vertical_line(const printTextFormat *format,
+							const unsigned short opt_border,
 							unsigned long record,
 							unsigned int hwidth,
 							unsigned int dwidth,
 							printTextRule pos,
 							FILE *fout)
 {
-	const printTextFormat *format = get_line_style(cont->opt);
 	const printTextLineFormat *lformat = &format->lrule[pos];
-	unsigned short opt_border = cont->opt->border;
 	unsigned int i;
 	int			reclen = 0;
 
@@ -1160,7 +1221,9 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 				dformatsize = 0;
 	struct lineptr *hlineptr,
 			   *dlineptr;
-	bool		is_pager = false;
+	bool		is_pager = false,
+				hmultiline = false,
+				dmultiline = false;
 	int			output_columns = 0;		/* Width of interactive console */
 
 	if (cancel_pressed)
@@ -1196,7 +1259,10 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 		if (width > hwidth)
 			hwidth = width;
 		if (height > hheight)
+		{
 			hheight = height;
+			hmultiline = true;
+		}
 		if (fs > hformatsize)
 			hformatsize = fs;
 	}
@@ -1213,7 +1279,10 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 		if (width > dwidth)
 			dwidth = width;
 		if (height > dheight)
+		{
 			dheight = height;
+			dmultiline = true;
+		}
 		if (fs > dformatsize)
 			dformatsize = fs;
 	}
@@ -1258,45 +1327,82 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 	if (cont->opt->format == PRINT_WRAPPED)
 	{
 		/*
-		 * Calculate the available width to wrap the columns to after
-		 * subtracting the maximum header width and separators. At a minimum
-		 * enough to print "[ RECORD N ]"
+		 * Separators width
 		 */
 		unsigned int width,
-					swidth;
+					min_width,
+					swidth,
+					iwidth = 0;
 
 		if (opt_border == 0)
-			swidth = 1;			/* "header data" */
-		else if (opt_border == 1)
-			swidth = 3;			/* "header | data" */
-		else
-			swidth = 7;			/* "| header | data |" */
-
-		/* Wrap to maximum width */
-		width = dwidth + swidth + hwidth;
-		if ((output_columns > 0) && (width > output_columns))
 		{
-			dwidth = output_columns - hwidth - swidth;
-			width = output_columns;
+			/*
+			 * For border = 0, one space in the middle.
+			 */
+			swidth = 1;
+		}
+		else if (opt_border == 1)
+		{
+			/*
+			 * For border = 1, one for the pipe (|) in the middle
+			 * between the two spaces.
+			 */
+			swidth = 3;
+		}
+		else
+			/*
+			 * For border = 2, two more for the pipes (|) at the beginning and
+			 * at the end of the lines.
+			 */
+			swidth = 7;
+
+		if ((opt_border < 2) &&
+			((hmultiline &&
+			(format == &pg_asciiformat_old)) ||
+			(dmultiline &&
+			(format != &pg_asciiformat_old))))
+			iwidth++; /* for newline indicators */
+
+		min_width = hwidth + iwidth + swidth + 3;
+
+		/*
+		 * Record header width
+		 */
+		if (!opt_tuples_only)
+		{
+			/*
+			 * Record number
+			 */
+			unsigned int rwidth = 1 + log10(cont->nrows);
+			if (opt_border == 0)
+				rwidth += 9;	/* "* RECORD " */
+			else if (opt_border == 1)
+				rwidth += 12;	/* "-[ RECORD  ]" */
+			else
+				rwidth += 15;	/* "+-[ RECORD  ]-+" */
+
+			if (rwidth > min_width)
+				min_width = rwidth;
 		}
 
 		/* Wrap to minimum width */
-		if (!opt_tuples_only)
+		width = hwidth + iwidth + swidth + dwidth;
+		if ((width < min_width) || (output_columns < min_width))
+			width = min_width - hwidth - iwidth - swidth;
+		else if (output_columns > 0)
+			/*
+			 * Wrap to maximum width
+			 */
+			width = output_columns - hwidth - iwidth - swidth;
+
+		if ((width < dwidth) || (dheight > 1))
 		{
-			int			delta = 1 + log10(cont->nrows) - width;
-
-			if (opt_border == 0)
-				delta += 6;		/* "* RECORD " */
-			else if (opt_border == 1)
-				delta += 10;	/* "-[ RECORD  ]" */
-			else
-				delta += 15;	/* "+-[ RECORD  ]-+" */
-
-			if (delta > 0)
-				dwidth += delta;
+			dmultiline = true;
+			if ((opt_border == 0) &&
+				(format != &pg_asciiformat_old))
+				width--; /* for wrap indicators */
 		}
-		else if (dwidth < 3)
-			dwidth = 3;
+		dwidth = width;
 	}
 
 	/* print records */
@@ -1321,12 +1427,18 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 		/* Print record header (e.g. "[ RECORD N ]") above each record */
 		if (i % cont->ncolumns == 0)
 		{
+			unsigned int lhwidth = hwidth;
+			if ((opt_border < 2) &&
+				(hmultiline) &&
+				(format == &pg_asciiformat_old))
+				lhwidth++; /* for newline indicators */
+
 			if (!opt_tuples_only)
-				print_aligned_vertical_line(cont, record++, hwidth, dwidth,
-											pos, fout);
+				print_aligned_vertical_line(format, opt_border, record++,
+											lhwidth, dwidth, pos, fout);
 			else if (i != 0 || !cont->opt->start_table || opt_border == 2)
-				print_aligned_vertical_line(cont, 0, hwidth, dwidth,
-											pos, fout);
+				print_aligned_vertical_line(format, opt_border, 0, lhwidth,
+											dwidth, pos, fout);
 		}
 
 		/* Format the header */
@@ -1354,35 +1466,62 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 			/* Header (never wrapped so just need to deal with newlines) */
 			if (!hcomplete)
 			{
-				int			swidth,
-							twidth = hwidth + 1;
-
-				fputs(hline ? format->header_nl_left : " ", fout);
-				strlen_max_width(hlineptr[hline].ptr, &twidth,
+				int			swidth = hwidth,
+							target_width = hwidth;
+				/*
+				 * Left spacer or new line indicator
+				 */
+				if ((opt_border == 2) ||
+					(hmultiline && (format == &pg_asciiformat_old)))
+					fputs(hline ? format->header_nl_left : " ", fout);
+				/*
+				 * Header text
+				 */
+				strlen_max_width(hlineptr[hline].ptr, &target_width,
 								 encoding);
 				fprintf(fout, "%-s", hlineptr[hline].ptr);
 
-				swidth = hwidth - twidth;
-				if (swidth > 0) /* spacer */
+				/*
+				 * Spacer
+				 */
+				swidth -= target_width;
+				if (swidth > 0)
 					fprintf(fout, "%*s", swidth, " ");
 
+				/*
+				 * New line indicator or separator's space
+				 */
 				if (hlineptr[hline + 1].ptr)
 				{
 					/* More lines after this one due to a newline */
-					fputs(format->header_nl_right, fout);
+					if ((opt_border > 0) ||
+						(hmultiline && (format != &pg_asciiformat_old)))
+						fputs(format->header_nl_right, fout);
 					hline++;
 				}
 				else
 				{
 					/* This was the last line of the header */
-					fputs(" ", fout);
+					if ((opt_border > 0) ||
+						(hmultiline && (format != &pg_asciiformat_old)))
+						fputs(" ", fout);
 					hcomplete = 1;
 				}
 			}
 			else
 			{
-				/* Header exhausted but more data for column */
-				fprintf(fout, "%*s", hwidth + 2, "");
+				unsigned int swidth = hwidth + opt_border;
+				if ((opt_border < 2) &&
+					(hmultiline) &&
+					(format == &pg_asciiformat_old))
+					swidth++;
+
+				if ((opt_border == 0) &&
+					(format != &pg_asciiformat_old) &&
+					(hmultiline))
+					swidth++;
+
+				fprintf(fout, "%*s", swidth, " ");
 			}
 
 			/* Separator */
@@ -1401,13 +1540,18 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 			/* Data */
 			if (!dcomplete)
 			{
-				int			target_width,
+				int			target_width = dwidth,
 							bytes_to_output,
-							swidth;
+							swidth = dwidth;
 
+				/*
+				 * Left spacer on wrap indicator
+				 */
 				fputs(!dcomplete && !offset ? " " : format->wrap_left, fout);
 
-				target_width = dwidth;
+				/*
+				 * Data text
+				 */
 				bytes_to_output = strlen_max_width(dlineptr[dline].ptr + offset,
 												   &target_width, encoding);
 				fputnbytes(fout, (char *) (dlineptr[dline].ptr + offset),
@@ -1416,20 +1560,30 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 				chars_to_output -= target_width;
 				offset += bytes_to_output;
 
-				/* spacer */
-				swidth = dwidth - target_width;
-				if (swidth > 0)
-					fprintf(fout, "%*s", swidth, "");
+				/* Spacer */
+				swidth -= target_width;
 
 				if (chars_to_output)
 				{
 					/* continuing a wrapped column */
-					fputs(format->wrap_right, fout);
+					if ((opt_border > 1) ||
+						(dmultiline && (format != &pg_asciiformat_old)))
+					{
+						if (swidth > 0)
+							fprintf(fout, "%*s", swidth, " ");
+						fputs(format->wrap_right, fout);
+					}
 				}
 				else if (dlineptr[dline + 1].ptr)
 				{
 					/* reached a newline in the column */
-					fputs(format->nl_right, fout);
+					if ((opt_border > 1) ||
+						(dmultiline && (format != &pg_asciiformat_old)))
+					{
+						if (swidth > 0)
+							fprintf(fout, "%*s", swidth, " ");
+						fputs(format->nl_right, fout);
+					}
 					dline++;
 					offset = 0;
 					chars_to_output = dlineptr[dline].width;
@@ -1437,10 +1591,16 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 				else
 				{
 					/* reached the end of the cell */
-					fputs(" ", fout);
+					if (opt_border > 1)
+					{
+						if (swidth > 0)
+							fprintf(fout, "%*s", swidth, " ");
+						fputs(" ", fout);
+					}
 					dcomplete = 1;
 				}
 
+				/* Right border */
 				if (opt_border == 2)
 					fputs(dformat->rightvrule, fout);
 
@@ -1463,7 +1623,7 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 	if (cont->opt->stop_table)
 	{
 		if (opt_border == 2 && !cancel_pressed)
-			print_aligned_vertical_line(cont, 0, hwidth, dwidth,
+			print_aligned_vertical_line(format, opt_border, 0, hwidth, dwidth,
 										PRINT_RULE_BOTTOM, fout);
 
 		/* print footers */
@@ -2852,6 +3012,58 @@ get_line_style(const printTableOpt *opt)
 		return opt->line_style;
 	else
 		return &pg_asciiformat;
+}
+
+void
+refresh_utf8format(const printTableOpt *opt)
+{
+	printTextFormat *popt =  (printTextFormat *) &pg_utf8format;
+
+	const unicodeStyleBorderFormat *border;
+	const unicodeStyleRowFormat *header;
+	const unicodeStyleColumnFormat *column;
+
+	popt->name = "unicode";
+
+	border = &unicode_style.border_style[opt->unicode_border_linestyle];
+	header = &unicode_style.row_style[opt->unicode_header_linestyle];
+	column = &unicode_style.column_style[opt->unicode_column_linestyle];
+
+	popt->lrule[PRINT_RULE_TOP].hrule = border->horizontal;
+	popt->lrule[PRINT_RULE_TOP].leftvrule = border->down_and_right;
+	popt->lrule[PRINT_RULE_TOP].midvrule = column->down_and_horizontal[opt->unicode_border_linestyle];
+	popt->lrule[PRINT_RULE_TOP].rightvrule = border->down_and_left;
+
+	popt->lrule[PRINT_RULE_MIDDLE].hrule = header->horizontal;
+	popt->lrule[PRINT_RULE_MIDDLE].leftvrule = header->vertical_and_right[opt->unicode_border_linestyle];
+	popt->lrule[PRINT_RULE_MIDDLE].midvrule = column->vertical_and_horizontal[opt->unicode_header_linestyle];
+	popt->lrule[PRINT_RULE_MIDDLE].rightvrule = header->vertical_and_left[opt->unicode_border_linestyle];
+
+	popt->lrule[PRINT_RULE_BOTTOM].hrule = border->horizontal;
+	popt->lrule[PRINT_RULE_BOTTOM].leftvrule = border->up_and_right;
+	popt->lrule[PRINT_RULE_BOTTOM].midvrule = column->up_and_horizontal[opt->unicode_border_linestyle];
+	popt->lrule[PRINT_RULE_BOTTOM].rightvrule = border->left_and_right;
+
+	/* N/A */
+	popt->lrule[PRINT_RULE_DATA].hrule = "";
+	popt->lrule[PRINT_RULE_DATA].leftvrule = border->vertical;
+	popt->lrule[PRINT_RULE_DATA].midvrule = column->vertical;
+	popt->lrule[PRINT_RULE_DATA].rightvrule = border->vertical;
+
+	popt->midvrule_nl = column->vertical;
+	popt->midvrule_wrap = column->vertical;
+	popt->midvrule_blank = column->vertical;
+
+	/* Same for all unicode today */
+	popt->header_nl_left = unicode_style.header_nl_left;
+	popt->header_nl_right = unicode_style.header_nl_right;
+	popt->nl_left = unicode_style.nl_left;
+	popt->nl_right = unicode_style.nl_right;
+	popt->wrap_left = unicode_style.wrap_left;
+	popt->wrap_right = unicode_style.wrap_right;
+	popt->wrap_right_border = unicode_style.wrap_right_border;
+
+	return;
 }
 
 /*

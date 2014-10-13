@@ -43,7 +43,6 @@ extern Oid	CreateTableSpace(CreateTableSpaceStmt *stmt);
 extern void DropTableSpace(DropTableSpaceStmt *stmt);
 extern Oid	RenameTableSpace(const char *oldname, const char *newname);
 extern Oid	AlterTableSpaceOptions(AlterTableSpaceOptionsStmt *stmt);
-extern Oid	AlterTableSpaceMove(AlterTableSpaceMoveStmt *stmt);
 
 extern void TablespaceCreateDbspace(Oid spcNode, Oid dbNode, bool isRedo);
 
@@ -58,5 +57,6 @@ extern bool directory_is_empty(const char *path);
 
 extern void tblspc_redo(XLogRecPtr lsn, XLogRecord *rptr);
 extern void tblspc_desc(StringInfo buf, XLogRecord *rptr);
+extern const char *tblspc_identify(uint8 info);
 
 #endif   /* TABLESPACE_H */

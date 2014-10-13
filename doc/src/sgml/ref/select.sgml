@@ -45,7 +45,7 @@ SELECT [ ALL | DISTINCT [ ON ( <replaceable class="parameter">expression</replac
     [ LIMIT { <replaceable class="parameter">count</replaceable> | ALL } ]
     [ OFFSET <replaceable class="parameter">start</replaceable> [ ROW | ROWS ] ]
     [ FETCH { FIRST | NEXT } [ <replaceable class="parameter">count</replaceable> ] { ROW | ROWS } ONLY ]
-    [ FOR { UPDATE | NO KEY UPDATE | SHARE | KEY SHARE } [ OF <replaceable class="parameter">table_name</replaceable> [, ...] ] [ NOWAIT ] [...] ]
+    [ FOR { UPDATE | NO KEY UPDATE | SHARE | KEY SHARE } [ OF <replaceable class="parameter">table_name</replaceable> [, ...] ] [ NOWAIT | SKIP LOCKED ] [...] ]
 
 <phrase>where <replaceable class="parameter">from_item</replaceable> can be one of:</phrase>
 
@@ -792,8 +792,9 @@ UNBOUNDED FOLLOWING
     The default framing option is <literal>RANGE UNBOUNDED PRECEDING</>,
     which is the same as <literal>RANGE BETWEEN UNBOUNDED PRECEDING AND
     CURRENT ROW</>; it sets the frame to be all rows from the partition start
-    up through the current row's last peer in the <literal>ORDER BY</>
-    ordering (which means all rows if there is no <literal>ORDER BY</>).
+    up through the current row's last peer (a row that <literal>ORDER
+    BY</> considers equivalent to the current row, or all rows if there
+    is no <literal>ORDER BY</>).
     In general, <literal>UNBOUNDED PRECEDING</> means that the frame
     starts with the first row of the partition, and similarly
     <literal>UNBOUNDED FOLLOWING</> means that the frame ends with the last
@@ -817,7 +818,7 @@ UNBOUNDED FOLLOWING
     results if the <literal>ORDER BY</> ordering does not order the rows
     uniquely.  The <literal>RANGE</> options are designed to ensure that
     rows that are peers in the <literal>ORDER BY</> ordering are treated
-    alike; any two peer rows will be both in or both not in the frame.
+    alike; all peer rows will be in the same frame.
    </para>
 
    <para>
@@ -1283,7 +1284,7 @@ FETCH { FIRST | NEXT } [ <replaceable class="parameter">count</replaceable> ] { 
     The locking clause has the general form
 
 <synopsis>
-FOR <replaceable>lock_strength</> [ OF <replaceable class="parameter">table_name</replaceable> [, ...] ] [ NOWAIT ]
+FOR <replaceable>lock_strength</> [ OF <replaceable class="parameter">table_name</replaceable> [, ...] ] [ NOWAIT | SKIP LOCKED ]
 </synopsis>
 
     where <replaceable>lock_strength</> can be one of
@@ -1312,7 +1313,7 @@ KEY SHARE
     is also acquired by any <command>DELETE</> on a row, and also by an
     <command>UPDATE</> that modifies the values on certain columns.  Currently,
     the set of columns considered for the <command>UPDATE</> case are those that
-    have an unique index on them that can be used in a foreign key (so partial
+    have a unique index on them that can be used in a foreign key (so partial
     indexes and expressional indexes are not considered), but this may change
     in the future.
     Also, if an <command>UPDATE</command>, <command>DELETE</command>,
@@ -1359,9 +1360,15 @@ KEY SHARE
 
    <para>
     To prevent the operation from waiting for other transactions to commit,
-    use the <literal>NOWAIT</> option.  With <literal>NOWAIT</>, the statement
-    reports an error, rather than waiting, if a selected row
-    cannot be locked immediately.  Note that <literal>NOWAIT</> applies only
+    use either the <literal>NOWAIT</> or <literal>SKIP LOCKED</literal>
+    option.  With <literal>NOWAIT</>, the statement reports an error, rather
+    than waiting, if a selected row cannot be locked immediately.
+    With <literal>SKIP LOCKED</literal>, any selected rows that cannot be
+    immediately locked are skipped.  Skipping locked rows provides an
+    inconsistent view of the data, so this is not suitable for general purpose
+    work, but can be used to avoid lock contention with multiple consumers
+    accessing a queue-like table.
+    Note that <literal>NOWAIT</> and <literal>SKIP LOCKED</literal> apply only
     to the row-level lock(s) &mdash; the required <literal>ROW SHARE</literal>
     table-level lock is still taken in the ordinary way (see
     <xref linkend="mvcc">).  You can use
@@ -1393,7 +1400,9 @@ KEY SHARE
     then it is processed as if it was only specified by the strongest one.
     Similarly, a table is processed
     as <literal>NOWAIT</> if that is specified in any of the clauses
-    affecting it.
+    affecting it.  Otherwise, it is processed
+    as <literal>SKIP LOCKED</literal> if that is specified in any of the
+    clauses affecting it.
    </para>
 
    <para>
@@ -1930,9 +1939,9 @@ SELECT distributors.* WHERE distributors.name = 'Westward';
     <productname>PostgreSQL</productname> allows it in any <command>SELECT</>
     query as well as in sub-<command>SELECT</>s, but this is an extension.
     The <literal>FOR NO KEY UPDATE</>, <literal>FOR SHARE</> and
-    <literal>FOR KEY SHARE</> variants,
-    as well as the <literal>NOWAIT</> option,
-    do not appear in the standard.
+    <literal>FOR KEY SHARE</> variants, as well as the <literal>NOWAIT</>
+    and <literal>SKIP LOCKED</literal> options, do not appear in the
+    standard.
    </para>
   </refsect2>
 

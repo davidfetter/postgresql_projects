@@ -137,17 +137,35 @@ parseCommandLine(int argc, char *argv[])
 				break;
 
 			case 'o':
-				old_cluster.pgopts = pg_strdup(optarg);
+				/* append option? */
+				if (!old_cluster.pgopts)
+					old_cluster.pgopts = pg_strdup(optarg);
+				else
+				{
+					char *old_pgopts = old_cluster.pgopts;
+
+					old_cluster.pgopts = psprintf("%s %s", old_pgopts, optarg);
+					free(old_pgopts);
+				}
 				break;
 
 			case 'O':
-				new_cluster.pgopts = pg_strdup(optarg);
+				/* append option? */
+				if (!new_cluster.pgopts)
+					new_cluster.pgopts = pg_strdup(optarg);
+				else
+				{
+					char *new_pgopts = new_cluster.pgopts;
+
+					new_cluster.pgopts = psprintf("%s %s", new_pgopts, optarg);
+					free(new_pgopts);
+				}
 				break;
 
 				/*
 				 * Someday, the port number option could be removed and passed
 				 * using -o/-O, but that requires postmaster -C to be
-				 * supported on all old/new versions.
+				 * supported on all old/new versions (added in PG 9.2).
 				 */
 			case 'p':
 				if ((old_cluster.port = atoi(optarg)) <= 0)
@@ -229,6 +247,26 @@ parseCommandLine(int argc, char *argv[])
 							 "PGDATAOLD", "-d", "old cluster data resides");
 	check_required_directory(&new_cluster.pgdata, &new_cluster.pgconfig,
 							 "PGDATANEW", "-D", "new cluster data resides");
+
+#ifdef WIN32
+	/*
+	 * On Windows, initdb --sync-only will fail with a "Permission denied"
+	 * error on file pg_upgrade_utility.log if pg_upgrade is run inside
+	 * the new cluster directory, so we do a check here.
+	 */
+	{
+		char	cwd[MAXPGPATH], new_cluster_pgdata[MAXPGPATH];
+
+		strlcpy(new_cluster_pgdata, new_cluster.pgdata, MAXPGPATH);
+		canonicalize_path(new_cluster_pgdata);
+
+		if (!getcwd(cwd, MAXPGPATH))
+			pg_fatal("cannot find current directory\n");
+		canonicalize_path(cwd);
+		if (path_is_prefix_of_path(new_cluster_pgdata, cwd))
+			pg_fatal("cannot run pg_upgrade from inside the new cluster data directory on Windows\n");
+	}
+#endif
 }
 
 

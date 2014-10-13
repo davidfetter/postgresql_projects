@@ -106,6 +106,9 @@ sub mkvcbuild
 	$postgres->AddFiles('src\port',   @pgportfiles);
 	$postgres->AddFiles('src\common', @pgcommonbkndfiles);
 	$postgres->AddDir('src\timezone');
+	# We need source files from src\timezone, but that directory's resource
+	# file pertains to "zic", not to the backend.
+	$postgres->RemoveFile('src\timezone\win32ver.rc');
 	$postgres->AddFiles('src\backend\parser', 'scan.l', 'gram.y');
 	$postgres->AddFiles('src\backend\bootstrap', 'bootscanner.l',
 		'bootparse.y');
@@ -117,13 +120,20 @@ sub mkvcbuild
 	$postgres->AddLibrary('ws2_32.lib');
 	$postgres->AddLibrary('wldap32.lib') if ($solution->{options}->{ldap});
 	$postgres->FullExportDLL('postgres.lib');
+	# The OBJS scraper doesn't know about ifdefs, so remove be-secure-openssl.c
+	# if building without OpenSSL
+	if (!$solution->{options}->{openssl})
+	{
+		$postgres->RemoveFile('src\backend\libpq\be-secure-openssl.c');
+	}
 
 	my $snowball = $solution->AddProject('dict_snowball', 'dll', '',
 		'src\backend\snowball');
+	# This Makefile uses VPATH to find most source files in a subdirectory.
 	$snowball->RelocateFiles(
 		'src\backend\snowball\libstemmer',
 		sub {
-			return shift !~ /dict_snowball.c$/;
+			return shift !~ /(dict_snowball.c|win32ver.rc)$/;
 		});
 	$snowball->AddIncludeDir('src\include\snowball');
 	$snowball->AddReference($postgres);
@@ -276,6 +286,12 @@ sub mkvcbuild
 	$libpq->ReplaceFile('src\interfaces\libpq\libpqrc.c',
 		'src\interfaces\libpq\libpq.rc');
 	$libpq->AddReference($libpgport);
+	# The OBJS scraper doesn't know about ifdefs, so remove fe-secure-openssl.c
+	# if building without OpenSSL
+	if (!$solution->{options}->{openssl})
+	{
+		$libpq->RemoveFile('src\interfaces\libpq\fe-secure-openssl.c');
+	}
 
 	my $libpqwalreceiver =
 	  $solution->AddProject('libpqwalreceiver', 'dll', '',
@@ -329,6 +345,7 @@ sub mkvcbuild
 	$pgregress_ecpg->AddIncludeDir('src\test\regress');
 	$pgregress_ecpg->AddDefine('HOST_TUPLE="i686-pc-win32vc"');
 	$pgregress_ecpg->AddDefine('FRONTEND');
+	$pgregress_ecpg->AddDirResourceFile('src\interfaces\ecpg\test');
 	$pgregress_ecpg->AddReference($libpgcommon, $libpgport);
 
 	my $isolation_tester =
@@ -344,6 +361,7 @@ sub mkvcbuild
 	$isolation_tester->AddDefine('HOST_TUPLE="i686-pc-win32vc"');
 	$isolation_tester->AddDefine('FRONTEND');
 	$isolation_tester->AddLibrary('ws2_32.lib');
+	$isolation_tester->AddDirResourceFile('src\test\isolation');
 	$isolation_tester->AddReference($libpq, $libpgcommon, $libpgport);
 
 	my $pgregress_isolation =
@@ -354,6 +372,7 @@ sub mkvcbuild
 	$pgregress_isolation->AddIncludeDir('src\test\regress');
 	$pgregress_isolation->AddDefine('HOST_TUPLE="i686-pc-win32vc"');
 	$pgregress_isolation->AddDefine('FRONTEND');
+	$pgregress_isolation->AddDirResourceFile('src\test\isolation');
 	$pgregress_isolation->AddReference($libpgcommon, $libpgport);
 
 	# src/bin
@@ -436,6 +455,7 @@ sub mkvcbuild
 	my $zic = $solution->AddProject('zic', 'exe', 'utils');
 	$zic->AddFiles('src\timezone', 'zic.c', 'ialloc.c', 'scheck.c',
 		'localtime.c');
+	$zic->AddDirResourceFile('src\timezone');
 	$zic->AddReference($libpgcommon, $libpgport);
 
 	if ($solution->{options}->{xml})
@@ -570,14 +590,14 @@ sub mkvcbuild
 		$proj->AddIncludeDir('src\bin\pg_dump');
 		$proj->AddIncludeDir('src\bin\psql');
 		$proj->AddReference($libpq, $libpgcommon, $libpgport);
-		$proj->AddResourceFile('src\bin\scripts', 'PostgreSQL Utility',
-			'win32');
+		$proj->AddDirResourceFile('src\bin\scripts');
 		$proj->AddLibrary('ws2_32.lib');
 	}
 
 	# Regression DLL and EXE
 	my $regress = $solution->AddProject('regress', 'dll', 'misc');
 	$regress->AddFile('src\test\regress\regress.c');
+	$regress->AddDirResourceFile('src\test\regress');
 	$regress->AddReference($postgres);
 
 	my $pgregress = $solution->AddProject('pg_regress', 'exe', 'misc');
@@ -585,6 +605,7 @@ sub mkvcbuild
 	$pgregress->AddFile('src\test\regress\pg_regress_main.c');
 	$pgregress->AddIncludeDir('src\port');
 	$pgregress->AddDefine('HOST_TUPLE="i686-pc-win32vc"');
+	$pgregress->AddDirResourceFile('src\test\regress');
 	$pgregress->AddReference($libpgcommon, $libpgport);
 
 	# fix up pg_xlogdump once it's been set up

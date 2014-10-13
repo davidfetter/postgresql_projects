@@ -9,20 +9,20 @@
 
 #include "postgres_fe.h"
 
+#include "catalog/pg_authid.h"
 #include "mb/pg_wchar.h"
 #include "pg_upgrade.h"
 
 
-static void set_locale_and_encoding(ClusterInfo *cluster);
 static void check_new_cluster_is_empty(void);
-static void check_locale_and_encoding(ControlData *oldctrl,
-						  ControlData *newctrl);
-static bool equivalent_locale(const char *loca, const char *locb);
-static bool equivalent_encoding(const char *chara, const char *charb);
-static void check_is_super_user(ClusterInfo *cluster);
+static void check_databases_are_compatible(void);
+static void check_locale_and_encoding(DbInfo *olddb, DbInfo *newdb);
+static bool equivalent_locale(int category, const char *loca, const char *locb);
+static void check_is_install_user(ClusterInfo *cluster);
 static void check_for_prepared_transactions(ClusterInfo *cluster);
 static void check_for_isn_and_int8_passing_mismatch(ClusterInfo *cluster);
 static void check_for_reg_data_type_usage(ClusterInfo *cluster);
+static void check_for_jsonb_9_4_usage(ClusterInfo *cluster);
 static void get_bin_version(ClusterInfo *cluster);
 static char *get_canonical_locale_name(int category, const char *locale);
 
@@ -72,14 +72,12 @@ output_check_banner(bool live_check)
 
 
 void
-check_and_dump_old_cluster(bool live_check, char **sequence_script_file_name)
+check_and_dump_old_cluster(bool live_check)
 {
 	/* -- OLD -- */
 
 	if (!live_check)
 		start_postmaster(&old_cluster, true);
-
-	set_locale_and_encoding(&old_cluster);
 
 	get_pg_database_relfilenode(&old_cluster);
 
@@ -94,33 +92,13 @@ check_and_dump_old_cluster(bool live_check, char **sequence_script_file_name)
 	/*
 	 * Check for various failure cases
 	 */
-	check_is_super_user(&old_cluster);
+	check_is_install_user(&old_cluster);
 	check_for_prepared_transactions(&old_cluster);
 	check_for_reg_data_type_usage(&old_cluster);
 	check_for_isn_and_int8_passing_mismatch(&old_cluster);
-
-	/* old = PG 8.3 checks? */
-	if (GET_MAJOR_VERSION(old_cluster.major_version) <= 803)
-	{
-		old_8_3_check_for_name_data_type_usage(&old_cluster);
-		old_8_3_check_for_tsquery_usage(&old_cluster);
-		old_8_3_check_ltree_usage(&old_cluster);
-		if (user_opts.check)
-		{
-			old_8_3_rebuild_tsvector_tables(&old_cluster, true);
-			old_8_3_invalidate_hash_gin_indexes(&old_cluster, true);
-			old_8_3_invalidate_bpchar_pattern_ops_indexes(&old_cluster, true);
-		}
-		else
-
-			/*
-			 * While we have the old server running, create the script to
-			 * properly restore its sequence values but we report this at the
-			 * end.
-			 */
-			*sequence_script_file_name =
-				old_8_3_create_sequence_script(&old_cluster);
-	}
+	if (GET_MAJOR_VERSION(old_cluster.major_version) == 904 &&
+		old_cluster.controldata.cat_ver < JSONB_FORMAT_CHANGE_CAT_VER)
+		check_for_jsonb_9_4_usage(&old_cluster);
 
 	/* Pre-PG 9.4 had a different 'line' data type internal format */
 	if (GET_MAJOR_VERSION(old_cluster.major_version) <= 903)
@@ -145,35 +123,17 @@ check_and_dump_old_cluster(bool live_check, char **sequence_script_file_name)
 void
 check_new_cluster(void)
 {
-	set_locale_and_encoding(&new_cluster);
-
-	check_locale_and_encoding(&old_cluster.controldata, &new_cluster.controldata);
-
 	get_db_and_rel_infos(&new_cluster);
 
 	check_new_cluster_is_empty();
+	check_databases_are_compatible();
 
 	check_loadable_libraries();
 
 	if (user_opts.transfer_mode == TRANSFER_MODE_LINK)
 		check_hard_link();
 
-	check_is_super_user(&new_cluster);
-
-	/*
-	 * We don't restore our own user, so both clusters must match have
-	 * matching install-user oids.
-	 */
-	if (old_cluster.install_role_oid != new_cluster.install_role_oid)
-		pg_fatal("Old and new cluster install users have different values for pg_authid.oid.\n");
-
-	/*
-	 * We only allow the install user in the new cluster because other defined
-	 * users might match users defined in the old cluster and generate an
-	 * error during pg_dump restore.
-	 */
-	if (new_cluster.role_count != 1)
-		pg_fatal("Only the install user can be defined in the new cluster.\n");
+	check_is_install_user(&new_cluster);
 
 	check_for_prepared_transactions(&new_cluster);
 }
@@ -197,31 +157,8 @@ report_clusters_compatible(void)
 
 
 void
-issue_warnings(char *sequence_script_file_name)
+issue_warnings(void)
 {
-	/* old = PG 8.3 warnings? */
-	if (GET_MAJOR_VERSION(old_cluster.major_version) <= 803)
-	{
-		start_postmaster(&new_cluster, true);
-
-		/* restore proper sequence values using file created from old server */
-		if (sequence_script_file_name)
-		{
-			prep_status("Adjusting sequences");
-			exec_prog(UTILITY_LOG_FILE, NULL, true,
-					  "\"%s/psql\" " EXEC_PSQL_ARGS " %s -f \"%s\"",
-					  new_cluster.bindir, cluster_conn_opts(&new_cluster),
-					  sequence_script_file_name);
-			unlink(sequence_script_file_name);
-			check_ok();
-		}
-
-		old_8_3_rebuild_tsvector_tables(&new_cluster, false);
-		old_8_3_invalidate_hash_gin_indexes(&new_cluster, false);
-		old_8_3_invalidate_bpchar_pattern_ops_indexes(&new_cluster, false);
-		stop_postmaster(false);
-	}
-
 	/* Create dummy large object permissions for old < PG 9.0? */
 	if (GET_MAJOR_VERSION(old_cluster.major_version) <= 804)
 	{
@@ -276,8 +213,8 @@ check_cluster_versions(void)
 	 * upgrades
 	 */
 
-	if (GET_MAJOR_VERSION(old_cluster.major_version) < 803)
-		pg_fatal("This utility can only upgrade from PostgreSQL version 8.3 and later.\n");
+	if (GET_MAJOR_VERSION(old_cluster.major_version) < 804)
+		pg_fatal("This utility can only upgrade from PostgreSQL version 8.4 and later.\n");
 
 	/* Only current PG version is supported as a target */
 	if (GET_MAJOR_VERSION(new_cluster.major_version) != GET_MAJOR_VERSION(PG_VERSION_NUM))
@@ -335,93 +272,25 @@ check_cluster_compatibility(bool live_check)
 
 
 /*
- * set_locale_and_encoding()
- *
- * query the database to get the template0 locale
- */
-static void
-set_locale_and_encoding(ClusterInfo *cluster)
-{
-	ControlData *ctrl = &cluster->controldata;
-	PGconn	   *conn;
-	PGresult   *res;
-	int			i_encoding;
-	int			cluster_version = cluster->major_version;
-
-	conn = connectToServer(cluster, "template1");
-
-	/* for pg < 80400, we got the values from pg_controldata */
-	if (cluster_version >= 80400)
-	{
-		int			i_datcollate;
-		int			i_datctype;
-
-		res = executeQueryOrDie(conn,
-								"SELECT datcollate, datctype "
-								"FROM	pg_catalog.pg_database "
-								"WHERE	datname = 'template0' ");
-		assert(PQntuples(res) == 1);
-
-		i_datcollate = PQfnumber(res, "datcollate");
-		i_datctype = PQfnumber(res, "datctype");
-
-		if (GET_MAJOR_VERSION(cluster->major_version) < 902)
-		{
-			/*
-			 * Pre-9.2 did not canonicalize the supplied locale names to match
-			 * what the system returns, while 9.2+ does, so convert pre-9.2 to
-			 * match.
-			 */
-			ctrl->lc_collate = get_canonical_locale_name(LC_COLLATE,
-								pg_strdup(PQgetvalue(res, 0, i_datcollate)));
-			ctrl->lc_ctype = get_canonical_locale_name(LC_CTYPE,
-								  pg_strdup(PQgetvalue(res, 0, i_datctype)));
-		}
-		else
-		{
-			ctrl->lc_collate = pg_strdup(PQgetvalue(res, 0, i_datcollate));
-			ctrl->lc_ctype = pg_strdup(PQgetvalue(res, 0, i_datctype));
-		}
-
-		PQclear(res);
-	}
-
-	res = executeQueryOrDie(conn,
-							"SELECT pg_catalog.pg_encoding_to_char(encoding) "
-							"FROM	pg_catalog.pg_database "
-							"WHERE	datname = 'template0' ");
-	assert(PQntuples(res) == 1);
-
-	i_encoding = PQfnumber(res, "pg_encoding_to_char");
-	ctrl->encoding = pg_strdup(PQgetvalue(res, 0, i_encoding));
-
-	PQclear(res);
-
-	PQfinish(conn);
-}
-
-
-/*
  * check_locale_and_encoding()
  *
- * Check that old and new locale and encoding match.  Even though the backend
- * tries to canonicalize stored locale names, the platform often doesn't
- * cooperate, so it's entirely possible that one DB thinks its locale is
- * "en_US.UTF-8" while the other says "en_US.utf8".  Try to be forgiving.
+ * Check that locale and encoding of a database in the old and new clusters
+ * are compatible.
  */
 static void
-check_locale_and_encoding(ControlData *oldctrl,
-						  ControlData *newctrl)
+check_locale_and_encoding(DbInfo *olddb, DbInfo *newdb)
 {
-	if (!equivalent_locale(oldctrl->lc_collate, newctrl->lc_collate))
-		pg_fatal("lc_collate cluster values do not match:  old \"%s\", new \"%s\"\n",
-				 oldctrl->lc_collate, newctrl->lc_collate);
-	if (!equivalent_locale(oldctrl->lc_ctype, newctrl->lc_ctype))
-		pg_fatal("lc_ctype cluster values do not match:  old \"%s\", new \"%s\"\n",
-				 oldctrl->lc_ctype, newctrl->lc_ctype);
-	if (!equivalent_encoding(oldctrl->encoding, newctrl->encoding))
-		pg_fatal("encoding cluster values do not match:  old \"%s\", new \"%s\"\n",
-				 oldctrl->encoding, newctrl->encoding);
+	if (olddb->db_encoding != newdb->db_encoding)
+		pg_fatal("encodings for database \"%s\" do not match:  old \"%s\", new \"%s\"\n",
+				 olddb->db_name,
+				 pg_encoding_to_char(olddb->db_encoding),
+				 pg_encoding_to_char(newdb->db_encoding));
+	if (!equivalent_locale(LC_COLLATE, olddb->db_collate, newdb->db_collate))
+		pg_fatal("lc_collate values for database \"%s\" do not match:  old \"%s\", new \"%s\"\n",
+				 olddb->db_name, olddb->db_collate, newdb->db_collate);
+	if (!equivalent_locale(LC_CTYPE, olddb->db_ctype, newdb->db_ctype))
+		pg_fatal("lc_ctype values for database \"%s\" do not match:  old \"%s\", new \"%s\"\n",
+				 olddb->db_name, olddb->db_ctype, newdb->db_ctype);
 }
 
 /*
@@ -429,61 +298,46 @@ check_locale_and_encoding(ControlData *oldctrl,
  *
  * Best effort locale-name comparison.  Return false if we are not 100% sure
  * the locales are equivalent.
+ *
+ * Note: The encoding parts of the names are ignored. This function is
+ * currently used to compare locale names stored in pg_database, and
+ * pg_database contains a separate encoding field. That's compared directly
+ * in check_locale_and_encoding().
  */
 static bool
-equivalent_locale(const char *loca, const char *locb)
+equivalent_locale(int category, const char *loca, const char *locb)
 {
-	const char *chara = strrchr(loca, '.');
-	const char *charb = strrchr(locb, '.');
-	int			lencmp;
-
-	/* If they don't both contain an encoding part, just do strcasecmp(). */
-	if (!chara || !charb)
-		return (pg_strcasecmp(loca, locb) == 0);
+	const char *chara;
+	const char *charb;
+	char	   *canona;
+	char	   *canonb;
+	int			lena;
+	int			lenb;
 
 	/*
-	 * Compare the encoding parts.  Windows tends to use code page numbers for
-	 * the encoding part, which equivalent_encoding() won't like, so accept if
-	 * the strings are case-insensitive equal; otherwise use
-	 * equivalent_encoding() to compare.
+	 * If the names are equal, the locales are equivalent. Checking this
+	 * first avoids calling setlocale() in the common case that the names
+	 * are equal. That's a good thing, if setlocale() is buggy, for example.
 	 */
-	if (pg_strcasecmp(chara + 1, charb + 1) != 0 &&
-		!equivalent_encoding(chara + 1, charb + 1))
-		return false;
+	if (pg_strcasecmp(loca, locb) == 0)
+		return true;
 
 	/*
-	 * OK, compare the locale identifiers (e.g. en_US part of en_US.utf8).
-	 *
-	 * It's tempting to ignore non-alphanumeric chars here, but for now it's
-	 * not clear that that's necessary; just do case-insensitive comparison.
+	 * Not identical. Canonicalize both names, remove the encoding parts,
+	 * and try again.
 	 */
-	lencmp = chara - loca;
-	if (lencmp != charb - locb)
-		return false;
+	canona = get_canonical_locale_name(category, loca);
+	chara = strrchr(canona, '.');
+	lena = chara ? (chara - canona) : strlen(canona);
 
-	return (pg_strncasecmp(loca, locb, lencmp) == 0);
-}
+	canonb = get_canonical_locale_name(category, locb);
+	charb = strrchr(canonb, '.');
+	lenb = charb ? (charb - canonb) : strlen(canonb);
 
-/*
- * equivalent_encoding()
- *
- * Best effort encoding-name comparison.  Return true only if the encodings
- * are valid server-side encodings and known equivalent.
- *
- * Because the lookup in pg_valid_server_encoding() does case folding and
- * ignores non-alphanumeric characters, this will recognize many popular
- * variant spellings as equivalent, eg "utf8" and "UTF-8" will match.
- */
-static bool
-equivalent_encoding(const char *chara, const char *charb)
-{
-	int			enca = pg_valid_server_encoding(chara);
-	int			encb = pg_valid_server_encoding(charb);
+	if (lena == lenb && pg_strncasecmp(canona, canonb, lena) == 0)
+		return true;
 
-	if (enca < 0 || encb < 0)
-		return false;
-
-	return (enca == encb);
+	return false;
 }
 
 
@@ -506,7 +360,35 @@ check_new_cluster_is_empty(void)
 						 new_cluster.dbarr.dbs[dbnum].db_name);
 		}
 	}
+}
 
+/*
+ * Check that every database that already exists in the new cluster is
+ * compatible with the corresponding database in the old one.
+ */
+static void
+check_databases_are_compatible(void)
+{
+	int			newdbnum;
+	int			olddbnum;
+	DbInfo	   *newdbinfo;
+	DbInfo	   *olddbinfo;
+
+	for (newdbnum = 0; newdbnum < new_cluster.dbarr.ndbs; newdbnum++)
+	{
+		newdbinfo = &new_cluster.dbarr.dbs[newdbnum];
+
+		/* Find the corresponding database in the old cluster */
+		for (olddbnum = 0; olddbnum < old_cluster.dbarr.ndbs; olddbnum++)
+		{
+			olddbinfo = &old_cluster.dbarr.dbs[olddbnum];
+			if (strcmp(newdbinfo->db_name, olddbinfo->db_name) == 0)
+			{
+				check_locale_and_encoding(olddbinfo, newdbinfo);
+				break;
+			}
+		}
+	}
 }
 
 
@@ -526,7 +408,8 @@ create_script_for_cluster_analyze(char **analyze_script_file_name)
 	if (os_info.user_specified)
 		user_specification = psprintf("-U \"%s\" ", os_info.user);
 
-	*analyze_script_file_name = psprintf("analyze_new_cluster.%s", SCRIPT_EXT);
+	*analyze_script_file_name = psprintf("%sanalyze_new_cluster.%s",
+										 SCRIPT_PREFIX, SCRIPT_EXT);
 
 	if ((script = fopen_priv(*analyze_script_file_name, "w")) == NULL)
 		pg_fatal("Could not open file \"%s\": %s\n",
@@ -607,7 +490,8 @@ create_script_for_old_cluster_deletion(char **deletion_script_file_name)
 	int			tblnum;
 	char		old_cluster_pgdata[MAXPGPATH];
 
-	*deletion_script_file_name = psprintf("delete_old_cluster.%s", SCRIPT_EXT);
+	*deletion_script_file_name = psprintf("%sdelete_old_cluster.%s",
+										  SCRIPT_PREFIX, SCRIPT_EXT);
 
 	/*
 	 * Some users (oddly) create tablespaces inside the cluster data
@@ -698,17 +582,18 @@ create_script_for_old_cluster_deletion(char **deletion_script_file_name)
 
 
 /*
- *	check_is_super_user()
+ *	check_is_install_user()
  *
- *	Check we are superuser, and output user id and user count
+ *	Check we are the install user, and that the new cluster
+ *	has no other users.
  */
 static void
-check_is_super_user(ClusterInfo *cluster)
+check_is_install_user(ClusterInfo *cluster)
 {
 	PGresult   *res;
 	PGconn	   *conn = connectToServer(cluster, "template1");
 
-	prep_status("Checking database user is a superuser");
+	prep_status("Checking database user is the install user");
 
 	/* Can't use pg_authid because only superusers can view it. */
 	res = executeQueryOrDie(conn,
@@ -716,11 +601,15 @@ check_is_super_user(ClusterInfo *cluster)
 							"FROM pg_catalog.pg_roles "
 							"WHERE rolname = current_user");
 
-	if (PQntuples(res) != 1 || strcmp(PQgetvalue(res, 0, 0), "t") != 0)
-		pg_fatal("database user \"%s\" is not a superuser\n",
+	/*
+	 * We only allow the install user in the new cluster (see comment below)
+	 * and we preserve pg_authid.oid, so this must be the install user in
+	 * the old cluster too.
+	 */
+	if (PQntuples(res) != 1 ||
+		atooid(PQgetvalue(res, 0, 1)) != BOOTSTRAP_SUPERUSERID)
+		pg_fatal("database user \"%s\" is not the install user\n",
 				 os_info.user);
-
-	cluster->install_role_oid = atooid(PQgetvalue(res, 0, 1));
 
 	PQclear(res);
 
@@ -731,7 +620,13 @@ check_is_super_user(ClusterInfo *cluster)
 	if (PQntuples(res) != 1)
 		pg_fatal("could not determine the number of users\n");
 
-	cluster->role_count = atoi(PQgetvalue(res, 0, 0));
+	/*
+	 * We only allow the install user in the new cluster because other defined
+	 * users might match users defined in the old cluster and generate an
+	 * error during pg_dump restore.
+	 */
+	if (cluster == &new_cluster && atooid(PQgetvalue(res, 0, 0)) != 1)
+		pg_fatal("Only the install user can be defined in the new cluster.\n");
 
 	PQclear(res);
 
@@ -957,6 +852,96 @@ check_for_reg_data_type_usage(ClusterInfo *cluster)
 		"pg_upgrade, so this cluster cannot currently be upgraded.  You can\n"
 				 "remove the problem tables and restart the upgrade.  A list of the problem\n"
 				 "columns is in the file:\n"
+				 "    %s\n\n", output_path);
+	}
+	else
+		check_ok();
+}
+
+
+/*
+ * check_for_jsonb_9_4_usage()
+ *
+ *	JSONB changed its storage format during 9.4 beta, so check for it.
+ */
+static void
+check_for_jsonb_9_4_usage(ClusterInfo *cluster)
+{
+	int			dbnum;
+	FILE	   *script = NULL;
+	bool		found = false;
+	char		output_path[MAXPGPATH];
+
+	prep_status("Checking for JSONB user data types");
+
+	snprintf(output_path, sizeof(output_path), "tables_using_jsonb.txt");
+
+	for (dbnum = 0; dbnum < cluster->dbarr.ndbs; dbnum++)
+	{
+		PGresult   *res;
+		bool		db_used = false;
+		int			ntups;
+		int			rowno;
+		int			i_nspname,
+					i_relname,
+					i_attname;
+		DbInfo	   *active_db = &cluster->dbarr.dbs[dbnum];
+		PGconn	   *conn = connectToServer(cluster, active_db->db_name);
+
+		/*
+		 * While several relkinds don't store any data, e.g. views, they can
+		 * be used to define data types of other columns, so we check all
+		 * relkinds.
+		 */
+		res = executeQueryOrDie(conn,
+								"SELECT n.nspname, c.relname, a.attname "
+								"FROM	pg_catalog.pg_class c, "
+								"		pg_catalog.pg_namespace n, "
+								"		pg_catalog.pg_attribute a "
+								"WHERE	c.oid = a.attrelid AND "
+								"		NOT a.attisdropped AND "
+								"		a.atttypid = 'pg_catalog.jsonb'::pg_catalog.regtype AND "
+								"		c.relnamespace = n.oid AND "
+		/* exclude possible orphaned temp tables */
+								"  		n.nspname !~ '^pg_temp_' AND "
+							  "		n.nspname NOT IN ('pg_catalog', 'information_schema')");
+
+		ntups = PQntuples(res);
+		i_nspname = PQfnumber(res, "nspname");
+		i_relname = PQfnumber(res, "relname");
+		i_attname = PQfnumber(res, "attname");
+		for (rowno = 0; rowno < ntups; rowno++)
+		{
+			found = true;
+			if (script == NULL && (script = fopen_priv(output_path, "w")) == NULL)
+				pg_fatal("Could not open file \"%s\": %s\n",
+						 output_path, getErrorText(errno));
+			if (!db_used)
+			{
+				fprintf(script, "Database: %s\n", active_db->db_name);
+				db_used = true;
+			}
+			fprintf(script, "  %s.%s.%s\n",
+					PQgetvalue(res, rowno, i_nspname),
+					PQgetvalue(res, rowno, i_relname),
+					PQgetvalue(res, rowno, i_attname));
+		}
+
+		PQclear(res);
+
+		PQfinish(conn);
+	}
+
+	if (script)
+		fclose(script);
+
+	if (found)
+	{
+		pg_log(PG_REPORT, "fatal\n");
+		pg_fatal("Your installation contains one of the JSONB data types in user tables.\n"
+		 "The internal format of JSONB changed during 9.4 beta so this cluster cannot currently\n"
+				 "be upgraded.  You can remove the problem tables and restart the upgrade.  A list\n"
+				 "of the problem columns is in the file:\n"
 				 "    %s\n\n", output_path);
 	}
 	else

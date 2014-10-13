@@ -374,6 +374,17 @@ RestoreArchive(Archive *AHX)
 	}
 
 	/*
+	 * Enable row-security if necessary.
+	 */
+	if (PQserverVersion(AH->connection) >= 90500)
+	{
+		if (!ropt->enable_row_security)
+			ahprintf(AH, "SET row_security = off;\n");
+		else
+			ahprintf(AH, "SET row_security = on;\n");
+	}
+
+	/*
 	 * Establish important parameter values right away.
 	 */
 	_doSetFixedOutputState(AH);
@@ -429,60 +440,75 @@ RestoreArchive(Archive *AHX)
 					}
 					else
 					{
-						char		buffer[40];
-						char	   *mark;
-						char	   *dropStmt = pg_strdup(te->dropStmt);
-						char	   *dropStmtPtr = dropStmt;
-						PQExpBuffer ftStmt = createPQExpBuffer();
-
 						/*
-						 * Need to inject IF EXISTS clause after ALTER TABLE
-						 * part in ALTER TABLE .. DROP statement
+						 * Inject an appropriate spelling of "if exists".  For
+						 * large objects, we have a separate routine that
+						 * knows how to do it, without depending on
+						 * te->dropStmt; use that.  For other objects we need
+						 * to parse the command.
+						 *
 						 */
-						if (strncmp(dropStmt, "ALTER TABLE", 11) == 0)
+						if (strncmp(te->desc, "BLOB", 4) == 0)
 						{
-							appendPQExpBuffer(ftStmt,
-											  "ALTER TABLE IF EXISTS");
-							dropStmt = dropStmt + 11;
+							DropBlobIfExists(AH, te->catalogId.oid);
 						}
-
-						/*
-						 * ALTER TABLE..ALTER COLUMN..DROP DEFAULT does not
-						 * support the IF EXISTS clause, and therefore we
-						 * simply emit the original command for such objects.
-						 * For other objects, we need to extract the first
-						 * part of the DROP which includes the object type.
-						 * Most of the time this matches te->desc, so search
-						 * for that; however for the different kinds of
-						 * CONSTRAINTs, we know to search for hardcoded "DROP
-						 * CONSTRAINT" instead.
-						 */
-						if (strcmp(te->desc, "DEFAULT") == 0)
-							appendPQExpBuffer(ftStmt, "%s", dropStmt);
 						else
 						{
-							if (strcmp(te->desc, "CONSTRAINT") == 0 ||
-								strcmp(te->desc, "CHECK CONSTRAINT") == 0 ||
-								strcmp(te->desc, "FK CONSTRAINT") == 0)
-								strcpy(buffer, "DROP CONSTRAINT");
+							char		buffer[40];
+							char	   *mark;
+							char	   *dropStmt = pg_strdup(te->dropStmt);
+							char	   *dropStmtPtr = dropStmt;
+							PQExpBuffer ftStmt = createPQExpBuffer();
+
+							/*
+							 * Need to inject IF EXISTS clause after ALTER
+							 * TABLE part in ALTER TABLE .. DROP statement
+							 */
+							if (strncmp(dropStmt, "ALTER TABLE", 11) == 0)
+							{
+								appendPQExpBuffer(ftStmt,
+												  "ALTER TABLE IF EXISTS");
+								dropStmt = dropStmt + 11;
+							}
+
+							/*
+							 * ALTER TABLE..ALTER COLUMN..DROP DEFAULT does
+							 * not support the IF EXISTS clause, and therefore
+							 * we simply emit the original command for such
+							 * objects. For other objects, we need to extract
+							 * the first part of the DROP which includes the
+							 * object type. Most of the time this matches
+							 * te->desc, so search for that; however for the
+							 * different kinds of CONSTRAINTs, we know to
+							 * search for hardcoded "DROP CONSTRAINT" instead.
+							 */
+							if (strcmp(te->desc, "DEFAULT") == 0)
+								appendPQExpBuffer(ftStmt, "%s", dropStmt);
 							else
-								snprintf(buffer, sizeof(buffer), "DROP %s",
-										 te->desc);
+							{
+								if (strcmp(te->desc, "CONSTRAINT") == 0 ||
+								 strcmp(te->desc, "CHECK CONSTRAINT") == 0 ||
+									strcmp(te->desc, "FK CONSTRAINT") == 0)
+									strcpy(buffer, "DROP CONSTRAINT");
+								else
+									snprintf(buffer, sizeof(buffer), "DROP %s",
+											 te->desc);
 
-							mark = strstr(dropStmt, buffer);
-							Assert(mark != NULL);
+								mark = strstr(dropStmt, buffer);
+								Assert(mark != NULL);
 
-							*mark = '\0';
-							appendPQExpBuffer(ftStmt, "%s%s IF EXISTS%s",
-											  dropStmt, buffer,
-											  mark + strlen(buffer));
+								*mark = '\0';
+								appendPQExpBuffer(ftStmt, "%s%s IF EXISTS%s",
+												  dropStmt, buffer,
+												  mark + strlen(buffer));
+							}
+
+							ahprintf(AH, "%s", ftStmt->data);
+
+							destroyPQExpBuffer(ftStmt);
+
+							pg_free(dropStmtPtr);
 						}
-
-						ahprintf(AH, "%s", ftStmt->data);
-
-						destroyPQExpBuffer(ftStmt);
-
-						pg_free(dropStmtPtr);
 					}
 				}
 			}
@@ -546,8 +572,13 @@ RestoreArchive(Archive *AHX)
 		/* Both schema and data objects might now have ownership/ACLs */
 		if ((te->reqs & (REQ_SCHEMA | REQ_DATA)) != 0)
 		{
-			ahlog(AH, 1, "setting owner and privileges for %s %s\n",
-				  te->desc, te->tag);
+			/* Show namespace if available */
+			if (te->namespace)
+				ahlog(AH, 1, "setting owner and privileges for %s \"%s\".\"%s\"\n",
+					  te->desc, te->namespace, te->tag);
+			else
+				ahlog(AH, 1, "setting owner and privileges for %s \"%s\"\n",
+					  te->desc, te->tag);
 			_printTocEntry(AH, te, ropt, false, true);
 		}
 	}
@@ -621,7 +652,13 @@ restore_toc_entry(ArchiveHandle *AH, TocEntry *te,
 
 	if ((reqs & REQ_SCHEMA) != 0)		/* We want the schema */
 	{
-		ahlog(AH, 1, "creating %s %s\n", te->desc, te->tag);
+		/* Show namespace if available */
+		if (te->namespace)
+			ahlog(AH, 1, "creating %s \"%s\".\"%s\"\n",
+				  te->desc, te->namespace, te->tag);
+		else
+			ahlog(AH, 1, "creating %s \"%s\"\n", te->desc, te->tag);
+
 
 		_printTocEntry(AH, te, ropt, false, false);
 		defnDumped = true;
@@ -713,8 +750,8 @@ restore_toc_entry(ArchiveHandle *AH, TocEntry *te,
 					_becomeOwner(AH, te);
 					_selectOutputSchema(AH, te->namespace);
 
-					ahlog(AH, 1, "processing data for table \"%s\"\n",
-						  te->tag);
+					ahlog(AH, 1, "processing data for table \"%s\".\"%s\"\n",
+						  te->namespace, te->tag);
 
 					/*
 					 * In parallel restore, if we created the table earlier in
@@ -953,12 +990,15 @@ PrintTOCSummary(Archive *AHX, RestoreOptions *ropt)
 	teSection	curSection;
 	OutputContext sav;
 	const char *fmtName;
+	struct tm  *tm = localtime(&AH->createDate);
+	char		stamp_str[64];
 
 	sav = SaveOutput(AH);
 	if (ropt->filename)
 		SetOutput(AH, ropt->filename, 0 /* no compression */ );
 
-	ahprintf(AH, ";\n; Archive created at %s", ctime(&AH->createDate));
+	strftime(stamp_str, sizeof(stamp_str), "%Y-%m-%d %H:%M:%S %z", tm);
+	ahprintf(AH, ";\n; Archive created at %s\n", stamp_str);
 	ahprintf(AH, ";     dbname: %s\n;     TOC Entries: %d\n;     Compression: %d\n",
 			 AH->archdbname, AH->tocCount, AH->compression);
 
@@ -3228,6 +3268,7 @@ _printTocEntry(ArchiveHandle *AH, TocEntry *te, RestoreOptions *ropt, bool isDat
 				 strcmp(te->desc, "INDEX") == 0 ||
 				 strcmp(te->desc, "RULE") == 0 ||
 				 strcmp(te->desc, "TRIGGER") == 0 ||
+				 strcmp(te->desc, "ROW SECURITY") == 0 ||
 				 strcmp(te->desc, "USER MAPPING") == 0)
 		{
 			/* these object types don't have separate owners */
@@ -3444,21 +3485,9 @@ checkSeek(FILE *fp)
 static void
 dumpTimestamp(ArchiveHandle *AH, const char *msg, time_t tim)
 {
-	char		buf[256];
+	char		buf[64];
 
-	/*
-	 * We don't print the timezone on Win32, because the names are long and
-	 * localized, which means they may contain characters in various random
-	 * encodings; this has been seen to cause encoding errors when reading the
-	 * dump script.
-	 */
-	if (strftime(buf, sizeof(buf),
-#ifndef WIN32
-				 "%Y-%m-%d %H:%M:%S %Z",
-#else
-				 "%Y-%m-%d %H:%M:%S",
-#endif
-				 localtime(&tim)) != 0)
+	if (strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S %z", localtime(&tim)) != 0)
 		ahprintf(AH, "-- %s %s\n\n", msg, buf);
 }
 
@@ -4138,11 +4167,14 @@ identify_locking_dependencies(ArchiveHandle *AH, TocEntry *te)
 		return;
 
 	/*
-	 * We assume the item requires exclusive lock on each TABLE DATA item
-	 * listed among its dependencies.  (This was originally a dependency on
-	 * the TABLE, but fix_dependencies repointed it to the data item. Note
-	 * that all the entry types we are interested in here are POST_DATA, so
-	 * they will all have been changed this way.)
+	 * We assume the entry requires exclusive lock on each TABLE or TABLE DATA
+	 * item listed among its dependencies.  Originally all of these would have
+	 * been TABLE items, but repoint_table_dependencies would have repointed
+	 * them to the TABLE DATA items if those are present (which they might not
+	 * be, eg in a schema-only dump).  Note that all of the entries we are
+	 * processing here are POST_DATA; otherwise there might be a significant
+	 * difference between a dependency on a table and a dependency on its
+	 * data, so that closer analysis would be needed here.
 	 */
 	lockids = (DumpId *) pg_malloc(te->nDeps * sizeof(DumpId));
 	nlockids = 0;
@@ -4151,7 +4183,8 @@ identify_locking_dependencies(ArchiveHandle *AH, TocEntry *te)
 		DumpId		depid = te->dependencies[i];
 
 		if (depid <= AH->maxDumpId && AH->tocsByDumpId[depid] != NULL &&
-			strcmp(AH->tocsByDumpId[depid]->desc, "TABLE DATA") == 0)
+			((strcmp(AH->tocsByDumpId[depid]->desc, "TABLE DATA") == 0) ||
+			  strcmp(AH->tocsByDumpId[depid]->desc, "TABLE") == 0))
 			lockids[nlockids++] = depid;
 	}
 

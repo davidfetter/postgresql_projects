@@ -55,6 +55,7 @@
 #include "catalog/pg_type.h"
 #include "catalog/schemapg.h"
 #include "catalog/storage.h"
+#include "commands/policy.h"
 #include "commands/trigger.h"
 #include "miscadmin.h"
 #include "optimizer/clauses.h"
@@ -846,6 +847,87 @@ equalRuleLocks(RuleLock *rlock1, RuleLock *rlock2)
 	return true;
 }
 
+/*
+ *		equalPolicy
+ *
+ *		Determine whether two policies are equivalent
+ */
+static bool
+equalPolicy(RowSecurityPolicy *policy1, RowSecurityPolicy *policy2)
+{
+	int			i;
+	Oid		   *r1,
+			   *r2;
+
+	if (policy1 != NULL)
+	{
+		if (policy2 == NULL)
+			return false;
+
+		if (policy1->rsecid != policy2->rsecid)
+			return false;
+		if (policy1->cmd != policy2->cmd)
+			return false;
+		if (policy1->hassublinks != policy2->hassublinks)
+			return false;
+		if (strcmp(policy1->policy_name,policy2->policy_name) != 0)
+			return false;
+		if (ARR_DIMS(policy1->roles)[0] != ARR_DIMS(policy2->roles)[0])
+			return false;
+
+		r1 = (Oid *) ARR_DATA_PTR(policy1->roles);
+		r2 = (Oid *) ARR_DATA_PTR(policy2->roles);
+
+		for (i = 0; i < ARR_DIMS(policy1->roles)[0]; i++)
+		{
+			if (r1[i] != r2[i])
+				return false;
+		}
+
+		if (!equal(policy1->qual, policy1->qual))
+			return false;
+		if (!equal(policy1->with_check_qual, policy2->with_check_qual))
+			return false;
+	}
+	else if (policy2 != NULL)
+		return false;
+
+	return true;
+}
+
+/*
+ *		equalRSDesc
+ *
+ *		Determine whether two RowSecurityDesc's are equivalent
+ */
+static bool
+equalRSDesc(RowSecurityDesc *rsdesc1, RowSecurityDesc *rsdesc2)
+{
+	ListCell 	*lc,
+				*rc;
+
+	if (rsdesc1 == NULL && rsdesc2 == NULL)
+		return true;
+
+	if ((rsdesc1 != NULL && rsdesc2 == NULL) ||
+		(rsdesc1 == NULL && rsdesc2 != NULL))
+		return false;
+
+	if (list_length(rsdesc1->policies) != list_length(rsdesc2->policies))
+		return false;
+
+	/* RelationBuildRowSecurity should build policies in order */
+	forboth(lc, rsdesc1->policies, rc, rsdesc2->policies)
+	{
+		RowSecurityPolicy	   *l = (RowSecurityPolicy *) lfirst(lc);
+		RowSecurityPolicy	   *r = (RowSecurityPolicy *) lfirst(rc);
+
+		if (!equalPolicy(l,r))
+			return false;
+	}
+
+	return true;
+}
 
 /*
  *		RelationBuildDesc
@@ -913,7 +995,7 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 			relation->rd_islocaltemp = false;
 			break;
 		case RELPERSISTENCE_TEMP:
-			if (isTempOrToastNamespace(relation->rd_rel->relnamespace))
+			if (isTempOrTempToastNamespace(relation->rd_rel->relnamespace))
 			{
 				relation->rd_backend = MyBackendId;
 				relation->rd_islocaltemp = true;
@@ -965,6 +1047,11 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 		RelationBuildTriggers(relation);
 	else
 		relation->trigdesc = NULL;
+
+	if (relation->rd_rel->relrowsecurity)
+		RelationBuildRowSecurity(relation);
+	else
+		relation->rsdesc = NULL;
 
 	/*
 	 * if it's an index, initialize index-related information
@@ -1936,6 +2023,8 @@ RelationDestroyRelation(Relation relation, bool remember_tupdesc)
 		MemoryContextDelete(relation->rd_indexcxt);
 	if (relation->rd_rulescxt)
 		MemoryContextDelete(relation->rd_rulescxt);
+	if (relation->rsdesc)
+		MemoryContextDelete(relation->rsdesc->rscxt);
 	if (relation->rd_fdwroutine)
 		pfree(relation->rd_fdwroutine);
 	pfree(relation);
@@ -2096,6 +2185,7 @@ RelationClearRelation(Relation relation, bool rebuild)
 		Oid			save_relid = RelationGetRelid(relation);
 		bool		keep_tupdesc;
 		bool		keep_rules;
+		bool		keep_policies;
 
 		/* Build temporary entry, but don't link it into hashtable */
 		newrel = RelationBuildDesc(save_relid, false);
@@ -2109,6 +2199,7 @@ RelationClearRelation(Relation relation, bool rebuild)
 
 		keep_tupdesc = equalTupleDescs(relation->rd_att, newrel->rd_att);
 		keep_rules = equalRuleLocks(relation->rd_rules, newrel->rd_rules);
+		keep_policies = equalRSDesc(relation->rsdesc, newrel->rsdesc);
 
 		/*
 		 * Perform swapping of the relcache entry contents.  Within this
@@ -2157,6 +2248,8 @@ RelationClearRelation(Relation relation, bool rebuild)
 			SWAPFIELD(RuleLock *, rd_rules);
 			SWAPFIELD(MemoryContext, rd_rulescxt);
 		}
+		if (keep_policies)
+			SWAPFIELD(RowSecurityDesc *, rsdesc);
 		/* toast OID override must be preserved */
 		SWAPFIELD(Oid, rd_toastoid);
 		/* pgstat_info must be preserved */
@@ -2811,7 +2904,7 @@ RelationBuildLocalRelation(const char *relname,
 			rel->rd_islocaltemp = false;
 			break;
 		case RELPERSISTENCE_TEMP:
-			Assert(isTempOrToastNamespace(relnamespace));
+			Assert(isTempOrTempToastNamespace(relnamespace));
 			rel->rd_backend = MyBackendId;
 			rel->rd_islocaltemp = true;
 			break;
@@ -3242,8 +3335,8 @@ RelationCacheInitializePhase3(void)
 	 * wrong in the results from formrdesc or the relcache cache file. If we
 	 * faked up relcache entries using formrdesc, then read the real pg_class
 	 * rows and replace the fake entries with them. Also, if any of the
-	 * relcache entries have rules or triggers, load that info the hard way
-	 * since it isn't recorded in the cache file.
+	 * relcache entries have rules, triggers, or security policies, load that
+	 * info the hard way since it isn't recorded in the cache file.
 	 *
 	 * Whenever we access the catalogs to read data, there is a possibility of
 	 * a shared-inval cache flush causing relcache entries to be removed.
@@ -3331,6 +3424,21 @@ RelationCacheInitializePhase3(void)
 			RelationBuildTriggers(relation);
 			if (relation->trigdesc == NULL)
 				relation->rd_rel->relhastriggers = false;
+			restart = true;
+		}
+
+		/*
+		 * Re-load the row security policies if the relation has them, since
+		 * they are not preserved in the cache.  Note that we can never NOT
+		 * have a policy while relrowsecurity is true,
+		 * RelationBuildRowSecurity will create a single default-deny policy
+		 * if there is no policy defined in pg_rowsecurity.
+		 */
+		if (relation->rd_rel->relrowsecurity && relation->rsdesc == NULL)
+		{
+			RelationBuildRowSecurity(relation);
+
+			Assert (relation->rsdesc != NULL);
 			restart = true;
 		}
 
@@ -3552,8 +3660,6 @@ CheckConstraintFetch(Relation relation)
 	SysScanDesc conscan;
 	ScanKeyData skey[1];
 	HeapTuple	htup;
-	Datum		val;
-	bool		isnull;
 	int			found = 0;
 
 	ScanKeyInit(&skey[0],
@@ -3568,6 +3674,9 @@ CheckConstraintFetch(Relation relation)
 	while (HeapTupleIsValid(htup = systable_getnext(conscan)))
 	{
 		Form_pg_constraint conform = (Form_pg_constraint) GETSTRUCT(htup);
+		Datum		val;
+		bool		isnull;
+		char	   *s;
 
 		/* We want check constraints only */
 		if (conform->contype != CONSTRAINT_CHECK)
@@ -3590,8 +3699,11 @@ CheckConstraintFetch(Relation relation)
 			elog(ERROR, "null conbin for rel %s",
 				 RelationGetRelationName(relation));
 
-		check[found].ccbin = MemoryContextStrdup(CacheMemoryContext,
-												 TextDatumGetCString(val));
+		/* detoast and convert to cstring in caller's context */
+		s = TextDatumGetCString(val);
+		check[found].ccbin = MemoryContextStrdup(CacheMemoryContext, s);
+		pfree(s);
+
 		found++;
 	}
 
@@ -3646,6 +3758,7 @@ RelationGetIndexList(Relation relation)
 	ScanKeyData skey;
 	HeapTuple	htup;
 	List	   *result;
+	List	   *oldlist;
 	char		replident = relation->rd_rel->relreplident;
 	Oid			oidIndex = InvalidOid;
 	Oid			pkeyIndex = InvalidOid;
@@ -3737,6 +3850,7 @@ RelationGetIndexList(Relation relation)
 
 	/* Now save a copy of the completed list in the relcache entry. */
 	oldcxt = MemoryContextSwitchTo(CacheMemoryContext);
+	oldlist = relation->rd_indexlist;
 	relation->rd_indexlist = list_copy(result);
 	relation->rd_oidindex = oidIndex;
 	if (replident == REPLICA_IDENTITY_DEFAULT && OidIsValid(pkeyIndex))
@@ -3747,6 +3861,9 @@ RelationGetIndexList(Relation relation)
 		relation->rd_replidindex = InvalidOid;
 	relation->rd_indexvalid = 1;
 	MemoryContextSwitchTo(oldcxt);
+
+	/* Don't leak the old list, if there is one */
+	list_free(oldlist);
 
 	return result;
 }
@@ -4140,6 +4257,14 @@ RelationGetIndexAttrBitmap(Relation relation, IndexAttrBitmapKind attrKind)
 	}
 
 	list_free(indexoidlist);
+
+	/* Don't leak the old values of these bitmaps, if any */
+	bms_free(relation->rd_indexattr);
+	relation->rd_indexattr = NULL;
+	bms_free(relation->rd_keyattr);
+	relation->rd_keyattr = NULL;
+	bms_free(relation->rd_idattr);
+	relation->rd_idattr = NULL;
 
 	/*
 	 * Now save copies of the bitmaps in the relcache entry.  We intentionally
@@ -4689,6 +4814,7 @@ load_relcache_init_file(bool shared)
 		rel->rd_rules = NULL;
 		rel->rd_rulescxt = NULL;
 		rel->trigdesc = NULL;
+		rel->rsdesc = NULL;
 		rel->rd_indexprs = NIL;
 		rel->rd_indpred = NIL;
 		rel->rd_exclops = NULL;

@@ -136,7 +136,15 @@ CATALOG(pg_attribute,1249) BKI_BOOTSTRAP BKI_WITHOUT_OIDS BKI_ROWTYPE_OID(75) BK
 	/* Is dropped (ie, logically invisible) or not */
 	bool		attisdropped;
 
-	/* Has a local definition (hence, do not drop when attinhcount is 0) */
+	/*
+	 * This flag specifies whether this column has ever had a local
+	 * definition.  It is set for normal non-inherited columns, but also
+	 * for columns that are inherited from parents if also explicitly listed
+	 * in CREATE TABLE INHERITS.  It is also set when inheritance is removed
+	 * from a table with ALTER TABLE NO INHERIT.  If the flag is set, the
+	 * column is not dropped by a parent's DROP COLUMN even if this causes
+	 * the column's attinhcount to become zero.
+	 */
 	bool		attislocal;
 
 	/* Number of times inherited from direct parent relation(s) */

@@ -39,6 +39,7 @@
 #include "commands/extension.h"
 #include "commands/matview.h"
 #include "commands/lockcmds.h"
+#include "commands/policy.h"
 #include "commands/portalcmds.h"
 #include "commands/prepare.h"
 #include "commands/proclang.h"
@@ -147,6 +148,7 @@ check_xact_readonly(Node *parsetree)
 		case T_AlterObjectSchemaStmt:
 		case T_AlterOwnerStmt:
 		case T_AlterSeqStmt:
+		case T_AlterTableMoveAllStmt:
 		case T_AlterTableStmt:
 		case T_RenameStmt:
 		case T_CommentStmt:
@@ -200,7 +202,6 @@ check_xact_readonly(Node *parsetree)
 		case T_AlterUserMappingStmt:
 		case T_DropUserMappingStmt:
 		case T_AlterTableSpaceOptionsStmt:
-		case T_AlterTableSpaceMoveStmt:
 		case T_CreateForeignTableStmt:
 		case T_ImportForeignSchemaStmt:
 		case T_SecLabelStmt:
@@ -505,11 +506,6 @@ standard_ProcessUtility(Node *parsetree,
 		case T_AlterTableSpaceOptionsStmt:
 			/* no event triggers for global objects */
 			AlterTableSpaceOptions((AlterTableSpaceOptionsStmt *) parsetree);
-			break;
-
-		case T_AlterTableSpaceMoveStmt:
-			/* no event triggers for global objects */
-			AlterTableSpaceMove((AlterTableSpaceMoveStmt *) parsetree);
 			break;
 
 		case T_TruncateStmt:
@@ -1297,6 +1293,10 @@ ProcessUtilitySlow(Node *parsetree,
 				AlterTSConfiguration((AlterTSConfigurationStmt *) parsetree);
 				break;
 
+			case T_AlterTableMoveAllStmt:
+				AlterTableMoveAll((AlterTableMoveAllStmt *) parsetree);
+				break;
+
 			case T_DropStmt:
 				ExecDropStmt((DropStmt *) parsetree, isTopLevel);
 				break;
@@ -1319,6 +1319,14 @@ ProcessUtilitySlow(Node *parsetree,
 
 			case T_AlterDefaultPrivilegesStmt:
 				ExecAlterDefaultPrivilegesStmt((AlterDefaultPrivilegesStmt *) parsetree);
+				break;
+
+			case T_CreatePolicyStmt:	/* CREATE POLICY */
+				CreatePolicy((CreatePolicyStmt *) parsetree);
+				break;
+
+			case T_AlterPolicyStmt:		/* ALTER POLICY */
+				AlterPolicy((AlterPolicyStmt *) parsetree);
 				break;
 
 			default:
@@ -1624,6 +1632,9 @@ AlterObjectTypeCommandTag(ObjectType objtype)
 		case OBJECT_OPFAMILY:
 			tag = "ALTER OPERATOR FAMILY";
 			break;
+		case OBJECT_POLICY:
+			tag = "ALTER POLICY";
+			break;
 		case OBJECT_ROLE:
 			tag = "ALTER ROLE";
 			break;
@@ -1810,10 +1821,6 @@ CreateCommandTag(Node *parsetree)
 			tag = "ALTER TABLESPACE";
 			break;
 
-		case T_AlterTableSpaceMoveStmt:
-			tag = "ALTER TABLESPACE";
-			break;
-
 		case T_CreateExtensionStmt:
 			tag = "CREATE EXTENSION";
 			break;
@@ -1949,6 +1956,9 @@ CreateCommandTag(Node *parsetree)
 				case OBJECT_OPFAMILY:
 					tag = "DROP OPERATOR FAMILY";
 					break;
+				case OBJECT_POLICY:
+					tag = "DROP POLICY";
+					break;
 				default:
 					tag = "???";
 			}
@@ -1980,6 +1990,10 @@ CreateCommandTag(Node *parsetree)
 
 		case T_AlterOwnerStmt:
 			tag = AlterObjectTypeCommandTag(((AlterOwnerStmt *) parsetree)->objectType);
+			break;
+
+		case T_AlterTableMoveAllStmt:
+			tag = AlterObjectTypeCommandTag(((AlterTableMoveAllStmt *) parsetree)->objtype);
 			break;
 
 		case T_AlterTableStmt:
@@ -2288,6 +2302,14 @@ CreateCommandTag(Node *parsetree)
 			tag = "ALTER TEXT SEARCH CONFIGURATION";
 			break;
 
+		case T_CreatePolicyStmt:
+			tag = "CREATE POLICY";
+			break;
+
+		case T_AlterPolicyStmt:
+			tag = "ALTER POLICY";
+			break;
+
 		case T_PrepareStmt:
 			tag = "PREPARE";
 			break;
@@ -2462,6 +2484,9 @@ GetCommandLogLevel(Node *parsetree)
 {
 	LogStmtLevel lev;
 
+	if (parsetree == NULL)
+		return LOGSTMT_ALL;
+
 	switch (nodeTag(parsetree))
 	{
 			/* raw plannable queries */
@@ -2507,10 +2532,6 @@ GetCommandLogLevel(Node *parsetree)
 		case T_CreateTableSpaceStmt:
 		case T_DropTableSpaceStmt:
 		case T_AlterTableSpaceOptionsStmt:
-			lev = LOGSTMT_DDL;
-			break;
-
-		case T_AlterTableSpaceMoveStmt:
 			lev = LOGSTMT_DDL;
 			break;
 
@@ -2593,6 +2614,7 @@ GetCommandLogLevel(Node *parsetree)
 			lev = LOGSTMT_DDL;
 			break;
 
+		case T_AlterTableMoveAllStmt:
 		case T_AlterTableStmt:
 			lev = LOGSTMT_DDL;
 			break;
@@ -2737,7 +2759,7 @@ GetCommandLogLevel(Node *parsetree)
 			break;
 
 		case T_AlterSystemStmt:
-			lev = LOGSTMT_ALL;
+			lev = LOGSTMT_DDL;
 			break;
 
 		case T_VariableSetStmt:
@@ -2829,6 +2851,14 @@ GetCommandLogLevel(Node *parsetree)
 			break;
 
 		case T_AlterOpFamilyStmt:
+			lev = LOGSTMT_DDL;
+			break;
+
+		case T_CreatePolicyStmt:
+			lev = LOGSTMT_DDL;
+			break;
+
+		case T_AlterPolicyStmt:
 			lev = LOGSTMT_DDL;
 			break;
 

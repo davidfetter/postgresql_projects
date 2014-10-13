@@ -334,6 +334,9 @@
 /* Define to 1 if you have spinlocks. */
 #define HAVE_SPINLOCKS 1
 
+/* Define to 1 if you have atomics. */
+#define HAVE_ATOMICS 1
+
 /* Define to 1 if you have the `srandom' function. */
 /* #undef HAVE_SRANDOM */
 
@@ -532,8 +535,8 @@
 /* Define to 1 if your compiler understands __VA_ARGS__ in macros. */
 #define HAVE__VA_ARGS 1
 
-/* Define to the appropriate snprintf format for 64-bit ints, if any. */
-#define INT64_FORMAT "%lld"
+/* Define to the appropriate snprintf length modifier for 64-bit ints. */
+#define INT64_MODIFIER "ll"
 
 /* Define to 1 if `locale_t' requires <xlocale.h>. */
 /* #undef LOCALE_T_IN_XLOCALE */
@@ -604,10 +607,6 @@
 /* Define to 1 if your <sys/time.h> declares `struct tm'. */
 /* #undef TM_IN_SYS_TIME */
 
-/* Define to the appropriate snprintf format for unsigned 64-bit ints, if any.
-   */
-#define UINT64_FORMAT "%llu"
-
 /* Define to 1 to build with assertion checks. (--enable-cassert) */
 /* #undef USE_ASSERT_CHECKING */
 
@@ -628,14 +627,14 @@
 /* Define to select named POSIX semaphores. */
 /* #undef USE_NAMED_POSIX_SEMAPHORES */
 
+/* Define to build with OpenSSL support. (--with-openssl) */
+/* #undef USE_OPENSSL */
+
 /* Define to 1 to build with PAM support. (--with-pam) */
 /* #undef USE_PAM */
 
 /* Use replacement snprintf() functions. */
 #define USE_REPL_SNPRINTF 1
-
-/* Define to build with (Open)SSL support. (--with-openssl) */
-/* #undef USE_SSL */
 
 /* Define to select SysV-style semaphores. */
 /* #undef USE_SYSV_SEMAPHORES */
