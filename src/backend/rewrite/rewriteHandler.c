@@ -63,7 +63,8 @@ static void rewriteValuesRTE(RangeTblEntry *rte, Relation target_relation,
 static void rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 					Relation target_relation);
 static void markQueryForLocking(Query *qry, Node *jtnode,
-				  LockClauseStrength strength, bool noWait, bool pushedDown);
+					LockClauseStrength strength, LockWaitPolicy waitPolicy,
+					bool pushedDown);
 static List *matchLocks(CmdType event, RuleLock *rulelocks,
 		   int varno, Query *parsetree);
 static Query *fireRIRrules(Query *parsetree, List *activeRIRs,
@@ -884,13 +885,13 @@ process_matched_tle(TargetEntry *src_tle,
 	 *		UPDATE tab SET col.fld1.subfld1 = x, col.fld2.subfld2 = y
 	 * The two expressions produced by the parser will look like
 	 *		FieldStore(col, fld1, FieldStore(placeholder, subfld1, x))
-	 *		FieldStore(col, fld2, FieldStore(placeholder, subfld2, x))
+	 *		FieldStore(col, fld2, FieldStore(placeholder, subfld2, y))
 	 * However, we can ignore the substructure and just consider the top
 	 * FieldStore or ArrayRef from each assignment, because it works to
 	 * combine these as
 	 *		FieldStore(FieldStore(col, fld1,
 	 *							  FieldStore(placeholder, subfld1, x)),
-	 *				   fld2, FieldStore(placeholder, subfld2, x))
+	 *				   fld2, FieldStore(placeholder, subfld2, y))
 	 * Note the leftmost expression goes on the inside so that the
 	 * assignments appear to occur left-to-right.
 	 *
@@ -1482,7 +1483,7 @@ ApplyRetrieveRule(Query *parsetree,
 	 */
 	if (rc != NULL)
 		markQueryForLocking(rule_action, (Node *) rule_action->jointree,
-							rc->strength, rc->noWait, true);
+							rc->strength, rc->waitPolicy, true);
 
 	return parsetree;
 }
@@ -1500,7 +1501,8 @@ ApplyRetrieveRule(Query *parsetree,
  */
 static void
 markQueryForLocking(Query *qry, Node *jtnode,
-					LockClauseStrength strength, bool noWait, bool pushedDown)
+					LockClauseStrength strength, LockWaitPolicy waitPolicy,
+					bool pushedDown)
 {
 	if (jtnode == NULL)
 		return;
@@ -1511,15 +1513,15 @@ markQueryForLocking(Query *qry, Node *jtnode,
 
 		if (rte->rtekind == RTE_RELATION)
 		{
-			applyLockingClause(qry, rti, strength, noWait, pushedDown);
+			applyLockingClause(qry, rti, strength, waitPolicy, pushedDown);
 			rte->requiredPerms |= ACL_SELECT_FOR_UPDATE;
 		}
 		else if (rte->rtekind == RTE_SUBQUERY)
 		{
-			applyLockingClause(qry, rti, strength, noWait, pushedDown);
+			applyLockingClause(qry, rti, strength, waitPolicy, pushedDown);
 			/* FOR UPDATE/SHARE of subquery is propagated to subquery's rels */
 			markQueryForLocking(rte->subquery, (Node *) rte->subquery->jointree,
-								strength, noWait, true);
+								strength, waitPolicy, true);
 		}
 		/* other RTE types are unaffected by FOR UPDATE */
 	}
@@ -1529,14 +1531,14 @@ markQueryForLocking(Query *qry, Node *jtnode,
 		ListCell   *l;
 
 		foreach(l, f->fromlist)
-			markQueryForLocking(qry, lfirst(l), strength, noWait, pushedDown);
+			markQueryForLocking(qry, lfirst(l), strength, waitPolicy, pushedDown);
 	}
 	else if (IsA(jtnode, JoinExpr))
 	{
 		JoinExpr   *j = (JoinExpr *) jtnode;
 
-		markQueryForLocking(qry, j->larg, strength, noWait, pushedDown);
-		markQueryForLocking(qry, j->rarg, strength, noWait, pushedDown);
+		markQueryForLocking(qry, j->larg, strength, waitPolicy, pushedDown);
+		markQueryForLocking(qry, j->rarg, strength, waitPolicy, pushedDown);
 	}
 	else
 		elog(ERROR, "unrecognized node type: %d",
