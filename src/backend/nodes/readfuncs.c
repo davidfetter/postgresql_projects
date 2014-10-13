@@ -448,6 +448,7 @@ _readGrouping(void)
 
 	READ_NODE_FIELD(args);
 	READ_NODE_FIELD(refs);
+	READ_NODE_FIELD(cols);
 	READ_LOCATION_FIELD(location);
 	READ_INT_FIELD(agglevelsup);
 

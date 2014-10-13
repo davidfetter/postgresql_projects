@@ -574,8 +574,10 @@ pull_var_clause_walker(Node *node, pull_var_clause_context *context)
 				elog(ERROR, "GROUPING found where not expected");
 				break;
 			case PVC_INCLUDE_AGGREGATES:
+				context->varlist = lappend(context->varlist, node);
+				/* we do NOT descend into the contained expression */
+				return false;
 			case PVC_RECURSE_AGGREGATES:
-				/* We don't include the Grouping node in the result */
 				/*
 				 * we do NOT descend into the contained expression,
 				 * even if the caller asked for it, because we never

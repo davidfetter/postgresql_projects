@@ -79,6 +79,9 @@ static void show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 					   ExplainState *es);
 static void show_agg_keys(AggState *astate, List *ancestors,
 			  ExplainState *es);
+static void show_grouping_set_keys(PlanState *planstate, const char *qlabel,
+				int nkeys, AttrNumber *keycols, List *gsets,
+				List *ancestors, ExplainState *es);
 static void show_group_keys(GroupState *gstate, List *ancestors,
 				ExplainState *es);
 static void show_sort_group_keys(PlanState *planstate, const char *qlabel,
@@ -1779,15 +1782,74 @@ show_agg_keys(AggState *astate, List *ancestors,
 {
 	Agg		   *plan = (Agg *) astate->ss.ps.plan;
 
-	if (plan->numCols > 0)
+	if (plan->numCols > 0 || plan->groupingSets)
 	{
 		/* The key columns refer to the tlist of the child plan */
 		ancestors = lcons(astate, ancestors);
-		show_sort_group_keys(outerPlanState(astate), "Group Key",
-							 plan->numCols, plan->grpColIdx,
-							 ancestors, es);
+		if (plan->groupingSets)
+			show_grouping_set_keys(outerPlanState(astate), "Grouping Sets",
+								   plan->numCols, plan->grpColIdx,
+								   plan->groupingSets,
+								   ancestors, es);
+		else
+			show_sort_group_keys(outerPlanState(astate), "Group Key",
+								 plan->numCols, plan->grpColIdx,
+								 ancestors, es);
 		ancestors = list_delete_first(ancestors);
 	}
+}
+
+static void
+show_grouping_set_keys(PlanState *planstate, const char *qlabel,
+					   int nkeys, AttrNumber *keycols, List *gsets,
+					   List *ancestors, ExplainState *es)
+{
+	Plan	   *plan = planstate->plan;
+	List	   *context;
+	bool		useprefix;
+	char	   *exprstr;
+	ListCell   *lc;
+
+	if (gsets == NIL)
+		return;
+
+	/* Set up deparsing context */
+	context = deparse_context_for_planstate((Node *) planstate,
+											ancestors,
+											es->rtable,
+											es->rtable_names);
+	useprefix = (list_length(es->rtable) > 1 || es->verbose);
+
+	ExplainOpenGroup("Grouping Sets", "Grouping Sets", false, es);
+
+	foreach(lc, gsets)
+	{
+		List	   *result = NIL;
+		ListCell   *lc2;
+
+		foreach(lc2, (List *) lfirst(lc))
+		{
+			Index		i = lfirst_int(lc2);
+			AttrNumber	keyresno = keycols[i];
+			TargetEntry *target = get_tle_by_resno(plan->targetlist,
+												   keyresno);
+
+			if (!target)
+				elog(ERROR, "no tlist entry for key %d", keyresno);
+			/* Deparse the expression, showing any top-level cast */
+			exprstr = deparse_expression((Node *) target->expr, context,
+										 useprefix, true);
+
+			result = lappend(result, exprstr);
+		}
+
+		if (!result && es->format == EXPLAIN_FORMAT_TEXT)
+			ExplainPropertyText("Group Key", "()", es);
+		else
+			ExplainPropertyListNested("Group Key", result, es);
+	}
+
+	ExplainCloseGroup("Grouping Sets", "Grouping Sets", false, es);
 }
 
 /*
@@ -2331,6 +2393,52 @@ ExplainPropertyList(const char *qlabel, List *data, ExplainState *es)
 				appendStringInfoString(es->str, "- ");
 				escape_yaml(es->str, (const char *) lfirst(lc));
 			}
+			break;
+	}
+}
+
+/*
+ * Explain a property that takes the form of a list of unlabeled items within
+ * another list.  "data" is a list of C strings.
+ */
+void
+ExplainPropertyListNested(const char *qlabel, List *data, ExplainState *es)
+{
+	ListCell   *lc;
+	bool		first = true;
+
+	switch (es->format)
+	{
+		case EXPLAIN_FORMAT_TEXT:
+		case EXPLAIN_FORMAT_XML:
+			ExplainPropertyList(qlabel, data, es);
+			return;
+
+		case EXPLAIN_FORMAT_JSON:
+			ExplainJSONLineEnding(es);
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			appendStringInfoChar(es->str, '[');
+			foreach(lc, data)
+			{
+				if (!first)
+					appendStringInfoString(es->str, ", ");
+				escape_json(es->str, (const char *) lfirst(lc));
+				first = false;
+			}
+			appendStringInfoChar(es->str, ']');
+			break;
+
+		case EXPLAIN_FORMAT_YAML:
+			ExplainYAMLLineStarting(es);
+			appendStringInfoString(es->str, "- [");
+			foreach(lc, data)
+			{
+				if (!first)
+					appendStringInfoString(es->str, ", ");
+				escape_yaml(es->str, (const char *) lfirst(lc));
+				first = false;
+			}
+			appendStringInfoChar(es->str, ']');
 			break;
 	}
 }

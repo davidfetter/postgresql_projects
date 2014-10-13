@@ -644,7 +644,7 @@ _outAgg(StringInfo str, const Agg *node)
 
 	WRITE_LONG_FIELD(numGroups);
 
-	WRITE_BOOL_FIELD(hasRollup);
+	WRITE_NODE_FIELD(groupingSets);
 }
 
 static void
@@ -920,6 +920,7 @@ _outGrouping(StringInfo str, const Grouping *node)
 
 	WRITE_NODE_FIELD(args);
 	WRITE_NODE_FIELD(refs);
+	WRITE_NODE_FIELD(cols);
 	WRITE_LOCATION_FIELD(location);
 	WRITE_INT_FIELD(agglevelsup);
 }
@@ -2955,13 +2956,13 @@ _outNode(StringInfo str, const void *obj)
 			case T_Var:
 				_outVar(str, obj);
 				break;
-		    case T_GroupedVar:
+			case T_GroupedVar:
 				_outGroupedVar(str, obj);
 				break;
-            case T_Grouping:
+			case T_Grouping:
 				_outGrouping(str, obj);
 				break;
-            case T_GroupingSet:
+			case T_GroupingSet:
 				_outGroupingSet(str, obj);
 				break;
 			case T_Const:

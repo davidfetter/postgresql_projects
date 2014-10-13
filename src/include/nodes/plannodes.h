@@ -632,12 +632,10 @@ typedef struct Agg
 	Plan		plan;
 	AggStrategy aggstrategy;
 	int			numCols;		/* number of grouping columns */
-	bool		hasRollup;			/* if current query has ROLLUP clause */
 	AttrNumber *grpColIdx;		/* their indexes in the target list */
 	Oid		   *grpOperators;	/* equality operators to compare with */
 	long		numGroups;		/* estimated number of groups in input */
-	List        *groupIds;      /* group IDs of the groups present in current Agg */
-	List        *currentMatchCols;  /* current  number of matching cols */
+	List	   *groupingSets;	/* grouping sets to use */
 } Agg;
 
 /* ----------------

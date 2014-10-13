@@ -1015,6 +1015,7 @@ create_unique_plan(PlannerInfo *root, UniquePath *best_path)
 								 numGroupCols,
 								 groupColIdx,
 								 groupOperators,
+								 NIL,
 								 numGroups,
 								 subplan);
 	}
@@ -4265,6 +4266,7 @@ Agg *
 make_agg(PlannerInfo *root, List *tlist, List *qual,
 		 AggStrategy aggstrategy, const AggClauseCosts *aggcosts,
 		 int numGroupCols, AttrNumber *grpColIdx, Oid *grpOperators,
+		 List *groupingSets,
 		 long numGroups,
 		 Plan *lefttree)
 {
@@ -4272,11 +4274,6 @@ make_agg(PlannerInfo *root, List *tlist, List *qual,
 	Plan	   *plan = &node->plan;
 	Path		agg_path;		/* dummy for result of cost_agg */
 	QualCost	qual_cost;
-	Query *parse = root->parse;
-	List *groupClause = parse->groupClause;
-	List *groupingSets = parse->groupingSets;
-	ListCell *lc_gc;
-	ListCell *lc_gs;
 
 	node->aggstrategy = aggstrategy;
 	node->numCols = numGroupCols;
@@ -4299,50 +4296,12 @@ make_agg(PlannerInfo *root, List *tlist, List *qual,
 	 * group otherwise.
 	 */
 	if (aggstrategy == AGG_PLAIN)
-		plan->plan_rows = 1;
+		plan->plan_rows = groupingSets ? list_length(groupingSets) : 1;
 	else
 		plan->plan_rows = numGroups;
 
-	/* Get the size of matching prefix for each group of grouping sets with
-	 * respect to groupClause.
-	 */
-	foreach(lc_gs, groupingSets)
-	{
-		List *current_group = lfirst(lc_gs);
-		ListCell *lc_inner;
-		int current_match_length = 0;
-		int current_gp_clause = 0;
+	node->groupingSets = groupingSets;
 
-		foreach(lc_gc, groupClause)
-		{
-			SortGroupClause *current_gp_val = (SortGroupClause *) (lfirst(lc_gc));
-			bool notFound = false;
-			int i = 0;
-
-			foreach(lc_inner, current_group)
-			{
-				if (i >= current_gp_clause)
-				{
-					if (lfirst_int(lc_inner) == (current_gp_val->tleSortGroupRef))
-						++current_match_length;
-					else
-						notFound = true;
-
-					break;
-				}
-
-				++i;
-			}
-
-			++current_gp_clause;
-
-			if (notFound)
-				break;
-		}
-
-		node->currentMatchCols = lappend_int((node->currentMatchCols), current_match_length);
-	}
-			
 	/*
 	 * We also need to account for the cost of evaluation of the qual (ie, the
 	 * HAVING clause) and the tlist.  Note that cost_qual_eval doesn't charge

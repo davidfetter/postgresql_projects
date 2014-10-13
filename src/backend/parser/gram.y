@@ -366,9 +366,9 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				create_generic_options alter_generic_options
 				relation_expr_list dostmt_opt_list
 
-%type <list>	group_by_list grouping_set_list
+%type <list>	group_by_list
 %type <node>	group_by_item empty_grouping_set rollup_clause cube_clause
-%type <node>	grouping_sets_clause grouping_set
+%type <node>	grouping_sets_clause
 
 %type <list>	opt_fdw_options fdw_options
 %type <defelt>	fdw_option
@@ -430,7 +430,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				a_expr b_expr c_expr AexprConst indirection_el
 				columnref in_expr having_clause func_table array_expr
 				ExclusionWhereClause
-%type <list>	rowsfrom_item rowsfrom_list opt_col_def_list columnref_list
+%type <list>	rowsfrom_item rowsfrom_list opt_col_def_list
 %type <boolean> opt_ordinality
 %type <list>	ExclusionConstraintList ExclusionConstraintElem
 %type <list>	func_arg_list
@@ -10030,8 +10030,8 @@ group_by_list:
 group_by_item:
 			a_expr									{ $$ = $1; }
 			| empty_grouping_set					{ $$ = $1; }
-			| rollup_clause							{ $$ = $1; }
 			| cube_clause							{ $$ = $1; }
+			| rollup_clause							{ $$ = $1; }
 			| grouping_sets_clause					{ $$ = $1; }
 		;
 
@@ -10057,23 +10057,10 @@ cube_clause:
 		;
 
 grouping_sets_clause:
-			GROUPING SETS '(' grouping_set_list ')'
+			GROUPING SETS '(' group_by_list ')'
 				{
 					$$ = (Node *) makeGroupingSet(GROUPING_SET_SETS, $4, @1);
 				}
-		;
-
-grouping_set:
-			a_expr									{ $$ = $1; }
-			| empty_grouping_set					{ $$ = $1; }
-			| rollup_clause							{ $$ = $1; }
-			| cube_clause							{ $$ = $1; }
-			| grouping_sets_clause					{ $$ = $1; }
-		;
-
-grouping_set_list:
-			grouping_set 							{ $$ = list_make1($1); }
-			| grouping_set_list ',' grouping_set	{ $$ = lappend($1,$3); }
 		;
 
 having_clause:
@@ -11674,9 +11661,9 @@ c_expr:		columnref								{ $$ = $1; }
 					r->location = @1;
 					$$ = (Node *)r;
 				}
-            | GROUPING '(' expr_list ')'
+			| GROUPING '(' expr_list ')'
 			  {
-				  GroupingParse *g = makeNode(GroupingParse);
+				  Grouping *g = makeNode(Grouping);
 				  g->args = $3;
 				  g->location = @1;
 				  $$ = (Node *)g;
@@ -12729,16 +12716,6 @@ columnref:	ColId
 				}
 		;
 
-columnref_list: columnref
-                   {
-					   $$ = list_make1($1);
-				   }
-                | columnref_list ',' columnref
-				   {
-					   $$ = lappend($1, $3);
-				   }
-				   ;
-
 indirection_el:
 			'.' attr_name
 				{
@@ -13433,6 +13410,7 @@ col_name_keyword:
 			| EXTRACT
 			| FLOAT_P
 			| GREATEST
+			| GROUPING
 			| INOUT
 			| INT_P
 			| INTEGER
@@ -13550,7 +13528,6 @@ reserved_keyword:
 			| FROM
 			| GRANT
 			| GROUP_P
-			| GROUPING
 			| HAVING
 			| IN_P
 			| INITIALLY

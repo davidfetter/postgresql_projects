@@ -275,7 +275,8 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 			else
 				*pNumGroups = estimate_num_groups(subroot,
 								get_tlist_exprs(subquery->targetList, false),
-												  subplan->plan_rows);
+												  subplan->plan_rows,
+												  NULL);
 		}
 
 		/*
@@ -772,6 +773,7 @@ make_union_unique(SetOperationStmt *op, Plan *plan,
 								 extract_grouping_cols(groupList,
 													   plan->targetlist),
 								 extract_grouping_ops(groupList),
+								 NIL,
 								 numGroups,
 								 plan);
 		/* Hashed aggregation produces randomly-ordered results */

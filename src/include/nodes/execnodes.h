@@ -131,7 +131,7 @@ typedef struct ExprContext
 	bool	   *ecxt_aggnulls;	/* null flags for aggs/windowfuncs */
 
 	Bitmapset  *grouped_cols;   /* which columns exist in current grouping set */
-	
+
 	/* Value to substitute for CaseTestExpr nodes in expression */
 	Datum		caseValue_datum;
 	bool		caseValue_isNull;
@@ -1720,18 +1720,19 @@ typedef struct AggState
 	ScanState	ss;				/* its first field is NodeTag */
 	List	   *aggs;			/* all Aggref nodes in targetlist & quals */
 	int			numaggs;		/* length of list (could be zero!) */
+	int			numsets;		/* number of grouping sets (or 0) */
 	FmgrInfo   *eqfunctions;	/* per-grouping-field equality fns */
 	FmgrInfo   *hashfunctions;	/* per-grouping-field hash fns */
 	AggStatePerAgg peragg;		/* per-Aggref information */
-	AggStatePerGroup **pointerRollup; /* pointers into pergroup for ROLLUP groups */
 	ExprContext **aggcontext;	/* econtexts for long-lived data */
 	ExprContext *tmpcontext;	/* econtext for input expressions */
 	AggStatePerAgg curperagg;	/* identifies currently active aggregate */
 	bool        input_done;     /* indicates end of input */
 	bool		agg_done;		/* indicates completion of Agg scan */
-	int curgroup_size;		/* The current group size. Used for ROLLUP */
-	int curgroup;           /* The current group number being processed */
+	int			projected_set;	/* The last projected grouping set */
+	int			current_set;	/* The current grouping set being evaluated */
 	Bitmapset **grouped_cols;   /* column groupings for rollup */
+	int        *gset_lengths;	/* lengths of grouping sets */
 	/* these fields are used in AGG_PLAIN and AGG_SORTED modes: */
 	AggStatePerGroup pergroup;	/* per-Aggref-per-group working state */
 	HeapTuple	grp_firstTuple; /* copy of first tuple of current group */

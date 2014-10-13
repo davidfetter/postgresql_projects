@@ -772,7 +772,6 @@ _copyAgg(const Agg *from)
 	CopyPlanFields((const Plan *) from, (Plan *) newnode);
 
 	COPY_SCALAR_FIELD(aggstrategy);
-	COPY_SCALAR_FIELD(hasRollup);
 	COPY_SCALAR_FIELD(numCols);
 	if (from->numCols > 0)
 	{
@@ -780,6 +779,7 @@ _copyAgg(const Agg *from)
 		COPY_POINTER_FIELD(grpOperators, from->numCols * sizeof(Oid));
 	}
 	COPY_SCALAR_FIELD(numGroups);
+	COPY_NODE_FIELD(groupingSets);
 
 	return newnode;
 }
@@ -1075,6 +1075,7 @@ _copyGrouping(const Grouping *from)
 
 	COPY_NODE_FIELD(args);
 	COPY_NODE_FIELD(refs);
+	COPY_NODE_FIELD(cols);
 	COPY_LOCATION_FIELD(location);
 	COPY_SCALAR_FIELD(agglevelsup);
 
@@ -3889,17 +3890,6 @@ _copyAlterTSDictionaryStmt(const AlterTSDictionaryStmt *from)
 	return newnode;
 }
 
-static GroupingParse *
-_copyGroupingParse(const GroupingParse *from)
-{
-	GroupingParse *newnode = makeNode(GroupingParse);
-
-	COPY_NODE_FIELD(args);
-	COPY_LOCATION_FIELD(location);
-
-	return newnode;
-}
-
 static AlterTSConfigurationStmt *
 _copyAlterTSConfigurationStmt(const AlterTSConfigurationStmt *from)
 {
@@ -4174,13 +4164,13 @@ copyObject(const void *from)
 		case T_Var:
 			retval = _copyVar(from);
 			break;
-        case T_GroupedVar:
+		case T_GroupedVar:
 			retval = _copyGroupedVar(from);
 			break;
-        case T_Grouping:
+		case T_Grouping:
 			retval = _copyGrouping(from);
 			break;
-        case T_GroupingSet:
+		case T_GroupingSet:
 			retval = _copyGroupingSet(from);
 			break;
 		case T_Const:
@@ -4775,9 +4765,6 @@ copyObject(const void *from)
 			break;
 		case T_XmlSerialize:
 			retval = _copyXmlSerialize(from);
-			break;
-	    case T_GroupingParse:
-			retval = _copyGroupingParse(from);
 			break;
 
 		default:

@@ -22,6 +22,7 @@
 #include "executor/nodeAgg.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
+#include "nodes/nodeFuncs.h"
 #ifdef OPTIMIZER_DEBUG
 #include "nodes/print.h"
 #endif
@@ -37,10 +38,10 @@
 #include "optimizer/tlist.h"
 #include "parser/analyze.h"
 #include "parser/parsetree.h"
+#include "parser/parse_agg.h"
 #include "rewrite/rewriteManip.h"
 #include "utils/rel.h"
 #include "utils/selfuncs.h"
-#include "math.h"
 
 
 /* GUC parameter */
@@ -78,8 +79,8 @@ static double preprocess_limit(PlannerInfo *root,
 				 double tuple_fraction,
 				 int64 *offset_est, int64 *count_est);
 static bool limit_needed(Query *parse);
-static void preprocess_groupclause(PlannerInfo *root);
-static List* preprocess_groupingset(PlannerInfo *root);
+static List *preprocess_groupclause(PlannerInfo *root, List *force);
+static List *extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder);
 static void standard_qp_callback(PlannerInfo *root, void *extra);
 static bool choose_hashed_grouping(PlannerInfo *root,
 					   double tuple_fraction, double limit_tuples,
@@ -319,6 +320,8 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	root->append_rel_list = NIL;
 	root->rowMarks = NIL;
 	root->hasInheritedTarget = false;
+	root->groupColIdx = NULL;
+	root->grouping_map = NULL;
 
 	root->hasRecursion = hasRecursion;
 	if (hasRecursion)
@@ -1095,7 +1098,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 	bool		use_hashed_distinct = false;
 	bool		tested_hashed_distinct = false;
 
-
 	/* Tweak caller-supplied tuple_fraction if have LIMIT/OFFSET */
 	if (parse->limitCount || parse->limitOffset)
 	{
@@ -1193,32 +1195,78 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		bool		use_hashed_grouping = false;
 		WindowFuncLists *wflists = NULL;
 		List	   *activeWindows = NIL;
+		int			maxref = 0;
+		int		   *refmap = NULL;
 
 		MemSet(&agg_costs, 0, sizeof(AggClauseCosts));
 
 		/* A recursive query should always have setOperations */
 		Assert(!root->hasRecursion);
 
-		/* Preprocess GROUP BY clause, if any */
-		if (parse->groupClause)
-			preprocess_groupclause(root);
-
 		/* Preprocess Grouping set, if any */
 		if (parse->groupingSets)
-			parse->groupingSets = preprocess_groupingset(root);
+			parse->groupingSets = expand_grouping_sets(parse->groupingSets, -1);
 
-		/* If the groupClause is a list-of lists, we need to traverse
-		 * in the top list and then calculate the number of group columns
-		 */
-
-		if ((parse->groupClause) && IsA(linitial(parse->groupClause), List))
+		if (parse->groupingSets)
 		{
-			numGroupCols = list_length(linitial(parse->groupClause));
+			ListCell   *lc;
+			ListCell   *lc2;
+			int			ref = 0;
+			List	   *remaining_sets = NIL;
+			List	   *usable_sets = extract_rollup_sets(parse->groupingSets,
+														  parse->sortClause,
+														  &remaining_sets);
+
+			/*
+			 * TODO - if the grouping set list can't be handled as one rollup...
+			 */
+
+			if (remaining_sets != NIL)
+				elog(ERROR, "not implemented yet");
+
+			parse->groupingSets = usable_sets;
+
+			if (parse->groupClause)
+				preprocess_groupclause(root, linitial(parse->groupingSets));
+
+			/*
+			 * Now that we've pinned down an order for the groupClause for this
+			 * list of grouping sets, remap the entries in the grouping sets
+			 * from sortgrouprefs to plain indices into the groupClause.
+			 */
+
+			foreach(lc, parse->groupClause)
+			{
+				SortGroupClause *gc = lfirst(lc);
+				if (gc->tleSortGroupRef > maxref)
+					maxref = gc->tleSortGroupRef;
+			}
+
+			refmap = palloc0(sizeof(int) * (maxref + 1));
+
+			foreach(lc, parse->groupClause)
+			{
+				SortGroupClause *gc = lfirst(lc);
+				refmap[gc->tleSortGroupRef] = ++ref;
+			}
+
+			foreach(lc, usable_sets)
+			{
+				foreach(lc2, (List *) lfirst(lc))
+				{
+					Assert(refmap[lfirst_int(lc2)] > 0);
+					lfirst_int(lc2) = refmap[lfirst_int(lc2)] - 1;
+				}
+			}
 		}
 		else
 		{
-			numGroupCols = list_length(parse->groupClause);
+			/* Preprocess GROUP BY clause, if any */
+			if (parse->groupClause)
+				preprocess_groupclause(root, NIL);
 		}
+
+		numGroupCols = list_length(parse->groupClause);
 
 		/* Preprocess targetlist */
 		tlist = preprocess_targetlist(root, tlist);
@@ -1280,6 +1328,9 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			preprocess_minmax_aggregates(root, tlist);
 		}
 
+		if (refmap)
+			pfree(refmap);
+
 		/* Make tuple_fraction accessible to lower-level routines */
 		root->tuple_fraction = tuple_fraction;
 
@@ -1290,6 +1341,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		 * grouping/aggregation operations.
 		 */
 		if (parse->groupClause ||
+			parse->groupingSets ||
 			parse->distinctClause ||
 			parse->hasAggs ||
 			parse->hasWindowFuncs ||
@@ -1335,7 +1387,23 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 			groupExprs = get_sortgrouplist_exprs(parse->groupClause,
 												 parse->targetList);
-			dNumGroups = estimate_num_groups(root, groupExprs, path_rows);
+			if (parse->groupingSets)
+			{
+				ListCell   *lc;
+
+				dNumGroups = 0;
+
+				foreach(lc, parse->groupingSets)
+				{
+					dNumGroups += estimate_num_groups(root,
+													  groupExprs,
+													  path_rows,
+													  (List **) &(lfirst(lc)));
+				}
+			}
+			else
+				dNumGroups = estimate_num_groups(root, groupExprs, path_rows,
+												 NULL);
 
 			/*
 			 * In GROUP BY mode, an absolute LIMIT is relative to the number
@@ -1361,7 +1429,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 									   root->group_pathkeys))
 				tuple_fraction = 0.0;
 		}
-		else if (parse->hasAggs || root->hasHavingQual)
+		else if (parse->hasAggs || root->hasHavingQual || parse->groupingSets)
 		{
 			/*
 			 * Ungrouped aggregate will certainly want to read all the tuples,
@@ -1383,7 +1451,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 			distinctExprs = get_sortgrouplist_exprs(parse->distinctClause,
 													parse->targetList);
-			dNumGroups = estimate_num_groups(root, distinctExprs, path_rows);
+			dNumGroups = estimate_num_groups(root, distinctExprs, path_rows, NULL);
 
 			/*
 			 * Adjust tuple_fraction the same way as for GROUP BY, too.
@@ -1466,7 +1534,8 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		{
 			/*
 			 * If grouping, decide whether to use sorted or hashed grouping.
-			 * If ROLLUP clause is present, we shall use only sorted grouping
+			 * If grouping sets are present, we can currently do only sorted
+			 * grouping
 			 */
 
 			if (parse->groupingSets)
@@ -1624,16 +1693,14 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												numGroupCols,
 												groupColIdx,
 									extract_grouping_ops(parse->groupClause),
+												NIL,
 												numGroups,
 												result_plan);
 				/* Hashed aggregation produces randomly-ordered results */
 				current_pathkeys = NIL;
 			}
-			else if (parse->hasAggs || parse->groupingSets)
+			else if (parse->hasAggs || (parse->groupingSets && parse->groupClause))
 			{
-				/* Used for holding Agg plan for setting hasRollups attribute */
-				Agg *result_agg;
-
 				/* Plain aggregate plan --- sort if needed */
 				AggStrategy aggstrategy;
 
@@ -1658,11 +1725,11 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				else
 				{
 					aggstrategy = AGG_PLAIN;
-					/* Result will be only one row anyway; no sort order */
+					/* Result will have no sort order */
 					current_pathkeys = NIL;
 				}
 
-				result_agg = make_agg(root,
+				result_plan = (Plan *) make_agg(root,
 												tlist,
 												(List *) parse->havingQual,
 												aggstrategy,
@@ -1670,13 +1737,9 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												numGroupCols,
 												groupColIdx,
 									extract_grouping_ops(parse->groupClause),
+												parse->groupingSets,
 												numGroups,
 												result_plan);
-
-				if ((parse->groupClause) && (parse->groupingSets))
-					result_agg->hasRollup = true;
-
-				result_plan = (Plan *) result_agg;
 			}
 			else if (parse->groupClause)
 			{
@@ -1707,26 +1770,65 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												  result_plan);
 				/* The Group node won't change sort ordering */
 			}
-			else if (root->hasHavingQual)
+			else if (root->hasHavingQual || parse->groupingSets)
 			{
+				int		nrows = list_length(parse->groupingSets);
+
 				/*
-				 * No aggregates, and no GROUP BY, but we have a HAVING qual.
+				 * No aggregates, and no GROUP BY, but we have a HAVING qual or
+				 * grouping sets (which by elimination of cases above must
+				 * consist solely of empty grouping sets, since otherwise
+				 * groupClause will be non-empty).
+				 *
 				 * This is a degenerate case in which we are supposed to emit
-				 * either 0 or 1 row depending on whether HAVING succeeds.
-				 * Furthermore, there cannot be any variables in either HAVING
-				 * or the targetlist, so we actually do not need the FROM
-				 * table at all!  We can just throw away the plan-so-far and
-				 * generate a Result node.  This is a sufficiently unusual
-				 * corner case that it's not worth contorting the structure of
-				 * this routine to avoid having to generate the plan in the
-				 * first place.
+				 * either 0 or 1 row for each grouping set depending on whether
+				 * HAVING succeeds.  Furthermore, there cannot be any variables
+				 * in either HAVING or the targetlist, so we actually do not
+				 * need the FROM table at all!  We can just throw away the
+				 * plan-so-far and generate a Result node.  This is a
+				 * sufficiently unusual corner case that it's not worth
+				 * contorting the structure of this routine to avoid having to
+				 * generate the plan in the first place.
 				 */
 				result_plan = (Plan *) make_result(root,
 												   tlist,
 												   parse->havingQual,
 												   NULL);
+
+				/*
+				 * Doesn't seem worthwhile writing code to cons up a
+				 * generate_series or a values scan to emit multiple rows.
+				 * Instead just clone the result in an Append.
+				 */
+				if (nrows > 1)
+				{
+					List   *plans = list_make1(result_plan);
+
+					while (--nrows > 0)
+						plans = lappend(plans, copyObject(result_plan));
+
+					result_plan = (Plan *) make_append(plans, tlist);
+				}
 			}
 		}						/* end of non-minmax-aggregate case */
+
+		/* Record grouping_map based on final groupColIdx, for setrefs */
+
+		if (parse->groupingSets)
+		{
+			AttrNumber *grouping_map = palloc0(sizeof(AttrNumber) * (maxref + 1));
+			ListCell   *lc;
+			int			i = 0;
+
+			foreach(lc, parse->groupClause)
+			{
+				SortGroupClause *gc = lfirst(lc);
+				grouping_map[gc->tleSortGroupRef] = groupColIdx[i++];
+			}
+
+			root->groupColIdx = groupColIdx;
+			root->grouping_map = grouping_map;
+		}
 
 		/*
 		 * Since each window function could require a different sort order, we
@@ -1931,6 +2033,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 								 extract_grouping_cols(parse->distinctClause,
 													result_plan->targetlist),
 								 extract_grouping_ops(parse->distinctClause),
+											NIL,
 											numDistinctRows,
 											result_plan);
 			/* Hashed aggregation produces randomly-ordered results */
@@ -2566,22 +2669,32 @@ limit_needed(Query *parse)
  * Note: we need no comparable processing of the distinctClause because
  * the parser already enforced that that matches ORDER BY.
  */
-static void
-preprocess_groupclause(PlannerInfo *root)
+static List *
+preprocess_groupclause(PlannerInfo *root, List *force)
 {
 	Query	   *parse = root->parse;
-	List	   *new_groupclause;
+	List	   *new_groupclause = NIL;
 	bool		partial_match;
 	ListCell   *sl;
 	ListCell   *gl;
 
+	/* For grouping sets, we may need to force the ordering */
+	if (force)
+	{
+		foreach(sl, force)
+		{
+			Index ref = lfirst_int(sl);
+			SortGroupClause *cl = get_sortgroupref_clause(ref, parse->groupClause);
+
+			new_groupclause = lappend(new_groupclause, cl);
+		}
+
+		return new_groupclause;
+	}
+
 	/* If no ORDER BY, nothing useful to do here */
 	if (parse->sortClause == NIL)
-		return;
-
-	/* If ROLLUP is present, rearrangement cannot be done */
-	if (parse->groupingSets)
-		return;
+		return parse->groupClause;
 
 	/*
 	 * Scan the ORDER BY clause and construct a list of matching GROUP BY
@@ -2589,7 +2702,6 @@ preprocess_groupclause(PlannerInfo *root)
 	 *
 	 * This code assumes that the sortClause contains no duplicate items.
 	 */
-	new_groupclause = NIL;
 	foreach(sl, parse->sortClause)
 	{
 		SortGroupClause *sc = (SortGroupClause *) lfirst(sl);
@@ -2613,7 +2725,7 @@ preprocess_groupclause(PlannerInfo *root)
 
 	/* If no match at all, no point in reordering GROUP BY */
 	if (new_groupclause == NIL)
-		return;
+		return parse->groupClause;
 
 	/*
 	 * Add any remaining GROUP BY items to the new list, but only if we were
@@ -2630,287 +2742,114 @@ preprocess_groupclause(PlannerInfo *root)
 		if (list_member_ptr(new_groupclause, gc))
 			continue;			/* it matched an ORDER BY item */
 		if (partial_match)
-			return;				/* give up, no common sort possible */
+			return parse->groupClause;	/* give up, no common sort possible */
 		if (!OidIsValid(gc->sortop))
-			return;				/* give up, GROUP BY can't be sorted */
+			return parse->groupClause;	/* give up, GROUP BY can't be sorted */
 		new_groupclause = lappend(new_groupclause, gc);
 	}
 
 	/* Success --- install the rearranged GROUP BY list */
 	Assert(list_length(parse->groupClause) == list_length(new_groupclause));
-	parse->groupClause = new_groupclause;
+	return new_groupclause;
 }
 
-static List* process_groupingsetnode(GroupingSet *gs)
+
+/*
+ * Extract a list of grouping sets that can be implemented using a single
+ * rollup-type aggregate pass. The order of elements in each returned set is
+ * modified to ensure proper prefix relationships; the sets are returned in
+ * decreasing order of size. (The input must also be in descending order of
+ * size.)
+ *
+ * If we're passed in a sortclause, we follow its order of columns to the
+ * extent possible, to minimize the chance that we add unnecessary sorts.
+ *
+ * Sets that can't be accomodated within a rollup that includes the first
+ * (and therefore largest) grouping set in the input are added to the
+ * remainder list.
+ */
+
+static List *
+extract_rollup_sets(List *groupingSets, List *sortclause, List **remainder)
 {
-	List * result = NIL;
-
-	if (gs->kind == GROUPING_SET_SIMPLE)
-	{
-		result = lappend(result, (gs->content));
-	}
-	else if (gs->kind == GROUPING_SET_ROLLUP)
-	{
-		List *rollup_val = gs->content;
-		List *rollups_result = NIL;
-		List *current_flat_val = NIL;
-		List *current_result_final = NIL;
-		ListCell *lc_result;
-		ListCell *lc_inner;
-		int curgroup_size = list_length(gs->content);
-		int current_data_val;
-		
-		while (curgroup_size > 0)
-		{
-			List *current_result = NIL;
-			int i = curgroup_size;
-
-			foreach(lc_inner, rollup_val)
-			{
-				GroupingSet *gs_current = (GroupingSet *)(lfirst(lc_inner));
-				/* If we are done with making the current group, break */
-				if (i == 0)
-					break;
-
-				current_result = lappend(current_result, (gs_current->content));
-				--i;
-			}
-
-			current_result_final = NIL;
-			foreach(lc_result, current_result)
-			{
-				ListCell *lc_flatval;
-
-				current_flat_val = lfirst(lc_result);
-				foreach(lc_flatval, current_flat_val)
-				{
-					current_data_val = lfirst_int(lc_flatval);
-					current_result_final = lappend_int(current_result_final, current_data_val);
-				}
-			}
-			
-			rollups_result = lappend(rollups_result, current_result_final);
-			--curgroup_size;
-		}
-
-		rollups_result = lappend(rollups_result, NIL);
-
-		result = list_concat(result, rollups_result);
-	}
-	else if (gs->kind == GROUPING_SET_SETS)
-	{
-		ListCell *lc;
-
-		foreach(lc, (gs->content))
-		{
-			List *current_result = NIL;
-
-			current_result = process_groupingsetnode(lfirst(lc));
-
-			if (current_result == NIL)
-				result = lappend(result, current_result);
-			else
-				result = list_concat(result, current_result);
-		}
-	}
-	else if (gs->kind == GROUPING_SET_CUBE)
-	{
-		List *current_result_final = NIL;
-		ListCell *lc_result;
-		List *current_flat_val = NIL;
-		int upper_cap = (int) pow(2, list_length(gs->content));
-		int i = 0;
-		int current_data_val = 0;
-		int number_bits = list_length((gs->content));
-
-		for (i = 0;i < upper_cap;i++)
-		{
-			List *current_groups = NIL;
-			List *current_group_result = NIL;
-			ListCell *lc;
-			int j = 0;
-
-			for (j = 0;j < number_bits;j++)
-			{
-				if ((i & (1<<j)))
-				{
-					current_groups = lappend_int(current_groups, j);
-				}
-			}
-
-			foreach(lc, current_groups)
-			{
-				ListCell *lc_inner;
-				GroupingSet *gs_current;
-				int current_val = lfirst_int(lc);
-				int k = current_val;
-
-				foreach(lc_inner, (gs->content))
-				{
-					if (k == 0)
-						break;
-
-					--k;
-				}
-
-				gs_current = (GroupingSet *)(lfirst(lc_inner));
-
-				current_group_result = lappend(current_group_result, (gs_current->content));
-	
-			}
-
-			current_result_final = NIL;
-
-			foreach(lc_result, current_group_result)
-			{
-				current_flat_val = lfirst(lc_result);
-				current_data_val = linitial_int(current_flat_val);
-				current_result_final = lappend_int(current_result_final, current_data_val);
-			}
-
-			result = lappend(result, current_result_final);
-
-		}
-	}
-
-	return result;
-}
-static List* preprocess_groupingset(PlannerInfo *root)
-{
-	Query	   *parse = root->parse;
-	List       *groupingSets = parse->groupingSets;
-	List       *result_groups = NIL;
-	List       *result = NIL;
 	ListCell   *lc;
-	ListCell   *lc_sets;
-	ListCell   *lc_prefix;
-	int        max_length = 0;
-	List       *max_length_list = NULL;
-	int        current_group_set_num = 0;
+	ListCell   *lc2;
+	List	   *previous = linitial(groupingSets);
+	List	   *tmp_result = list_make1(previous);
+	List	   *result = NIL;
 
-	foreach(lc, groupingSets)
+	for_each_cell(lc, lnext(list_head(groupingSets)))
 	{
-		List *current_result = NIL;
-		GroupingSet *gs = lfirst(lc);
+		List   *candidate = lfirst(lc);
+		bool	ok = true;
 
-		current_result = process_groupingsetnode(gs);
-	
-		result_groups = lappend(result_groups,current_result);
-	}
-
-	if (list_length(result_groups) == 1)
-	{
-		ListCell *lc_maxlengthlist;
-
-		result = linitial(result_groups);
-
-		foreach(lc_maxlengthlist, result)
+		foreach(lc2, candidate)
 		{
-			List *current_result_itemlist = lfirst(lc_maxlengthlist);
-			if (list_length(current_result_itemlist) > max_length)
+			int ref = lfirst_int(lc2);
+			if (!list_member_int(previous, ref))
 			{
-				max_length = list_length(current_result_itemlist);
-				max_length_list = current_result_itemlist;
+				ok = false;
+				break;
 			}
 		}
-	}
-	else
-	{
-		foreach(lc_sets, result_groups)
+
+		if (ok)
 		{
-			List     *current_set_list = lfirst(lc_sets);
-			ListCell *lc_inner;
-			ListCell *lc_result;
+			tmp_result = lcons(candidate, tmp_result);
+			previous = candidate;
+		}
+		else
+			*remainder = lappend(*remainder, candidate);
+	}
 
-			foreach(lc_inner, current_set_list)
+	/*
+	 * reorder the list elements so that shorter sets are strict
+	 * prefixes of longer ones, and if we ever have a choice, try
+	 * and follow the sortclause if there is one. (We're trying
+	 * here to ensure that GROUPING SETS ((a,b),(b)) ORDER BY b,a
+	 * gets implemented in one pass.)
+	 */
+
+	previous = NIL;
+
+	foreach(lc, tmp_result)
+	{
+		List   *candidate = lfirst(lc);
+		List   *new_elems = list_difference_int(candidate, previous);
+
+		if (list_length(new_elems) > 0)
+		{
+			while (list_length(sortclause) > list_length(previous))
 			{
-				List     *current_result = NIL;
-				List *current_group = NIL;
-				ListCell *lc_iterate;
-				int i = current_group_set_num + 1;
-
-				foreach(lc_iterate, result_groups)
+				SortGroupClause *sc = list_nth(sortclause, list_length(previous));
+				int ref = sc->tleSortGroupRef;
+				if (list_member_int(new_elems, ref))
 				{
-					if (i < list_length(result_groups))
-					{
-						List *current_product_list= list_nth(result_groups, i);
-
-						foreach(lc_result, current_product_list)
-						{
-							List *current_outer_group = lfirst(lc_inner);
-							List *current_inner_group = lfirst(lc_result);
-							ListCell *lc_outer_group;
-							ListCell *lc_inner_group;
-
-							current_group = NIL;
-
-							foreach(lc_outer_group, current_outer_group)
-							{
-								int current_val = lfirst_int(lc_outer_group);
-	
-								current_group = lappend_int(current_group, current_val);
-							}
-
-							foreach(lc_inner_group, current_inner_group)
-							{
-								int current_val = lfirst_int(lc_inner_group);
-
-								current_group = lappend_int(current_group, current_val);
-							}
-
-							if (list_length(current_group) > max_length)
-							{
-								max_length = list_length(current_group);
-								max_length_list = current_group;
-							}
-
-							current_result = lappend(current_result, current_group);
-						}
-					}
-
-					++i;
+					previous = lappend_int(previous, ref);
+					new_elems = list_delete_int(new_elems, ref);
 				}
-
-				result = list_concat(result, current_result);
-			}
-
-			current_group_set_num++;
-		}
-	}
-
-	foreach(lc_prefix, result)
-	{
-		List *current_match_list = lfirst(lc_prefix);
-		ListCell *lc_mainlist;
-		ListCell *lc_prefixlist;
-		int current_mainlist_element = 0;
-
-		foreach(lc_mainlist, max_length_list)
-		{
-			int i = 0;
-
-			foreach(lc_prefixlist, current_match_list)
-			{
-				if (i >= current_mainlist_element)
+				else
 				{
-					if (lfirst_int(lc_mainlist) != lfirst_int(lc_prefixlist))
-					{
-						elog(ERROR, "Functionality not implemented yet");
-					}
-
+					sortclause = NIL;
 					break;
 				}
-
-				++i;
 			}
 
-			++current_mainlist_element;
+			foreach(lc2, new_elems)
+			{
+				previous = lappend_int(previous, lfirst_int(lc2));
+			}
 		}
+
+		result = lcons(list_copy(previous), result);
+		list_free(new_elems);
 	}
+
+	list_free(previous);
+	list_free(tmp_result);
 
 	return result;
 }
-		
 
 /*
  * Compute query_pathkeys and other pathkeys during plan generation
@@ -3034,8 +2973,6 @@ choose_hashed_grouping(PlannerInfo *root,
 		if (can_hash)
 			return true;
 		else if (can_sort)
-			return false;
-		else if (IsA(linitial(parse->groupClause), List))
 			return false;
 		else
 			ereport(ERROR,

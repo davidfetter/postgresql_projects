@@ -374,30 +374,14 @@ get_sortgrouplist_exprs(List *sgClauses, List *targetList)
 {
 	List	   *result = NIL;
 	ListCell   *l;
-	ListCell   *l2;
 
 	foreach(l, sgClauses)
 	{
-		if (IsA(lfirst(l), List))
-		{
-			foreach(l2, lfirst(l))
-			{
-				SortGroupClause *sortcl = (SortGroupClause *) lfirst(l2);
-				Node	   *sortexpr;
+		SortGroupClause *sortcl = (SortGroupClause *) lfirst(l);
+		Node	   *sortexpr;
 
-				sortexpr = get_sortgroupclause_expr(sortcl, targetList);
-				result = lappend(result, sortexpr);
-			}
-		}
-		else
-		{
-
-			SortGroupClause *sortcl = (SortGroupClause *) lfirst(l);
-			Node	   *sortexpr;
-
-			sortexpr = get_sortgroupclause_expr(sortcl, targetList);
-			result = lappend(result, sortexpr);
-		}
+		sortexpr = get_sortgroupclause_expr(sortcl, targetList);
+		result = lappend(result, sortexpr);
 	}
 	return result;
 }
@@ -411,6 +395,28 @@ get_sortgrouplist_exprs(List *sgClauses, List *targetList)
  *****************************************************************************/
 
 /*
+ * get_sortgroupref_clause
+ *		Find the SortGroupClause matching the given SortGroupRef index,
+ *		and return it.
+ */
+SortGroupClause *
+get_sortgroupref_clause(Index sortref, List *clauses)
+{
+	ListCell   *l;
+
+	foreach(l, clauses)
+	{
+		SortGroupClause *cl = (SortGroupClause *) lfirst(l);
+
+		if (cl->tleSortGroupRef == sortref)
+			return cl;
+	}
+
+	elog(ERROR, "ORDER/GROUP BY expression not found in list");
+	return NULL;				/* keep compiler quiet */
+}
+
+/*
  * extract_grouping_ops - make an array of the equality operator OIDs
  *		for a SortGroupClause list
  */
@@ -421,32 +427,16 @@ extract_grouping_ops(List *groupClause)
 	int			colno = 0;
 	Oid		   *groupOperators;
 	ListCell   *glitem;
-	ListCell   *glitem_inner;
 
 	groupOperators = (Oid *) palloc(sizeof(Oid) * numCols);
 
 	foreach(glitem, groupClause)
 	{
-		/* If ROLLUP is present, iterate into the nested sublists */
-		if (IsA(lfirst(glitem), List))
-		{
-			foreach(glitem_inner, lfirst(glitem))
-			{
-				SortGroupClause *groupcl = (SortGroupClause *) lfirst(glitem_inner);
+		SortGroupClause *groupcl = (SortGroupClause *) lfirst(glitem);
 
-				groupOperators[colno] = groupcl->eqop;
-				Assert(OidIsValid(groupOperators[colno]));
-				colno++;
-			}
-		}
-		else
-		{
-			SortGroupClause *groupcl = (SortGroupClause *) lfirst(glitem);
-
-			groupOperators[colno] = groupcl->eqop;
-			Assert(OidIsValid(groupOperators[colno]));
-			colno++;
-		}
+		groupOperators[colno] = groupcl->eqop;
+		Assert(OidIsValid(groupOperators[colno]));
+		colno++;
 	}
 
 	return groupOperators;

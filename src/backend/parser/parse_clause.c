@@ -36,6 +36,7 @@
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
+#include "miscadmin.h"
 
 
 /* Convenience macro for the most common makeNamespaceItem() case */
@@ -1703,6 +1704,9 @@ findTargetlistEntrySQL99(ParseState *pstate, Node *node, List **tlist,
 static Node *
 flatten_grouping_sets(Node *expr, bool toplevel, bool *hasGroupingSets)
 {
+	/* just in case of pathological input */
+	check_stack_depth();
+
 	if (expr == (Node *) NIL)
 		return (Node *) NIL;
 
@@ -1957,6 +1961,16 @@ transformGroupingSet(List **flatresult,
 		}
 	}
 
+	/* Arbitrarily cap the size of CUBE, which has exponential growth */
+	if (gset->kind == GROUPING_SET_CUBE)
+	{
+		if (list_length(content) > 12)
+			ereport(ERROR,
+					(errcode(ERRCODE_TOO_MANY_COLUMNS),
+					 errmsg("CUBE is limited to 12 elements"),
+					 parser_errposition(pstate, gset->location)));
+	}
+
 	return (Node *) makeGroupingSet(gset->kind, content, gset->location);
 }
 
@@ -1981,6 +1995,12 @@ transformGroupingSet(List **flatresult,
  * out; while CUBE and ROLLUP can contain only SIMPLE nodes).
  *
  * We skip much of the hard work if there are no grouping sets.
+ *
+ * One subtlety is that the groupClause list can end up empty while the
+ * groupingSets list is not; this happens if there are only empty grouping
+ * sets, or an explicit GROUP BY (). This has the same effect as specifying
+ * aggregates or a HAVING clause with no GROUP BY; the output is one row per
+ * grouping set even if the input is empty.
  */
 List *
 transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
@@ -2013,7 +2033,7 @@ transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
 	{
 		flat_grouplist = list_make1(makeGroupingSet(GROUPING_SET_EMPTY,
 													NIL,
-													exprLocation(grouplist)));
+													exprLocation((Node *) grouplist)));
 	}
 
 	foreach(gl, flat_grouplist)

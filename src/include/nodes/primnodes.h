@@ -172,13 +172,15 @@ typedef Var GroupedVar;
  */
 typedef struct Grouping
 {
-	Expr xpr;
-	List *args;
-	List *refs;
-	int location;
-	int agglevelsup;
+	Expr		xpr;
+	List	   *args;			/* arguments, not evaluated but kept for
+								 * benefit of EXPLAIN etc. */
+	List	   *refs;			/* ressortgrouprefs of arguments */
+	List	   *cols;			/* actual column positions set by planner */
+	int			location;		/* token location */
+	Index		agglevelsup;	/* same as Aggref.agglevelsup */
 } Grouping;
-	
+
 /*
  * Const
  */

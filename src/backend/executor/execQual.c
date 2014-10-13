@@ -3034,7 +3034,7 @@ ExecEvalCaseTestExpr(ExprState *exprstate,
 	return econtext->caseValue_datum;
 }
 
-/* 
+/*
  * ExecEvalGroupingExpr
  * Return a bitmask with a bit for each column.
  * A bit is set if the column is not a part of grouping.
@@ -3050,13 +3050,12 @@ ExecEvalGroupingExpr(GroupingState *gstate,
 	int current_val= 0;
 	ListCell *lc;
 
-
 	if (isDone)
 		*isDone = ExprSingleResult;
 
 	*isNull = false;
 
-	foreach(lc, (gstate->clauses)) 
+	foreach(lc, (gstate->clauses))
 	{
 		current_val = lfirst_int(lc);
 
@@ -3064,9 +3063,8 @@ ExecEvalGroupingExpr(GroupingState *gstate,
 
 		if (!bms_is_member(current_val, econtext->grouped_cols))
 			result = result | 1;
-
 	}
-		
+
 	return (Datum) result;
 }
 
@@ -4474,37 +4472,25 @@ ExecInitExpr(Expr *node, PlanState *parent)
 			state->evalfunc = ExecEvalScalarVar;
 			break;
 		case T_Grouping:
-		{
-			Grouping *grp_node = (Grouping *) node;
-			GroupingState *grp_state = makeNode(GroupingState);
-			List     *result_list = NIL;    
-			ListCell *lc;
-			Agg *agg = NULL;
-
-			if (parent != NULL)
-				if (!(IsA((parent->plan), Agg)))
-					elog(ERROR, "Parent is not Agg node");
-
-		    agg = (Agg *) (parent->plan);
-
-			if (agg->hasRollup)
 			{
-				foreach(lc, (grp_node->refs))
-				{
-					int current_index = lfirst_int(lc);
-					int result = 0;
+				Grouping	   *grp_node = (Grouping *) node;
+				GroupingState  *grp_state = makeNode(GroupingState);
+				Agg			   *agg = NULL;
 
-					result = agg->grpColIdx[(current_index - 1)];
+				if (!parent
+					|| !IsA(parent->plan, Agg))
+					elog(ERROR, "Parent of GROUPING is not Agg node");
 
-					result_list = lappend_int(result_list, result);
-				}
+				agg = (Agg *) (parent->plan);
 
-				grp_state->clauses = result_list;
+				if (agg->groupingSets)
+					grp_state->clauses = grp_node->cols;
+				else
+					grp_state->clauses = NIL;
+
+				state = (ExprState *) grp_state;
+				state->evalfunc = (ExprStateEvalFunc) ExecEvalGroupingExpr;
 			}
-
-			state = (ExprState *) grp_state;
-			state->evalfunc = (ExprStateEvalFunc) ExecEvalGroupingExpr;
-		}
 			break;
 		case T_Const:
 			state = (ExprState *) makeNode(ExprState);

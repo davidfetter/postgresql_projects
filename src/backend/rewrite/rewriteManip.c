@@ -92,6 +92,11 @@ contain_aggs_of_level_walker(Node *node,
 			return true;		/* abort the tree traversal and return true */
 		/* else fall through to examine argument */
 	}
+	if (IsA(node, Grouping))
+	{
+		if (((Grouping *) node)->agglevelsup == context->sublevels_up)
+			return true;
+	}
 	if (IsA(node, Query))
 	{
 		/* Recurse into subselects */
@@ -104,12 +109,6 @@ contain_aggs_of_level_walker(Node *node,
 		context->sublevels_up--;
 		return result;
 	}
-	if (IsA(node, Grouping))
-	{
-		if (((Grouping *) node)->agglevelsup == context->sublevels_up)
-			return true;
-	}
-
 	return expression_tree_walker(node, contain_aggs_of_level_walker,
 								  (void *) context);
 }
@@ -163,6 +162,15 @@ locate_agg_of_level_walker(Node *node,
 		}
 		/* else fall through to examine argument */
 	}
+	if (IsA(node, Grouping))
+	{
+		if (((Grouping *) node)->agglevelsup == context->sublevels_up &&
+			((Grouping *) node)->location >= 0)
+		{
+			context->agg_location = ((Grouping *) node)->location;
+			return true;		/* abort the tree traversal and return true */
+		}
+	}
 	if (IsA(node, Query))
 	{
 		/* Recurse into subselects */
@@ -175,16 +183,6 @@ locate_agg_of_level_walker(Node *node,
 		context->sublevels_up--;
 		return result;
 	}
-	if (IsA(node, Grouping))
-	{
-    	if (((Grouping *) node)->agglevelsup == context->sublevels_up &&
-			((Grouping *) node)->location >= 0)
-		{
-			context->agg_location = ((Aggref *) node)->location;
-			return true;		/* abort the tree traversal and return true */
-		}
-	}
-
 	return expression_tree_walker(node, locate_agg_of_level_walker,
 								  (void *) context);
 }

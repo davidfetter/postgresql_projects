@@ -49,7 +49,6 @@ typedef enum ParseExprKind
 	EXPR_KIND_UPDATE_SOURCE,	/* UPDATE assignment source item */
 	EXPR_KIND_UPDATE_TARGET,	/* UPDATE assignment target item */
 	EXPR_KIND_GROUP_BY,			/* GROUP BY */
-	EXPR_KIND_GROUPING,			/* GROUPING */
 	EXPR_KIND_ORDER_BY,			/* ORDER BY */
 	EXPR_KIND_DISTINCT_ON,		/* DISTINCT ON */
 	EXPR_KIND_LIMIT,			/* LIMIT */

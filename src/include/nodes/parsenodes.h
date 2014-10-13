@@ -136,7 +136,7 @@ typedef struct Query
 
 	List	   *groupClause;	/* a list of SortGroupClause's */
 
-	List       *groupingSets;   /* a list of grouping sets if present */
+	List	   *groupingSets;	/* a list of grouping sets if present */
 
 	Node	   *havingQual;		/* qualifications applied to groups */
 
@@ -2846,12 +2846,4 @@ typedef struct AlterTSConfigurationStmt
 	bool		missing_ok;		/* for DROP - skip error if missing? */
 } AlterTSConfigurationStmt;
 
-/* GROUPING(cols) statement */
-typedef struct GroupingParse
-{
-	NodeTag type;
-	List *args;  /* List of ColumnRefs */
-	int  location;
-} GroupingParse;
-	
 #endif   /* PARSENODES_H */
