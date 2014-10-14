@@ -30,6 +30,7 @@
 #include "common/username.h"
 #include "postmaster/postmaster.h"
 #include "storage/barrier.h"
+#include "storage/s_lock.h"
 #include "storage/spin.h"
 #include "tcop/tcopprot.h"
 #include "utils/help_config.h"
@@ -284,9 +285,6 @@ help(const char *progname)
 	printf(_("%s is the PostgreSQL server.\n\n"), progname);
 	printf(_("Usage:\n  %s [OPTION]...\n\n"), progname);
 	printf(_("Options:\n"));
-#ifdef USE_ASSERT_CHECKING
-	printf(_("  -A 1|0             enable/disable run-time assert checking\n"));
-#endif
 	printf(_("  -B NBUFFERS        number of shared buffers\n"));
 	printf(_("  -c NAME=VALUE      set run-time parameter\n"));
 	printf(_("  -C NAME            print value of run-time parameter, then exit\n"));

@@ -959,7 +959,7 @@ _copyPlanRowMark(const PlanRowMark *from)
 	COPY_SCALAR_FIELD(prti);
 	COPY_SCALAR_FIELD(rowmarkId);
 	COPY_SCALAR_FIELD(markType);
-	COPY_SCALAR_FIELD(noWait);
+	COPY_SCALAR_FIELD(waitPolicy);
 	COPY_SCALAR_FIELD(isParent);
 
 	return newnode;
@@ -2071,7 +2071,7 @@ _copyRowMarkClause(const RowMarkClause *from)
 
 	COPY_SCALAR_FIELD(rti);
 	COPY_SCALAR_FIELD(strength);
-	COPY_SCALAR_FIELD(noWait);
+	COPY_SCALAR_FIELD(waitPolicy);
 	COPY_SCALAR_FIELD(pushedDown);
 
 	return newnode;
@@ -2452,7 +2452,7 @@ _copyLockingClause(const LockingClause *from)
 
 	COPY_NODE_FIELD(lockedRels);
 	COPY_SCALAR_FIELD(strength);
-	COPY_SCALAR_FIELD(noWait);
+	COPY_SCALAR_FIELD(waitPolicy);
 
 	return newnode;
 }
@@ -2488,6 +2488,7 @@ _copyQuery(const Query *from)
 	COPY_SCALAR_FIELD(hasRecursive);
 	COPY_SCALAR_FIELD(hasModifyingCTE);
 	COPY_SCALAR_FIELD(hasForUpdate);
+	COPY_SCALAR_FIELD(hasRowSecurity);
 	COPY_NODE_FIELD(cteList);
 	COPY_NODE_FIELD(rtable);
 	COPY_NODE_FIELD(jointree);
@@ -3610,7 +3611,7 @@ _copyCreateEventTrigStmt(const CreateEventTrigStmt *from)
 	CreateEventTrigStmt *newnode = makeNode(CreateEventTrigStmt);
 
 	COPY_STRING_FIELD(trigname);
-	COPY_SCALAR_FIELD(eventname);
+	COPY_STRING_FIELD(eventname);
 	COPY_NODE_FIELD(whenclause);
 	COPY_NODE_FIELD(funcname);
 
@@ -3845,6 +3846,35 @@ _copyAlterTSConfigurationStmt(const AlterTSConfigurationStmt *from)
 	COPY_SCALAR_FIELD(override);
 	COPY_SCALAR_FIELD(replace);
 	COPY_SCALAR_FIELD(missing_ok);
+
+	return newnode;
+}
+
+static CreatePolicyStmt *
+_copyCreatePolicyStmt(const CreatePolicyStmt *from)
+{
+	CreatePolicyStmt *newnode = makeNode(CreatePolicyStmt);
+
+	COPY_STRING_FIELD(policy_name);
+	COPY_NODE_FIELD(table);
+	COPY_SCALAR_FIELD(cmd);
+	COPY_NODE_FIELD(roles);
+	COPY_NODE_FIELD(qual);
+	COPY_NODE_FIELD(with_check);
+
+	return newnode;
+}
+
+static AlterPolicyStmt *
+_copyAlterPolicyStmt(const AlterPolicyStmt *from)
+{
+	AlterPolicyStmt *newnode = makeNode(AlterPolicyStmt);
+
+	COPY_STRING_FIELD(policy_name);
+	COPY_NODE_FIELD(table);
+	COPY_NODE_FIELD(roles);
+	COPY_NODE_FIELD(qual);
+	COPY_NODE_FIELD(with_check);
 
 	return newnode;
 }
@@ -4561,7 +4591,12 @@ copyObject(const void *from)
 		case T_AlterTSConfigurationStmt:
 			retval = _copyAlterTSConfigurationStmt(from);
 			break;
-
+		case T_CreatePolicyStmt:
+			retval = _copyCreatePolicyStmt(from);
+			break;
+		case T_AlterPolicyStmt:
+			retval = _copyAlterPolicyStmt(from);
+			break;
 		case T_A_Expr:
 			retval = _copyAExpr(from);
 			break;

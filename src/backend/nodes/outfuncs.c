@@ -836,7 +836,7 @@ _outPlanRowMark(StringInfo str, const PlanRowMark *node)
 	WRITE_UINT_FIELD(prti);
 	WRITE_UINT_FIELD(rowmarkId);
 	WRITE_ENUM_FIELD(markType, RowMarkType);
-	WRITE_BOOL_FIELD(noWait);
+	WRITE_BOOL_FIELD(waitPolicy);
 	WRITE_BOOL_FIELD(isParent);
 }
 
@@ -2136,7 +2136,7 @@ _outLockingClause(StringInfo str, const LockingClause *node)
 
 	WRITE_NODE_FIELD(lockedRels);
 	WRITE_ENUM_FIELD(strength, LockClauseStrength);
-	WRITE_BOOL_FIELD(noWait);
+	WRITE_ENUM_FIELD(waitPolicy, LockWaitPolicy);
 }
 
 static void
@@ -2263,6 +2263,7 @@ _outQuery(StringInfo str, const Query *node)
 	WRITE_BOOL_FIELD(hasRecursive);
 	WRITE_BOOL_FIELD(hasModifyingCTE);
 	WRITE_BOOL_FIELD(hasForUpdate);
+	WRITE_BOOL_FIELD(hasRowSecurity);
 	WRITE_NODE_FIELD(cteList);
 	WRITE_NODE_FIELD(rtable);
 	WRITE_NODE_FIELD(jointree);
@@ -2326,7 +2327,7 @@ _outRowMarkClause(StringInfo str, const RowMarkClause *node)
 
 	WRITE_UINT_FIELD(rti);
 	WRITE_ENUM_FIELD(strength, LockClauseStrength);
-	WRITE_BOOL_FIELD(noWait);
+	WRITE_ENUM_FIELD(waitPolicy, LockWaitPolicy);
 	WRITE_BOOL_FIELD(pushedDown);
 }
 

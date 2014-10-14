@@ -90,6 +90,7 @@
 #ssl_crl_file = ''			# (change requires restart)
 #password_encryption = on
 #db_user_namespace = off
+#row_security = on
 
 # GSSAPI using Kerberos
 #krb_server_keyfile = ''
@@ -431,6 +432,7 @@
 					# e.g. '<%u%%%d> '
 #log_lock_waits = off			# log lock waits >= deadlock_timeout
 #log_statement = 'none'			# none, ddl, mod, all
+#log_replication_commands = off
 #log_temp_files = -1			# log temporary files equal or larger
 					# than the specified size in kilobytes;
 					# -1 disables, 0 logs all temp files
@@ -526,7 +528,7 @@
 #timezone_abbreviations = 'Default'     # Select the set of available time zone
 					# abbreviations.  Currently, there are
 					#   Default
-					#   Australia
+					#   Australia (historical usage)
 					#   India
 					# You can create your own file in
 					# share/timezonesets/.

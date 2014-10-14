@@ -597,7 +597,7 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_CARDINALITY_VIOLATION),
-				 errmsg("new data for \"%s\" contains duplicate rows without any NULL columns",
+				 errmsg("new data for \"%s\" contains duplicate rows without any null columns",
 						RelationGetRelationName(matviewRel)),
 				 errdetail("Row: %s",
 			SPI_getvalue(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 1))));
@@ -689,7 +689,7 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 			   errmsg("cannot refresh materialized view \"%s\" concurrently",
 					  matviewname),
-				 errhint("Create a UNIQUE index with no WHERE clause on one or more columns of the materialized view.")));
+				 errhint("Create a unique index with no WHERE clause on one or more columns of the materialized view.")));
 
 	appendStringInfoString(&querybuf,
 						   " AND newdata OPERATOR(pg_catalog.*=) mv) "

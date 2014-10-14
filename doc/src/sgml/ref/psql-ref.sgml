@@ -277,7 +277,8 @@ EOF
       <term><option>--no-readline</></term>
       <listitem>
       <para>
-       Do not use <application>readline</application> for line editing and do not use the history.
+       Do not use <application>Readline</application> for line editing and do
+       not use the command history.
        This can be useful to turn off tab expansion when cutting and pasting.
       </para>
       </listitem>
@@ -559,11 +560,17 @@ EOF
 
     <varlistentry>
       <term><option>-?</></term>
-      <term><option>--help</></term>
+      <term><option>--help[=<replaceable class="parameter">topic</>]</option></term>
       <listitem>
       <para>
-      Show help about <application>psql</application> command line
-      arguments, and exit.
+      Show help about <application>psql</application> and exit. The optional
+      <replaceable class="parameter">topic</> parameter (defaulting
+      to <literal>options</literal>) selects which part of psql is
+      explained: <literal>commands</> describes <application>psql</>'s
+      backslash commands; <literal>options</> describes the commandline
+      switches that can be passed to <application>psql</>;
+      and <literal>variables</> shows help about about psql configuration
+      variables.
       </para>
       </listitem>
     </varlistentry>
@@ -1989,12 +1996,12 @@ lo_import 152801
           the number the more borders and lines the tables will have,
           but this depends on the particular format. In
           <acronym>HTML</acronym> format, this will translate directly
-          into the <literal>border=...</literal> attribute; in the
-          other formats only values 0 (no border), 1 (internal dividing lines),
-          and 2 (table frame) make sense.
+          into the <literal>border=...</literal> attribute; in
           <literal>latex</literal> and <literal>latex-longtable</literal>
-          also support a <literal>border</literal> value of 3 which adds
-          a dividing line between each row.
+          formats, a value of 3 will add a dividing line between each row; in
+          the other formats only values 0 (no border), 1 (internal dividing
+          lines), and 2 (table frame) make sense and values above 2 will be
+          treated the same as <literal>border = 2</literal>.
           </para>
           </listitem>
           </varlistentry>
@@ -2299,6 +2306,36 @@ lo_import 152801
           </para>
           </listitem>
           </varlistentry>
+
+          <varlistentry>
+          <term><literal>unicode_border_style</literal></term>
+          <listitem>
+          <para>
+          Sets the border drawing style for the unicode linestyle to one
+          of <literal>single</literal> or <literal>double</literal>.
+          </para>
+          </listitem>
+          </varlistentry>
+
+          <varlistentry>
+          <term><literal>unicode_column_style</literal></term>
+          <listitem>
+          <para>
+          Sets the column drawing style for the unicode linestyle to one
+          of <literal>single</literal> or <literal>double</literal>.
+          </para>
+          </listitem>
+          </varlistentry>
+
+          <varlistentry>
+          <term><literal>unicode_header_style</literal></term>
+          <listitem>
+          <para>
+          Sets the header drawing style for the unicode linestyle to one
+          of <literal>single</literal> or <literal>double</literal>.
+          </para>
+          </listitem>
+          </varlistentry>
         </variablelist>
         </para>
 
@@ -2357,12 +2394,13 @@ lo_import 152801
         <term><literal>\s [ <replaceable class="parameter">filename</replaceable> ]</literal></term>
         <listitem>
         <para>
-        Print or save the command line history to <replaceable
-        class="parameter">filename</replaceable>. If <replaceable
-        class="parameter">filename</replaceable> is omitted, the history
-        is written to the standard output. This option is only available
-        if <application>psql</application> is configured to use the
-        <acronym>GNU</acronym> <application>Readline</application> library.
+        Print <application>psql</application>'s command line history
+        to <replaceable class="parameter">filename</replaceable>.
+        If <replaceable class="parameter">filename</replaceable> is omitted,
+        the history is written to the standard output (using the pager if
+        appropriate).  This command is not available
+        if <application>psql</application> was built
+        without <application>Readline</application> support.
         </para>
         </listitem>
       </varlistentry>
@@ -2572,10 +2610,17 @@ testdb=&gt; <userinput>\setenv LESS -imx4F</userinput>
 
 
       <varlistentry>
-        <term><literal>\?</literal></term>
+        <term><literal>\? [ <replaceable class="parameter">topic</> ]</literal></term>
         <listitem>
         <para>
-        Shows help information about the backslash commands.
+        Shows help information. The optional
+        <replaceable class="parameter">topic</> parameter
+        (defaulting to <literal>commands</>) selects which part of psql is
+        explained: <literal>commands</> describes <application>psql</>'s
+        backslash commands; <literal>options</> describes the commandline
+        switches that can be passed to <application>psql</>;
+        and <literal>variables</> shows help about about psql configuration
+        variables.
         </para>
         </listitem>
       </varlistentry>
@@ -3312,6 +3357,15 @@ testdb=&gt; <userinput>INSERT INTO my_table VALUES (:'content');</userinput>
         when the transaction state is indeterminate (for example, because
         there is no connection).
         </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><literal>%l</literal></term>
+        <listitem>
+         <para>
+          The line number inside the current statement, starting from <literal>1</>.
+         </para>
         </listitem>
       </varlistentry>
 

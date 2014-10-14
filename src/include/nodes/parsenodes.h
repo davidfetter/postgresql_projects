@@ -23,6 +23,7 @@
 #include "nodes/bitmapset.h"
 #include "nodes/primnodes.h"
 #include "nodes/value.h"
+#include "utils/lockwaitpolicy.h"
 
 /* Possible sources of a Query */
 typedef enum QuerySource
@@ -120,6 +121,7 @@ typedef struct Query
 	bool		hasRecursive;	/* WITH RECURSIVE was specified */
 	bool		hasModifyingCTE;	/* has INSERT/UPDATE/DELETE in WITH */
 	bool		hasForUpdate;	/* FOR [KEY] UPDATE/SHARE was specified */
+	bool		hasRowSecurity;	/* Row-security policy is applied */
 
 	List	   *cteList;		/* WITH list (of CommonTableExpr's) */
 
@@ -630,7 +632,7 @@ typedef struct LockingClause
 	NodeTag		type;
 	List	   *lockedRels;		/* FOR [KEY] UPDATE/SHARE relations */
 	LockClauseStrength strength;
-	bool		noWait;			/* NOWAIT option */
+	LockWaitPolicy	waitPolicy;	/* NOWAIT and SKIP LOCKED */
 } LockingClause;
 
 /*
@@ -975,7 +977,7 @@ typedef struct RowMarkClause
 	NodeTag		type;
 	Index		rti;			/* range table index of target relation */
 	LockClauseStrength strength;
-	bool		noWait;			/* NOWAIT option */
+	LockWaitPolicy waitPolicy;	/* NOWAIT and SKIP LOCKED */
 	bool		pushedDown;		/* pushed down from higher query level? */
 } RowMarkClause;
 
@@ -1224,6 +1226,7 @@ typedef enum ObjectType
 	OBJECT_OPCLASS,
 	OBJECT_OPERATOR,
 	OBJECT_OPFAMILY,
+	OBJECT_POLICY,
 	OBJECT_ROLE,
 	OBJECT_RULE,
 	OBJECT_SCHEMA,
@@ -1333,6 +1336,8 @@ typedef enum AlterTableType
 	AT_AddOf,					/* OF <type_name> */
 	AT_DropOf,					/* NOT OF */
 	AT_ReplicaIdentity,			/* REPLICA IDENTITY */
+	AT_EnableRowSecurity,		/* ENABLE ROW SECURITY */
+	AT_DisableRowSecurity,		/* DISABLE ROW SECURITY */
 	AT_GenericOptions			/* OPTIONS (...) */
 } AlterTableType;
 
@@ -1854,6 +1859,35 @@ typedef struct ImportForeignSchemaStmt
 	List	   *table_list;		/* List of RangeVar */
 	List	   *options;		/* list of options to pass to FDW */
 } ImportForeignSchemaStmt;
+
+/*----------------------
+ *		Create POLICY Statement
+ *----------------------
+ */
+typedef struct CreatePolicyStmt
+{
+	NodeTag		type;
+	char	   *policy_name;	/* Policy's name */
+	RangeVar   *table;			/* the table name the policy applies to */
+	char	   *cmd;			/* the command name the policy applies to */
+	List	   *roles;			/* the roles associated with the policy */
+	Node	   *qual;			/* the policy's condition */
+	Node	   *with_check;		/* the policy's WITH CHECK condition. */
+} CreatePolicyStmt;
+
+/*----------------------
+ *		Alter POLICY Statement
+ *----------------------
+ */
+typedef struct AlterPolicyStmt
+{
+	NodeTag		type;
+	char	   *policy_name;	/* Policy's name */
+	RangeVar   *table;			/* the table name the policy applies to */
+	List	   *roles;			/* the roles associated with the policy */
+	Node	   *qual;			/* the policy's condition */
+	Node	   *with_check;		/* the policy's WITH CHECK condition. */
+} AlterPolicyStmt;
 
 /* ----------------------
  *		Create TRIGGER Statement

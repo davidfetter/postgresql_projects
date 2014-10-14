@@ -65,6 +65,14 @@
 #define NUM_SPINLOCK_SEMAPHORES		1024
 
 /*
+ * When we have neither spinlocks nor atomic operations support we're
+ * implementing atomic operations on top of spinlock on top of semaphores. To
+ * be safe against atomic operations while holding a spinlock separate
+ * semaphores have to be used.
+ */
+#define NUM_ATOMICS_SEMAPHORES		64
+
+/*
  * Define this if you want to allow the lo_import and lo_export SQL
  * functions to be executed by ordinary users.  By default these
  * functions are only available to the Postgres superuser.  CAUTION:
@@ -230,7 +238,7 @@
  * bytes of wasted memory. The default is 128, which should be large enough
  * for all supported platforms.
  */
-#define CACHE_LINE_SIZE		128
+#define PG_CACHE_LINE_SIZE		128
 
 /*
  *------------------------------------------------------------------------

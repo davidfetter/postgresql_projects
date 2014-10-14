@@ -36,6 +36,7 @@
 #include "catalog/pg_inherits_fn.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_opclass.h"
+#include "catalog/pg_rowsecurity.h"
 #include "catalog/pg_tablespace.h"
 #include "catalog/pg_trigger.h"
 #include "catalog/pg_type.h"
@@ -45,6 +46,7 @@
 #include "commands/cluster.h"
 #include "commands/comment.h"
 #include "commands/defrem.h"
+#include "commands/policy.h"
 #include "commands/sequence.h"
 #include "commands/tablecmds.h"
 #include "commands/tablespace.h"
@@ -83,6 +85,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/relcache.h"
+#include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
@@ -408,6 +411,8 @@ static void ATExecAddOf(Relation rel, const TypeName *ofTypename, LOCKMODE lockm
 static void ATExecDropOf(Relation rel, LOCKMODE lockmode);
 static void ATExecReplicaIdentity(Relation rel, ReplicaIdentityStmt *stmt, LOCKMODE lockmode);
 static void ATExecGenericOptions(Relation rel, List *options);
+static void ATExecEnableRowSecurity(Relation rel);
+static void ATExecDisableRowSecurity(Relation rel);
 
 static void copy_relation_data(SMgrRelation rel, SMgrRelation dst,
 				   ForkNumber forkNum, char relpersistence);
@@ -1756,11 +1761,15 @@ MergeAttributes(List *schema, List *supers, char relpersistence,
 	 */
 	if (inhSchema != NIL)
 	{
+		int		schema_attno = 0;
+
 		foreach(entry, schema)
 		{
 			ColumnDef  *newdef = lfirst(entry);
 			char	   *attributeName = newdef->colname;
 			int			exist_attno;
+
+			schema_attno++;
 
 			/*
 			 * Does it conflict with some previously inherited column?
@@ -1780,9 +1789,14 @@ MergeAttributes(List *schema, List *supers, char relpersistence,
 				 * Yes, try to merge the two column definitions. They must
 				 * have the same type, typmod, and collation.
 				 */
-				ereport(NOTICE,
-				   (errmsg("merging column \"%s\" with inherited definition",
-						   attributeName)));
+				 if (exist_attno == schema_attno)
+					ereport(NOTICE,
+					   (errmsg("merging column \"%s\" with inherited definition",
+							   attributeName)));
+				else
+					ereport(NOTICE,
+					   (errmsg("moving and merging column \"%s\" with inherited definition", attributeName),
+						errdetail("User-specified column moved to the position of the inherited column.")));
 				def = (ColumnDef *) list_nth(inhSchema, exist_attno - 1);
 				typenameTypeIdAndMod(NULL, def->typeName, &defTypeId, &deftypmod);
 				typenameTypeIdAndMod(NULL, newdef->typeName, &newTypeId, &newtypmod);
@@ -2863,6 +2877,8 @@ AlterTableGetLockLevel(List *cmds)
 			case AT_AddIndexConstraint:
 			case AT_ReplicaIdentity:
 			case AT_SetNotNull:
+			case AT_EnableRowSecurity:
+			case AT_DisableRowSecurity:
 				cmd_lockmode = AccessExclusiveLock;
 				break;
 
@@ -3271,6 +3287,8 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 		case AT_DropInherit:	/* NO INHERIT */
 		case AT_AddOf:			/* OF */
 		case AT_DropOf: /* NOT OF */
+		case AT_EnableRowSecurity:
+		case AT_DisableRowSecurity:
 			ATSimplePermissions(rel, ATT_TABLE);
 			/* These commands never recurse */
 			/* No command-specific prep needed */
@@ -3561,6 +3579,12 @@ ATExecCmd(List **wqueue, AlteredTableInfo *tab, Relation rel,
 			break;
 		case AT_ReplicaIdentity:
 			ATExecReplicaIdentity(rel, (ReplicaIdentityStmt *) cmd->def, lockmode);
+			break;
+		case AT_EnableRowSecurity:
+			ATExecEnableRowSecurity(rel);
+			break;
+		case AT_DisableRowSecurity:
+			ATExecDisableRowSecurity(rel);
 			break;
 		case AT_GenericOptions:
 			ATExecGenericOptions(rel, (List *) cmd->def);
@@ -9022,7 +9046,7 @@ ATExecSetRelOptions(Relation rel, List *defList, AlterTableType operation,
 			if (view_updatable_error)
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("WITH CHECK OPTION is supported only on auto-updatable views"),
+						 errmsg("WITH CHECK OPTION is supported only on automatically updatable views"),
 						 errhint("%s", view_updatable_error)));
 		}
 	}
@@ -9415,7 +9439,7 @@ AlterTableMoveAll(AlterTableMoveAllStmt *stmt)
 			!ConditionalLockRelationOid(relOid, AccessExclusiveLock))
 			ereport(ERROR,
 					(errcode(ERRCODE_OBJECT_IN_USE),
-			   errmsg("aborting due to \"%s\".\"%s\" --- lock not available",
+			   errmsg("aborting because lock on relation \"%s\".\"%s\" is not available",
 					  get_namespace_name(relForm->relnamespace),
 					  NameStr(relForm->relname))));
 		else
@@ -10603,6 +10627,62 @@ ATExecReplicaIdentity(Relation rel, ReplicaIdentityStmt *stmt, LOCKMODE lockmode
 	relation_mark_replica_identity(rel, stmt->identity_type, indexOid, true);
 
 	index_close(indexRel, NoLock);
+}
+
+/*
+ * ALTER TABLE ENABLE/DISABLE ROW LEVEL SECURITY
+ */
+static void
+ATExecEnableRowSecurity(Relation rel)
+{
+	Relation		pg_class;
+	Oid				relid;
+	HeapTuple		tuple;
+
+	relid = RelationGetRelid(rel);
+
+	pg_class = heap_open(RelationRelationId, RowExclusiveLock);
+
+	tuple = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(relid));
+
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for relation %u", relid);
+
+	((Form_pg_class) GETSTRUCT(tuple))->relrowsecurity = true;
+	simple_heap_update(pg_class, &tuple->t_self, tuple);
+
+	/* keep catalog indexes current */
+	CatalogUpdateIndexes(pg_class, tuple);
+
+	heap_close(pg_class, RowExclusiveLock);
+	heap_freetuple(tuple);
+}
+
+static void
+ATExecDisableRowSecurity(Relation rel)
+{
+	Relation		pg_class;
+	Oid				relid;
+	HeapTuple		tuple;
+
+	relid = RelationGetRelid(rel);
+
+	/* Pull the record for this relation and update it */
+	pg_class = heap_open(RelationRelationId, RowExclusiveLock);
+
+	tuple = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(relid));
+
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for relation %u", relid);
+
+	((Form_pg_class) GETSTRUCT(tuple))->relrowsecurity = false;
+	simple_heap_update(pg_class, &tuple->t_self, tuple);
+
+	/* keep catalog indexes current */
+	CatalogUpdateIndexes(pg_class, tuple);
+
+	heap_close(pg_class, RowExclusiveLock);
+	heap_freetuple(tuple);
 }
 
 /*

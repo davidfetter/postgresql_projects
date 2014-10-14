@@ -76,6 +76,7 @@ extern char *output_files[];
 #define PATH_SEPARATOR		'/'
 #define RM_CMD				"rm -f"
 #define RMDIR_CMD			"rm -rf"
+#define SCRIPT_PREFIX		"./"
 #define SCRIPT_EXT			"sh"
 #define ECHO_QUOTE	"'"
 #define ECHO_BLANK	""
@@ -86,6 +87,7 @@ extern char *output_files[];
 #define PATH_SEPARATOR		'\\'
 #define RM_CMD				"DEL /q"
 #define RMDIR_CMD			"RMDIR /s/q"
+#define SCRIPT_PREFIX		""
 #define SCRIPT_EXT			"bat"
 #define EXE_EXT				".exe"
 #define ECHO_QUOTE	""
@@ -114,6 +116,17 @@ extern char *output_files[];
  * server versions are both newer than this, or only the new one is.
  */
 #define MULTIXACT_FORMATCHANGE_CAT_VER 201301231
+
+/*
+ * large object chunk size added to pg_controldata,
+ * commit 5f93c37805e7485488480916b4585e098d3cc883
+ */
+#define LARGE_OBJECT_SIZE_PG_CONTROL_VER 942
+
+/*
+ * change in JSONB format during 9.4 beta
+ */
+#define JSONB_FORMAT_CHANGE_CAT_VER 201409291
 
 /*
  * Each relation is represented by a relinfo structure.
@@ -169,6 +182,9 @@ typedef struct
 	char	   *db_name;		/* database name */
 	char		db_tablespace[MAXPGPATH];		/* database default tablespace
 												 * path */
+	char	   *db_collate;
+	char	   *db_ctype;
+	int			db_encoding;
 	RelInfoArr	rel_arr;		/* array of all user relinfos */
 } DbInfo;
 
@@ -190,6 +206,7 @@ typedef struct
 	char		nextxlogfile[25];
 	uint32		chkpnt_tli;
 	uint32		chkpnt_nxtxid;
+	uint32		chkpnt_nxtepoch;
 	uint32		chkpnt_nxtoid;
 	uint32		chkpnt_nxtmulti;
 	uint32		chkpnt_nxtmxoff;
@@ -202,12 +219,10 @@ typedef struct
 	uint32		ident;
 	uint32		index;
 	uint32		toast;
+	uint32		large_object;
 	bool		date_is_int;
 	bool		float8_pass_by_value;
 	bool		data_checksum_version;
-	char	   *lc_collate;
-	char	   *lc_ctype;
-	char	   *encoding;
 } ControlData;
 
 /*
