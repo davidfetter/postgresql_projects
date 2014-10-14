@@ -182,9 +182,9 @@ transformTargetList(ParseState *pstate, List *targetlist,
 					  res->location, false,
 					  &(rel_cols_list), NULL);
 
-		    if (list_length(rel_cols_list) != list_length((List *)(res->val)))
+			if (list_length(rel_cols_list) != list_length((List *)(res->val)))
 				elog(ERROR, "number of columns does not match number of values");
-			
+
 			forboth(lc, (List *) (res->val), lc_cols, rel_cols_list)
 			{
 				Node *current_val = lfirst(lc);
@@ -257,7 +257,7 @@ transformTargetList(ParseState *pstate, List *targetlist,
 		if (!isStar)
 		{
 			/*
-			 * Not "SET (*) =... " and "something.*", 
+			 * Not "SET (*) =... " and "something.*",
 			 * so transform as a single expression
 			 */
 			p_target = lappend(p_target,

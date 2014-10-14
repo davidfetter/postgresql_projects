@@ -1975,7 +1975,7 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 				for (i = 1;i < list_length(rel_cols_list);i++)
 				{
 					MultiAssignRef *r = makeNode(MultiAssignRef);
-				   
+
 					r->source = orig_val->source;
 					r->colno = i + 1;
 					r->ncolumns = orig_val->ncolumns;
@@ -1985,7 +1985,7 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 			}
 		}
 	}
-			
+
 
 	qry->targetList = transformTargetList(pstate, stmt->targetList,
 										  EXPR_KIND_UPDATE_SOURCE);
