@@ -241,6 +241,7 @@ typedef struct A_Expr
 	List	   *name;			/* possibly-qualified name of operator */
 	Node	   *lexpr;			/* left argument, or NULL if none */
 	Node	   *rexpr;			/* right argument, or NULL if none */
+	bool       isCommute;       /* true if COMMUTE is present */
 	int			location;		/* token location, or -1 if unknown */
 } A_Expr;
 

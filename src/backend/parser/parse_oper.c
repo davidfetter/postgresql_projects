@@ -845,22 +845,25 @@ make_op(ParseState *pstate, List *opname, Node *ltree, Node *rtree,
  *		Build expression tree for "scalar op ANY/ALL (array)" construct.
  */
 Expr *
-make_scalar_array_op(ParseState *pstate, List *opname,
+make_scalar_array_op(ParseState *pstate, List *opname, bool isCommute,
 					 bool useOr,
 					 Node *ltree, Node *rtree,
 					 int location)
 {
 	Oid			ltypeId,
 				rtypeId,
-				atypeId,
+		        atypeId,
+		        commute_oid,
 				res_atypeId;
 	Operator	tup;
 	Form_pg_operator opform;
 	Oid			actual_arg_types[2];
 	Oid			declared_arg_types[2];
+	Oid         array_type;
 	List	   *args;
 	Oid			rettype;
 	ScalarArrayOpExpr *result;
+	bool foundCommutator = false;
 
 	ltypeId = exprType(ltree);
 	atypeId = exprType(rtree);
@@ -897,11 +900,55 @@ make_scalar_array_op(ParseState *pstate, List *opname,
 											opform->oprright)),
 				 parser_errposition(pstate, location)));
 
-	args = list_make2(ltree, rtree);
+	if (isCommute)
+	{
+		rtypeId = exprType(ltree);
+		atypeId = exprType(rtree);
+
+		if (atypeId == UNKNOWNOID)
+			ltypeId = UNKNOWNOID;
+
+		ltypeId = get_base_element_type(atypeId);
+
+		if (!OidIsValid(ltypeId))
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("op ANY/ALL (array) requires array on right side"),
+					 parser_errposition(pstate, location)));
+
+		/* Check if the operator has a commutator */
+		commute_oid = get_commutator(oprid(tup));
+
+		if ((OidIsValid(commute_oid)))
+		{
+			foundCommutator = true;
+		}
+		else
+		{
+			/* Resolve the operator again for new types */
+			ReleaseSysCache(tup);
+			tup = oper(pstate, opname, ltypeId, rtypeId, false, location);
+			opform = (Form_pg_operator) GETSTRUCT(tup);
+		}
+	}
+
+	if (isCommute)
+		args = list_make2(rtree, ltree);
+	else
+		args = list_make2(ltree, rtree);
+
 	actual_arg_types[0] = ltypeId;
 	actual_arg_types[1] = rtypeId;
-	declared_arg_types[0] = opform->oprleft;
-	declared_arg_types[1] = opform->oprright;
+	if (isCommute)
+	{
+		declared_arg_types[0] = opform->oprright;
+		declared_arg_types[1] = opform->oprleft;
+	}
+	else
+	{
+		declared_arg_types[0] = opform->oprleft;
+		declared_arg_types[1] = opform->oprright;
+	}
 
 	/*
 	 * enforce consistency with polymorphic argument and return types,
@@ -928,38 +975,62 @@ make_scalar_array_op(ParseState *pstate, List *opname,
 		  errmsg("op ANY/ALL (array) requires operator not to return a set"),
 				 parser_errposition(pstate, location)));
 
+	if (isCommute)
+		array_type = declared_arg_types[0];
+	else
+		array_type = declared_arg_types[1];
+
 	/*
 	 * Now switch back to the array type on the right, arranging for any
 	 * needed cast to be applied.  Beware of polymorphic operators here;
 	 * enforce_generic_type_consistency may or may not have replaced a
 	 * polymorphic type with a real one.
 	 */
-	if (IsPolymorphicType(declared_arg_types[1]))
+	if (IsPolymorphicType(array_type))
 	{
 		/* assume the actual array type is OK */
 		res_atypeId = atypeId;
 	}
 	else
 	{
-		res_atypeId = get_array_type(declared_arg_types[1]);
+		res_atypeId = get_array_type(array_type);
 		if (!OidIsValid(res_atypeId))
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
 					 errmsg("could not find array type for data type %s",
-							format_type_be(declared_arg_types[1])),
+							format_type_be(array_type)),
 					 parser_errposition(pstate, location)));
 	}
-	actual_arg_types[1] = atypeId;
-	declared_arg_types[1] = res_atypeId;
+
+	if (isCommute)
+	{
+		actual_arg_types[0] = atypeId;
+		declared_arg_types[0] = res_atypeId;
+	}
+	else
+	{
+		actual_arg_types[1] = atypeId;
+		declared_arg_types[1] = res_atypeId;
+	}
 
 	/* perform the necessary typecasting of arguments */
 	make_fn_arguments(pstate, args, actual_arg_types, declared_arg_types);
 
 	/* and build the expression node */
 	result = makeNode(ScalarArrayOpExpr);
-	result->opno = oprid(tup);
-	result->opfuncid = opform->oprcode;
+	if (foundCommutator)
+	{
+		result->opno = commute_oid;
+		result->opfuncid = InvalidOid;
+	}
+	else
+	{
+		result->opno = oprid(tup);
+		result->opfuncid = opform->oprcode;
+	}
+
 	result->useOr = useOr;
+	result->isCommute = isCommute;
 	/* inputcollid will be set by parse_collate.c */
 	result->args = args;
 	result->location = location;

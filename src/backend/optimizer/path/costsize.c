@@ -3036,7 +3036,12 @@ cost_qual_eval_walker(Node *node, cost_qual_eval_context *context)
 		 * array elements before the answer is determined.
 		 */
 		ScalarArrayOpExpr *saop = (ScalarArrayOpExpr *) node;
-		Node	   *arraynode = (Node *) lsecond(saop->args);
+		Node	   *arraynode;
+
+		if (saop->isCommute)
+			arraynode = (Node *) linitial(saop->args);
+		else
+			arraynode = (Node *) lsecond(saop->args);
 
 		set_sa_opfuncid(saop);
 		context->total.per_tuple += get_func_cost(saop->opfuncid) *

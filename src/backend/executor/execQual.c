@@ -2512,12 +2512,20 @@ ExecEvalScalarArrayOp(ScalarArrayOpExprState *sstate,
 	FunctionCallInfo fcinfo;
 	ExprDoneCond argDone;
 	int			i;
+	int         scalar_index = 0;  /* The index of the scalar arg */
+	int         array_index = 1;  /* The index of the array arg */
 	int16		typlen;
 	bool		typbyval;
 	char		typalign;
 	char	   *s;
 	bits8	   *bitmap;
 	int			bitmask;
+
+	if (opexpr->isCommute)
+	{
+		array_index = 0;
+		scalar_index = 1;
+	}
 
 	/* Set default values for result flags: non-null, not a set result */
 	*isNull = false;
@@ -2549,13 +2557,13 @@ ExecEvalScalarArrayOp(ScalarArrayOpExprState *sstate,
 	 * If the array is NULL then we return NULL --- it's not very meaningful
 	 * to do anything else, even if the operator isn't strict.
 	 */
-	if (fcinfo->argnull[1])
+	if (fcinfo->argnull[array_index])
 	{
 		*isNull = true;
 		return (Datum) 0;
 	}
 	/* Else okay to fetch and detoast the array */
-	arr = DatumGetArrayTypeP(fcinfo->arg[1]);
+	arr = DatumGetArrayTypeP(fcinfo->arg[array_index]);
 
 	/*
 	 * If the array is empty, we return either FALSE or TRUE per the useOr
@@ -2571,7 +2579,7 @@ ExecEvalScalarArrayOp(ScalarArrayOpExprState *sstate,
 	 * If the scalar is NULL, and the function is strict, return NULL; no
 	 * point in iterating the loop.
 	 */
-	if (fcinfo->argnull[0] && sstate->fxprstate.func.fn_strict)
+	if (fcinfo->argnull[scalar_index] && sstate->fxprstate.func.fn_strict)
 	{
 		*isNull = true;
 		return (Datum) 0;
@@ -2609,20 +2617,20 @@ ExecEvalScalarArrayOp(ScalarArrayOpExprState *sstate,
 		/* Get array element, checking for NULL */
 		if (bitmap && (*bitmap & bitmask) == 0)
 		{
-			fcinfo->arg[1] = (Datum) 0;
-			fcinfo->argnull[1] = true;
+			fcinfo->arg[array_index] = (Datum) 0;
+			fcinfo->argnull[array_index] = true;
 		}
 		else
 		{
 			elt = fetch_att(s, typbyval, typlen);
 			s = att_addlength_pointer(s, typlen, s);
 			s = (char *) att_align_nominal(s, typalign);
-			fcinfo->arg[1] = elt;
-			fcinfo->argnull[1] = false;
+			fcinfo->arg[array_index] = elt;
+			fcinfo->argnull[array_index] = false;
 		}
 
 		/* Call comparison function */
-		if (fcinfo->argnull[1] && sstate->fxprstate.func.fn_strict)
+		if (fcinfo->argnull[array_index] && sstate->fxprstate.func.fn_strict)
 		{
 			fcinfo->isnull = true;
 			thisresult = (Datum) 0;

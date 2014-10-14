@@ -550,7 +550,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	CACHE CALLED CASCADE CASCADED CASE CAST CATALOG_P CHAIN CHAR_P
 	CHARACTER CHARACTERISTICS CHECK CHECKPOINT CLASS CLOSE
 	CLUSTER COALESCE COLLATE COLLATION COLUMN COMMENT COMMENTS COMMIT
-	COMMITTED CONCURRENTLY CONFIGURATION CONNECTION CONSTRAINT CONSTRAINTS
+	COMMITTED COMMUTE CONCURRENTLY CONFIGURATION CONNECTION CONSTRAINT CONSTRAINTS
 	CONTENT_P CONTINUE_P CONVERSION_P COPY COST CREATE
 	CROSS CSV CURRENT_P
 	CURRENT_CATALOG CURRENT_DATE CURRENT_ROLE CURRENT_SCHEMA
@@ -674,7 +674,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
  */
 %nonassoc	UNBOUNDED		/* ideally should have same precedence as IDENT */
 %nonassoc	IDENT NULL_P PARTITION RANGE ROWS PRECEDING FOLLOWING
-%left		Op OPERATOR		/* multi-character ops and user-defined operators */
+%left		Op COMMUTE OPERATOR		/* multi-character ops and user-defined operators */
 %nonassoc	NOTNULL
 %nonassoc	ISNULL
 %nonassoc	IS				/* sets precedence for IS NULL, etc */
@@ -11361,6 +11361,13 @@ a_expr:		c_expr									{ $$ = $1; }
 					else
 						$$ = (Node *) makeA_Expr(AEXPR_OP_ALL, $2, $1, $5, @2);
 				}
+			| a_expr COMMUTE '(' subquery_Op ')' sub_type '(' a_expr ')'		%prec Op
+				{
+					if ($6 == ANY_SUBLINK)
+						$$ = (Node *) makeCommuteA_Expr(AEXPR_OP_ANY, $4, $1, $8, @4);
+					else
+						$$ = (Node *) makeCommuteA_Expr(AEXPR_OP_ALL, $4, $1, $8, @4);
+				}
 			| UNIQUE select_with_parens
 				{
 					/* Not sure how to get rid of the parentheses
@@ -13056,6 +13063,7 @@ unreserved_keyword:
 			| COMMENTS
 			| COMMIT
 			| COMMITTED
+			| COMMUTE
 			| CONFIGURATION
 			| CONNECTION
 			| CONSTRAINTS

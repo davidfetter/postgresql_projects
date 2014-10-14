@@ -924,6 +924,7 @@ transformAExprOpAny(ParseState *pstate, A_Expr *a)
 
 	return (Node *) make_scalar_array_op(pstate,
 										 a->name,
+										 a->isCommute,
 										 true,
 										 lexpr,
 										 rexpr,
@@ -938,6 +939,7 @@ transformAExprOpAll(ParseState *pstate, A_Expr *a)
 
 	return (Node *) make_scalar_array_op(pstate,
 										 a->name,
+										 a->isCommute,
 										 false,
 										 lexpr,
 										 rexpr,
@@ -1145,6 +1147,7 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 
 			result = (Node *) make_scalar_array_op(pstate,
 												   a->name,
+												   a->isCommute,
 												   useOr,
 												   lexpr,
 												   (Node *) newa,

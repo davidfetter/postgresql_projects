@@ -459,6 +459,7 @@ typedef struct ScalarArrayOpExpr
 	bool		useOr;			/* true for ANY, false for ALL */
 	Oid			inputcollid;	/* OID of collation that operator should use */
 	List	   *args;			/* the scalar and array operands */
+	bool        isCommute;      /* true if COMMUTE is present */
 	int			location;		/* token location, or -1 if unknown */
 } ScalarArrayOpExpr;
 

@@ -2038,6 +2038,7 @@ _equalAExpr(const A_Expr *a, const A_Expr *b)
 {
 	COMPARE_SCALAR_FIELD(kind);
 	COMPARE_NODE_FIELD(name);
+	COMPARE_SCALAR_FIELD(isCommute);
 	COMPARE_NODE_FIELD(lexpr);
 	COMPARE_NODE_FIELD(rexpr);
 	COMPARE_LOCATION_FIELD(location);

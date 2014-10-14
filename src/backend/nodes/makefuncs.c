@@ -34,6 +34,7 @@ makeA_Expr(A_Expr_Kind kind, List *name,
 
 	a->kind = kind;
 	a->name = name;
+	a->isCommute = false;
 	a->lexpr = lexpr;
 	a->rexpr = rexpr;
 	a->location = location;
@@ -52,6 +53,26 @@ makeSimpleA_Expr(A_Expr_Kind kind, char *name,
 
 	a->kind = kind;
 	a->name = list_make1(makeString((char *) name));
+	a->isCommute = false;
+	a->lexpr = lexpr;
+	a->rexpr = rexpr;
+	a->location = location;
+	return a;
+}
+
+/*
+ * makeACommute_Expr -
+ *		makes an A_Expr node
+ */
+A_Expr *
+makeCommuteA_Expr(A_Expr_Kind kind, List *name,
+		   Node *lexpr, Node *rexpr, int location)
+{
+	A_Expr	   *a = makeNode(A_Expr);
+
+	a->kind = kind;
+	a->name = name;
+	a->isCommute = true;
 	a->lexpr = lexpr;
 	a->rexpr = rexpr;
 	a->location = location;

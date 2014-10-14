@@ -2115,6 +2115,7 @@ _copyAExpr(const A_Expr *from)
 
 	COPY_SCALAR_FIELD(kind);
 	COPY_NODE_FIELD(name);
+	COPY_SCALAR_FIELD(isCommute);
 	COPY_NODE_FIELD(lexpr);
 	COPY_NODE_FIELD(rexpr);
 	COPY_LOCATION_FIELD(location);
