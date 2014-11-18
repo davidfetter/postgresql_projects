@@ -51,6 +51,8 @@
 #include "access/valid.h"
 #include "access/visibilitymap.h"
 #include "access/xact.h"
+#include "access/xlog.h"
+#include "access/xloginsert.h"
 #include "access/xlogutils.h"
 #include "catalog/catalog.h"
 #include "catalog/namespace.h"
@@ -270,6 +272,8 @@ initscan(HeapScanDesc scan, ScanKey key, bool is_rescan)
 		scan->rs_startblock = 0;
 	}
 
+	scan->rs_initblock = 0;
+	scan->rs_numblocks = InvalidBlockNumber;
 	scan->rs_inited = false;
 	scan->rs_ctup.t_data = NULL;
 	ItemPointerSetInvalid(&scan->rs_ctup.t_self);
@@ -293,6 +297,14 @@ initscan(HeapScanDesc scan, ScanKey key, bool is_rescan)
 	 */
 	if (!scan->rs_bitmapscan)
 		pgstat_count_heap_scan(scan->rs_rd);
+}
+
+void
+heap_setscanlimits(HeapScanDesc scan, BlockNumber startBlk, BlockNumber numBlks)
+{
+	scan->rs_startblock = startBlk;
+	scan->rs_initblock = startBlk;
+	scan->rs_numblocks = numBlks;
 }
 
 /*
@@ -635,7 +647,8 @@ heapgettup(HeapScanDesc scan,
 		 */
 		if (backward)
 		{
-			finished = (page == scan->rs_startblock);
+			finished = (page == scan->rs_startblock) ||
+				(scan->rs_numblocks != InvalidBlockNumber ? --scan->rs_numblocks <= 0 : false);
 			if (page == 0)
 				page = scan->rs_nblocks;
 			page--;
@@ -645,7 +658,8 @@ heapgettup(HeapScanDesc scan,
 			page++;
 			if (page >= scan->rs_nblocks)
 				page = 0;
-			finished = (page == scan->rs_startblock);
+			finished = (page == scan->rs_startblock) ||
+				(scan->rs_numblocks != InvalidBlockNumber ? --scan->rs_numblocks <= 0 : false);
 
 			/*
 			 * Report our new scan position for synchronization purposes. We
@@ -896,7 +910,8 @@ heapgettup_pagemode(HeapScanDesc scan,
 		 */
 		if (backward)
 		{
-			finished = (page == scan->rs_startblock);
+			finished = (page == scan->rs_startblock) ||
+				(scan->rs_numblocks != InvalidBlockNumber ? --scan->rs_numblocks <= 0 : false);
 			if (page == 0)
 				page = scan->rs_nblocks;
 			page--;
@@ -906,7 +921,8 @@ heapgettup_pagemode(HeapScanDesc scan,
 			page++;
 			if (page >= scan->rs_nblocks)
 				page = 0;
-			finished = (page == scan->rs_startblock);
+			finished = (page == scan->rs_startblock) ||
+				(scan->rs_numblocks != InvalidBlockNumber ? --scan->rs_numblocks <= 0 : false);
 
 			/*
 			 * Report our new scan position for synchronization purposes. We
@@ -7540,7 +7556,7 @@ heap_xlog_insert(XLogRecPtr lsn, XLogRecord *record)
 	{
 		XLogReadBufferForRedoExtended(lsn, record, 0,
 									  target_node, MAIN_FORKNUM, blkno,
-									  RBM_ZERO, false, &buffer);
+									  RBM_ZERO_AND_LOCK, false, &buffer);
 		page = BufferGetPage(buffer);
 		PageInit(page, BufferGetPageSize(buffer), 0);
 		action = BLK_NEEDS_REDO;
@@ -7667,7 +7683,7 @@ heap_xlog_multi_insert(XLogRecPtr lsn, XLogRecord *record)
 	{
 		XLogReadBufferForRedoExtended(lsn, record, 0,
 									  rnode, MAIN_FORKNUM, blkno,
-									  RBM_ZERO, false, &buffer);
+									  RBM_ZERO_AND_LOCK, false, &buffer);
 		page = BufferGetPage(buffer);
 		PageInit(page, BufferGetPageSize(buffer), 0);
 		action = BLK_NEEDS_REDO;
@@ -7860,7 +7876,7 @@ heap_xlog_update(XLogRecPtr lsn, XLogRecord *record, bool hot_update)
 	{
 		XLogReadBufferForRedoExtended(lsn, record, 1,
 									  rnode, MAIN_FORKNUM, newblk,
-									  RBM_ZERO, false, &nbuffer);
+									  RBM_ZERO_AND_LOCK, false, &nbuffer);
 		page = (Page) BufferGetPage(nbuffer);
 		PageInit(page, BufferGetPageSize(nbuffer), 0);
 		newaction = BLK_NEEDS_REDO;

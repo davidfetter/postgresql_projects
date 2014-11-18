@@ -209,6 +209,21 @@ static relopt_int intRelOpts[] =
 			RELOPT_KIND_HEAP | RELOPT_KIND_TOAST
 		}, -1, 0, 2000000000
 	},
+	{
+		{
+			"pages_per_range",
+			"Number of pages that each page range covers in a BRIN index",
+			RELOPT_KIND_BRIN
+		}, 128, 1, 131072
+	},
+	{
+		{
+			"gin_pending_list_limit",
+			"Maximum size of the pending list for this GIN index, in kilobytes.",
+			RELOPT_KIND_GIN
+		},
+		-1, 64, MAX_KILOBYTES
+	},
 
 	/* list terminator */
 	{{NULL}}

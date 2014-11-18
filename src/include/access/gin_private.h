@@ -13,6 +13,7 @@
 #include "access/genam.h"
 #include "access/gin.h"
 #include "access/itup.h"
+#include "access/xloginsert.h"
 #include "fmgr.h"
 #include "storage/bufmgr.h"
 #include "utils/rbtree.h"
@@ -314,12 +315,18 @@ typedef struct GinOptions
 {
 	int32		vl_len_;		/* varlena header (do not touch directly!) */
 	bool		useFastUpdate;	/* use fast updates? */
+	int			pendingListCleanupSize;	/* maximum size of pending list */
 } GinOptions;
 
 #define GIN_DEFAULT_USE_FASTUPDATE	true
 #define GinGetUseFastUpdate(relation) \
 	((relation)->rd_options ? \
 	 ((GinOptions *) (relation)->rd_options)->useFastUpdate : GIN_DEFAULT_USE_FASTUPDATE)
+#define GinGetPendingListCleanupSize(relation) \
+	((relation)->rd_options && \
+	 ((GinOptions *) (relation)->rd_options)->pendingListCleanupSize != -1 ? \
+	 ((GinOptions *) (relation)->rd_options)->pendingListCleanupSize : \
+	 gin_pending_list_limit)
 
 
 /* Macros for buffer lock/unlock operations */

@@ -491,7 +491,7 @@ DefineIndex(Oid relationId,
 
 	if (strcmp(accessMethodName, "hash") == 0)
 		ereport(WARNING,
-				(errmsg("hash indexes are not WAL-logged and thus are not crash-safe and cannot be used on standby servers")));
+				(errmsg("hash indexes are not WAL-logged and their use is discouraged")));
 
 	if (stmt->unique && !accessMethodForm->amcanunique)
 		ereport(ERROR,
@@ -610,7 +610,14 @@ DefineIndex(Oid relationId,
 					 stmt->isconstraint, stmt->deferrable, stmt->initdeferred,
 					 allowSystemTableMods,
 					 skip_build || stmt->concurrent,
-					 stmt->concurrent, !check_rights);
+					 stmt->concurrent, !check_rights,
+					 stmt->if_not_exists);
+
+	if (!OidIsValid(indexRelationId))
+	{
+		heap_close(rel, NoLock);
+		return indexRelationId;
+	}
 
 	/* Add any requested comment */
 	if (stmt->idxcomment != NULL)
@@ -1682,7 +1689,7 @@ ReindexIndex(RangeVar *indexRelation)
 									  RangeVarCallbackForReindexIndex,
 									  (void *) &heapOid);
 
-	reindex_index(indOid, false);
+	reindex_index(indOid, false, indexRelation->relpersistence);
 
 	return indOid;
 }

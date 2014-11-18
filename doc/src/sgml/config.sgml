@@ -1892,6 +1892,10 @@ include_dir 'conf.d'
          in an error.  On some operating systems (e.g., Solaris), the function
          is present but does not actually do anything.
         </para>
+
+        <para>
+         The default is 1 on supported systems, otherwise 0.
+        </para>
        </listitem>
       </varlistentry>
 
@@ -5907,6 +5911,27 @@ SET XML OPTION { DOCUMENT | CONTENT };
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-gin-pending-list-limit" xreflabel="gin_pending_list_limit">
+      <term><varname>gin_pending_list_limit</varname> (<type>integer</type>)
+      <indexterm>
+       <primary><varname>gin_pending_list_limit</> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Sets the maximum size of the GIN pending list which is used
+        when <literal>fastupdate</> is enabled. If the list grows
+        larger than this maximum size, it is cleaned up by moving
+        the entries in it to the main GIN data structure in bulk.
+        The default is four megabytes (<literal>4MB</>). This setting
+        can be overridden for individual GIN indexes by changing
+        storage parameters.
+         See <xref linkend="gin-fast-update"> and <xref linkend="gin-tips">
+         for more information.
+       </para>
+      </listitem>
+     </varlistentry>
+
      </variablelist>
     </sect2>
      <sect2 id="runtime-config-client-format">
@@ -6003,9 +6028,9 @@ SET XML OPTION { DOCUMENT | CONTENT };
         Sets the collection of time zone abbreviations that will be accepted
         by the server for datetime input.  The default is <literal>'Default'</>,
         which is a collection that works in most of the world; there are
-        also <literal>'Australia'</literal> and <literal>'India'</literal>, and other collections can be defined
-        for a particular installation.  See <xref
-        linkend="datetime-appendix"> for more information.
+        also <literal>'Australia'</literal> and <literal>'India'</literal>,
+        and other collections can be defined for a particular installation.
+        See <xref linkend="datetime-config-files"> for more information.
        </para>
       </listitem>
      </varlistentry>
