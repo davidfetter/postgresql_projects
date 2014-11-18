@@ -12,12 +12,28 @@
  *
  *-------------------------------------------------------------------------
  */
-
 #ifndef DUMPUTILS_H
 #define DUMPUTILS_H
 
 #include "libpq-fe.h"
 #include "pqexpbuffer.h"
+
+/*
+ * Data structures for simple lists of OIDs and strings.  The support for
+ * these is very primitive compared to the backend's List facilities, but
+ * it's all we need in pg_dump.
+ */
+typedef struct SimpleOidListCell
+{
+	struct SimpleOidListCell *next;
+	Oid			val;
+} SimpleOidListCell;
+
+typedef struct SimpleOidList
+{
+	SimpleOidListCell *head;
+	SimpleOidListCell *tail;
+} SimpleOidList;
 
 typedef struct SimpleStringListCell
 {
@@ -31,6 +47,24 @@ typedef struct SimpleStringList
 	SimpleStringListCell *tail;
 } SimpleStringList;
 
+#define atooid(x)  ((Oid) strtoul((x), NULL, 10))
+
+/*
+ * Preferred strftime(3) format specifier for printing timestamps in pg_dump
+ * and friends.
+ *
+ * We don't print the timezone on Windows, because the names are long and
+ * localized, which means they may contain characters in various random
+ * encodings; this has been seen to cause encoding errors when reading the
+ * dump script.  Think not to get around that by using %z, because
+ * (1) %z is not portable to pre-C99 systems, and
+ * (2) %z doesn't actually act differently from %Z on Windows anyway.
+ */
+#ifndef WIN32
+#define PGDUMP_STRFTIME_FMT  "%Y-%m-%d %H:%M:%S %Z"
+#else
+#define PGDUMP_STRFTIME_FMT  "%Y-%m-%d %H:%M:%S"
+#endif
 
 extern int	quote_all_identifiers;
 extern PQExpBuffer (*getLocalPQExpBuffer) (void);

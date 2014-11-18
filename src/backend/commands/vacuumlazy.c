@@ -44,6 +44,7 @@
 #include "access/multixact.h"
 #include "access/transam.h"
 #include "access/visibilitymap.h"
+#include "access/xlog.h"
 #include "catalog/catalog.h"
 #include "catalog/storage.h"
 #include "commands/dbcommands.h"
@@ -309,7 +310,8 @@ lazy_vacuum_rel(Relation onerel, VacuumStmt *vacstmt,
 						new_rel_allvisible,
 						vacrelstats->hasindex,
 						new_frozen_xid,
-						new_min_multi);
+						new_min_multi,
+						false);
 
 	/* report results to the stats collector, too */
 	new_live_tuples = new_rel_tuples - vacrelstats->new_dead_tuples;
@@ -1377,7 +1379,8 @@ lazy_cleanup_index(Relation indrel,
 							0,
 							false,
 							InvalidTransactionId,
-							InvalidMultiXactId);
+							InvalidMultiXactId,
+							false);
 
 	ereport(elevel,
 			(errmsg("index \"%s\" now contains %.0f row versions in %u pages",
@@ -1751,6 +1754,7 @@ static bool
 heap_page_is_all_visible(Relation rel, Buffer buf, TransactionId *visibility_cutoff_xid)
 {
 	Page		page = BufferGetPage(buf);
+	BlockNumber	blockno = BufferGetBlockNumber(buf);
 	OffsetNumber offnum,
 				maxoff;
 	bool		all_visible = true;
@@ -1775,7 +1779,7 @@ heap_page_is_all_visible(Relation rel, Buffer buf, TransactionId *visibility_cut
 		if (!ItemIdIsUsed(itemid) || ItemIdIsRedirected(itemid))
 			continue;
 
-		ItemPointerSet(&(tuple.t_self), BufferGetBlockNumber(buf), offnum);
+		ItemPointerSet(&(tuple.t_self), blockno, offnum);
 
 		/*
 		 * Dead line pointers can have index pointers pointing to them. So
