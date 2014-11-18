@@ -72,6 +72,8 @@
 #include "access/twophase.h"
 #include "access/twophase_rmgr.h"
 #include "access/xact.h"
+#include "access/xlog.h"
+#include "access/xloginsert.h"
 #include "catalog/pg_type.h"
 #include "commands/dbcommands.h"
 #include "funcapi.h"
@@ -1276,6 +1278,7 @@ retry:
 		{
 			/* Corner case 2: next multixact is still being filled in */
 			LWLockRelease(MultiXactOffsetControlLock);
+			CHECK_FOR_INTERRUPTS();
 			pg_usleep(1000L);
 			goto retry;
 		}

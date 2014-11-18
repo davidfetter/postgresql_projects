@@ -96,14 +96,6 @@
 #define CONFIG_EXEC_PARAMS_NEW "global/config_exec_params.new"
 #endif
 
-/* upper limit for GUC variables measured in kilobytes of memory */
-/* note that various places assume the byte size fits in a "long" variable */
-#if SIZEOF_SIZE_T > 4 && SIZEOF_LONG > 4
-#define MAX_KILOBYTES	INT_MAX
-#else
-#define MAX_KILOBYTES	(INT_MAX / 1024)
-#endif
-
 #define KB_PER_MB (1024)
 #define KB_PER_GB (1024*1024)
 #define KB_PER_TB (1024*1024*1024)
@@ -171,7 +163,6 @@ static void assign_syslog_facility(int newval, void *extra);
 static void assign_syslog_ident(const char *newval, void *extra);
 static void assign_session_replication_role(int newval, void *extra);
 static bool check_temp_buffers(int *newval, void **extra, GucSource source);
-static bool check_phony_autocommit(bool *newval, void **extra, GucSource source);
 static bool check_bonjour(bool *newval, void **extra, GucSource source);
 static bool check_ssl(bool *newval, void **extra, GucSource source);
 static bool check_stage_log_stats(bool *newval, void **extra, GucSource source);
@@ -488,7 +479,6 @@ int			huge_pages;
  * and is kept in sync by assign_hooks.
  */
 static char *syslog_ident_str;
-static bool phony_autocommit;
 static bool session_auth_is_superuser;
 static double phony_random_seed;
 static char *client_encoding_string;
@@ -910,7 +900,7 @@ static struct config_bool ConfigureNamesBool[] =
 
 	{
 		{"wal_log_hints", PGC_POSTMASTER, WAL_SETTINGS,
-			gettext_noop("Writes full pages to WAL when first modified after a checkpoint, even for a non-critical modifications"),
+			gettext_noop("Writes full pages to WAL when first modified after a checkpoint, even for a non-critical modifications."),
 			NULL
 		},
 		&wal_log_hints,
@@ -1249,17 +1239,6 @@ static struct config_bool ConfigureNamesBool[] =
 		&Db_user_namespace,
 		false,
 		NULL, NULL, NULL
-	},
-	{
-		/* only here for backwards compatibility */
-		{"autocommit", PGC_USERSET, CLIENT_CONN_STATEMENT,
-			gettext_noop("This parameter doesn't do anything."),
-			gettext_noop("It's just here so that we won't choke on SET AUTOCOMMIT TO ON from 7.3-vintage clients."),
-			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
-		},
-		&phony_autocommit,
-		true,
-		check_phony_autocommit, NULL, NULL
 	},
 	{
 		{"default_transaction_read_only", PGC_USERSET, CLIENT_CONN_STATEMENT,
@@ -2258,11 +2237,7 @@ static struct config_int ConfigureNamesInt[] =
 
 	{
 		{"effective_io_concurrency",
-#ifdef USE_PREFETCH
 			PGC_USERSET,
-#else
-			PGC_INTERNAL,
-#endif
 			RESOURCES_ASYNCHRONOUS,
 			gettext_noop("Number of simultaneous requests that can be handled efficiently by the disk subsystem."),
 			gettext_noop("For RAID arrays, this should be approximately the number of drive spindles in the array.")
@@ -2564,6 +2539,17 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&pgstat_track_activity_query_size,
 		1024, 100, 102400,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"gin_pending_list_limit", PGC_USERSET, CLIENT_CONN_STATEMENT,
+			gettext_noop("Sets the maximum size of the pending list for GIN index."),
+			 NULL,
+			GUC_UNIT_KB
+		},
+		&gin_pending_list_limit,
+		4096, 64, MAX_KILOBYTES,
 		NULL, NULL, NULL
 	},
 
@@ -3518,7 +3504,7 @@ static struct config_enum ConfigureNamesEnum[] =
 
 	{
 		{"huge_pages", PGC_POSTMASTER, RESOURCES_MEM,
-			gettext_noop("Use of huge pages on Linux"),
+			gettext_noop("Use of huge pages on Linux."),
 			NULL
 		},
 		&huge_pages,
@@ -6622,7 +6608,7 @@ write_auto_conf_file(int fd, const char *filename, ConfigVariable **head_p)
 	 */
 	if (write(fd, buf.data, buf.len) < 0)
 		ereport(ERROR,
-				(errmsg("failed to write to \"%s\" file", filename)));
+				(errmsg("could not write to file \"%s\": %m", filename)));
 	resetStringInfo(&buf);
 
 	/*
@@ -6647,7 +6633,7 @@ write_auto_conf_file(int fd, const char *filename, ConfigVariable **head_p)
 
 		if (write(fd, buf.data, buf.len) < 0)
 			ereport(ERROR,
-					(errmsg("failed to write to \"%s\" file", filename)));
+					(errmsg("could not write to file \"%s\": %m", filename)));
 		resetStringInfo(&buf);
 	}
 
@@ -6852,7 +6838,7 @@ AlterSystemSetConfigFile(AlterSystemStmt *altersysstmt)
 	if (Tmpfd < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
-				 errmsg("failed to open auto conf temp file \"%s\": %m",
+				 errmsg("could not open file \"%s\": %m",
 						AutoConfTmpFileName)));
 
 	PG_TRY();
@@ -6870,8 +6856,8 @@ AlterSystemSetConfigFile(AlterSystemStmt *altersysstmt)
 				infile = AllocateFile(AutoConfFileName, "r");
 				if (infile == NULL)
 					ereport(ERROR,
-						  (errmsg("failed to open auto conf file \"%s\": %m",
-								  AutoConfFileName)));
+							(errmsg("could not open file \"%s\": %m",
+									AutoConfFileName)));
 
 				/* parse it */
 				ParseConfigFp(infile, AutoConfFileName, 0, LOG, &head, &tail);
@@ -7734,7 +7720,7 @@ GetConfigOptionByNum(int varnum, const char **values, bool *noshow)
 				values[2] = "min";
 				break;
 			default:
-				values[2] = "";
+				values[2] = NULL;
 				break;
 		}
 	}
@@ -9178,18 +9164,6 @@ check_temp_buffers(int *newval, void **extra, GucSource source)
 	if (NLocBuffer && NLocBuffer != *newval)
 	{
 		GUC_check_errdetail("\"temp_buffers\" cannot be changed after any temporary tables have been accessed in the session.");
-		return false;
-	}
-	return true;
-}
-
-static bool
-check_phony_autocommit(bool *newval, void **extra, GucSource source)
-{
-	if (!*newval)
-	{
-		GUC_check_errcode(ERRCODE_FEATURE_NOT_SUPPORTED);
-		GUC_check_errmsg("SET AUTOCOMMIT TO OFF is no longer supported");
 		return false;
 	}
 	return true;

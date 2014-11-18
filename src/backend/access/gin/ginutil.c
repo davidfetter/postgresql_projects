@@ -16,6 +16,7 @@
 
 #include "access/gin_private.h"
 #include "access/reloptions.h"
+#include "access/xloginsert.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_type.h"
 #include "miscadmin.h"
@@ -524,7 +525,9 @@ ginoptions(PG_FUNCTION_ARGS)
 	GinOptions *rdopts;
 	int			numoptions;
 	static const relopt_parse_elt tab[] = {
-		{"fastupdate", RELOPT_TYPE_BOOL, offsetof(GinOptions, useFastUpdate)}
+		{"fastupdate", RELOPT_TYPE_BOOL, offsetof(GinOptions, useFastUpdate)},
+		{"gin_pending_list_limit", RELOPT_TYPE_INT, offsetof(GinOptions,
+																pendingListCleanupSize)}
 	};
 
 	options = parseRelOptions(reloptions, validate, RELOPT_KIND_GIN,

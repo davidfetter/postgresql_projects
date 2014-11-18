@@ -28,6 +28,7 @@
 
 #include "access/hash.h"
 #include "catalog/pg_type.h"
+#include "funcapi.h"
 #include "libpq/pqformat.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
@@ -258,6 +259,18 @@ typedef struct NumericVar
 	NumericDigit *buf;			/* start of palloc'd space for digits[] */
 	NumericDigit *digits;		/* base-NBASE digits */
 } NumericVar;
+
+
+/* ----------
+ * Data for generate_series
+ * ----------
+ */
+typedef struct
+{
+	NumericVar	current;
+	NumericVar	stop;
+	NumericVar	step;
+} generate_series_numeric_fctx;
 
 
 /* ----------
@@ -629,15 +642,17 @@ numeric_out_sci(Numeric num, int scale)
 /*
  * numeric_normalize() -
  *
- *	Output function for numeric data type without trailing zeroes.
+ *	Output function for numeric data type, suppressing insignificant trailing
+ *	zeroes and then any trailing decimal point.  The intent of this is to
+ *	produce strings that are equal if and only if the input numeric values
+ *	compare equal.
  */
 char *
 numeric_normalize(Numeric num)
 {
 	NumericVar	x;
 	char	   *str;
-	int			orig,
-				last;
+	int			last;
 
 	/*
 	 * Handle NaN
@@ -649,18 +664,24 @@ numeric_normalize(Numeric num)
 
 	str = get_str_from_var(&x);
 
-	orig = last = strlen(str) - 1;
-
-	for (;;)
+	/* If there's no decimal point, there's certainly nothing to remove. */
+	if (strchr(str, '.') != NULL)
 	{
-		if (last == 0 || str[last] != '0')
-			break;
+		/*
+		 * Back up over trailing fractional zeroes.  Since there is a decimal
+		 * point, this loop will terminate safely.
+		 */
+		last = strlen(str) - 1;
+		while (str[last] == '0')
+			last--;
 
-		last--;
+		/* We want to get rid of the decimal point too, if it's now last. */
+		if (str[last] == '.')
+			last--;
+
+		/* Delete whatever we backed up over. */
+		str[last + 1] = '\0';
 	}
-
-	if (last > 0 && last != orig)
-		str[last] = '\0';
 
 	return str;
 }
@@ -1220,6 +1241,117 @@ numeric_floor(PG_FUNCTION_ARGS)
 
 	PG_RETURN_NUMERIC(res);
 }
+
+
+/*
+ * generate_series_numeric() -
+ *
+ *  Generate series of numeric.
+ */
+Datum
+generate_series_numeric(PG_FUNCTION_ARGS)
+{
+	return generate_series_step_numeric(fcinfo);
+}
+
+Datum
+generate_series_step_numeric(PG_FUNCTION_ARGS)
+{
+	generate_series_numeric_fctx *fctx;
+	FuncCallContext *funcctx;
+	MemoryContext oldcontext;
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		Numeric		start_num = PG_GETARG_NUMERIC(0);
+		Numeric		stop_num = PG_GETARG_NUMERIC(1);
+		NumericVar	steploc = const_one;
+
+		/* handle NaN in start and stop values */
+		if (NUMERIC_IS_NAN(start_num))
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("start value cannot be NaN")));
+
+		if (NUMERIC_IS_NAN(stop_num))
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("stop value cannot be NaN")));
+
+		/* see if we were given an explicit step size */
+		if (PG_NARGS() == 3)
+		{
+			Numeric	step_num = PG_GETARG_NUMERIC(2);
+
+			if (NUMERIC_IS_NAN(step_num))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("step size cannot be NaN")));
+
+			init_var_from_num(step_num, &steploc);
+
+			if (cmp_var(&steploc, &const_zero) == 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("step size cannot equal zero")));
+		}
+
+		/* create a function context for cross-call persistence */
+		funcctx = SRF_FIRSTCALL_INIT();
+
+		/*
+		 * Switch to memory context appropriate for multiple function calls.
+		 */
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		/* allocate memory for user context */
+		fctx = (generate_series_numeric_fctx *)
+			palloc(sizeof(generate_series_numeric_fctx));
+
+		/*
+		 * Use fctx to keep state from call to call. Seed current with the
+		 * original start value.
+		 */
+		init_var_from_num(start_num, &fctx->current);
+		init_var_from_num(stop_num, &fctx->stop);
+		init_var(&fctx->step);
+		set_var_from_var(&steploc, &fctx->step);
+
+		funcctx->user_fctx = fctx;
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	/* stuff done on every call of the function */
+	funcctx = SRF_PERCALL_SETUP();
+
+	/*
+	 * Get the saved state and use current state as the result of this
+	 * iteration.
+	 */
+	fctx = funcctx->user_fctx;
+
+	if ((fctx->step.sign == NUMERIC_POS &&
+		 cmp_var(&fctx->current, &fctx->stop) <= 0) ||
+		(fctx->step.sign == NUMERIC_NEG &&
+		 cmp_var(&fctx->current, &fctx->stop) >= 0))
+	{
+		Numeric	result = make_result(&fctx->current);
+
+		/* switch to memory context appropriate for iteration calculation */
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		/* increment current in preparation for next iteration */
+		add_var(&fctx->current, &fctx->step, &fctx->current);
+		MemoryContextSwitchTo(oldcontext);
+
+		/* do when there is more left to send */
+		SRF_RETURN_NEXT(funcctx, NumericGetDatum(result));
+	}
+	else
+		/* do when there is no more left */
+		SRF_RETURN_DONE(funcctx);
+}
+
 
 /*
  * Implements the numeric version of the width_bucket() function

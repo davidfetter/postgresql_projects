@@ -104,6 +104,7 @@ test: lock
 test: replica_identity
 test: rowsecurity
 test: alter_generic
+test: brin
 test: misc
 test: psql
 test: async

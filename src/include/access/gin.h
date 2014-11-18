@@ -10,7 +10,8 @@
 #ifndef GIN_H
 #define GIN_H
 
-#include "access/xlog.h"
+#include "access/xlogrecord.h"
+#include "lib/stringinfo.h"
 #include "storage/block.h"
 #include "utils/relcache.h"
 
@@ -64,8 +65,9 @@ typedef char GinTernaryValue;
 #define GinTernaryValueGetDatum(X) ((Datum)(X))
 #define PG_RETURN_GIN_TERNARY_VALUE(x) return GinTernaryValueGetDatum(x)
 
-/* GUC parameter */
+/* GUC parameters */
 extern PGDLLIMPORT int GinFuzzySearchLimit;
+extern int gin_pending_list_limit;
 
 /* ginutil.c */
 extern void ginGetStats(Relation index, GinStatsData *stats);

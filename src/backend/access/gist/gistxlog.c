@@ -14,6 +14,7 @@
 #include "postgres.h"
 
 #include "access/gist_private.h"
+#include "access/xloginsert.h"
 #include "access/xlogutils.h"
 #include "utils/memutils.h"
 
@@ -123,26 +124,6 @@ gistRedoPageUpdateRecord(XLogRecPtr lsn, XLogRecord *record)
 						 (int) sz);
 				off++;
 			}
-		}
-		else
-		{
-			/*
-			 * special case: leafpage, nothing to insert, nothing to delete,
-			 * then vacuum marks page
-			 */
-			if (GistPageIsLeaf(page) && xldata->ntodelete == 0)
-				GistClearTuplesDeleted(page);
-		}
-
-		if (!GistPageIsLeaf(page) &&
-			PageGetMaxOffsetNumber(page) == InvalidOffsetNumber &&
-			xldata->blkno == GIST_ROOT_BLKNO)
-		{
-			/*
-			 * all links on non-leaf root page was deleted by vacuum full, so
-			 * root page becomes a leaf
-			 */
-			GistPageSetLeaf(page);
 		}
 
 		PageSetLSN(page, lsn);

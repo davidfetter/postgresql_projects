@@ -8,6 +8,10 @@
 --
 CREATE INDEX onek_unique1 ON onek USING btree(unique1 int4_ops);
 
+CREATE INDEX IF NOT EXISTS onek_unique1 ON onek USING btree(unique1 int4_ops);
+
+CREATE INDEX IF NOT EXISTS ON onek USING btree(unique1 int4_ops);
+
 CREATE INDEX onek_unique2 ON onek USING btree(unique2 int4_ops);
 
 CREATE INDEX onek_hundred ON onek USING btree(hundred int4_ops);
@@ -651,6 +655,13 @@ SELECT COUNT(*) FROM array_gin_test WHERE a @> '{2}';
 DROP TABLE array_gin_test;
 
 --
+-- Test GIN index's reloptions
+--
+CREATE INDEX gin_relopts_test ON array_index_op_test USING gin (i)
+  WITH (FASTUPDATE=on, GIN_PENDING_LIST_LIMIT=128);
+\d+ gin_relopts_test
+
+--
 -- HASH
 --
 CREATE INDEX hash_i4_index ON hash_i4_heap USING hash (random int4_ops);
@@ -711,10 +722,12 @@ create unique index hash_f8_index_3 on hash_f8_heap(random) where seqno > 1000;
 CREATE TABLE concur_heap (f1 text, f2 text);
 -- empty table
 CREATE INDEX CONCURRENTLY concur_index1 ON concur_heap(f2,f1);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS concur_index1 ON concur_heap(f2,f1);
 INSERT INTO concur_heap VALUES  ('a','b');
 INSERT INTO concur_heap VALUES  ('b','b');
 -- unique index
 CREATE UNIQUE INDEX CONCURRENTLY concur_index2 ON concur_heap(f1);
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS concur_index2 ON concur_heap(f1);
 -- check if constraint is set up properly to be enforced
 INSERT INTO concur_heap VALUES ('b','x');
 -- check if constraint is enforced properly at build time
@@ -931,6 +944,19 @@ ORDER BY thousand;
 SELECT thousand, tenthous FROM tenk1
 WHERE thousand < 2 AND tenthous IN (1001,3000)
 ORDER BY thousand;
+
+SET enable_indexonlyscan = OFF;
+
+explain (costs off)
+SELECT thousand, tenthous FROM tenk1
+WHERE thousand < 2 AND tenthous IN (1001,3000)
+ORDER BY thousand;
+
+SELECT thousand, tenthous FROM tenk1
+WHERE thousand < 2 AND tenthous IN (1001,3000)
+ORDER BY thousand;
+
+RESET enable_indexscan;
 
 --
 -- Check elimination of constant-NULL subexpressions
