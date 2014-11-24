@@ -54,6 +54,9 @@ typedef struct pushdown_safety_info
 bool		enable_geqo = false;	/* just in case GUC doesn't set it */
 int			geqo_threshold;
 
+/* Hook for plugins to get control in set_rel_pathlist() */
+set_rel_pathlist_hook_type set_rel_pathlist_hook = NULL;
+
 /* Hook for plugins to replace standard_join_search() */
 join_search_hook_type join_search_hook = NULL;
 
@@ -355,6 +358,17 @@ set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		}
 	}
 
+	/*
+	 * Allow a plugin to editorialize on the set of Paths for this base
+	 * relation.  It could add new paths (such as CustomPaths) by calling
+	 * add_path(), or delete or modify paths added by the core code.
+	 */
+	if (set_rel_pathlist_hook)
+		(*set_rel_pathlist_hook) (root, rel, rti, rte);
+
+	/* Now find the cheapest of the paths for this rel */
+	set_cheapest(rel);
+
 #ifdef OPTIMIZER_DEBUG
 	debug_print_rel(root, rel);
 #endif
@@ -401,12 +415,6 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Consider TID scans */
 	create_tidscan_paths(root, rel);
-
-	/* Consider custom scans, if any */
-	create_customscan_paths(root, rel, rte);
-
-	/* Now find the cheapest of the paths for this rel */
-	set_cheapest(rel);
 }
 
 /*
@@ -432,9 +440,6 @@ set_foreign_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 {
 	/* Call the FDW's GetForeignPaths function to generate path(s) */
 	rel->fdwroutine->GetForeignPaths(root, rel, rte->relid);
-
-	/* Select cheapest path */
-	set_cheapest(rel);
 }
 
 /*
@@ -857,9 +862,6 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 			add_path(rel, (Path *)
 					 create_append_path(rel, subpaths, required_outer));
 	}
-
-	/* Select cheapest paths */
-	set_cheapest(rel);
 }
 
 /*
@@ -1087,7 +1089,12 @@ set_dummy_rel_pathlist(RelOptInfo *rel)
 
 	add_path(rel, (Path *) create_append_path(rel, NIL, NULL));
 
-	/* Select cheapest path (pretty easy in this case...) */
+	/*
+	 * We set the cheapest path immediately, to ensure that IS_DUMMY_REL()
+	 * will recognize the relation as dummy if anyone asks.  This is redundant
+	 * when we're called from set_rel_size(), but not when called from
+	 * elsewhere, and doing it twice is harmless anyway.
+	 */
 	set_cheapest(rel);
 }
 
@@ -1276,9 +1283,6 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 
 	/* Generate appropriate path */
 	add_path(rel, create_subqueryscan_path(root, rel, pathkeys, required_outer));
-
-	/* Select cheapest path (pretty easy in this case...) */
-	set_cheapest(rel);
 }
 
 /*
@@ -1347,9 +1351,6 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	/* Generate appropriate path */
 	add_path(rel, create_functionscan_path(root, rel,
 										   pathkeys, required_outer));
-
-	/* Select cheapest path (pretty easy in this case...) */
-	set_cheapest(rel);
 }
 
 /*
@@ -1370,9 +1371,6 @@ set_values_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Generate appropriate path */
 	add_path(rel, create_valuesscan_path(root, rel, required_outer));
-
-	/* Select cheapest path (pretty easy in this case...) */
-	set_cheapest(rel);
 }
 
 /*
@@ -1439,9 +1437,6 @@ set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Generate appropriate path */
 	add_path(rel, create_ctescan_path(root, rel, required_outer));
-
-	/* Select cheapest path (pretty easy in this case...) */
-	set_cheapest(rel);
 }
 
 /*
@@ -1492,9 +1487,6 @@ set_worktable_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Generate appropriate path */
 	add_path(rel, create_worktablescan_path(root, rel, required_outer));
-
-	/* Select cheapest path (pretty easy in this case...) */
-	set_cheapest(rel);
 }
 
 /*

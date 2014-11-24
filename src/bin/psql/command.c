@@ -62,8 +62,8 @@ static bool do_edit(const char *filename_arg, PQExpBuffer query_buf,
 static bool do_connect(char *dbname, char *user, char *host, char *port);
 static bool do_shell(const char *command);
 static bool do_watch(PQExpBuffer query_buf, long sleep);
-static bool lookup_function_oid(PGconn *conn, const char *desc, Oid *foid);
-static bool get_create_function_cmd(PGconn *conn, Oid oid, PQExpBuffer buf);
+static bool lookup_function_oid(const char *desc, Oid *foid);
+static bool get_create_function_cmd(Oid oid, PQExpBuffer buf);
 static int	strip_lineno_from_funcdesc(char *func);
 static void minimal_error_message(PGresult *res);
 
@@ -611,12 +611,12 @@ exec_command(const char *cmd,
 								  "AS $function$\n"
 								  "\n$function$\n");
 			}
-			else if (!lookup_function_oid(pset.db, func, &foid))
+			else if (!lookup_function_oid(func, &foid))
 			{
 				/* error already reported */
 				status = PSQL_CMD_ERROR;
 			}
-			else if (!get_create_function_cmd(pset.db, foid, query_buf))
+			else if (!get_create_function_cmd(foid, query_buf))
 			{
 				/* error already reported */
 				status = PSQL_CMD_ERROR;
@@ -1133,12 +1133,7 @@ exec_command(const char *cmd,
 			while ((opt = psql_scan_slash_option(scan_state,
 												 OT_NORMAL, NULL, false)))
 			{
-				newval = realloc(newval, strlen(newval) + strlen(opt) + 1);
-				if (!newval)
-				{
-					psql_error("out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				newval = pg_realloc(newval, strlen(newval) + strlen(opt) + 1);
 				strcat(newval, opt);
 				free(opt);
 			}
@@ -1220,12 +1215,12 @@ exec_command(const char *cmd,
 			psql_error("function name is required\n");
 			status = PSQL_CMD_ERROR;
 		}
-		else if (!lookup_function_oid(pset.db, func, &foid))
+		else if (!lookup_function_oid(func, &foid))
 		{
 			/* error already reported */
 			status = PSQL_CMD_ERROR;
 		}
-		else if (!get_create_function_cmd(pset.db, foid, func_buf))
+		else if (!get_create_function_cmd(foid, func_buf))
 		{
 			/* error already reported */
 			status = PSQL_CMD_ERROR;
@@ -2930,6 +2925,34 @@ do_watch(PQExpBuffer query_buf, long sleep)
 }
 
 /*
+ * a little code borrowed from PSQLexec() to manage ECHO_HIDDEN output.
+ * returns true unless we have ECHO_HIDDEN_NOEXEC.
+ */
+static bool
+lookup_function_echo_hidden(char * query)
+{
+	if (pset.echo_hidden != PSQL_ECHO_HIDDEN_OFF)
+	{
+		printf(_("********* QUERY **********\n"
+				 "%s\n"
+				 "**************************\n\n"), query);
+		fflush(stdout);
+		if (pset.logfile)
+		{
+			fprintf(pset.logfile,
+					_("********* QUERY **********\n"
+					  "%s\n"
+					  "**************************\n\n"), query);
+			fflush(pset.logfile);
+		}
+
+		if (pset.echo_hidden == PSQL_ECHO_HIDDEN_NOEXEC)
+			return false;
+	}
+	return true;
+}
+
+/*
  * This function takes a function description, e.g. "x" or "x(int)", and
  * issues a query on the given connection to retrieve the function's OID
  * using a cast to regproc or regprocedure (as appropriate). The result,
@@ -2939,7 +2962,7 @@ do_watch(PQExpBuffer query_buf, long sleep)
  * unfortunately it can be hard to tell the difference.
  */
 static bool
-lookup_function_oid(PGconn *conn, const char *desc, Oid *foid)
+lookup_function_oid(const char *desc, Oid *foid)
 {
 	bool		result = true;
 	PQExpBuffer query;
@@ -2947,11 +2970,15 @@ lookup_function_oid(PGconn *conn, const char *desc, Oid *foid)
 
 	query = createPQExpBuffer();
 	appendPQExpBufferStr(query, "SELECT ");
-	appendStringLiteralConn(query, desc, conn);
+	appendStringLiteralConn(query, desc, pset.db);
 	appendPQExpBuffer(query, "::pg_catalog.%s::pg_catalog.oid",
 					  strchr(desc, '(') ? "regprocedure" : "regproc");
-
-	res = PQexec(conn, query->data);
+	if (!lookup_function_echo_hidden(query->data))
+	{
+		destroyPQExpBuffer(query);
+		return false;
+	}
+	res = PQexec(pset.db, query->data);
 	if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) == 1)
 		*foid = atooid(PQgetvalue(res, 0, 0));
 	else
@@ -2971,7 +2998,7 @@ lookup_function_oid(PGconn *conn, const char *desc, Oid *foid)
  * function with the given OID.  If successful, the result is stored in buf.
  */
 static bool
-get_create_function_cmd(PGconn *conn, Oid oid, PQExpBuffer buf)
+get_create_function_cmd(Oid oid, PQExpBuffer buf)
 {
 	bool		result = true;
 	PQExpBuffer query;
@@ -2980,7 +3007,12 @@ get_create_function_cmd(PGconn *conn, Oid oid, PQExpBuffer buf)
 	query = createPQExpBuffer();
 	printfPQExpBuffer(query, "SELECT pg_catalog.pg_get_functiondef(%u)", oid);
 
-	res = PQexec(conn, query->data);
+	if (!lookup_function_echo_hidden(query->data))
+	{
+		destroyPQExpBuffer(query);
+		return false;
+	}
+	res = PQexec(pset.db, query->data);
 	if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) == 1)
 	{
 		resetPQExpBuffer(buf);
