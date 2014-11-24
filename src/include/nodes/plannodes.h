@@ -18,7 +18,6 @@
 #include "lib/stringinfo.h"
 #include "nodes/bitmapset.h"
 #include "nodes/primnodes.h"
-#include "nodes/relation.h"
 #include "utils/lockwaitpolicy.h"
 
 
@@ -486,32 +485,35 @@ typedef struct ForeignScan
 } ForeignScan;
 
 /* ----------------
- *     CustomScan node
+ *	   CustomScan node
+ *
+ * The comments for ForeignScan's fdw_exprs and fdw_private fields apply
+ * equally to custom_exprs and custom_private.  Note that since Plan trees
+ * can be copied, custom scan providers *must* fit all plan data they need
+ * into those fields; embedding CustomScan in a larger struct will not work.
  * ----------------
  */
-struct CustomScanMethods;
-
-typedef struct CustomScan
-{
-	Scan		scan;
-	uint32		flags;	/* mask of CUSTOMPATH_* flags defined in relation.h */
-	struct CustomScanMethods *methods;
-} CustomScan;
+struct CustomScan;
 
 typedef struct CustomScanMethods
 {
 	const char *CustomName;
-	void	   (*SetCustomScanRef)(struct PlannerInfo *root,
-								   CustomScan *cscan,
-								   int rtoffset);
-	void	   (*FinalizeCustomScan)(struct PlannerInfo *root,
-									 CustomScan *cscan,
-									 bool (*finalize_primnode)(),
-									 void *finalize_context);
-	Node	  *(*CreateCustomScanState)(CustomScan *cscan);
-	void	   (*TextOutCustomScan)(StringInfo str, const CustomScan *node);
-	CustomScan *(*CopyCustomScan)(const CustomScan *from);
+
+	/* Create execution state (CustomScanState) from a CustomScan plan node */
+	Node	   *(*CreateCustomScanState) (struct CustomScan *cscan);
+	/* Optional: print custom_xxx fields in some special way */
+	void		(*TextOutCustomScan) (StringInfo str,
+											  const struct CustomScan *node);
 } CustomScanMethods;
+
+typedef struct CustomScan
+{
+	Scan		scan;
+	uint32		flags;			/* mask of CUSTOMPATH_* flags, see relation.h */
+	List	   *custom_exprs;	/* expressions that custom code may evaluate */
+	List	   *custom_private; /* private data for custom code */
+	const CustomScanMethods *methods;
+} CustomScan;
 
 /*
  * ==========
@@ -867,7 +869,7 @@ typedef struct PlanRowMark
 	Index		prti;			/* range table index of parent relation */
 	Index		rowmarkId;		/* unique identifier for resjunk columns */
 	RowMarkType markType;		/* see enum above */
-	LockWaitPolicy waitPolicy;  /* NOWAIT and SKIP LOCKED options */
+	LockWaitPolicy waitPolicy;	/* NOWAIT and SKIP LOCKED options */
 	bool		isParent;		/* true if this is a "dummy" parent entry */
 } PlanRowMark;
 

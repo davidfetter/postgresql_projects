@@ -32,10 +32,10 @@ const struct config_enum_entry wal_level_options[] = {
 };
 
 void
-xlog_desc(StringInfo buf, XLogRecord *record)
+xlog_desc(StringInfo buf, XLogReaderState *record)
 {
 	char	   *rec = XLogRecGetData(record);
-	uint8		info = record->xl_info & ~XLR_INFO_MASK;
+	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
 
 	if (info == XLOG_CHECKPOINT_SHUTDOWN ||
 		info == XLOG_CHECKPOINT_ONLINE)
@@ -74,13 +74,9 @@ xlog_desc(StringInfo buf, XLogRecord *record)
 
 		appendStringInfo(buf, "%s", xlrec->rp_name);
 	}
-	else if (info == XLOG_FPI)
+	else if (info == XLOG_FPI || info == XLOG_FPI_FOR_HINT)
 	{
-		BkpBlock   *bkp = (BkpBlock *) rec;
-
-		appendStringInfo(buf, "%s block %u",
-						 relpathperm(bkp->node, bkp->fork),
-						 bkp->block);
+		/* no further information to print */
 	}
 	else if (info == XLOG_BACKUP_END)
 	{
@@ -173,6 +169,9 @@ xlog_identify(uint8 info)
 			break;
 		case XLOG_FPI:
 			id = "FPI";
+			break;
+		case XLOG_FPI_FOR_HINT:
+			id = "FPI_FOR_HINT";
 			break;
 	}
 
