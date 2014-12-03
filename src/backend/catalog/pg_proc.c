@@ -88,7 +88,8 @@ ProcedureCreate(const char *procedureName,
 				List *parameterDefaults,
 				Datum proconfig,
 				float4 procost,
-				float4 prorows)
+				float4 prorows,
+				List *preorderClauses)
 {
 	Oid			retval;
 	int			parameterCount;
@@ -360,6 +361,10 @@ ProcedureCreate(const char *procedureName,
 		values[Anum_pg_proc_proargdefaults - 1] = CStringGetTextDatum(nodeToString(parameterDefaults));
 	else
 		nulls[Anum_pg_proc_proargdefaults - 1] = true;
+	if (preorderClauses != NIL)
+		values[Anum_pg_proc_prosortcolumn - 1] = CStringGetTextDatum(nodeToString(preorderClauses));
+	else
+		nulls[Anum_pg_proc_prosortcolumn - 1] = true;
 	values[Anum_pg_proc_prosrc - 1] = CStringGetTextDatum(prosrc);
 	if (probin)
 		values[Anum_pg_proc_probin - 1] = CStringGetTextDatum(probin);

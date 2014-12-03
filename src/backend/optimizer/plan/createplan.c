@@ -67,7 +67,7 @@ static TidScan *create_tidscan_plan(PlannerInfo *root, TidPath *best_path,
 					List *tlist, List *scan_clauses);
 static SubqueryScan *create_subqueryscan_plan(PlannerInfo *root, Path *best_path,
 						 List *tlist, List *scan_clauses);
-static FunctionScan *create_functionscan_plan(PlannerInfo *root, Path *best_path,
+static Plan *create_functionscan_plan(PlannerInfo *root, Path *best_path,
 						 List *tlist, List *scan_clauses);
 static ValuesScan *create_valuesscan_plan(PlannerInfo *root, Path *best_path,
 					   List *tlist, List *scan_clauses);
@@ -152,6 +152,9 @@ static Sort *make_sort(PlannerInfo *root, Plan *lefttree, int numCols,
 		  AttrNumber *sortColIdx, Oid *sortOperators,
 		  Oid *collations, bool *nullsFirst,
 		  double limit_tuples);
+static OrderCheck *make_ordercheck(PlannerInfo *root, Plan *lefttree, int numCols,
+								   AttrNumber *sortColIdx, Oid *sortOperators,
+								   Oid *collations, bool *nullsFirst);
 static Plan *prepare_sort_from_pathkeys(PlannerInfo *root,
 						   Plan *lefttree, List *pathkeys,
 						   Relids relids,
@@ -1697,11 +1700,13 @@ create_subqueryscan_plan(PlannerInfo *root, Path *best_path,
  *	 Returns a functionscan plan for the base relation scanned by 'best_path'
  *	 with restriction clauses 'scan_clauses' and targetlist 'tlist'.
  */
-static FunctionScan *
+static Plan *
 create_functionscan_plan(PlannerInfo *root, Path *best_path,
 						 List *tlist, List *scan_clauses)
 {
+	Plan *result_plan;
 	FunctionScan *scan_plan;
+	OrderCheck   *order_check_plan;
 	Index		scan_relid = best_path->parent->relid;
 	RangeTblEntry *rte;
 	List	   *functions;
@@ -1732,7 +1737,41 @@ create_functionscan_plan(PlannerInfo *root, Path *best_path,
 
 	copy_path_costsize(&scan_plan->scan.plan, best_path);
 
-	return scan_plan;
+	result_plan = (Plan *) (scan_plan);
+
+	/* Check if OrderCheck node needs to be added and add it if it is required. */
+	if (best_path->isordercheck)
+	{
+		int			numsortkeys;
+		AttrNumber *sortColIdx;
+		Oid		   *sortOperators;
+		Oid		   *collations;
+		bool	   *nullsFirst;
+
+		/* Compute sort column info, and adjust lefttree as needed */
+		prepare_sort_from_pathkeys(root, (Plan *) scan_plan, best_path->pathkeys,
+												 NULL,
+												 NULL,
+												 false,
+												 &numsortkeys,
+												 &sortColIdx,
+												 &sortOperators,
+												 &collations,
+								                 &nullsFirst);
+
+		order_check_plan = make_ordercheck(root,
+										   (Plan *) (scan_plan),
+										   numsortkeys,
+										   sortColIdx,
+										   sortOperators,
+										   collations,
+										   nullsFirst);
+
+		result_plan = (Plan *) (order_check_plan);
+
+	}
+
+	return result_plan;
 }
 
 /*
@@ -3768,6 +3807,38 @@ make_sort(PlannerInfo *root, Plan *lefttree, int numCols,
 }
 
 /*
+ * make_ordercheck --- basic routine to build a OrderCheck plan node
+ *
+ * Caller must have built the sortColIdx, sortOperators, collations, and
+ * nullsFirst arrays already.
+ * limit_tuples is as for cost_sort (in particular, pass -1 if no limit)
+ */
+static OrderCheck *
+make_ordercheck(PlannerInfo *root, Plan *lefttree, int numCols,
+				AttrNumber *sortColIdx, Oid *sortOperators,
+				Oid *collations, bool *nullsFirst)
+{
+	OrderCheck *node = makeNode(OrderCheck);
+	Plan	   *plan = &node->plan;
+
+	copy_plan_costsize(plan, lefttree); /* only care about copying size */
+
+	plan->startup_cost = 0;
+	plan->total_cost = 0; /* Todo */
+	plan->targetlist = lefttree->targetlist;
+	plan->qual = NIL;
+	plan->lefttree = lefttree;
+	plan->righttree = NULL;
+	node->numCols = numCols;
+	node->sortColIdx = sortColIdx;
+	node->sortOperators = sortOperators;
+	node->collations = collations;
+	node->nullsFirst = nullsFirst;
+
+	return node;
+}
+
+/*
  * prepare_sort_from_pathkeys
  *	  Prepare to sort according to given pathkeys
  *
@@ -4837,6 +4908,7 @@ is_projection_capable_plan(Plan *plan)
 		case T_Material:
 		case T_Sort:
 		case T_Unique:
+	    case T_OrderCheck:
 		case T_SetOp:
 		case T_LockRows:
 		case T_Limit:

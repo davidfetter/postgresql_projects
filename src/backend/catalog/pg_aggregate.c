@@ -547,7 +547,8 @@ AggregateCreate(const char *aggName,
 							  parameterDefaults,		/* parameterDefaults */
 							  PointerGetDatum(NULL),	/* proconfig */
 							  1,	/* procost */
-							  0);		/* prorows */
+							  0,		/* prorows */
+							  NULL);
 
 	/*
 	 * Okay to create the pg_aggregate entry.

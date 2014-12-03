@@ -20,6 +20,7 @@
 #include "access/sysattr.h"
 #include "catalog/pg_class.h"
 #include "catalog/pg_operator.h"
+#include "catalog/pg_proc.h"
 #include "foreign/fdwapi.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -40,6 +41,8 @@
 #include "parser/parsetree.h"
 #include "rewrite/rewriteManip.h"
 #include "utils/lsyscache.h"
+#include "utils/syscache.h"
+#include "utils/builtins.h"
 
 
 /* results of subquery_is_pushdown_safe */
@@ -1286,6 +1289,17 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 {
 	Relids		required_outer;
 	List	   *pathkeys = NIL;
+	HeapTuple	func_tuple;
+	Datum		prosortcolumn;
+	char	   *str;
+	List	   *preorder_sortclauses;
+	List *dummy_tlist = NULL;
+	ListCell   *lc_funcs;
+	Bitmapset *check_set = NULL;
+	bool      preorder_opt =true;
+	bool      isnull = false;
+	bool isordercheck = false;
+
 
 	/*
 	 * We don't support pushing join clauses into the quals of a function
@@ -1293,6 +1307,89 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	 * refs in the function expression.
 	 */
 	required_outer = rel->lateral_relids;
+
+	/* For SRFs, we consider if there is a preordering present. If we have
+	 * a preordering, we build PathKey and generate a path based on the
+	 * PathKey.
+	 */
+	foreach(lc_funcs, (rte->functions))
+	{
+		List * pkey_func;
+		ListCell *lc_inner;
+		RangeTblFunction *current_top_func = NULL;
+		FuncExpr *current_func = NULL;
+
+		preorder_sortclauses = NULL;
+
+		if (IsA(lfirst(lc_funcs), RangeTblFunction))
+		{
+			current_top_func = (RangeTblFunction *) (lfirst(lc_funcs));
+
+			if (current_top_func->funcexpr && IsA(current_top_func->funcexpr, FuncExpr))
+				current_func = (FuncExpr *) (current_top_func->funcexpr);
+		}
+
+		if (current_func && current_func->funcretset)
+		{
+			func_tuple = SearchSysCache1(PROCOID,
+								   ObjectIdGetDatum(current_func->funcid));
+			if (!HeapTupleIsValid(func_tuple))	/* should not happen */
+				elog(ERROR, "cache lookup failed for function %u",
+					 current_func->funcid);
+
+			prosortcolumn = SysCacheGetAttr(PROCOID, func_tuple,
+											 Anum_pg_proc_prosortcolumn,
+											 &isnull);
+			if (!isnull)
+			{
+				str = TextDatumGetCString(prosortcolumn);
+				preorder_sortclauses = (List *) stringToNode(str);
+				Assert(IsA(preorder_sortclauses, List));
+				pfree(str);
+			}
+
+			ReleaseSysCache(func_tuple);
+
+			if (preorder_sortclauses)
+			{
+				if (!dummy_tlist)
+				{
+					ListCell *lc_tlist;
+
+					foreach(lc_tlist, rel->reltargetlist)
+					{
+						TargetEntry *tle_current = makeNode(TargetEntry);
+
+						tle_current->expr = (Expr *) (lfirst(lc_tlist));
+						tle_current->ressortgroupref =  ((Var *) lfirst(lc_tlist))->varattno;
+
+						check_set = bms_add_member(check_set, (tle_current->ressortgroupref));
+
+						dummy_tlist = lappend(dummy_tlist, tle_current);
+					}
+				}
+
+				foreach(lc_inner, preorder_sortclauses)
+				{
+					SortGroupClause *sortcl = (SortGroupClause *) lfirst(lc_inner);
+
+					if (!(bms_is_member(sortcl->tleSortGroupRef, check_set)))
+						preorder_opt = false;
+				}
+
+				if (preorder_opt)
+				{
+					pkey_func = make_pathkeys_for_sortclauses(root, preorder_sortclauses,
+															  dummy_tlist);
+
+					add_path(rel, create_functionscan_path(root, rel,
+														   pkey_func, required_outer,
+														   true));
+				}
+			}
+		}
+	}
+
 
 	/*
 	 * The result is considered unordered unless ORDINALITY was used, in which
@@ -1304,6 +1401,8 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		AttrNumber	ordattno = rel->max_attr;
 		Var		   *var = NULL;
 		ListCell   *lc;
+
+		isordercheck = false;
 
 		/*
 		 * Is there a Var for it in reltargetlist?	If not, the query did not
@@ -1342,7 +1441,8 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Generate appropriate path */
 	add_path(rel, create_functionscan_path(root, rel,
-										   pathkeys, required_outer));
+										   pathkeys, required_outer,
+										   isordercheck));
 
 	/* Select cheapest path (pretty easy in this case...) */
 	set_cheapest(rel);

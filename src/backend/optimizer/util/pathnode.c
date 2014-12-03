@@ -1482,7 +1482,8 @@ create_subqueryscan_path(PlannerInfo *root, RelOptInfo *rel,
  */
 Path *
 create_functionscan_path(PlannerInfo *root, RelOptInfo *rel,
-						 List *pathkeys, Relids required_outer)
+						 List *pathkeys, Relids required_outer,
+						 bool isordercheck)
 {
 	Path	   *pathnode = makeNode(Path);
 
@@ -1492,7 +1493,10 @@ create_functionscan_path(PlannerInfo *root, RelOptInfo *rel,
 													 required_outer);
 	pathnode->pathkeys = pathkeys;
 
-	cost_functionscan(pathnode, root, rel, pathnode->param_info);
+	pathnode->isordercheck = isordercheck;
+
+	cost_functionscan(pathnode, root, rel, pathnode->param_info, isordercheck);
+
 
 	return pathnode;
 }

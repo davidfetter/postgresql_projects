@@ -1009,7 +1009,8 @@ cost_subqueryscan(Path *path, PlannerInfo *root,
  */
 void
 cost_functionscan(Path *path, PlannerInfo *root,
-				  RelOptInfo *baserel, ParamPathInfo *param_info)
+				  RelOptInfo *baserel, ParamPathInfo *param_info,
+				  bool hasordercheck)
 {
 	Cost		startup_cost = 0;
 	Cost		run_cost = 0;
@@ -1017,6 +1018,8 @@ cost_functionscan(Path *path, PlannerInfo *root,
 	Cost		cpu_per_tuple;
 	RangeTblEntry *rte;
 	QualCost	exprcost;
+	int         numsortkeys;
+
 
 	/* Should only be applied to base relations that are functions */
 	Assert(baserel->relid > 0);
@@ -1028,6 +1031,7 @@ cost_functionscan(Path *path, PlannerInfo *root,
 		path->rows = param_info->ppi_rows;
 	else
 		path->rows = baserel->rows;
+
 
 	/*
 	 * Estimate costs of executing the function expression(s).
@@ -1055,6 +1059,15 @@ cost_functionscan(Path *path, PlannerInfo *root,
 
 	path->startup_cost = startup_cost;
 	path->total_cost = startup_cost + run_cost;
+
+	/* Add OrderCheck node cost */
+	if (hasordercheck)
+	{
+		/* worst case can be number of pathkeys */
+		numsortkeys = list_length(path->pathkeys);
+
+		path->total_cost += cpu_operator_cost * numsortkeys * (path->rows);
+	}
 }
 
 /*

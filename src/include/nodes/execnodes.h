@@ -1675,6 +1675,18 @@ typedef struct SortState
 	void	   *tuplesortstate; /* private state of tuplesort.c */
 } SortState;
 
+/* ----------------
+ *	 OrderCheck information
+ * ----------------
+ */
+typedef struct OrderCheckState
+{
+	PlanState   ps;			/* its first field is NodeTag */
+	ScanState   ss;
+	bool		randomAccess;	/* need random access to sort output? */
+	SortSupport oc_sortkeys;	/* array of length ms_nkeys */
+} OrderCheckState;
+
 /* ---------------------
  *	GroupState information
  * -------------------------

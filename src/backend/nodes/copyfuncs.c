@@ -743,6 +743,27 @@ _copySort(const Sort *from)
 	return newnode;
 }
 
+/*
+ * _copyOrderCheck
+ */
+static OrderCheck *
+_copyOrderCheck(const OrderCheck *from)
+{
+	OrderCheck	   *newnode = makeNode(OrderCheck);
+
+	/*
+	 * copy node superclass fields
+	 */
+	CopyPlanFields((const Plan *) from, (Plan *) newnode);
+
+	COPY_SCALAR_FIELD(numCols);
+	COPY_POINTER_FIELD(sortColIdx, from->numCols * sizeof(AttrNumber));
+	COPY_POINTER_FIELD(sortOperators, from->numCols * sizeof(Oid));
+	COPY_POINTER_FIELD(collations, from->numCols * sizeof(Oid));
+	COPY_POINTER_FIELD(nullsFirst, from->numCols * sizeof(bool));
+
+	return newnode;
+}
 
 /*
  * _copyGroup
@@ -4059,6 +4080,9 @@ copyObject(const void *from)
 			break;
 		case T_Sort:
 			retval = _copySort(from);
+			break;
+		case T_OrderCheck:
+			retval = _copyOrderCheck(from);
 			break;
 		case T_Group:
 			retval = _copyGroup(from);

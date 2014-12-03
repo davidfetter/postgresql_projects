@@ -1571,7 +1571,8 @@ makeRangeConstructors(const char *name, Oid namespace,
 								  NIL,	/* parameterDefaults */
 								  PointerGetDatum(NULL),		/* proconfig */
 								  1.0,	/* procost */
-								  0.0); /* prorows */
+								  0.0, /* prorows */
+								  NIL);
 
 		/*
 		 * Make the constructors internally-dependent on the range type so

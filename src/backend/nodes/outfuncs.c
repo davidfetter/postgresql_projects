@@ -737,6 +737,34 @@ _outSort(StringInfo str, const Sort *node)
 }
 
 static void
+_outOrderCheck(StringInfo str, const OrderCheck *node)
+{
+	int			i;
+
+	WRITE_NODE_TYPE("ORDERCHECK");
+
+	_outPlanInfo(str, (const Plan *) node);
+
+	WRITE_INT_FIELD(numCols);
+
+	appendStringInfoString(str, " :sortColIdx");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %d", node->sortColIdx[i]);
+
+	appendStringInfoString(str, " :sortOperators");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %u", node->sortOperators[i]);
+
+	appendStringInfoString(str, " :collations");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %u", node->collations[i]);
+
+	appendStringInfoString(str, " :nullsFirst");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
+}
+
+static void
 _outUnique(StringInfo str, const Unique *node)
 {
 	int			i;
@@ -1490,6 +1518,7 @@ _outPathInfo(StringInfo str, const Path *node)
 	WRITE_FLOAT_FIELD(startup_cost, "%.2f");
 	WRITE_FLOAT_FIELD(total_cost, "%.2f");
 	WRITE_NODE_FIELD(pathkeys);
+	WRITE_BOOL_FIELD(isordercheck);
 }
 
 /*
@@ -2881,6 +2910,9 @@ _outNode(StringInfo str, const void *obj)
 				break;
 			case T_Sort:
 				_outSort(str, obj);
+				break;
+		    case T_OrderCheck:
+				_outOrderCheck(str, obj);
 				break;
 			case T_Unique:
 				_outUnique(str, obj);

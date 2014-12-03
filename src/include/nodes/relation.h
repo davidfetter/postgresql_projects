@@ -733,6 +733,8 @@ typedef struct Path
 	Cost		total_cost;		/* total cost (assuming all tuples fetched) */
 
 	List	   *pathkeys;		/* sort ordering of path's output */
+
+	bool       isordercheck;    /* if path has OrderCheck node */
 	/* pathkeys is a List of PathKey nodes; see above */
 } Path;
 

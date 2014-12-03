@@ -31,6 +31,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "funcapi.h"
 
 #include "access/genam.h"
 #include "access/heapam.h"
@@ -57,6 +58,7 @@
 #include "parser/parse_expr.h"
 #include "parser/parse_func.h"
 #include "parser/parse_type.h"
+#include "parser/parse_oper.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
@@ -840,7 +842,12 @@ CreateFunction(CreateFunctionStmt *stmt, const char *queryString)
 	float4		prorows;
 	HeapTuple	languageTuple;
 	Form_pg_language languageStruct;
+	Form_pg_attribute ret_att;
 	List	   *as_clause;
+	TupleDesc  tupdesc_type;
+	List       *preorder_sortclause = NIL;
+	List       *types_tupdesc = NIL;
+	ListCell   *lc;
 
 	/* Convert list of names to a name and namespace */
 	namespaceId = QualifiedNameGetCreationNamespace(stmt->funcname,
@@ -987,6 +994,213 @@ CreateFunction(CreateFunctionStmt *stmt, const char *queryString)
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("ROWS is not applicable when function does not return a set")));
 
+	if (stmt->preorderClause)
+	{
+		Oid			sortop;
+		Oid			eqop;
+		bool reverse;
+		bool hashable;
+		int current_location = -1;
+
+		if (!returnsSet)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("ORDER BY is not applicable when function does not return a set")));
+
+		if (stmt->parameters && prorettype == RECORDOID)
+		{
+			tupdesc_type = build_function_result_tupdesc_d(PointerGetDatum(allParameterTypes),
+														   PointerGetDatum(parameterModes),
+														   PointerGetDatum(parameterNames));
+
+
+			if (tupdesc_type)
+				types_tupdesc = lappend(types_tupdesc, tupdesc_type);
+		}
+		else if (prorettype == TYPTYPE_COMPOSITE)
+		{
+			tupdesc_type = TypeGetTupleDesc(prorettype, NULL);
+
+			if (tupdesc_type)
+				types_tupdesc = lappend(types_tupdesc, tupdesc_type);
+		}
+
+		foreach(lc, stmt->preorderClause)
+		{
+			SortGroupClause *sortcl = makeNode(SortGroupClause);
+			SortBy *current_val = (SortBy *) (lfirst(lc));
+			ColumnRef *current_cref;
+			Oid typeid = 0;
+			char *cref_val;
+			ListCell *lc_tupdesc;
+			bool isFound = false;
+
+			if (!(IsA(current_val->node, ColumnRef)))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("ORDER BY in function definition can only have column references")));
+
+			current_cref = (ColumnRef *) (current_val->node);
+			cref_val =  strVal(linitial(current_cref->fields));
+
+			foreach(lc_tupdesc, types_tupdesc)
+			{
+				TupleDesc current_tupdesc = (TupleDesc) (lfirst(lc_tupdesc));
+				int iter_tupdescattrs = 0;
+
+				current_location = -1;
+
+				isFound = true;
+
+				for (iter_tupdescattrs = 0;iter_tupdescattrs < current_tupdesc->natts;iter_tupdescattrs++)
+				{
+					ret_att = current_tupdesc->attrs[iter_tupdescattrs];
+					if (namestrcmp(&(ret_att->attname), cref_val) == 0)
+					{
+						typeid = ret_att->atttypid;
+						current_location = iter_tupdescattrs + 1;
+						break;
+					}
+				}
+
+				if (current_location == -1)
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+							 errmsg("ORDER BY element not present in result type")));
+			}
+
+			if (!isFound)
+			{
+				ListCell *lc_check;
+				bool isPresentInParameters = false;
+
+				/* Not a record type, not a composite type, so we can have only
+				 * one OUT or INOUT parameter by which ORDER BY can be allowed.
+				 * If not present, we check if function name was specified as
+				 * ORDER BY clause element. For that, we take return type of
+				 * function as type ID.
+				 */
+
+				foreach(lc_check, stmt->parameters)
+				{
+					FunctionParameter *current_param = (FunctionParameter *) (lfirst(lc_check));
+
+					if (current_param->mode == FUNC_PARAM_OUT || current_param->mode == FUNC_PARAM_INOUT)
+					{
+						/* Preemptively disallow using function name as ORDER BY element since
+						 * we have OUT or INOUT parameters.
+						 * If we do not find ORDER BY element in given OUT and INOUT parameters,
+						 * raise an error.
+						 */
+						isPresentInParameters = true;
+						if (strcmp(current_param->name, cref_val) == 0)
+						{
+							typeid = prorettype;
+							current_location = 1;
+						}
+					}
+				}
+
+				if (isPresentInParameters && current_location == -1)
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+							 errmsg("ORDER BY element not present in parameters")));
+
+				if (!isPresentInParameters)
+				{
+					if (strcmp(funcname, cref_val))
+					{
+						typeid = prorettype;
+						current_location = 1;
+					}
+					else
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+								 errmsg("ORDER BY element not present in result type")));
+					}
+				}
+			}
+
+			/* determine the sortop, eqop, and directionality */
+			switch (current_val->sortby_dir)
+			{
+			case SORTBY_DEFAULT:
+			case SORTBY_ASC:
+				get_sort_group_operators(typeid,
+										 true, true, false,
+										 &sortop, &eqop, NULL,
+										 &hashable);
+				reverse = false;
+				break;
+			case SORTBY_DESC:
+				get_sort_group_operators(typeid,
+										 false, true, true,
+										 NULL, &eqop, &sortop,
+										 &hashable);
+				reverse = true;
+				break;
+			case SORTBY_USING:
+				Assert(current_val->useOp != NIL);
+				sortop = compatible_oper_opid(current_val->useOp,
+											  typeid,
+											  typeid,
+											  false);
+
+				/*
+				 * Verify it's a valid ordering operator, fetch the corresponding
+				 * equality operator, and determine whether to consider it like
+				 * ASC or DESC.
+				 */
+				eqop = get_equality_op_for_ordering_op(sortop, &reverse);
+				if (!OidIsValid(eqop))
+					ereport(ERROR,
+							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+							 errmsg("operator %s is not a valid ordering operator",
+									strVal(llast(current_val->useOp))),
+							 errhint("Ordering operators must be \"<\" or \">\" members of btree operator families.")));
+
+				/*
+				 * Also see if the equality operator is hashable.
+				 */
+				hashable = op_hashjoinable(eqop, typeid);
+				break;
+			default:
+				elog(ERROR, "unrecognized sortby_dir: %d", current_val->sortby_dir);
+				sortop = InvalidOid;	/* keep compiler quiet */
+				eqop = InvalidOid;
+				hashable = false;
+				reverse = false;
+				break;
+			}
+
+			sortcl->tleSortGroupRef = current_location;
+
+			sortcl->eqop = eqop;
+			sortcl->sortop = sortop;
+			sortcl->hashable = hashable;
+
+			switch (current_val->sortby_nulls)
+			{
+			case SORTBY_NULLS_DEFAULT:
+				/* NULLS FIRST is default for DESC; other way for ASC */
+				sortcl->nulls_first = reverse;
+				break;
+			case SORTBY_NULLS_FIRST:
+				sortcl->nulls_first = true;
+				break;
+			case SORTBY_NULLS_LAST:
+				sortcl->nulls_first = false;
+				break;
+			default:
+				elog(ERROR, "unrecognized sortby_nulls: %d",
+					 current_val->sortby_nulls);
+				break;
+			}
+			preorder_sortclause = lappend(preorder_sortclause, sortcl);
+		}
+	}
+
 	/*
 	 * And now that we have all the parameters, and know we're permitted to do
 	 * so, go ahead and create the function.
@@ -1014,7 +1228,8 @@ CreateFunction(CreateFunctionStmt *stmt, const char *queryString)
 						   parameterDefaults,
 						   PointerGetDatum(proconfig),
 						   procost,
-						   prorows);
+						   prorows,
+		                   preorder_sortclause);
 }
 
 /*

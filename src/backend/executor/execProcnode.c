@@ -99,6 +99,7 @@
 #include "executor/nodeMergejoin.h"
 #include "executor/nodeModifyTable.h"
 #include "executor/nodeNestloop.h"
+#include "executor/nodeOrderCheck.h"
 #include "executor/nodeRecursiveunion.h"
 #include "executor/nodeResult.h"
 #include "executor/nodeSeqscan.h"
@@ -295,6 +296,11 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 												  estate, eflags);
 			break;
 
+	    case T_OrderCheck:
+			result = (PlanState *) ExecInitOrderCheck((OrderCheck *) node,
+													  estate, eflags);
+			break;
+
 		case T_Hash:
 			result = (PlanState *) ExecInitHash((Hash *) node,
 												estate, eflags);
@@ -482,6 +488,10 @@ ExecProcNode(PlanState *node)
 
 		case T_UniqueState:
 			result = ExecUnique((UniqueState *) node);
+			break;
+
+	    case T_OrderCheckState:
+			result = ExecOrderCheck((OrderCheckState *) node);
 			break;
 
 		case T_HashState:
@@ -718,6 +728,10 @@ ExecEndNode(PlanState *node)
 
 		case T_UniqueState:
 			ExecEndUnique((UniqueState *) node);
+			break;
+
+	    case T_OrderCheckState:
+			ExecEndOrderCheck((OrderCheckState *) node);
 			break;
 
 		case T_HashState:

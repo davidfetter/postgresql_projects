@@ -592,6 +592,22 @@ typedef struct Sort
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
 } Sort;
 
+/* --------------------
+ *		ordercheck node -
+ *        Used for checking result ordering of child node.
+ *        Currently only used for ordered FunctionScan paths.
+ * --------------------
+ */
+typedef struct OrderCheck
+{
+	Plan		plan;
+	int			numCols;		/* number of ordering columns */
+	AttrNumber *sortColIdx;		/* their indexes in the target list */
+	Oid		   *sortOperators;	/* OIDs of operators to apply for checking order */
+	Oid		   *collations;		/* OIDs of collations */
+	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+} OrderCheck;
+
 /* ---------------
  *	 group node -
  *		Used for queries with GROUP BY (but no aggregates) specified.
