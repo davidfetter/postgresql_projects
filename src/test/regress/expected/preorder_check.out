@@ -1,0 +1,196 @@
+CREATE TABLE preorder_test(a int,b int);
+CREATE TABLE preorder_test2(i int, u int);
+INSERT INTO preorder_test2 VALUES(100,105);
+INSERT INTO preorder_test2 VALUES(95,110);
+INSERT INTO preorder_test2 VALUES(57,112);
+INSERT INTO preorder_test2 VALUES(95,110);
+INSERT INTO preorder_test VALUES(5,6);
+INSERT INTO preorder_test VALUES(17,22);
+INSERT INTO preorder_test VALUES(17,11);
+INSERT INTO preorder_test VALUES(4,1);
+CREATE OR REPLACE FUNCTION correct_order_singlecol(OUT e int, OUT f int) returns setof record as ' SELECT a,b FROM preorder_test ORDER BY a; ' language 'sql' ORDER BY e;
+CREATE OR REPLACE FUNCTION incorrect_order_singlecol(OUT e int, OUT f int) returns setof record as ' SELECT a,b FROM preorder_test; ' language 'sql' ORDER BY e;
+CREATE OR REPLACE FUNCTION correct_order_multicol(OUT e int, OUT f int) returns setof record as ' SELECT a,b FROM preorder_test ORDER BY a,b; ' language 'sql' ORDER BY e,f;
+CREATE OR REPLACE FUNCTION multiple_tables_correct(OUT e int, OUT f int, OUT g int, OUT h int) returns setof record as ' SELECT * FROM preorder_test,preorder_test2 ORDER BY a,b,i; ' language 'sql' ORDER BY e,f,g;
+SELECT * FROM correct_order_singlecol();
+ e  | f  
+----+----
+  4 |  1
+  5 |  6
+ 17 | 22
+ 17 | 11
+(4 rows)
+
+SELECT * FROM correct_order_singlecol() ORDER BY e;
+ e  | f  
+----+----
+  4 |  1
+  5 |  6
+ 17 | 22
+ 17 | 11
+(4 rows)
+
+SELECT * FROM correct_order_singlecol() ORDER BY e,f;
+ e  | f  
+----+----
+  4 |  1
+  5 |  6
+ 17 | 11
+ 17 | 22
+(4 rows)
+
+SELECT * FROM correct_order_singlecol() ORDER BY f;
+ e  | f  
+----+----
+  4 |  1
+  5 |  6
+ 17 | 11
+ 17 | 22
+(4 rows)
+
+SELECT * FROM incorrect_order_singlecol() ORDER BY e;
+ERROR:  Order not same as specified
+SELECT * FROM incorrect_order_singlecol() ORDER BY f;
+ e  | f  
+----+----
+  4 |  1
+  5 |  6
+ 17 | 11
+ 17 | 22
+(4 rows)
+
+SELECT * FROM incorrect_order_singlecol() ORDER BY e,f;
+ e  | f  
+----+----
+  4 |  1
+  5 |  6
+ 17 | 11
+ 17 | 22
+(4 rows)
+
+SELECT * FROM correct_order_multicol() ORDER BY e,f;
+ e  | f  
+----+----
+  4 |  1
+  5 |  6
+ 17 | 11
+ 17 | 22
+(4 rows)
+
+SELECT * FROM correct_order_multicol() ORDER BY e;
+ e  | f  
+----+----
+  4 |  1
+  5 |  6
+ 17 | 11
+ 17 | 22
+(4 rows)
+
+SELECT * FROM correct_order_multicol() ORDER BY f;
+ e  | f  
+----+----
+  4 |  1
+  5 |  6
+ 17 | 11
+ 17 | 22
+(4 rows)
+
+EXPLAIN (COSTS OFF)SELECT * FROM incorrect_order_singlecol();
+                 QUERY PLAN                 
+--------------------------------------------
+ Function Scan on incorrect_order_singlecol
+(1 row)
+
+EXPLAIN (COSTS OFF) SELECT * FROM correct_order_singlecol() ORDER BY e;
+                   QUERY PLAN                   
+------------------------------------------------
+ OrderCheck
+   ->  Function Scan on correct_order_singlecol
+(2 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM correct_order_singlecol() ORDER BY e,f;
+                   QUERY PLAN                   
+------------------------------------------------
+ Sort
+   Sort Key: e, f
+   ->  Function Scan on correct_order_singlecol
+(3 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM correct_order_singlecol() ORDER BY f;
+                   QUERY PLAN                   
+------------------------------------------------
+ Sort
+   Sort Key: f
+   ->  Function Scan on correct_order_singlecol
+(3 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM incorrect_order_singlecol() ORDER BY e,f;
+                    QUERY PLAN                    
+--------------------------------------------------
+ Sort
+   Sort Key: e, f
+   ->  Function Scan on incorrect_order_singlecol
+(3 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM incorrect_order_singlecol() ORDER BY f;
+                    QUERY PLAN                    
+--------------------------------------------------
+ Sort
+   Sort Key: f
+   ->  Function Scan on incorrect_order_singlecol
+(3 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM correct_order_multicol() ORDER BY e,f;
+                  QUERY PLAN                   
+-----------------------------------------------
+ OrderCheck
+   ->  Function Scan on correct_order_multicol
+(2 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM correct_order_multicol() ORDER BY e;
+                  QUERY PLAN                   
+-----------------------------------------------
+ OrderCheck
+   ->  Function Scan on correct_order_multicol
+(2 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM correct_order_singlecol() WHERE e=5 ORDER BY f;
+                      QUERY PLAN                      
+------------------------------------------------------
+ Sort
+   Sort Key: f
+   ->  OrderCheck
+         ->  Function Scan on correct_order_singlecol
+               Filter: (e = 5)
+(5 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM correct_order_singlecol() WHERE e=17 ORDER BY f;
+                      QUERY PLAN                      
+------------------------------------------------------
+ Sort
+   Sort Key: f
+   ->  OrderCheck
+         ->  Function Scan on correct_order_singlecol
+               Filter: (e = 17)
+(5 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM multiple_tables_correct() ORDER BY e;
+                   QUERY PLAN                   
+------------------------------------------------
+ OrderCheck
+   ->  Function Scan on multiple_tables_correct
+(2 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM multiple_tables_correct() ORDER BY e,f;
+                   QUERY PLAN                   
+------------------------------------------------
+ OrderCheck
+   ->  Function Scan on multiple_tables_correct
+(2 rows)
+
+DROP FUNCTION correct_order_singlecol();
+DROP FUNCTION incorrect_order_singlecol();
+DROP FUNCTION correct_order_multicol();
+DROP FUNCTION multiple_tables_correct();
+DROP TABLE preorder_test;
+DROP TABLE preorder_test2;
