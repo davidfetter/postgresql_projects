@@ -1382,9 +1382,10 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 					pkey_func = make_pathkeys_for_sortclauses(root, preorder_sortclauses,
 															  dummy_tlist);
 
-					add_path(rel, create_functionscan_path(root, rel,
-														   pkey_func, required_outer,
-														   true));
+					if (pkey_func)
+						add_path(rel, create_functionscan_path(root, rel,
+															   pkey_func, required_outer,
+															   true));
 				}
 			}
 		}
@@ -1442,7 +1443,7 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	/* Generate appropriate path */
 	add_path(rel, create_functionscan_path(root, rel,
 										   pathkeys, required_outer,
-										   isordercheck));
+										   false));
 
 	/* Select cheapest path (pretty easy in this case...) */
 	set_cheapest(rel);

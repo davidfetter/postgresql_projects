@@ -155,24 +155,22 @@ EXPLAIN (COSTS OFF) SELECT * FROM correct_order_multicol() ORDER BY e;
 (2 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM correct_order_singlecol() WHERE e=5 ORDER BY f;
-                      QUERY PLAN                      
-------------------------------------------------------
+                   QUERY PLAN                   
+------------------------------------------------
  Sort
    Sort Key: f
-   ->  OrderCheck
-         ->  Function Scan on correct_order_singlecol
-               Filter: (e = 5)
-(5 rows)
+   ->  Function Scan on correct_order_singlecol
+         Filter: (e = 5)
+(4 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM correct_order_singlecol() WHERE e=17 ORDER BY f;
-                      QUERY PLAN                      
-------------------------------------------------------
+                   QUERY PLAN                   
+------------------------------------------------
  Sort
    Sort Key: f
-   ->  OrderCheck
-         ->  Function Scan on correct_order_singlecol
-               Filter: (e = 17)
-(5 rows)
+   ->  Function Scan on correct_order_singlecol
+         Filter: (e = 17)
+(4 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM multiple_tables_correct() ORDER BY e;
                    QUERY PLAN                   
@@ -187,6 +185,14 @@ EXPLAIN (COSTS OFF) SELECT * FROM multiple_tables_correct() ORDER BY e,f;
  OrderCheck
    ->  Function Scan on multiple_tables_correct
 (2 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM correct_order_singlecol() WHERE f=110 ORDER BY e;
+                   QUERY PLAN                   
+------------------------------------------------
+ OrderCheck
+   ->  Function Scan on correct_order_singlecol
+         Filter: (f = 110)
+(3 rows)
 
 DROP FUNCTION correct_order_singlecol();
 DROP FUNCTION incorrect_order_singlecol();

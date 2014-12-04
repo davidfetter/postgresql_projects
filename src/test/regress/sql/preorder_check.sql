@@ -48,6 +48,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM correct_order_singlecol() WHERE e=5 ORDER BY f
 EXPLAIN (COSTS OFF) SELECT * FROM correct_order_singlecol() WHERE e=17 ORDER BY f;
 EXPLAIN (COSTS OFF) SELECT * FROM multiple_tables_correct() ORDER BY e;
 EXPLAIN (COSTS OFF) SELECT * FROM multiple_tables_correct() ORDER BY e,f;
+EXPLAIN (COSTS OFF) SELECT * FROM correct_order_singlecol() WHERE f=110 ORDER BY e;
 
 DROP FUNCTION correct_order_singlecol();
 DROP FUNCTION incorrect_order_singlecol();

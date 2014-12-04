@@ -3824,7 +3824,7 @@ make_ordercheck(PlannerInfo *root, Plan *lefttree, int numCols,
 	copy_plan_costsize(plan, lefttree); /* only care about copying size */
 
 	plan->startup_cost = 0;
-	plan->total_cost = 0; /* Todo */
+	plan->total_cost += cpu_operator_cost * numCols * plan->plan_rows;
 	plan->targetlist = lefttree->targetlist;
 	plan->qual = NIL;
 	plan->lefttree = lefttree;
