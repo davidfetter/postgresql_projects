@@ -35,6 +35,7 @@ CREATE [ OR REPLACE ] FUNCTION
     | AS '<replaceable class="parameter">definition</replaceable>'
     | AS '<replaceable class="parameter">obj_file</replaceable>', '<replaceable class="parameter">link_symbol</replaceable>'
   } ...
+    [ ORDER BY ( <replaceable class="parameter">attribute</replaceable> [, ...] ) ]
     [ WITH ( <replaceable class="parameter">attribute</replaceable> [, ...] ) ]
 </synopsis>
  </refsynopsisdiv>
@@ -87,6 +88,27 @@ CREATE [ OR REPLACE ] FUNCTION
    definition without breaking objects that refer to the function.
    Also, <command>ALTER FUNCTION</> can be used to change most of the
    auxiliary properties of an existing function.
+  </para>
+
+   <para>
+   <command> With <command> ORDER BY </command> specified, planner shall use the
+    order specified and avoid unnecessary sorts wherever required. If no OUT or INOUT parameters
+    are specified and the function returns only one column (which shall be implicitly named the
+    same as function name), you can specify function name in ORDER BY clause.
+    <command> CREATE FUNCTION func() RETURNS setof... ORDER BY func; </command>
+    Please note that ORDER BY specification is only valid for Set Returning Functions.
+    If ORDER BY is specified with wrong order i.e if rows are not returned by source query
+    in the order specified by ORDER BY clause, calling the function with ORDER BY clause will
+    raise an error.
+    <command> CREATE OR REPLACE FUNCTION testfunc(OUT e int) returns setof int as ' SELECT * FROM generate_series(1,10)
+     ORDER BY generate_series; ' language 'sql' ORDER BY e DESC;
+
+     SELECT * FROM testfunc() ORDER BY e DESC;
+     ERROR:  Order not same as specified
+     STATEMENT:  SELECT * FROM testfunc() ORDER BY e DESC;
+     ERROR:  Order not same as specified
+     </command>
+
   </para>
 
   <para>

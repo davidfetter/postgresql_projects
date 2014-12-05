@@ -24,6 +24,8 @@ CREATE OR REPLACE FUNCTION correct_order_multicol(OUT e int, OUT f int) returns 
 CREATE OR REPLACE FUNCTION multiple_tables_correct(OUT e int, OUT f int, OUT g int, OUT h int) returns setof record as ' SELECT * FROM preorder_test,preorder_test2 ORDER BY a,b,i; ' language 'sql' ORDER BY e,f,g;
 CREATE OR REPLACE FUNCTION correct_order_nulls(OUT e int, OUT f int) returns setof record as ' SELECT i,u FROM preorder_test2 ORDER BY i,u NULLS FIRST; ' language 'sql' ORDER BY e,f NULLS FIRST;
 CREATE OR REPLACE FUNCTION incorrect_order_nulls(OUT e int, OUT f int) returns setof record as ' SELECT i,u FROM preorder_test2 ORDER BY i,u NULLS LAST; ' language 'sql' ORDER BY e,f NULLS FIRST;
+CREATE OR REPLACE FUNCTION correct_order_desc(OUT e int, OUT f int) returns setof record as ' SELECT i,u FROM preorder_test2 ORDER BY i,u DESC; ' language 'sql' ORDER BY e,f DESC;
+CREATE OR REPLACE FUNCTION incorrect_order_desc(OUT e int, OUT f int) returns setof record as ' SELECT i,u FROM preorder_test2 ORDER BY i,u DESC; ' language 'sql' ORDER BY e,f ASC;
 
 SELECT * FROM correct_order_singlecol();
 
@@ -42,6 +44,7 @@ SELECT * FROM correct_order_nulls() ORDER BY e NULLS FIRST;
 SELECT * FROM correct_order_nulls() ORDER BY e NULLS LAST;
 SELECT * FROM incorrect_order_nulls() ORDER BY e NULLS FIRST;
 SELECT * FROM incorrect_order_nulls() ORDER BY e NULLS LAST;
+SELECT * FROM incorrect_order_desc() ORDER BY e,f ASC;
 
 EXPLAIN (COSTS OFF)SELECT * FROM incorrect_order_singlecol();
 EXPLAIN (COSTS OFF) SELECT * FROM correct_order_singlecol() ORDER BY e;
@@ -62,11 +65,17 @@ EXPLAIN (COSTS OFF) SELECT * FROM correct_order_nulls() ORDER BY e,f NULLS FIRST
 EXPLAIN (COSTS OFF) SELECT * FROM correct_order_nulls() ORDER BY e,f NULLS LAST;
 EXPLAIN (COSTS OFF) SELECT * FROM incorrect_order_nulls() ORDER BY e NULLS FIRST;
 EXPLAIN (COSTS OFF) SELECT * FROM incorrect_order_nulls() ORDER BY e NULLS LAST;
+EXPLAIN (COSTS OFF) SELECT * FROM correct_order_desc() ORDER BY e,f DESC;
+EXPLAIN (COSTS OFF) SELECT * FROM correct_order_desc() ORDER BY e,f ASC;
+EXPLAIN (COSTS OFF) SELECT * FROM incorrect_order_desc() ORDER BY e,f DESC;
 
 DROP FUNCTION correct_order_singlecol();
 DROP FUNCTION incorrect_order_singlecol();
 DROP FUNCTION correct_order_multicol();
 DROP FUNCTION multiple_tables_correct();
-
+DROP FUNCTION correct_order_nulls();
+DROP FUNCTION incorrect_order_nulls();
+DROP FUNCTION correct_order_desc();
+DROP FUNCTION incorrect_order_desc();
 DROP TABLE preorder_test;
 DROP TABLE preorder_test2;
