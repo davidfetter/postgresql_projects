@@ -95,6 +95,10 @@ test: update
 test: delete
 test: namespace
 test: prepared_xacts
+test: brin
+test: gin
+test: gist
+test: spgist
 test: privileges
 test: security_label
 test: collate

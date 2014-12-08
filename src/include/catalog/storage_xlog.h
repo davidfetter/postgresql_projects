@@ -14,7 +14,8 @@
 #ifndef STORAGE_XLOG_H
 #define STORAGE_XLOG_H
 
-#include "access/xlog.h"
+#include "access/xlogreader.h"
+#include "lib/stringinfo.h"
 #include "storage/block.h"
 #include "storage/relfilenode.h"
 
@@ -43,8 +44,8 @@ typedef struct xl_smgr_truncate
 
 extern void log_smgrcreate(RelFileNode *rnode, ForkNumber forkNum);
 
-extern void smgr_redo(XLogRecPtr lsn, XLogRecord *record);
-extern void smgr_desc(StringInfo buf, XLogRecord *record);
+extern void smgr_redo(XLogReaderState *record);
+extern void smgr_desc(StringInfo buf, XLogReaderState *record);
 extern const char *smgr_identify(uint8 info);
 
 #endif   /* STORAGE_XLOG_H */

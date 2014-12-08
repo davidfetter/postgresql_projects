@@ -21,6 +21,7 @@
 #include "access/relscan.h"
 #include "access/sysattr.h"
 #include "access/xact.h"
+#include "access/xlog.h"
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/heap.h"
@@ -36,7 +37,6 @@
 #include "catalog/pg_inherits_fn.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_opclass.h"
-#include "catalog/pg_rowsecurity.h"
 #include "catalog/pg_tablespace.h"
 #include "catalog/pg_trigger.h"
 #include "catalog/pg_type.h"
@@ -392,7 +392,6 @@ static void ATExecClusterOn(Relation rel, const char *indexName,
 				LOCKMODE lockmode);
 static void ATExecDropCluster(Relation rel, LOCKMODE lockmode);
 static bool ATPrepChangePersistence(Relation rel, bool toLogged);
-static void ATChangeIndexesPersistence(Oid relid, char relpersistence);
 static void ATPrepSetTableSpace(AlteredTableInfo *tab, Relation rel,
 					char *tablespacename, LOCKMODE lockmode);
 static void ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmode);
@@ -1196,7 +1195,8 @@ ExecuteTruncate(TruncateStmt *stmt)
 			 * as the relfilenode value. The old storage file is scheduled for
 			 * deletion at commit.
 			 */
-			RelationSetNewRelfilenode(rel, RecentXmin, minmulti);
+			RelationSetNewRelfilenode(rel, rel->rd_rel->relpersistence,
+									  RecentXmin, minmulti);
 			if (rel->rd_rel->relpersistence == RELPERSISTENCE_UNLOGGED)
 				heap_create_init_fork(rel);
 
@@ -1209,7 +1209,8 @@ ExecuteTruncate(TruncateStmt *stmt)
 			if (OidIsValid(toast_relid))
 			{
 				rel = relation_open(toast_relid, AccessExclusiveLock);
-				RelationSetNewRelfilenode(rel, RecentXmin, minmulti);
+				RelationSetNewRelfilenode(rel, rel->rd_rel->relpersistence,
+										  RecentXmin, minmulti);
 				if (rel->rd_rel->relpersistence == RELPERSISTENCE_UNLOGGED)
 					heap_create_init_fork(rel);
 				heap_close(rel, NoLock);
@@ -3734,16 +3735,6 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 			ATRewriteTable(tab, OIDNewHeap, lockmode);
 
 			/*
-			 * Change the persistence marking of indexes, if necessary.  This
-			 * is so that the new copies are built with the right persistence
-			 * in the reindex step below.  Note we cannot do this earlier,
-			 * because the rewrite step might read the indexes, and that would
-			 * cause buffers for them to have the wrong setting.
-			 */
-			if (tab->chgPersistence)
-				ATChangeIndexesPersistence(tab->relid, tab->newrelpersistence);
-
-			/*
 			 * Swap the physical files of the old and new heaps, then rebuild
 			 * indexes and discard the old heap.  We can use RecentXmin for
 			 * the table's new relfrozenxid because we rewrote all the tuples
@@ -3755,7 +3746,8 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 							 false, false, true,
 							 !OidIsValid(tab->newTableSpace),
 							 RecentXmin,
-							 ReadNextMultiXactId());
+							 ReadNextMultiXactId(),
+							 persistence);
 		}
 		else
 		{
@@ -7993,6 +7985,24 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 								   colName)));
 				break;
 
+			case OCLASS_POLICY:
+
+				/*
+				 * A policy can depend on a column because the column is
+				 * specified in the policy's USING or WITH CHECK qual
+				 * expressions.  It might be possible to rewrite and recheck
+				 * the policy expression, but punt for now.  It's certainly
+				 * easy enough to remove and recreate the policy; still,
+				 * FIXME someday.
+				 */
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot alter type of a column used in a policy definition"),
+						 errdetail("%s depends on column \"%s\"",
+								   getObjectDescription(&foundObject),
+								   colName)));
+				break;
+
 			case OCLASS_DEFAULT:
 
 				/*
@@ -10876,48 +10886,6 @@ ATPrepChangePersistence(Relation rel, bool toLogged)
 	heap_close(pg_constraint, AccessShareLock);
 
 	return true;
-}
-
-/*
- * Update the pg_class entry of each index for the given relation to the
- * given persistence.
- */
-static void
-ATChangeIndexesPersistence(Oid relid, char relpersistence)
-{
-	Relation	rel;
-	Relation	pg_class;
-	List	   *indexes;
-	ListCell   *cell;
-
-	pg_class = heap_open(RelationRelationId, RowExclusiveLock);
-
-	/* We already have a lock on the table */
-	rel = relation_open(relid, NoLock);
-	indexes = RelationGetIndexList(rel);
-	foreach(cell, indexes)
-	{
-		Oid			indexid = lfirst_oid(cell);
-		HeapTuple	tuple;
-		Form_pg_class pg_class_form;
-
-		tuple = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(indexid));
-		if (!HeapTupleIsValid(tuple))
-			elog(ERROR, "cache lookup failed for relation %u",
-				 indexid);
-
-		pg_class_form = (Form_pg_class) GETSTRUCT(tuple);
-		pg_class_form->relpersistence = relpersistence;
-		simple_heap_update(pg_class, &tuple->t_self, tuple);
-
-		/* keep catalog indexes current */
-		CatalogUpdateIndexes(pg_class, tuple);
-
-		heap_freetuple(tuple);
-	}
-
-	heap_close(pg_class, RowExclusiveLock);
-	heap_close(rel, NoLock);
 }
 
 /*

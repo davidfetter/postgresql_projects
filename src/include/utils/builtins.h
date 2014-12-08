@@ -786,6 +786,11 @@ extern Datum textoverlay_no_len(PG_FUNCTION_ARGS);
 extern Datum name_text(PG_FUNCTION_ARGS);
 extern Datum text_name(PG_FUNCTION_ARGS);
 extern int	varstr_cmp(char *arg1, int len1, char *arg2, int len2, Oid collid);
+extern int	varstr_levenshtein(const char *source, int slen, const char *target,
+				   int tlen, int ins_c, int del_c, int sub_c);
+extern int	varstr_levenshtein_less_equal(const char *source, int slen,
+							  const char *target, int tlen, int ins_c,
+							  int del_c, int sub_c, int max_d);
 extern List *textToQualifiedNameList(text *textval);
 extern bool SplitIdentifierString(char *rawstring, char separator,
 					  List **namelist);
@@ -1029,6 +1034,8 @@ extern Datum int8_avg(PG_FUNCTION_ARGS);
 extern Datum int2int4_sum(PG_FUNCTION_ARGS);
 extern Datum width_bucket_numeric(PG_FUNCTION_ARGS);
 extern Datum hash_numeric(PG_FUNCTION_ARGS);
+extern Datum generate_series_numeric(PG_FUNCTION_ARGS);
+extern Datum generate_series_step_numeric(PG_FUNCTION_ARGS);
 
 /* ri_triggers.c */
 extern Datum RI_FKey_check_ins(PG_FUNCTION_ARGS);
@@ -1179,6 +1186,10 @@ extern Datum pg_prepared_xact(PG_FUNCTION_ARGS);
 
 /* access/transam/multixact.c */
 extern Datum pg_get_multixact_members(PG_FUNCTION_ARGS);
+
+/* access/transam/committs.c */
+extern Datum pg_xact_commit_timestamp(PG_FUNCTION_ARGS);
+extern Datum pg_last_committed_xact(PG_FUNCTION_ARGS);
 
 /* catalogs/dependency.c */
 extern Datum pg_describe_object(PG_FUNCTION_ARGS);

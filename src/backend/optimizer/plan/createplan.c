@@ -20,6 +20,7 @@
 #include <math.h>
 
 #include "access/skey.h"
+#include "access/sysattr.h"
 #include "catalog/pg_class.h"
 #include "foreign/fdwapi.h"
 #include "miscadmin.h"
@@ -77,6 +78,9 @@ static WorkTableScan *create_worktablescan_plan(PlannerInfo *root, Path *best_pa
 						  List *tlist, List *scan_clauses);
 static ForeignScan *create_foreignscan_plan(PlannerInfo *root, ForeignPath *best_path,
 						List *tlist, List *scan_clauses);
+static CustomScan *create_customscan_plan(PlannerInfo *root,
+					   CustomPath *best_path,
+					   List *tlist, List *scan_clauses);
 static NestLoop *create_nestloop_plan(PlannerInfo *root, NestPath *best_path,
 					 Plan *outer_plan, Plan *inner_plan);
 static MergeJoin *create_mergejoin_plan(PlannerInfo *root, MergePath *best_path,
@@ -236,6 +240,7 @@ create_plan_recurse(PlannerInfo *root, Path *best_path)
 		case T_CteScan:
 		case T_WorkTableScan:
 		case T_ForeignScan:
+		case T_CustomScan:
 			plan = create_scan_plan(root, best_path);
 			break;
 		case T_HashJoin:
@@ -412,6 +417,13 @@ create_scan_plan(PlannerInfo *root, Path *best_path)
 													scan_clauses);
 			break;
 
+		case T_CustomScan:
+			plan = (Plan *) create_customscan_plan(root,
+												   (CustomPath *) best_path,
+												   tlist,
+												   scan_clauses);
+			break;
+
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) best_path->pathtype);
@@ -546,6 +558,7 @@ disuse_physical_tlist(PlannerInfo *root, Plan *plan, Path *path)
 		case T_CteScan:
 		case T_WorkTableScan:
 		case T_ForeignScan:
+		case T_CustomScan:
 			plan->targetlist = build_path_tlist(root, path);
 			break;
 		default:
@@ -1984,6 +1997,8 @@ create_foreignscan_plan(PlannerInfo *root, ForeignPath *best_path,
 	RelOptInfo *rel = best_path->path.parent;
 	Index		scan_relid = rel->relid;
 	RangeTblEntry *rte;
+	Bitmapset  *attrs_used = NULL;
+	ListCell   *lc;
 	int			i;
 
 	/* it should be a base rel... */
@@ -2031,18 +2046,94 @@ create_foreignscan_plan(PlannerInfo *root, ForeignPath *best_path,
 	 * Detect whether any system columns are requested from rel.  This is a
 	 * bit of a kluge and might go away someday, so we intentionally leave it
 	 * out of the API presented to FDWs.
+	 *
+	 * First, examine all the attributes needed for joins or final output.
+	 * Note: we must look at reltargetlist, not the attr_needed data, because
+	 * attr_needed isn't computed for inheritance child rels.
 	 */
-	scan_plan->fsSystemCol = false;
-	for (i = rel->min_attr; i < 0; i++)
+	pull_varattnos((Node *) rel->reltargetlist, rel->relid, &attrs_used);
+
+	/* Add all the attributes used by restriction clauses. */
+	foreach(lc, rel->baserestrictinfo)
 	{
-		if (!bms_is_empty(rel->attr_needed[i - rel->min_attr]))
+		RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
+
+		pull_varattnos((Node *) rinfo->clause, rel->relid, &attrs_used);
+	}
+
+	/* Now, are any system columns requested from rel? */
+	scan_plan->fsSystemCol = false;
+	for (i = FirstLowInvalidHeapAttributeNumber + 1; i < 0; i++)
+	{
+		if (bms_is_member(i - FirstLowInvalidHeapAttributeNumber, attrs_used))
 		{
 			scan_plan->fsSystemCol = true;
 			break;
 		}
 	}
 
+	bms_free(attrs_used);
+
 	return scan_plan;
+}
+
+/*
+ * create_custom_plan
+ *
+ * Transform a CustomPath into a Plan.
+ */
+static CustomScan *
+create_customscan_plan(PlannerInfo *root, CustomPath *best_path,
+					   List *tlist, List *scan_clauses)
+{
+	CustomScan *cplan;
+	RelOptInfo *rel = best_path->path.parent;
+
+	/*
+	 * Right now, all we can support is CustomScan node which is associated
+	 * with a particular base relation to be scanned.
+	 */
+	Assert(rel && rel->reloptkind == RELOPT_BASEREL);
+
+	/*
+	 * Sort clauses into the best execution order, although custom-scan
+	 * provider can reorder them again.
+	 */
+	scan_clauses = order_qual_clauses(root, scan_clauses);
+
+	/*
+	 * Invoke custom plan provider to create the Plan node represented by the
+	 * CustomPath.
+	 */
+	cplan = (CustomScan *) best_path->methods->PlanCustomPath(root,
+															  rel,
+															  best_path,
+															  tlist,
+															  scan_clauses);
+	Assert(IsA(cplan, CustomScan));
+
+	/*
+	 * Copy cost data from Path to Plan; no need to make custom-plan providers
+	 * do this
+	 */
+	copy_path_costsize(&cplan->scan.plan, &best_path->path);
+
+	/*
+	 * Replace any outer-relation variables with nestloop params in the qual
+	 * and custom_exprs expressions.  We do this last so that the custom-plan
+	 * provider doesn't have to be involved.  (Note that parts of custom_exprs
+	 * could have come from join clauses, so doing this beforehand on the
+	 * scan_clauses wouldn't work.)
+	 */
+	if (best_path->path.param_info)
+	{
+		cplan->scan.plan.qual = (List *)
+			replace_nestloop_params(root, (Node *) cplan->scan.plan.qual);
+		cplan->custom_exprs = (List *)
+			replace_nestloop_params(root, (Node *) cplan->custom_exprs);
+	}
+
+	return cplan;
 }
 
 

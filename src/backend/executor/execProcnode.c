@@ -85,6 +85,7 @@
 #include "executor/nodeBitmapIndexscan.h"
 #include "executor/nodeBitmapOr.h"
 #include "executor/nodeCtescan.h"
+#include "executor/nodeCustom.h"
 #include "executor/nodeForeignscan.h"
 #include "executor/nodeFunctionscan.h"
 #include "executor/nodeGroup.h"
@@ -243,6 +244,11 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 		case T_ForeignScan:
 			result = (PlanState *) ExecInitForeignScan((ForeignScan *) node,
 													   estate, eflags);
+			break;
+
+		case T_CustomScan:
+			result = (PlanState *) ExecInitCustomScan((CustomScan *) node,
+													  estate, eflags);
 			break;
 
 			/*
@@ -446,6 +452,10 @@ ExecProcNode(PlanState *node)
 
 		case T_ForeignScanState:
 			result = ExecForeignScan((ForeignScanState *) node);
+			break;
+
+		case T_CustomScanState:
+			result = ExecCustomScan((CustomScanState *) node);
 			break;
 
 			/*
@@ -686,6 +696,10 @@ ExecEndNode(PlanState *node)
 
 		case T_ForeignScanState:
 			ExecEndForeignScan((ForeignScanState *) node);
+			break;
+
+		case T_CustomScanState:
+			ExecEndCustomScan((CustomScanState *) node);
 			break;
 
 			/*

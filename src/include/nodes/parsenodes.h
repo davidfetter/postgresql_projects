@@ -121,7 +121,7 @@ typedef struct Query
 	bool		hasRecursive;	/* WITH RECURSIVE was specified */
 	bool		hasModifyingCTE;	/* has INSERT/UPDATE/DELETE in WITH */
 	bool		hasForUpdate;	/* FOR [KEY] UPDATE/SHARE was specified */
-	bool		hasRowSecurity;	/* Row-security policy is applied */
+	bool		hasRowSecurity;	/* row security applied? */
 
 	List	   *cteList;		/* WITH list (of CommonTableExpr's) */
 
@@ -2256,6 +2256,7 @@ typedef struct IndexStmt
 	bool		deferrable;		/* is the constraint DEFERRABLE? */
 	bool		initdeferred;	/* is the constraint INITIALLY DEFERRED? */
 	bool		concurrent;		/* should this be a concurrent index build? */
+	bool		if_not_exists;	/* just do nothing if index already exists? */
 } IndexStmt;
 
 /* ----------------------

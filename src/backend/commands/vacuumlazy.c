@@ -44,6 +44,7 @@
 #include "access/multixact.h"
 #include "access/transam.h"
 #include "access/visibilitymap.h"
+#include "access/xlog.h"
 #include "catalog/catalog.h"
 #include "catalog/storage.h"
 #include "commands/dbcommands.h"
@@ -1753,6 +1754,7 @@ static bool
 heap_page_is_all_visible(Relation rel, Buffer buf, TransactionId *visibility_cutoff_xid)
 {
 	Page		page = BufferGetPage(buf);
+	BlockNumber	blockno = BufferGetBlockNumber(buf);
 	OffsetNumber offnum,
 				maxoff;
 	bool		all_visible = true;
@@ -1777,7 +1779,7 @@ heap_page_is_all_visible(Relation rel, Buffer buf, TransactionId *visibility_cut
 		if (!ItemIdIsUsed(itemid) || ItemIdIsRedirected(itemid))
 			continue;
 
-		ItemPointerSet(&(tuple.t_self), BufferGetBlockNumber(buf), offnum);
+		ItemPointerSet(&(tuple.t_self), blockno, offnum);
 
 		/*
 		 * Dead line pointers can have index pointers pointing to them. So

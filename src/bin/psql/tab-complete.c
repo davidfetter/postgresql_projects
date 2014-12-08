@@ -1172,7 +1172,7 @@ psql_completion(const char *text, int start, int end)
 			 pg_strcasecmp(prev_wd, "(") == 0)
 	{
 		static const char *const list_INDEXOPTIONS[] =
-		{"fillfactor", "fastupdate", NULL};
+		{"fillfactor", "fastupdate", "gin_pending_list_limit", NULL};
 
 		COMPLETE_WITH_LIST(list_INDEXOPTIONS);
 	}
@@ -1605,7 +1605,7 @@ psql_completion(const char *text, int start, int end)
 	else if (pg_strcasecmp(prev4_wd, "ALTER") == 0 &&
 			 pg_strcasecmp(prev3_wd, "TABLE") == 0 &&
 			 pg_strcasecmp(prev_wd, "ALTER") == 0)
-		COMPLETE_WITH_ATTR(prev2_wd, " UNION SELECT 'COLUMN'");
+		COMPLETE_WITH_ATTR(prev2_wd, " UNION SELECT 'COLUMN' UNION SELECT 'CONSTRAINT'");
 
 	/* ALTER TABLE xxx RENAME */
 	else if (pg_strcasecmp(prev4_wd, "ALTER") == 0 &&
@@ -1655,12 +1655,13 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH_ATTR(prev3_wd, "");
 
 	/*
-	 * If we have ALTER TABLE <sth> DROP|RENAME|VALIDATE CONSTRAINT, provide
-	 * list of constraints
+	 * If we have ALTER TABLE <sth> ALTER|DROP|RENAME|VALIDATE CONSTRAINT,
+	 * provide list of constraints
 	 */
 	else if (pg_strcasecmp(prev5_wd, "ALTER") == 0 &&
 			 pg_strcasecmp(prev4_wd, "TABLE") == 0 &&
-			 (pg_strcasecmp(prev2_wd, "DROP") == 0 ||
+			 (pg_strcasecmp(prev2_wd, "ALTER") == 0 ||
+			  pg_strcasecmp(prev2_wd, "DROP") == 0 ||
 			  pg_strcasecmp(prev2_wd, "RENAME") == 0 ||
 			  pg_strcasecmp(prev2_wd, "VALIDATE") == 0) &&
 			 pg_strcasecmp(prev_wd, "CONSTRAINT") == 0)
@@ -2069,7 +2070,7 @@ psql_completion(const char *text, int start, int end)
 		static const char *const list_COMMENT[] =
 		{"CAST", "COLLATION", "CONVERSION", "DATABASE", "EVENT TRIGGER", "EXTENSION",
 			"FOREIGN DATA WRAPPER", "FOREIGN TABLE",
-			"SERVER", "INDEX", "LANGUAGE", "RULE", "SCHEMA", "SEQUENCE",
+			"SERVER", "INDEX", "LANGUAGE", "POLICY", "RULE", "SCHEMA", "SEQUENCE",
 			"TABLE", "TYPE", "VIEW", "MATERIALIZED VIEW", "COLUMN", "AGGREGATE", "FUNCTION",
 			"OPERATOR", "TRIGGER", "CONSTRAINT", "DOMAIN", "LARGE OBJECT",
 		"TABLESPACE", "TEXT SEARCH", "ROLE", NULL};
@@ -3704,6 +3705,8 @@ psql_completion(const char *text, int start, int end)
 	}
 	else if (strcmp(prev_wd, "\\connect") == 0 || strcmp(prev_wd, "\\c") == 0)
 		COMPLETE_WITH_QUERY(Query_for_list_of_databases);
+	else if (strcmp(prev2_wd, "\\connect") == 0 || strcmp(prev2_wd, "\\c") == 0)
+		COMPLETE_WITH_QUERY(Query_for_list_of_roles);
 
 	else if (strncmp(prev_wd, "\\da", strlen("\\da")) == 0)
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_aggregates, NULL);
@@ -4329,13 +4332,8 @@ append_variable_names(char ***varnames, int *nvars,
 	if (*nvars >= *maxvars)
 	{
 		*maxvars *= 2;
-		*varnames = (char **) realloc(*varnames,
-									  ((*maxvars) + 1) * sizeof(char *));
-		if (!(*varnames))
-		{
-			psql_error("out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		*varnames = (char **) pg_realloc(*varnames,
+										 ((*maxvars) + 1) * sizeof(char *));
 	}
 
 	(*varnames)[(*nvars)++] = psprintf("%s%s%s", prefix, varname, suffix);

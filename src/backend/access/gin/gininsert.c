@@ -15,6 +15,7 @@
 #include "postgres.h"
 
 #include "access/gin_private.h"
+#include "access/xloginsert.h"
 #include "catalog/index.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"
@@ -346,15 +347,13 @@ ginbuild(PG_FUNCTION_ARGS)
 	if (RelationNeedsWAL(index))
 	{
 		XLogRecPtr	recptr;
-		XLogRecData rdata;
 		Page		page;
 
-		rdata.buffer = InvalidBuffer;
-		rdata.data = (char *) &(index->rd_node);
-		rdata.len = sizeof(RelFileNode);
-		rdata.next = NULL;
+		XLogBeginInsert();
+		XLogRegisterBuffer(0, MetaBuffer, REGBUF_WILL_INIT);
+		XLogRegisterBuffer(1, RootBuffer, REGBUF_WILL_INIT);
 
-		recptr = XLogInsert(RM_GIN_ID, XLOG_GIN_CREATE_INDEX, &rdata);
+		recptr = XLogInsert(RM_GIN_ID, XLOG_GIN_CREATE_INDEX);
 
 		page = BufferGetPage(RootBuffer);
 		PageSetLSN(page, recptr);

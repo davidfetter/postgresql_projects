@@ -598,6 +598,36 @@ _copyForeignScan(const ForeignScan *from)
 }
 
 /*
+ * _copyCustomScan
+ */
+static CustomScan *
+_copyCustomScan(const CustomScan *from)
+{
+	CustomScan *newnode = makeNode(CustomScan);
+
+	/*
+	 * copy node superclass fields
+	 */
+	CopyScanFields((const Scan *) from, (Scan *) newnode);
+
+	/*
+	 * copy remainder of node
+	 */
+	COPY_SCALAR_FIELD(flags);
+	COPY_NODE_FIELD(custom_exprs);
+	COPY_NODE_FIELD(custom_private);
+
+	/*
+	 * NOTE: The method field of CustomScan is required to be a pointer to a
+	 * static table of callback functions.  So we don't copy the table itself,
+	 * just reference the original one.
+	 */
+	COPY_SCALAR_FIELD(methods);
+
+	return newnode;
+}
+
+/*
  * CopyJoinFields
  *
  *		This function copies the fields of the Join node.  It is used by
@@ -2928,6 +2958,7 @@ _copyIndexStmt(const IndexStmt *from)
 	COPY_SCALAR_FIELD(deferrable);
 	COPY_SCALAR_FIELD(initdeferred);
 	COPY_SCALAR_FIELD(concurrent);
+	COPY_SCALAR_FIELD(if_not_exists);
 
 	return newnode;
 }
@@ -4062,6 +4093,9 @@ copyObject(const void *from)
 			break;
 		case T_ForeignScan:
 			retval = _copyForeignScan(from);
+			break;
+		case T_CustomScan:
+			retval = _copyCustomScan(from);
 			break;
 		case T_Join:
 			retval = _copyJoin(from);
