@@ -37,6 +37,7 @@
 #include "executor/nodeMergejoin.h"
 #include "executor/nodeModifyTable.h"
 #include "executor/nodeNestloop.h"
+#include "executor/nodeOrderCheck.h"
 #include "executor/nodeRecursiveunion.h"
 #include "executor/nodeResult.h"
 #include "executor/nodeSeqscan.h"
@@ -237,6 +238,10 @@ ExecReScan(PlanState *node)
 
 		case T_UniqueState:
 			ExecReScanUnique((UniqueState *) node);
+			break;
+
+	    case T_OrderCheckState:
+			ExecReScanOrderCheck((OrderCheckState *) node);
 			break;
 
 		case T_HashState:
