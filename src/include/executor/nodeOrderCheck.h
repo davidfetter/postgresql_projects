@@ -19,5 +19,7 @@
 extern OrderCheckState *ExecInitOrderCheck(OrderCheck *node, EState *estate, int eflags);
 extern TupleTableSlot *ExecOrderCheck(OrderCheckState *node);
 extern void ExecEndOrderCheck(OrderCheckState *node);
+extern void ExecReScanOrderCheck(OrderCheckState *node);
+
 
 #endif   /* NODEORDERCHECK_H */

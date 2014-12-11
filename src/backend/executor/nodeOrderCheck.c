@@ -198,3 +198,18 @@ ExecEndOrderCheck(OrderCheckState *node)
 
 	ExecEndNode(outerPlanState(node));
 }
+
+
+void
+ExecReScanOrderCheck(OrderCheckState *node)
+{
+	/* must clear result tuple so first input tuple is returned */
+	ExecClearTuple(node->ps.ps_ResultTupleSlot);
+
+	/*
+	 * if chgParam of subnode is not null then plan will be re-scanned by
+	 * first ExecProcNode.
+	 */
+	if (node->ps.lefttree->chgParam == NULL)
+		ExecReScan(node->ps.lefttree);
+}
