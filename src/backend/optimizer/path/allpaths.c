@@ -1305,7 +1305,6 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	Bitmapset *check_set = NULL;
 	bool      preorder_opt =true;
 	bool      isnull = false;
-	bool isordercheck = false;
 
 
 	/*
@@ -1359,6 +1358,8 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 			if (preorder_sortclauses)
 			{
+				Path *fs_path;
+
 				if (!dummy_tlist)
 				{
 					ListCell *lc_tlist;
@@ -1390,9 +1391,12 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 															  dummy_tlist);
 
 					if (pkey_func)
-						add_path(rel, create_functionscan_path(root, rel,
-															   pkey_func, required_outer,
-															   true));
+					{
+						fs_path = create_functionscan_path(root, rel,
+														   pkey_func, required_outer);
+
+						add_path(rel, create_ordercheck_path(root, rel, fs_path) );
+					}
 				}
 			}
 		}
@@ -1409,8 +1413,6 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		AttrNumber	ordattno = rel->max_attr;
 		Var		   *var = NULL;
 		ListCell   *lc;
-
-		isordercheck = false;
 
 		/*
 		 * Is there a Var for it in reltargetlist?	If not, the query did not
@@ -1449,8 +1451,7 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Generate appropriate path */
 	add_path(rel, create_functionscan_path(root, rel,
-										   pathkeys, required_outer,
-										   false));
+										   pathkeys, required_outer));
 
 	/* Select cheapest path (pretty easy in this case...) */
 	set_cheapest(rel);

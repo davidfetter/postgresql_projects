@@ -735,7 +735,6 @@ typedef struct Path
 
 	List	   *pathkeys;		/* sort ordering of path's output */
 
-	bool       isordercheck;    /* if path has OrderCheck node */
 	/* pathkeys is a List of PathKey nodes; see above */
 } Path;
 
@@ -1019,6 +1018,19 @@ typedef struct UniquePath
 	List	   *in_operators;	/* equality operators of the IN clause */
 	List	   *uniq_exprs;		/* expressions to be made unique */
 } UniquePath;
+
+/*
+ * OrderCheckPath represents checking of order of result rows given a sort
+ * order.
+ * Currently we have OrderCheck node only on top of FunctionScan paths but this
+ * is not mandatory.
+ *
+ */
+typedef struct OrderCheckPath
+{
+	Path		path;
+	Path	   *subpath;
+} OrderCheckPath;
 
 /*
  * All join-type paths share these fields.

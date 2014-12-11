@@ -1454,6 +1454,42 @@ translate_sub_tlist(List *tlist, int relid)
 }
 
 /*
+ * create_ordercheck_path
+ *	  Creates a path representing checking of order of result rows given
+ * a sort order.
+ *
+ * If used at all, this is likely to be called repeatedly on the same rel;
+ * and the input subpath should always be the same
+ */
+Path*
+create_ordercheck_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath)
+{
+	OrderCheckPath *pathnode;
+	MemoryContext oldcontext;
+
+	/*
+	 * We must ensure path struct and subsidiary data are allocated in main
+	 * planning context; otherwise GEQO memory management causes trouble.
+	 */
+	oldcontext = MemoryContextSwitchTo(root->planner_cxt);
+
+	pathnode = makeNode(OrderCheckPath);
+	pathnode->path.pathtype = T_OrderCheck;
+
+	pathnode->path.rows = rel->rows;
+	pathnode->path.startup_cost = subpath->startup_cost;
+	pathnode->path.total_cost = subpath->total_cost + (cpu_operator_cost * (rel->rows) * list_length(subpath->pathkeys));
+	pathnode->path.pathkeys = subpath->pathkeys;
+
+	pathnode->subpath = subpath;
+
+	MemoryContextSwitchTo(oldcontext);
+
+	return (Path *) pathnode;
+}
+
+
+/*
  * create_subqueryscan_path
  *	  Creates a path corresponding to a sequential scan of a subquery,
  *	  returning the pathnode.
@@ -1482,8 +1518,7 @@ create_subqueryscan_path(PlannerInfo *root, RelOptInfo *rel,
  */
 Path *
 create_functionscan_path(PlannerInfo *root, RelOptInfo *rel,
-						 List *pathkeys, Relids required_outer,
-						 bool isordercheck)
+						 List *pathkeys, Relids required_outer)
 {
 	Path	   *pathnode = makeNode(Path);
 
@@ -1493,9 +1528,8 @@ create_functionscan_path(PlannerInfo *root, RelOptInfo *rel,
 													 required_outer);
 	pathnode->pathkeys = pathkeys;
 
-	pathnode->isordercheck = isordercheck;
 
-	cost_functionscan(pathnode, root, rel, pathnode->param_info, isordercheck);
+	cost_functionscan(pathnode, root, rel, pathnode->param_info);
 
 
 	return pathnode;

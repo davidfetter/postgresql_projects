@@ -55,6 +55,7 @@ static Plan *create_merge_append_plan(PlannerInfo *root, MergeAppendPath *best_p
 static Result *create_result_plan(PlannerInfo *root, ResultPath *best_path);
 static Material *create_material_plan(PlannerInfo *root, MaterialPath *best_path);
 static Plan *create_unique_plan(PlannerInfo *root, UniquePath *best_path);
+static Plan *create_ordercheck_plan(PlannerInfo *root, OrderCheckPath *best_path);
 static SeqScan *create_seqscan_plan(PlannerInfo *root, Path *best_path,
 					List *tlist, List *scan_clauses);
 static Scan *create_indexscan_plan(PlannerInfo *root, IndexPath *best_path,
@@ -269,6 +270,10 @@ create_plan_recurse(PlannerInfo *root, Path *best_path)
 			plan = create_unique_plan(root,
 									  (UniquePath *) best_path);
 			break;
+	   case T_OrderCheck:
+		   plan = create_ordercheck_plan(root,
+										 (OrderCheckPath *) best_path);
+		   break;
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) best_path->pathtype);
@@ -1088,6 +1093,50 @@ create_unique_plan(PlannerInfo *root, UniquePath *best_path)
 	return plan;
 }
 
+/*
+ * create_ordercheck_plan
+ *	  Create an OrderCheck plan for 'best_path' and (recursively) plans
+ *	  for its subpaths.
+ *
+ *	  Returns a Plan node.
+ */
+static Plan *
+create_ordercheck_plan(PlannerInfo *root, OrderCheckPath *best_path)
+{
+	Plan        *plan;
+	Plan	   *subplan;
+	int			numsortkeys;
+	AttrNumber *sortColIdx;
+	Oid		   *sortOperators;
+	Oid		   *collations;
+	bool	   *nullsFirst;
+
+	subplan = create_plan_recurse(root, best_path->subpath);
+
+
+	/* Compute sort column info, and adjust lefttree as needed */
+	prepare_sort_from_pathkeys(root, subplan, best_path->subpath->pathkeys,
+							   NULL,
+							   NULL,
+							   false,
+							   &numsortkeys,
+							   &sortColIdx,
+							   &sortOperators,
+							   &collations,
+							   &nullsFirst);
+
+	plan = (Plan *) make_ordercheck(root,
+						   subplan ,
+						   numsortkeys,
+						   sortColIdx,
+						   sortOperators,
+						   collations,
+						   nullsFirst);
+
+	return plan;
+}
+
+
 
 /*****************************************************************************
  *
@@ -1753,7 +1802,7 @@ create_functionscan_plan(PlannerInfo *root, Path *best_path,
 	result_plan = (Plan *) (scan_plan);
 
 	/* Check if OrderCheck node needs to be added and add it if it is required. */
-	if (best_path->isordercheck)
+	if (best_path->type == T_OrderCheck)
 	{
 		int			numsortkeys;
 		AttrNumber *sortColIdx;

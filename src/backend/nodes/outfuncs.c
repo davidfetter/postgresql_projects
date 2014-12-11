@@ -1532,7 +1532,6 @@ _outPathInfo(StringInfo str, const Path *node)
 	WRITE_FLOAT_FIELD(startup_cost, "%.2f");
 	WRITE_FLOAT_FIELD(total_cost, "%.2f");
 	WRITE_NODE_FIELD(pathkeys);
-	WRITE_BOOL_FIELD(isordercheck);
 }
 
 /*
