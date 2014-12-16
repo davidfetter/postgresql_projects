@@ -1783,6 +1783,25 @@ flatten_grouping_sets(Node *expr, bool toplevel, bool *hasGroupingSets)
 	return expr;
 }
 
+/*
+ * Transform a single expression within a GROUP BY clause or grouping set.
+ *
+ * The expression is added to the targetlist if not already present, and to the
+ * flatresult list (which will become the groupClause) if not already present
+ * there.  The sortClause is consulted for operator and sort order hints.
+ *
+ * Returns the ressortgroupref of the expression.
+ *
+ * flatresult	reference to flat list of SortGroupClause nodes
+ * seen_local	bitmapset of sortgrouprefs already seen at the local level
+ * pstate		ParseState
+ * gexpr		node to transform
+ * targetlist	reference to TargetEntry list
+ * sortClause	ORDER BY clause (SortGroupClause nodes)
+ * exprKind		expression kind
+ * useSQL99		SQL99 rather than SQL92 syntax
+ * toplevel		false if within any grouping set
+ */
 static Index
 transformGroupClauseExpr(List **flatresult, Bitmapset *seen_local,
 						 ParseState *pstate, Node *gexpr,
@@ -1874,7 +1893,23 @@ transformGroupClauseExpr(List **flatresult, Bitmapset *seen_local,
 	return tle->ressortgroupref;
 }
 
-
+/*
+ * Transform a list of expressions within a GROUP BY clause or grouping set.
+ *
+ * The list of expressions belongs to a single clause within which duplicates
+ * can be safely eliminated.
+ *
+ * Returns an integer list of ressortgroupref values.
+ *
+ * flatresult	reference to flat list of SortGroupClause nodes
+ * pstate		ParseState
+ * list			nodes to transform
+ * targetlist	reference to TargetEntry list
+ * sortClause	ORDER BY clause (SortGroupClause nodes)
+ * exprKind		expression kind
+ * useSQL99		SQL99 rather than SQL92 syntax
+ * toplevel		false if within any grouping set
+ */
 static List *
 transformGroupClauseList(List **flatresult,
 						 ParseState *pstate, List *list,
@@ -1908,6 +1943,25 @@ transformGroupClauseList(List **flatresult,
 	return result;
 }
 
+/*
+ * Transform a grouping set and (recursively) its content.
+ *
+ * The grouping set might be a GROUPING SETS node with other grouping sets
+ * inside it, but SETS within SETS have already been flattened out before
+ * reaching here.
+ *
+ * Returns the transformed node, which now contains SIMPLE nodes with lists
+ * of ressortgrouprefs rather than expressions.
+ *
+ * flatresult	reference to flat list of SortGroupClause nodes
+ * pstate		ParseState
+ * gset			grouping set to transform
+ * targetlist	reference to TargetEntry list
+ * sortClause	ORDER BY clause (SortGroupClause nodes)
+ * exprKind		expression kind
+ * useSQL99		SQL99 rather than SQL92 syntax
+ * toplevel		false if within any grouping set
+ */
 static Node *
 transformGroupingSet(List **flatresult,
 					 ParseState *pstate, GroupingSet *gset,
@@ -2001,6 +2055,16 @@ transformGroupingSet(List **flatresult,
  * sets, or an explicit GROUP BY (). This has the same effect as specifying
  * aggregates or a HAVING clause with no GROUP BY; the output is one row per
  * grouping set even if the input is empty.
+ *
+ * Returns the transformed (flat) groupClause.
+ *
+ * pstate		ParseState
+ * grouplist	clause to transform
+ * groupingSets	reference to list to contain the grouping set tree
+ * targetlist	reference to TargetEntry list
+ * sortClause	ORDER BY clause (SortGroupClause nodes)
+ * exprKind		expression kind
+ * useSQL99		SQL99 rather than SQL92 syntax
  */
 List *
 transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,

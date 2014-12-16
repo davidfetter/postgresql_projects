@@ -184,16 +184,6 @@ _equalGroupedVar(const GroupedVar *a, const GroupedVar *b)
 }
 
 static bool
-_equalGroupingSet(const GroupingSet *a, const GroupingSet *b)
-{
-	COMPARE_SCALAR_FIELD(kind);
-	COMPARE_NODE_FIELD(content);
-	COMPARE_LOCATION_FIELD(location);
-
-	return true;
-}
-
-static bool
 _equalConst(const Const *a, const Const *b)
 {
 	COMPARE_SCALAR_FIELD(consttype);
@@ -2432,6 +2422,16 @@ _equalSortGroupClause(const SortGroupClause *a, const SortGroupClause *b)
 }
 
 static bool
+_equalGroupingSet(const GroupingSet *a, const GroupingSet *b)
+{
+	COMPARE_SCALAR_FIELD(kind);
+	COMPARE_NODE_FIELD(content);
+	COMPARE_LOCATION_FIELD(location);
+
+	return true;
+}
+
+static bool
 _equalWindowClause(const WindowClause *a, const WindowClause *b)
 {
 	COMPARE_STRING_FIELD(name);
@@ -2631,9 +2631,6 @@ equal(const void *a, const void *b)
 			break;
 		case T_Grouping:
 			retval = _equalGrouping(a, b);
-			break;
-		case T_GroupingSet:
-			retval = _equalGroupingSet(a, b);
 			break;
 		case T_Const:
 			retval = _equalConst(a, b);
@@ -3190,6 +3187,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_SortGroupClause:
 			retval = _equalSortGroupClause(a, b);
+			break;
+		case T_GroupingSet:
+			retval = _equalGroupingSet(a, b);
 			break;
 		case T_WindowClause:
 			retval = _equalWindowClause(a, b);

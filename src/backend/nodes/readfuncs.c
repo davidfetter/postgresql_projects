@@ -292,6 +292,21 @@ _readSortGroupClause(void)
 }
 
 /*
+ * _readGroupingSet
+ */
+static GroupingSet *
+_readGroupingSet(void)
+{
+	READ_LOCALS(GroupingSet);
+
+	READ_ENUM_FIELD(kind, GroupingSetKind);
+	READ_NODE_FIELD(content);
+	READ_LOCATION_FIELD(location);
+
+	READ_DONE();
+}
+
+/*
  * _readWindowClause
  */
 static WindowClause *
@@ -471,18 +486,6 @@ _readGroupedVar(void)
 	READ_UINT_FIELD(varlevelsup);
 	READ_UINT_FIELD(varnoold);
 	READ_INT_FIELD(varoattno);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-static GroupingSet *
-_readGroupingSet(void)
-{
-	READ_LOCALS(GroupingSet);
-
-	READ_ENUM_FIELD(kind, GroupingSetKind);
-	READ_NODE_FIELD(content);
 	READ_LOCATION_FIELD(location);
 
 	READ_DONE();
@@ -1353,6 +1356,8 @@ parseNodeString(void)
 		return_value = _readWithCheckOption();
 	else if (MATCH("SORTGROUPCLAUSE", 15))
 		return_value = _readSortGroupClause();
+	else if (MATCH("GROUPINGSET", 11))
+		return_value = _readGroupingSet();
 	else if (MATCH("WINDOWCLAUSE", 12))
 		return_value = _readWindowClause();
 	else if (MATCH("ROWMARKCLAUSE", 13))
@@ -1373,8 +1378,6 @@ parseNodeString(void)
 		return_value = _readGroupedVar();
 	else if (MATCH("GROUPING", 8))
 		return_value = _readGrouping();
-	else if (MATCH("GROUPINGSET", 11))
-		return_value = _readGroupingSet();
 	else if (MATCH("CONST", 5))
 		return_value = _readConst();
 	else if (MATCH("PARAM", 5))

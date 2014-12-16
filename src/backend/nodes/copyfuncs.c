@@ -1135,21 +1135,6 @@ _copyGroupedVar(const GroupedVar *from)
 }
 
 /*
- * _copyGroupingSet
- */
-static GroupingSet *
-_copyGroupingSet(const GroupingSet *from)
-{
-	GroupingSet		   *newnode = makeNode(GroupingSet);
-
-	COPY_SCALAR_FIELD(kind);
-	COPY_NODE_FIELD(content);
-	COPY_LOCATION_FIELD(location);
-
-	return newnode;
-}
-
-/*
  * _copyConst
  */
 static Const *
@@ -2127,6 +2112,18 @@ _copySortGroupClause(const SortGroupClause *from)
 	COPY_SCALAR_FIELD(sortop);
 	COPY_SCALAR_FIELD(nulls_first);
 	COPY_SCALAR_FIELD(hashable);
+
+	return newnode;
+}
+
+static GroupingSet *
+_copyGroupingSet(const GroupingSet *from)
+{
+	GroupingSet		   *newnode = makeNode(GroupingSet);
+
+	COPY_SCALAR_FIELD(kind);
+	COPY_NODE_FIELD(content);
+	COPY_LOCATION_FIELD(location);
 
 	return newnode;
 }
@@ -4206,9 +4203,6 @@ copyObject(const void *from)
 		case T_Grouping:
 			retval = _copyGrouping(from);
 			break;
-		case T_GroupingSet:
-			retval = _copyGroupingSet(from);
-			break;
 		case T_Const:
 			retval = _copyConst(from);
 			break;
@@ -4777,6 +4771,9 @@ copyObject(const void *from)
 			break;
 		case T_SortGroupClause:
 			retval = _copySortGroupClause(from);
+			break;
+		case T_GroupingSet:
+			retval = _copyGroupingSet(from);
 			break;
 		case T_WindowClause:
 			retval = _copyWindowClause(from);

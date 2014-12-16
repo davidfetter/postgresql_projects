@@ -957,16 +957,6 @@ _outGroupedVar(StringInfo str, const GroupedVar *node)
 }
 
 static void
-_outGroupingSet(StringInfo str, const GroupingSet *node)
-{
-	WRITE_NODE_TYPE("GROUPINGSET");
-
-	WRITE_ENUM_FIELD(kind, GroupingSetKind);
-	WRITE_NODE_FIELD(content);
-	WRITE_LOCATION_FIELD(location);
-}
-
-static void
 _outConst(StringInfo str, const Const *node)
 {
 	WRITE_NODE_TYPE("CONST");
@@ -2379,6 +2369,16 @@ _outSortGroupClause(StringInfo str, const SortGroupClause *node)
 }
 
 static void
+_outGroupingSet(StringInfo str, const GroupingSet *node)
+{
+	WRITE_NODE_TYPE("GROUPINGSET");
+
+	WRITE_ENUM_FIELD(kind, GroupingSetKind);
+	WRITE_NODE_FIELD(content);
+	WRITE_LOCATION_FIELD(location);
+}
+
+static void
 _outWindowClause(StringInfo str, const WindowClause *node)
 {
 	WRITE_NODE_TYPE("WINDOWCLAUSE");
@@ -2998,9 +2998,6 @@ _outNode(StringInfo str, const void *obj)
 			case T_Grouping:
 				_outGrouping(str, obj);
 				break;
-			case T_GroupingSet:
-				_outGroupingSet(str, obj);
-				break;
 			case T_Const:
 				_outConst(str, obj);
 				break;
@@ -3266,6 +3263,9 @@ _outNode(StringInfo str, const void *obj)
 				break;
 			case T_SortGroupClause:
 				_outSortGroupClause(str, obj);
+				break;
+			case T_GroupingSet:
+				_outGroupingSet(str, obj);
 				break;
 			case T_WindowClause:
 				_outWindowClause(str, obj);
