@@ -186,6 +186,7 @@ typedef struct xl_parameter_change
 	int			max_locks_per_xact;
 	int			wal_level;
 	bool		wal_log_hints;
+	bool		track_commit_timestamp;
 } xl_parameter_change;
 
 /* logs restore point */
@@ -213,6 +214,16 @@ typedef struct XLogRecData
 	char	   *data;			/* start of rmgr data to include */
 	uint32		len;			/* length of rmgr data to include */
 } XLogRecData;
+
+/*
+ * Recovery target action.
+ */
+typedef enum
+{
+	RECOVERY_TARGET_ACTION_PAUSE,
+	RECOVERY_TARGET_ACTION_PROMOTE,
+	RECOVERY_TARGET_ACTION_SHUTDOWN,
+} RecoveryTargetAction;
 
 /*
  * Method table for resource managers.

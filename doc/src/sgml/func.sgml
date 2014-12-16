@@ -10245,9 +10245,10 @@ table2-mapping
 
   <para>
    <xref linkend="functions-json-creation-table"> shows the functions that are
-   available for creating <type>json</type> values.
-   (Currently, there are no equivalent functions for <type>jsonb</>, but you
-   can cast the result of one of these functions to <type>jsonb</>.)
+   available for creating <type>json</type> and <type>jsonb</type> values.
+   (There are no equivalent functions for <type>jsonb</>, of the <literal>row_to_json</>
+   and <literal>array_to_json</> functions. However, the <literal>to_jsonb</>
+   function supplies much the same functionality as these functions would.)
   </para>
 
   <indexterm>
@@ -10268,6 +10269,18 @@ table2-mapping
   <indexterm>
    <primary>json_object</primary>
   </indexterm>
+  <indexterm>
+   <primary>to_jsonb</primary>
+  </indexterm>
+  <indexterm>
+   <primary>jsonb_build_array</primary>
+  </indexterm>
+  <indexterm>
+   <primary>jsonb_build_object</primary>
+  </indexterm>
+  <indexterm>
+   <primary>jsonb_object</primary>
+  </indexterm>
 
   <table id="functions-json-creation-table">
     <title>JSON Creation Functions</title>
@@ -10282,17 +10295,18 @@ table2-mapping
      </thead>
      <tbody>
       <row>
+       <entry><para><literal>to_json(anyelement)</literal>
+          </para><para><literal>to_jsonb(anyelement)</literal>
+       </para></entry>
        <entry>
-         <literal>to_json(anyelement)</literal>
-       </entry>
-       <entry>
-         Returns the value as JSON.  Arrays and composites are converted
+         Returns the value as <type>json</> or <type>jsonb</>.
+         Arrays and composites are converted
          (recursively) to arrays and objects; otherwise, if there is a cast
          from the type to <type>json</type>, the cast function will be used to
-         perform the conversion; otherwise, a JSON scalar value is produced.
+         perform the conversion; otherwise, a scalar value is produced.
          For any scalar type other than a number, a Boolean, or a null value,
-         the text representation will be used, properly quoted and escaped
-         so that it is a valid JSON string.
+         the text representation will be used, in such a fashion that it is a 
+         valid <type>json</> or <type>jsonb</> value.
        </entry>
        <entry><literal>to_json('Fred said "Hi."'::text)</literal></entry>
        <entry><literal>"Fred said \"Hi.\""</literal></entry>
@@ -10321,9 +10335,9 @@ table2-mapping
        <entry><literal>{"f1":1,"f2":"foo"}</literal></entry>
       </row>
       <row>
-       <entry>
-         <literal>json_build_array(VARIADIC "any")</literal>
-       </entry>
+       <entry><para><literal>json_build_array(VARIADIC "any")</literal>
+          </para><para><literal>jsonb_build_array(VARIADIC "any")</literal>
+       </para></entry>
        <entry>
          Builds a possibly-heterogeneously-typed JSON array out of a variadic
          argument list.
@@ -10332,9 +10346,9 @@ table2-mapping
        <entry><literal>[1, 2, "3", 4, 5]</literal></entry>
       </row>
       <row>
-       <entry>
-         <literal>json_build_object(VARIADIC "any")</literal>
-       </entry>
+       <entry><para><literal>json_build_object(VARIADIC "any")</literal>
+          </para><para><literal>jsonb_build_object(VARIADIC "any")</literal>
+       </para></entry>
        <entry>
          Builds a JSON object out of a variadic argument list.  By
          convention, the argument list consists of alternating
@@ -10344,9 +10358,9 @@ table2-mapping
        <entry><literal>{"foo": 1, "bar": 2}</literal></entry>
       </row>
       <row>
-       <entry>
-         <literal>json_object(text[])</literal>
-       </entry>
+       <entry><para><literal>json_object(text[])</literal>
+          </para><para><literal>jsonb_object(text[])</literal>
+       </para></entry>
        <entry>
          Builds a JSON object out of a text array.  The array must have either
          exactly one dimension with an even number of members, in which case
@@ -10359,9 +10373,9 @@ table2-mapping
        <entry><literal>{"a": "1", "b": "def", "c": "3.5"}</literal></entry>
       </row>
       <row>
-       <entry>
-         <literal>json_object(keys text[], values text[])</literal>
-       </entry>
+       <entry><para><literal>json_object(keys text[], values text[])</literal>
+          </para><para><literal>json_object(keys text[], values text[])</literal>
+       </para></entry>
        <entry>
          This form of <function>json_object</> takes keys and values pairwise from two separate
          arrays. In all other respects it is identical to the one-argument form.
@@ -10716,6 +10730,19 @@ table2-mapping
 </programlisting>
        </entry>
       </row>
+      <row>
+       <entry><para><literal>json_strip_nulls(from_json json)</literal>
+         </para><para><literal>jsonb_strip_nulls(from_json jsonb)</literal>
+       </para></entry>
+       <entry><para><type>json</type></para><para><type>jsonb</type></para></entry>
+       <entry>
+         Returns <replaceable>from_json</replaceable>
+         with all object fields that have null values omitted. Other null values
+         are untouched.
+       </entry>
+       <entry><literal>json_strip_nulls('[{"f1":1,"f2":null},2,null,3]')</literal></entry>
+       <entry><literal>[{"f1":1},2,null,3]</literal></entry>
+       </row>
      </tbody>
     </tgroup>
    </table>
@@ -10752,12 +10779,23 @@ table2-mapping
     </para>
   </note>
 
+  <note>
+    <para>
+      If the argument to <literal>json_strip_nulls</> contains duplicate
+      field names in any object, the result could be semantically somewhat
+      different, depending on the order in which they occur. This is not an
+      issue for <literal>jsonb_strip_nulls</> since jsonb values never have
+      duplicate object field names.
+    </para>
+  </note>
+
   <para>
     See also <xref linkend="functions-aggregate"> for the aggregate
     function <function>json_agg</function> which aggregates record
     values as JSON, and the aggregate function
     <function>json_object_agg</function> which aggregates pairs of values
-    into a JSON object.
+    into a JSON object, and their <type>jsonb</type> equivalents,
+    <function>jsonb_agg</> and <function>jsonb_object_agg</>.
   </para>
 
  </sect1>
@@ -12037,12 +12075,27 @@ NULL baz</literallayout>(3 rows)</entry>
        <function>array_agg(<replaceable class="parameter">expression</replaceable>)</function>
       </entry>
       <entry>
-       any
+       any non-array type
       </entry>
       <entry>
        array of the argument type
       </entry>
       <entry>input values, including nulls, concatenated into an array</entry>
+     </row>
+
+     <row>
+      <entry>
+       <function>array_agg(<replaceable class="parameter">expression</replaceable>)</function>
+      </entry>
+      <entry>
+       any array type
+      </entry>
+      <entry>
+       same as argument data type
+      </entry>
+      <entry>input arrays concatenated into array of one higher dimension
+       (inputs must all have same dimensionality,
+        and cannot be empty or NULL)</entry>
      </row>
 
      <row>
@@ -12191,6 +12244,22 @@ NULL baz</literallayout>(3 rows)</entry>
      <row>
       <entry>
        <indexterm>
+        <primary>jsonb_agg</primary>
+       </indexterm>
+       <function>jsonb_agg(<replaceable class="parameter">record</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>record</type>
+      </entry>
+      <entry>
+       <type>jsonb</type>
+      </entry>
+      <entry>aggregates records as a JSON array of objects</entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
         <primary>json_object_agg</primary>
        </indexterm>
        <function>json_object_agg(<replaceable class="parameter">name</replaceable>, <replaceable class="parameter">value</replaceable>)</function>
@@ -12200,6 +12269,22 @@ NULL baz</literallayout>(3 rows)</entry>
       </entry>
       <entry>
        <type>json</type>
+      </entry>
+      <entry>aggregates name/value pairs as a JSON object</entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>jsonb_object_agg</primary>
+       </indexterm>
+       <function>jsonb_object_agg(<replaceable class="parameter">name</replaceable>, <replaceable class="parameter">value</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>("any", "any")</type>
+      </entry>
+      <entry>
+       <type>jsonb</type>
       </entry>
       <entry>aggregates name/value pairs as a JSON object</entry>
      </row>
@@ -12350,8 +12435,8 @@ SELECT count(*) FROM sometable;
 
   <para>
    The aggregate functions <function>array_agg</function>,
-   <function>json_agg</function>,
-   <function>json_object_agg</function>,
+   <function>json_agg</function>, <function>jsonb_agg</function>,
+   <function>json_object_agg</function>, <function>jsonb_object_agg</function>,
    <function>string_agg</function>,
    and <function>xmlagg</function>, as well as similar user-defined
    aggregate functions, produce meaningfully different result values
@@ -15991,6 +16076,45 @@ SELECT collation for ('foo' COLLATE "de_DE");
     For example <literal>10:20:10,14,15</literal> means
     <literal>xmin=10, xmax=20, xip_list=10, 14, 15</literal>.
    </para>
+
+   <para>
+    The functions shown in <xref linkend="functions-commit-timestamp">
+    provide information about transactions that have been already committed.
+    These functions mainly provide information about when the transactions
+    were committed. They only provide useful data when
+    <xref linkend="guc-track-commit-timestamp"> configuration option is enabled
+    and only for transactions that were committed after it was enabled.
+   </para>
+
+   <table id="functions-commit-timestamp">
+    <title>Committed transaction information</title>
+    <tgroup cols="3">
+     <thead>
+      <row><entry>Name</entry> <entry>Return Type</entry> <entry>Description</entry></row>
+     </thead>
+
+     <tbody>
+      <row>
+       <entry>
+        <indexterm><primary>pg_xact_commit_timestamp</primary></indexterm>
+        <literal><function>pg_xact_commit_timestamp(<parameter>xid</parameter>)</function></literal>
+       </entry>
+       <entry><type>timestamp with time zone</type></entry>
+       <entry>get commit timestamp of a transaction</entry>
+      </row>
+
+      <row>
+       <entry>
+        <indexterm><primary>pg_last_committed_xact</primary></indexterm>
+        <literal><function>pg_last_committed_xact()</function></literal>
+       </entry>
+       <entry><parameter>xid</> <type>xid</>, <parameter>timestamp</> <type>timestamp with time zone</></entry>
+       <entry>get transaction ID and commit timestamp of latest committed transaction</entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+
   </sect1>
 
   <sect1 id="functions-admin">
@@ -17621,14 +17745,22 @@ FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger();
   <sect1 id="functions-event-triggers">
    <title>Event Trigger Functions</title>
 
+   <para>
+    <productname>PostgreSQL</> provides these helper functions
+    to retrieve information from event triggers.
+   </para>
+
+   <para>
+    For more information about event triggers,
+    see <xref linkend="event-triggers">.
+   </para>
+
+  <sect2 id="pg-event-trigger-sql-drop-functions">
+   <title>Processing objects dropped by a DDL command.</title>
+
    <indexterm>
      <primary>pg_event_trigger_dropped_objects</primary>
    </indexterm>
-
-   <para>
-    Currently <productname>PostgreSQL</> provides one built-in event trigger
-    helper function, <function>pg_event_trigger_dropped_objects</>.
-   </para>
 
    <para>
     <function>pg_event_trigger_dropped_objects</> returns a list of all objects
@@ -17723,11 +17855,72 @@ CREATE EVENT TRIGGER test_event_trigger_for_drops
    EXECUTE PROCEDURE test_event_trigger_for_drops();
 </programlisting>
     </para>
+  </sect2>
 
-     <para>
-       For more information about event triggers,
-       see <xref linkend="event-triggers">.
+  <sect2 id="pg-event-trigger-table-rewrite-functions">
+   <title>Handling a Table Rewrite Event</title>
+
+   <para>
+    The functions shown in
+    <xref linkend="functions-event-trigger-table-rewrite">
+    provide information about a table for which a
+    <literal>table_rewrite</> event has just been called.
+    If called in any other context, an error is raised.
+   </para>
+
+   <table id="functions-event-trigger-table-rewrite">
+    <title>Table Rewrite information</title>
+    <tgroup cols="3">
+     <thead>
+      <row><entry>Name</entry> <entry>Return Type</entry> <entry>Description</entry></row>
+     </thead>
+
+     <tbody>
+      <row>
+       <entry>
+        <indexterm><primary>pg_event_trigger_table_rewrite_oid</primary></indexterm>
+        <literal><function>pg_event_trigger_table_rewrite_oid()</function></literal>
+       </entry>
+       <entry><type>Oid</type></entry>
+       <entry>The Oid of the table about to be rewritten.</entry>
+      </row>
+
+      <row>
+       <entry>
+        <indexterm><primary>pg_event_trigger_table_rewrite_reason</primary></indexterm>
+        <literal><function>pg_event_trigger_table_rewrite_reason()</function></literal>
+       </entry>
+       <entry><type>int</type></entry>
+       <entry>
+        The reason code(s) explaining the reason for rewriting. The exact
+        meaning of the codes is release dependent.
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+
+   <para>
+    The <function>pg_event_trigger_table_rewrite_oid</> function can be used
+    in an event trigger like this:
+<programlisting>
+CREATE FUNCTION test_event_trigger_table_rewrite_oid()
+ RETURNS event_trigger
+ LANGUAGE plpgsql AS
+$$
+BEGIN
+  RAISE NOTICE 'rewriting table % for reason %',
+                pg_event_trigger_table_rewrite_oid()::regclass,
+                pg_event_trigger_table_rewrite_reason();
+END;
+$$;
+
+CREATE EVENT TRIGGER test_table_rewrite_oid
+                  ON table_rewrite
+   EXECUTE PROCEDURE test_event_trigger_table_rewrite_oid();
+</programlisting>
     </para>
+  </sect2>
   </sect1>
 
 </chapter>

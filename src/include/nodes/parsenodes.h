@@ -121,7 +121,7 @@ typedef struct Query
 	bool		hasRecursive;	/* WITH RECURSIVE was specified */
 	bool		hasModifyingCTE;	/* has INSERT/UPDATE/DELETE in WITH */
 	bool		hasForUpdate;	/* FOR [KEY] UPDATE/SHARE was specified */
-	bool		hasRowSecurity;	/* Row-security policy is applied */
+	bool		hasRowSecurity;	/* row security applied? */
 
 	List	   *cteList;		/* WITH list (of CommonTableExpr's) */
 
@@ -2654,6 +2654,7 @@ typedef struct CreateTableAsStmt
 	IntoClause *into;			/* destination table */
 	ObjectType	relkind;		/* OBJECT_TABLE or OBJECT_MATVIEW */
 	bool		is_select_into; /* it was written as SELECT INTO */
+	bool		if_not_exists;	/* just do nothing if it already exists? */
 } CreateTableAsStmt;
 
 /* ----------------------
@@ -2723,10 +2724,19 @@ typedef struct ConstraintsSetStmt
  *		REINDEX Statement
  * ----------------------
  */
+typedef enum ReindexObjectType
+{
+	REINDEX_OBJECT_INDEX,	/* index */
+	REINDEX_OBJECT_TABLE,	/* table or materialized view */
+	REINDEX_OBJECT_SCHEMA,	/* schema */
+	REINDEX_OBJECT_SYSTEM,	/* system catalogs */
+	REINDEX_OBJECT_DATABASE	/* database */
+} ReindexObjectType;
+
 typedef struct ReindexStmt
 {
 	NodeTag		type;
-	ObjectType	kind;			/* OBJECT_INDEX, OBJECT_TABLE, etc. */
+	ReindexObjectType	kind;	/* REINDEX_OBJECT_INDEX, REINDEX_OBJECT_TABLE, etc. */
 	RangeVar   *relation;		/* Table or index to reindex */
 	const char *name;			/* name of database to reindex */
 	bool		do_system;		/* include system tables in database case */

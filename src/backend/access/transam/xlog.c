@@ -22,6 +22,7 @@
 #include <unistd.h>
 
 #include "access/clog.h"
+#include "access/commit_ts.h"
 #include "access/multixact.h"
 #include "access/rewriteheap.h"
 #include "access/subtrans.h"
@@ -228,7 +229,7 @@ static char *recoveryEndCommand = NULL;
 static char *archiveCleanupCommand = NULL;
 static RecoveryTargetType recoveryTarget = RECOVERY_TARGET_UNSET;
 static bool recoveryTargetInclusive = true;
-static bool recoveryPauseAtTarget = true;
+static RecoveryTargetAction recoveryTargetAction = RECOVERY_TARGET_ACTION_PAUSE;
 static TransactionId recoveryTargetXid;
 static TimestampTz recoveryTargetTime;
 static char *recoveryTargetName;
@@ -4518,6 +4519,8 @@ BootStrapXLOG(void)
 	checkPoint.oldestXidDB = TemplateDbOid;
 	checkPoint.oldestMulti = FirstMultiXactId;
 	checkPoint.oldestMultiDB = TemplateDbOid;
+	checkPoint.oldestCommitTs = InvalidTransactionId;
+	checkPoint.newestCommitTs = InvalidTransactionId;
 	checkPoint.time = (pg_time_t) time(NULL);
 	checkPoint.oldestActiveXid = InvalidTransactionId;
 
@@ -4527,6 +4530,7 @@ BootStrapXLOG(void)
 	MultiXactSetNextMXact(checkPoint.nextMulti, checkPoint.nextMultiOffset);
 	SetTransactionIdLimit(checkPoint.oldestXid, checkPoint.oldestXidDB);
 	SetMultiXactIdLimit(checkPoint.oldestMulti, checkPoint.oldestMultiDB);
+	SetCommitTsLimit(InvalidTransactionId, InvalidTransactionId);
 
 	/* Set up the XLOG page header */
 	page->xlp_magic = XLOG_PAGE_MAGIC;
@@ -4606,6 +4610,7 @@ BootStrapXLOG(void)
 	ControlFile->max_locks_per_xact = max_locks_per_xact;
 	ControlFile->wal_level = wal_level;
 	ControlFile->wal_log_hints = wal_log_hints;
+	ControlFile->track_commit_timestamp = track_commit_timestamp;
 	ControlFile->data_checksum_version = bootstrap_data_checksum_version;
 
 	/* some additional ControlFile fields are set in WriteControlFile() */
@@ -4614,6 +4619,7 @@ BootStrapXLOG(void)
 
 	/* Bootstrap the commit log, too */
 	BootStrapCLOG();
+	BootStrapCommitTs();
 	BootStrapSUBTRANS();
 	BootStrapMultiXact();
 
@@ -4647,6 +4653,9 @@ readRecoveryCommandFile(void)
 	ConfigVariable *item,
 			   *head = NULL,
 			   *tail = NULL;
+	bool		recoveryPauseAtTargetSet = false;
+	bool		recoveryTargetActionSet = false;
+
 
 	fd = AllocateFile(RECOVERY_COMMAND_FILE, "r");
 	if (fd == NULL)
@@ -4692,13 +4701,43 @@ readRecoveryCommandFile(void)
 		}
 		else if (strcmp(item->name, "pause_at_recovery_target") == 0)
 		{
+			bool recoveryPauseAtTarget;
+
 			if (!parse_bool(item->value, &recoveryPauseAtTarget))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("parameter \"%s\" requires a Boolean value", "pause_at_recovery_target")));
+
 			ereport(DEBUG2,
 					(errmsg_internal("pause_at_recovery_target = '%s'",
 									 item->value)));
+
+			recoveryTargetAction = recoveryPauseAtTarget ?
+									 RECOVERY_TARGET_ACTION_PAUSE :
+									 RECOVERY_TARGET_ACTION_PROMOTE;
+
+			recoveryPauseAtTargetSet = true;
+		}
+		else if (strcmp(item->name, "recovery_target_action") == 0)
+		{
+			if (strcmp(item->value, "pause") == 0)
+				recoveryTargetAction = RECOVERY_TARGET_ACTION_PAUSE;
+			else if (strcmp(item->value, "promote") == 0)
+				recoveryTargetAction = RECOVERY_TARGET_ACTION_PROMOTE;
+			else if (strcmp(item->value, "shutdown") == 0)
+				recoveryTargetAction = RECOVERY_TARGET_ACTION_SHUTDOWN;
+			else
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid value for recovery parameter \"%s\"",
+								"recovery_target_action"),
+						 errhint("The allowed values are \"pause\", \"promote\" and \"shutdown\".")));
+
+			ereport(DEBUG2,
+					(errmsg_internal("recovery_target_action = '%s'",
+									 item->value)));
+
+			recoveryTargetActionSet = true;
 		}
 		else if (strcmp(item->name, "recovery_target_timeline") == 0)
 		{
@@ -4862,6 +4901,28 @@ readRecoveryCommandFile(void)
 					(errmsg("recovery command file \"%s\" must specify restore_command when standby mode is not enabled",
 							RECOVERY_COMMAND_FILE)));
 	}
+
+	/*
+	 * Check for mutually exclusive parameters
+	 */
+	if (recoveryPauseAtTargetSet && recoveryTargetActionSet)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("cannot set both \"%s\" and \"%s\" recovery parameters",
+						"pause_at_recovery_target",
+						"recovery_target_action"),
+				 errhint("The \"pause_at_recovery_target\" is deprecated.")));
+
+
+	/*
+	 * Override any inconsistent requests. Not that this is a change
+	 * of behaviour in 9.5; prior to this we simply ignored a request
+	 * to pause if hot_standby = off, which was surprising behaviour.
+	 */
+	if (recoveryTargetAction == RECOVERY_TARGET_ACTION_PAUSE &&
+		recoveryTargetActionSet &&
+		standbyState == STANDBY_DISABLED)
+			recoveryTargetAction = RECOVERY_TARGET_ACTION_SHUTDOWN;
 
 	/* Enable fetching from archive recovery area */
 	ArchiveRecoveryRequested = true;
@@ -5865,6 +5926,10 @@ StartupXLOG(void)
 	ereport(DEBUG1,
 			(errmsg("oldest MultiXactId: %u, in database %u",
 					checkPoint.oldestMulti, checkPoint.oldestMultiDB)));
+	ereport(DEBUG1,
+			(errmsg("commit timestamp Xid oldest/newest: %u/%u",
+					checkPoint.oldestCommitTs,
+					checkPoint.newestCommitTs)));
 	if (!TransactionIdIsNormal(checkPoint.nextXid))
 		ereport(PANIC,
 				(errmsg("invalid next transaction ID")));
@@ -5876,6 +5941,8 @@ StartupXLOG(void)
 	MultiXactSetNextMXact(checkPoint.nextMulti, checkPoint.nextMultiOffset);
 	SetTransactionIdLimit(checkPoint.oldestXid, checkPoint.oldestXidDB);
 	SetMultiXactIdLimit(checkPoint.oldestMulti, checkPoint.oldestMultiDB);
+	SetCommitTsLimit(checkPoint.oldestCommitTs,
+					 checkPoint.newestCommitTs);
 	MultiXactSetSafeTruncate(checkPoint.oldestMulti);
 	XLogCtl->ckptXidEpoch = checkPoint.nextXidEpoch;
 	XLogCtl->ckptXid = checkPoint.nextXid;
@@ -6098,11 +6165,12 @@ StartupXLOG(void)
 			ProcArrayInitRecovery(ShmemVariableCache->nextXid);
 
 			/*
-			 * Startup commit log and subtrans only. MultiXact has already
-			 * been started up and other SLRUs are not maintained during
-			 * recovery and need not be started yet.
+			 * Startup commit log, commit timestamp and subtrans only.
+			 * MultiXact has already been started up and other SLRUs are not
+			 * maintained during recovery and need not be started yet.
 			 */
 			StartupCLOG();
+			StartupCommitTs();
 			StartupSUBTRANS(oldestActiveXID);
 
 			/*
@@ -6415,10 +6483,37 @@ StartupXLOG(void)
 			 * end of main redo apply loop
 			 */
 
-			if (recoveryPauseAtTarget && reachedStopPoint)
+			if (reachedStopPoint)
 			{
-				SetRecoveryPause(true);
-				recoveryPausesHere();
+				if (!reachedConsistency)
+					ereport(FATAL,
+						(errmsg("requested recovery stop point is before consistent recovery point")));
+
+				/*
+				 * This is the last point where we can restart recovery with a
+				 * new recovery target, if we shutdown and begin again. After
+				 * this, Resource Managers may choose to do permanent corrective
+				 * actions at end of recovery.
+				 */
+				switch (recoveryTargetAction)
+				{
+					case RECOVERY_TARGET_ACTION_SHUTDOWN:
+							/*
+							 * exit with special return code to request shutdown
+							 * of postmaster.  Log messages issued from
+							 * postmaster.
+							 */
+							proc_exit(3);
+
+					case RECOVERY_TARGET_ACTION_PAUSE:
+							SetRecoveryPause(true);
+							recoveryPausesHere();
+
+							/* drop into promote */
+
+					case RECOVERY_TARGET_ACTION_PROMOTE:
+							break;
+				}
 			}
 
 			/* Allow resource managers to do any required cleanup. */
@@ -6436,6 +6531,7 @@ StartupXLOG(void)
 				ereport(LOG,
 					 (errmsg("last completed transaction was at log time %s",
 							 timestamptz_to_str(xtime))));
+
 			InRedo = false;
 		}
 		else
@@ -6496,13 +6592,6 @@ StartupXLOG(void)
 		(EndOfLog < minRecoveryPoint ||
 		 !XLogRecPtrIsInvalid(ControlFile->backupStartPoint)))
 	{
-		if (reachedStopPoint)
-		{
-			/* stopped because of stop request */
-			ereport(FATAL,
-					(errmsg("requested recovery stop point is before consistent recovery point")));
-		}
-
 		/*
 		 * Ran off end of WAL before reaching end-of-backup WAL record, or
 		 * minRecoveryPoint. That's usually a bad sign, indicating that you
@@ -6751,12 +6840,13 @@ StartupXLOG(void)
 	LWLockRelease(ProcArrayLock);
 
 	/*
-	 * Start up the commit log and subtrans, if not already done for hot
-	 * standby.
+	 * Start up the commit log, commit timestamp and subtrans, if not already
+	 * done for hot standby.
 	 */
 	if (standbyState == STANDBY_DISABLED)
 	{
 		StartupCLOG();
+		StartupCommitTs();
 		StartupSUBTRANS(oldestActiveXID);
 	}
 
@@ -6790,6 +6880,12 @@ StartupXLOG(void)
 	 */
 	LocalSetXLogInsertAllowed();
 	XLogReportParameters();
+
+	/*
+	 * Local WAL inserts enabled, so it's time to finish initialization
+	 * of commit timestamp.
+	 */
+	CompleteCommitTsInitialization();
 
 	/*
 	 * All done.  Allow backends to write WAL.  (Although the bool flag is
@@ -7178,10 +7274,9 @@ ReadCheckpointRecord(XLogReaderState *xlogreader, XLogRecPtr RecPtr,
 }
 
 /*
- * This must be called during startup of a backend process, except that
- * it need not be called in a standalone backend (which does StartupXLOG
- * instead).  We need to initialize the local copies of ThisTimeLineID and
- * RedoRecPtr.
+ * This must be called in a backend process before creating WAL records
+ * (except in a standalone backend, which does StartupXLOG instead).  We need
+ * to initialize the local copies of ThisTimeLineID and RedoRecPtr.
  *
  * Note: before Postgres 8.0, we went to some effort to keep the postmaster
  * process's copies of ThisTimeLineID and RedoRecPtr valid too.  This was
@@ -7358,6 +7453,7 @@ ShutdownXLOG(int code, Datum arg)
 		CreateCheckPoint(CHECKPOINT_IS_SHUTDOWN | CHECKPOINT_IMMEDIATE);
 	}
 	ShutdownCLOG();
+	ShutdownCommitTs();
 	ShutdownSUBTRANS();
 	ShutdownMultiXact();
 
@@ -7517,6 +7613,16 @@ CreateCheckPoint(int flags)
 	/* sanity check */
 	if (RecoveryInProgress() && (flags & CHECKPOINT_END_OF_RECOVERY) == 0)
 		elog(ERROR, "can't create a checkpoint during recovery");
+
+	/*
+	 * Initialize InitXLogInsert working areas before entering the critical
+	 * section.  Normally, this is done by the first call to
+	 * RecoveryInProgress() or LocalSetXLogInsertAllowed(), but when creating
+	 * an end-of-recovery checkpoint, the LocalSetXLogInsertAllowed call is
+	 * done below in a critical section, and InitXLogInsert cannot be called
+	 * in a critical section.
+	 */
+	InitXLogInsert();
 
 	/*
 	 * Acquire CheckpointLock to ensure only one checkpoint happens at a time.
@@ -7683,6 +7789,11 @@ CreateCheckPoint(int flags)
 	checkPoint.oldestXid = ShmemVariableCache->oldestXid;
 	checkPoint.oldestXidDB = ShmemVariableCache->oldestXidDB;
 	LWLockRelease(XidGenLock);
+
+	LWLockAcquire(CommitTsLock, LW_SHARED);
+	checkPoint.oldestCommitTs = ShmemVariableCache->oldestCommitTs;
+	checkPoint.newestCommitTs = ShmemVariableCache->newestCommitTs;
+	LWLockRelease(CommitTsLock);
 
 	/* Increase XID epoch if we've wrapped around since last checkpoint */
 	checkPoint.nextXidEpoch = ControlFile->checkPointCopy.nextXidEpoch;
@@ -7961,6 +8072,7 @@ static void
 CheckPointGuts(XLogRecPtr checkPointRedo, int flags)
 {
 	CheckPointCLOG();
+	CheckPointCommitTs();
 	CheckPointSUBTRANS();
 	CheckPointMultiXact();
 	CheckPointPredicate();
@@ -8389,7 +8501,8 @@ XLogReportParameters(void)
 		MaxConnections != ControlFile->MaxConnections ||
 		max_worker_processes != ControlFile->max_worker_processes ||
 		max_prepared_xacts != ControlFile->max_prepared_xacts ||
-		max_locks_per_xact != ControlFile->max_locks_per_xact)
+		max_locks_per_xact != ControlFile->max_locks_per_xact ||
+		track_commit_timestamp != ControlFile->track_commit_timestamp)
 	{
 		/*
 		 * The change in number of backend slots doesn't need to be WAL-logged
@@ -8409,6 +8522,7 @@ XLogReportParameters(void)
 			xlrec.max_locks_per_xact = max_locks_per_xact;
 			xlrec.wal_level = wal_level;
 			xlrec.wal_log_hints = wal_log_hints;
+			xlrec.track_commit_timestamp = track_commit_timestamp;
 
 			XLogBeginInsert();
 			XLogRegisterData((char *) &xlrec, sizeof(xlrec));
@@ -8423,6 +8537,7 @@ XLogReportParameters(void)
 		ControlFile->max_locks_per_xact = max_locks_per_xact;
 		ControlFile->wal_level = wal_level;
 		ControlFile->wal_log_hints = wal_log_hints;
+		ControlFile->track_commit_timestamp = track_commit_timestamp;
 		UpdateControlFile();
 	}
 }
@@ -8799,6 +8914,7 @@ xlog_redo(XLogReaderState *record)
 		ControlFile->max_locks_per_xact = xlrec.max_locks_per_xact;
 		ControlFile->wal_level = xlrec.wal_level;
 		ControlFile->wal_log_hints = wal_log_hints;
+		ControlFile->track_commit_timestamp = track_commit_timestamp;
 
 		/*
 		 * Update minRecoveryPoint to ensure that if recovery is aborted, we

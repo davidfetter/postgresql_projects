@@ -1171,7 +1171,7 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 
 	/*
 	 * If the subquery has the "security_barrier" flag, it means the subquery
-	 * originated from a view that must enforce row-level security.  Then we
+	 * originated from a view that must enforce row level security.  Then we
 	 * must not push down quals that contain leaky functions.  (Ideally this
 	 * would be checked inside subquery_is_pushdown_safe, but since we don't
 	 * currently pass the RTE to that function, we must do it here.)
@@ -2273,19 +2273,17 @@ remove_unused_subquery_outputs(Query *subquery, RelOptInfo *rel)
 static void
 print_relids(Relids relids)
 {
-	Relids		tmprelids;
 	int			x;
 	bool		first = true;
 
-	tmprelids = bms_copy(relids);
-	while ((x = bms_first_member(tmprelids)) >= 0)
+	x = -1;
+	while ((x = bms_next_member(relids, x)) >= 0)
 	{
 		if (!first)
 			printf(" ");
 		printf("%d", x);
 		first = false;
 	}
-	bms_free(tmprelids);
 }
 
 static void

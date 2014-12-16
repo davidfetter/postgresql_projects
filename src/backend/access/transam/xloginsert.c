@@ -299,7 +299,7 @@ XLogRegisterBlock(uint8 block_id, RelFileNode *rnode, ForkNumber forknum,
  * Add data to the WAL record that's being constructed.
  *
  * The data is appended to the "main chunk", available at replay with
- * XLogGetRecData().
+ * XLogRecGetData().
  */
 void
 XLogRegisterData(char *data, int len)
@@ -891,5 +891,6 @@ InitXLogInsert(void)
 	 * Allocate a buffer to hold the header information for a WAL record.
 	 */
 	if (hdr_scratch == NULL)
-		hdr_scratch = palloc0(HEADER_SCRATCH_SIZE);
+		hdr_scratch = MemoryContextAllocZero(xloginsert_cxt,
+											 HEADER_SCRATCH_SIZE);
 }

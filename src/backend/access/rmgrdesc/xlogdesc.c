@@ -45,6 +45,7 @@ xlog_desc(StringInfo buf, XLogReaderState *record)
 		appendStringInfo(buf, "redo %X/%X; "
 						 "tli %u; prev tli %u; fpw %s; xid %u/%u; oid %u; multi %u; offset %u; "
 						 "oldest xid %u in DB %u; oldest multi %u in DB %u; "
+						 "oldest/newest commit timestamp xid: %u/%u; "
 						 "oldest running xid %u; %s",
 				(uint32) (checkpoint->redo >> 32), (uint32) checkpoint->redo,
 						 checkpoint->ThisTimeLineID,
@@ -58,6 +59,8 @@ xlog_desc(StringInfo buf, XLogReaderState *record)
 						 checkpoint->oldestXidDB,
 						 checkpoint->oldestMulti,
 						 checkpoint->oldestMultiDB,
+						 checkpoint->oldestCommitTs,
+						 checkpoint->newestCommitTs,
 						 checkpoint->oldestActiveXid,
 				 (info == XLOG_CHECKPOINT_SHUTDOWN) ? "shutdown" : "online");
 	}
@@ -105,12 +108,17 @@ xlog_desc(StringInfo buf, XLogReaderState *record)
 			}
 		}
 
-		appendStringInfo(buf, "max_connections=%d max_worker_processes=%d max_prepared_xacts=%d max_locks_per_xact=%d wal_level=%s",
+		appendStringInfo(buf, "max_connections=%d max_worker_processes=%d "
+						 "max_prepared_xacts=%d max_locks_per_xact=%d "
+						 "wal_level=%s wal_log_hints=%s "
+						 "track_commit_timestamps=%s",
 						 xlrec.MaxConnections,
 						 xlrec.max_worker_processes,
 						 xlrec.max_prepared_xacts,
 						 xlrec.max_locks_per_xact,
-						 wal_level_str);
+						 wal_level_str,
+						 xlrec.wal_log_hints ? "on" : "off",
+						 xlrec.track_commit_timestamp ? "on" : "off");
 	}
 	else if (info == XLOG_FPW_CHANGE)
 	{
