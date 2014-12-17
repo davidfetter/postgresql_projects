@@ -942,12 +942,14 @@ typedef struct SortGroupClause
  * SortGroupClause nodes for each distinct expression used.  The actual
  * structure of the GROUP BY clause is given by the groupingSets tree.
  *
- * In the raw parser output, GroupingSet nodes (of all types except SIMPLE) are
- * potentially mixed in with the expressions in the groupClause of the
- * SelectStmt.  At this stage, the content of each node is a list of
- * expressions, some of which may be RowExprs which represent sublists rather
- * than actual row constructors, and nested GroupingSet nodes where legal in
- * the grammar.  The structure directly reflects the query syntax.
+ * In the raw parser output, GroupingSet nodes (of all types except SIMPLE
+ * which is not used) are potentially mixed in with the expressions in the
+ * groupClause of the SelectStmt.  (An expression can't contain a GroupingSet,
+ * but a list may mix GroupingSet and expression nodes.)  At this stage, the
+ * content of each node is a list of expressions, some of which may be RowExprs
+ * which represent sublists rather than actual row constructors, and nested
+ * GroupingSet nodes where legal in the grammar.  The structure directly
+ * reflects the query syntax.
  *
  * In parse analysis, the transformed expressions are used to build the tlist
  * and groupClause list (of SortGroupClause nodes), and the groupingSets tree
@@ -959,7 +961,7 @@ typedef struct SortGroupClause
  * atom by the enclosing structure; the content is an integer list of
  * ressortgroupref values (see SortGroupClause)
  *
- * CUBE and ROLLUP nodes contain a list of one or more SIMPLE nodes
+ * CUBE and ROLLUP nodes contain a list of one or more SIMPLE nodes.
  *
  * SETS nodes contain a list of EMPTY, SIMPLE, CUBE or ROLLUP nodes, but after
  * parse analysis they cannot contain more SETS nodes; enough of the syntactic
@@ -968,7 +970,19 @@ typedef struct SortGroupClause
  *
  * Note that if the groupingSets tree contains no SIMPLE nodes (only EMPTY
  * nodes at the leaves), then the groupClause will be empty, but this is still
- * an aggregation query (similar to using HAVING without GROUP BY).
+ * an aggregation query (similar to using aggs or HAVING without GROUP BY).
+ *
+ * As an example, the following clause:
+ *
+ * GROUP BY GROUPING SETS ((a,b), CUBE(c,(d,e)))
+ *
+ * looks like this after raw parsing:
+ *
+ * SETS( RowExpr(a,b) , CUBE( c, RowExpr(d,e) ) )
+ *
+ * and parse analysis converts it to:
+ *
+ * SETS( SIMPLE(1,2), CUBE( SIMPLE(3), SIMPLE(4,5) ) )
  */
 typedef enum
 {
