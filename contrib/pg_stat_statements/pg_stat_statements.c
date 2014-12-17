@@ -2331,6 +2331,13 @@ JumbleExpr(pgssJumbleState *jstate, Node *node)
 				JumbleExpr(jstate, (Node *) expr->aggfilter);
 			}
 			break;
+		case T_GroupingFunc:
+			{
+				GroupingFunc *grpnode = (GroupingFunc *) node;
+
+				JumbleExpr(jstate, (Node *) grpnode->refs);
+			}
+			break;
 		case T_WindowFunc:
 			{
 				WindowFunc *expr = (WindowFunc *) node;
@@ -2608,6 +2615,12 @@ JumbleExpr(pgssJumbleState *jstate, Node *node)
 				JumbleExpr(jstate, (Node *) lfirst(temp));
 			}
 			break;
+		case T_IntList:
+			foreach(temp, (List *) node)
+			{
+				APP_JUMB(lfirst_int(temp));
+			}
+			break;
 		case T_SortGroupClause:
 			{
 				SortGroupClause *sgc = (SortGroupClause *) node;
@@ -2616,6 +2629,13 @@ JumbleExpr(pgssJumbleState *jstate, Node *node)
 				APP_JUMB(sgc->eqop);
 				APP_JUMB(sgc->sortop);
 				APP_JUMB(sgc->nulls_first);
+			}
+			break;
+		case T_GroupingSet:
+			{
+				GroupingSet *gsnode = (GroupingSet *) node;
+
+				JumbleExpr(jstate, (Node *) gsnode->content);
 			}
 			break;
 		case T_WindowClause:
@@ -2654,28 +2674,6 @@ JumbleExpr(pgssJumbleState *jstate, Node *node)
 				RangeTblFunction *rtfunc = (RangeTblFunction *) node;
 
 				JumbleExpr(jstate, rtfunc->funcexpr);
-			}
-			break;
-		case T_GroupingSet:
-			{
-				GroupingSet *gsnode = (GroupingSet *) node;
-
-				JumbleExpr(jstate, (Node *) gsnode->content);
-			}
-			break;
-		case T_Grouping:
-			{
-				Grouping *grpnode = (Grouping *) node;
-
-				JumbleExpr(jstate, (Node *) grpnode->refs);
-			}
-			break;
-		case T_IntList:
-			{
-				foreach(temp, (List *) node)
-				{
-					APP_JUMB(lfirst_int(temp));
-				}
 			}
 			break;
 		default:
