@@ -1442,6 +1442,9 @@ agg_retrieve_direct(AggState *aggstate)
 
 		aggstate->current_set = currentGroup = aggstate->projected_set;
 
+		if (hasRollup)
+			econtext->grouped_cols = aggstate->grouped_cols[currentGroup];
+
 		for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 		{
 			AggStatePerAgg peraggstate = &peragg[aggno];
@@ -1464,9 +1467,6 @@ agg_retrieve_direct(AggState *aggstate)
 			finalize_aggregate(aggstate, peraggstate, pergroupstate,
 							   &aggvalues[aggno], &aggnulls[aggno]);
 		}
-
-		if (hasRollup)
-			econtext->grouped_cols = aggstate->grouped_cols[currentGroup];
 
 		/*
 		 * Check the qual (HAVING clause); if the group does not match, ignore
@@ -1560,6 +1560,8 @@ agg_retrieve_chained(AggState *aggstate)
 	{
 		aggstate->current_set = aggstate->projected_set = currentSet;
 
+		econtext->grouped_cols = aggstate->grouped_cols[currentSet];
+
 		for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 		{
 			AggStatePerAgg peraggstate = &peragg[aggno];
@@ -1582,8 +1584,6 @@ agg_retrieve_chained(AggState *aggstate)
 			finalize_aggregate(aggstate, peraggstate, pergroupstate,
 							   &aggvalues[aggno], &aggnulls[aggno]);
 		}
-
-		econtext->grouped_cols = aggstate->grouped_cols[currentSet];
 
 		/*
 		 * Check the qual (HAVING clause); if the group does not match, ignore

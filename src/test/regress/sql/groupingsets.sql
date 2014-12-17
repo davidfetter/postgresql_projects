@@ -55,6 +55,13 @@ select a, b, grouping(a,b),
        rank(1,2,12) within group (order by a,b,v)
   from gstest1 group by rollup (a,b) order by a,b;
 
+-- test usage of grouped columns in direct args of aggs
+select grouping(a), a, array_agg(b),
+       rank(a) within group (order by b nulls first),
+       rank(a) within group (order by b nulls last)
+  from (values (1,1),(1,4),(1,5),(3,1),(3,2)) v(a,b)
+ group by rollup (a) order by a;
+
 -- nesting with window functions
 select a, b, sum(c), sum(sum(c)) over (order by a,b) as rsum
   from gstest2 group by rollup (a,b) order by rsum, a, b;

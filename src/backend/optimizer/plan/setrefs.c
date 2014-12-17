@@ -1364,11 +1364,34 @@ set_group_vars_mutator(Node *node, set_group_vars_context *context)
 
 		return (Node *) var;
 	}
-	else if (IsA(node, Aggref) || IsA(node, GroupingFunc))
+	else if (IsA(node, Aggref))
 	{
 		/*
-		 * don't recurse into Aggrefs, since they see the values prior
-		 * to grouping.  GroupingFuncs don't see them at all.
+		 * don't recurse into the arguments or filter of Aggrefs, since they
+		 * see the values prior to grouping.  But do recurse into direct args
+		 * if any.
+		 */
+
+		if (((Aggref *)node)->aggdirectargs != NIL)
+		{
+			Aggref *newnode = palloc(sizeof(Aggref));
+
+			memcpy(newnode, node, sizeof(Aggref));
+
+			newnode->aggdirectargs
+				= (List *) expression_tree_mutator((Node *) newnode->aggdirectargs,
+												   set_group_vars_mutator,
+												   (void *) context);
+
+			return (Node *) newnode;
+		}
+
+		return node;
+	}
+	else if (IsA(node, GroupingFunc))
+	{
+		/*
+		 * GroupingFuncs don't see the values at all.
 		 */
 		return node;
 	}
