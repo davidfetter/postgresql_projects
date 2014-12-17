@@ -263,7 +263,7 @@ typedef struct PlannerInfo
 
 	/* for GroupedVar fixup in setrefs */
 	AttrNumber *groupColIdx;
-	/* for Grouping fixup in setrefs */
+	/* for GroupingFunc fixup in setrefs */
 	AttrNumber *grouping_map;
 } PlannerInfo;
 

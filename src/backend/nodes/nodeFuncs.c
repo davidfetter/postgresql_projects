@@ -45,9 +45,6 @@ exprType(const Node *expr)
 		case T_Var:
 			type = ((const Var *) expr)->vartype;
 			break;
-		case T_Grouping:
-			type = INT4OID;
-			break;
 		case T_GroupedVar:
 			type = ((const GroupedVar *) expr)->vartype;
 			break;
@@ -59,6 +56,9 @@ exprType(const Node *expr)
 			break;
 		case T_Aggref:
 			type = ((const Aggref *) expr)->aggtype;
+			break;
+		case T_GroupingFunc:
+			type = INT4OID;
 			break;
 		case T_WindowFunc:
 			type = ((const WindowFunc *) expr)->wintype;
@@ -267,8 +267,6 @@ exprTypmod(const Node *expr)
 	{
 		case T_Var:
 			return ((const Var *) expr)->vartypmod;
-		case T_Grouping:
-			return -1;
 		case T_GroupedVar:
 			return ((const GroupedVar *) expr)->vartypmod;
 		case T_Const:
@@ -744,9 +742,6 @@ exprCollation(const Node *expr)
 		case T_Var:
 			coll = ((const Var *) expr)->varcollid;
 			break;
-		case T_Grouping:
-			coll = InvalidOid;
-			break;
 		case T_GroupedVar:
 			coll = ((const GroupedVar *) expr)->varcollid;
 			break;
@@ -758,6 +753,9 @@ exprCollation(const Node *expr)
 			break;
 		case T_Aggref:
 			coll = ((const Aggref *) expr)->aggcollid;
+			break;
+		case T_GroupingFunc:
+			coll = InvalidOid;
 			break;
 		case T_WindowFunc:
 			coll = ((const WindowFunc *) expr)->wincollid;
@@ -995,6 +993,9 @@ exprSetCollation(Node *expr, Oid collation)
 		case T_Aggref:
 			((Aggref *) expr)->aggcollid = collation;
 			break;
+		case T_GroupingFunc:
+			Assert(!OidIsValid(collation));
+			break;
 		case T_WindowFunc:
 			((WindowFunc *) expr)->wincollid = collation;
 			break;
@@ -1021,9 +1022,6 @@ exprSetCollation(Node *expr, Oid collation)
 			break;
 		case T_BoolExpr:
 			Assert(!OidIsValid(collation));		/* result is always boolean */
-			break;
-		case T_Grouping:
-			Assert(!OidIsValid(collation));
 			break;
 		case T_SubLink:
 #ifdef USE_ASSERT_CHECKING
@@ -1204,9 +1202,6 @@ exprLocation(const Node *expr)
 		case T_Var:
 			loc = ((const Var *) expr)->location;
 			break;
-		case T_Grouping:
-			loc = ((const Grouping *) expr)->location;
-			break;
 		case T_GroupedVar:
 			loc = ((const GroupedVar *) expr)->location;
 			break;
@@ -1219,6 +1214,9 @@ exprLocation(const Node *expr)
 		case T_Aggref:
 			/* function name should always be the first thing */
 			loc = ((const Aggref *) expr)->location;
+			break;
+		case T_GroupingFunc:
+			loc = ((const GroupingFunc *) expr)->location;
 			break;
 		case T_WindowFunc:
 			/* function name should always be the first thing */
@@ -1687,9 +1685,9 @@ expression_tree_walker(Node *node,
 					return true;
 			}
 			break;
-		case T_Grouping:
+		case T_GroupingFunc:
 			{
-				Grouping   *grouping = (Grouping *) node;
+				GroupingFunc *grouping = (GroupingFunc *) node;
 
 				if (expression_tree_walker((Node *) grouping->args,
 										   walker, context))
@@ -2212,17 +2210,6 @@ expression_tree_mutator(Node *node,
 		case T_RangeTblRef:
 		case T_SortGroupClause:
 			return (Node *) copyObject(node);
-		case T_Grouping:
-			{
-				Grouping	   *grouping = (Grouping *) node;
-				Grouping	   *newnode;
-
-				FLATCOPY(newnode, grouping, Grouping);
-				MUTATE(newnode->args, grouping->args, List *);
-				/* assume no need to copy or mutate the refs list */
-				return (Node *) newnode;
-			}
-			break;
 		case T_WithCheckOption:
 			{
 				WithCheckOption *wco = (WithCheckOption *) node;
@@ -2243,6 +2230,29 @@ expression_tree_mutator(Node *node,
 				MUTATE(newnode->aggorder, aggref->aggorder, List *);
 				MUTATE(newnode->aggdistinct, aggref->aggdistinct, List *);
 				MUTATE(newnode->aggfilter, aggref->aggfilter, Expr *);
+				return (Node *) newnode;
+			}
+			break;
+		case T_GroupingFunc:
+			{
+				GroupingFunc   *grouping = (GroupingFunc *) node;
+				GroupingFunc   *newnode;
+
+				FLATCOPY(newnode, grouping, GroupingFunc);
+				MUTATE(newnode->args, grouping->args, List *);
+
+				/*
+				 * We assume here that mutating the arguments does not change
+				 * the semantics, i.e. that the arguments are not mutated in a
+				 * way that makes them semantically different from their
+				 * previously matching expressions in the GROUP BY clause.
+				 *
+				 * If a mutator somehow wanted to do this, it would have to
+				 * handle the refs and cols lists itself as appropriate.
+				 */
+				newnode->refs = list_copy(grouping->refs);
+				newnode->cols = list_copy(grouping->cols);
+
 				return (Node *) newnode;
 			}
 			break;
@@ -2931,6 +2941,8 @@ raw_expression_tree_walker(Node *node,
 			break;
 		case T_RangeVar:
 			return walker(((RangeVar *) node)->alias, context);
+		case T_GroupingFunc:
+			return walker(((GroupingFunc *) node)->args, context);
 		case T_SubLink:
 			{
 				SubLink    *sublink = (SubLink *) node;
@@ -3254,6 +3266,8 @@ raw_expression_tree_walker(Node *node,
 				/* for now, constraints are ignored */
 			}
 			break;
+		case T_GroupingSet:
+			return walker(((GroupingSet *) node)->content, context);
 		case T_LockingClause:
 			return walker(((LockingClause *) node)->lockedRels, context);
 		case T_XmlSerialize:
@@ -3266,8 +3280,6 @@ raw_expression_tree_walker(Node *node,
 					return true;
 			}
 			break;
-		case T_GroupingSet:
-			return walker(((GroupingSet *) node)->content, context);
 		case T_WithClause:
 			return walker(((WithClause *) node)->ctes, context);
 		case T_CommonTableExpr:

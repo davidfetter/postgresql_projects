@@ -117,7 +117,6 @@ typedef enum NodeTag
 	T_SortState,
 	T_GroupState,
 	T_AggState,
-	T_GroupingState,
 	T_WindowAggState,
 	T_UniqueState,
 	T_HashState,
@@ -135,6 +134,7 @@ typedef enum NodeTag
 	T_Const,
 	T_Param,
 	T_Aggref,
+	T_GroupingFunc,
 	T_WindowFunc,
 	T_ArrayRef,
 	T_FuncExpr,
@@ -175,7 +175,6 @@ typedef enum NodeTag
 	T_FromExpr,
 	T_IntoClause,
 	T_GroupedVar,
-	T_Grouping,
 
 	/*
 	 * TAGS FOR EXPRESSION STATE NODES (execnodes.h)
@@ -187,6 +186,7 @@ typedef enum NodeTag
 	T_GenericExprState,
 	T_WholeRowVarExprState,
 	T_AggrefExprState,
+	T_GroupingFuncExprState,
 	T_WindowFuncExprState,
 	T_ArrayRefExprState,
 	T_FuncExprState,
@@ -404,6 +404,7 @@ typedef enum NodeTag
 	T_RangeTblFunction,
 	T_WithCheckOption,
 	T_SortGroupClause,
+	T_GroupingSet,
 	T_WindowClause,
 	T_PrivGrantee,
 	T_FuncWithArgs,
@@ -416,7 +417,6 @@ typedef enum NodeTag
 	T_XmlSerialize,
 	T_WithClause,
 	T_CommonTableExpr,
-	T_GroupingSet,
 
 	/*
 	 * TAGS FOR REPLICATION GRAMMAR PARSE NODES (replnodes.h)

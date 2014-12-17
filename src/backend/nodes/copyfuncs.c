@@ -1097,23 +1097,6 @@ _copyVar(const Var *from)
 }
 
 /*
- * _copyGrouping
- */
-static Grouping *
-_copyGrouping(const Grouping *from)
-{
-	Grouping		   *newnode = makeNode(Grouping);
-
-	COPY_NODE_FIELD(args);
-	COPY_NODE_FIELD(refs);
-	COPY_NODE_FIELD(cols);
-	COPY_LOCATION_FIELD(location);
-	COPY_SCALAR_FIELD(agglevelsup);
-
-	return newnode;
-}
-
-/*
  * _copyGroupedVar
  */
 static GroupedVar *
@@ -1210,6 +1193,23 @@ _copyAggref(const Aggref *from)
 	COPY_SCALAR_FIELD(aggstar);
 	COPY_SCALAR_FIELD(aggvariadic);
 	COPY_SCALAR_FIELD(aggkind);
+	COPY_SCALAR_FIELD(agglevelsup);
+	COPY_LOCATION_FIELD(location);
+
+	return newnode;
+}
+
+/*
+ * _copyGroupingFunc
+ */
+static GroupingFunc *
+_copyGroupingFunc(const GroupingFunc *from)
+{
+	GroupingFunc	   *newnode = makeNode(GroupingFunc);
+
+	COPY_NODE_FIELD(args);
+	COPY_NODE_FIELD(refs);
+	COPY_NODE_FIELD(cols);
 	COPY_SCALAR_FIELD(agglevelsup);
 	COPY_LOCATION_FIELD(location);
 
@@ -4200,9 +4200,6 @@ copyObject(const void *from)
 		case T_GroupedVar:
 			retval = _copyGroupedVar(from);
 			break;
-		case T_Grouping:
-			retval = _copyGrouping(from);
-			break;
 		case T_Const:
 			retval = _copyConst(from);
 			break;
@@ -4211,6 +4208,9 @@ copyObject(const void *from)
 			break;
 		case T_Aggref:
 			retval = _copyAggref(from);
+			break;
+		case T_GroupingFunc:
+			retval = _copyGroupingFunc(from);
 			break;
 		case T_WindowFunc:
 			retval = _copyWindowFunc(from);

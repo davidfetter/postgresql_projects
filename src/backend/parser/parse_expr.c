@@ -167,10 +167,6 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 										InvalidOid, InvalidOid, -1);
 			break;
 
-		case T_Grouping:
-			result = transformGroupingExpr(pstate, (Grouping *) expr);
-			break;
-
 		case T_TypeCast:
 			{
 				TypeCast   *tc = (TypeCast *) expr;
@@ -264,6 +260,10 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 
 		case T_MultiAssignRef:
 			result = transformMultiAssignRef(pstate, (MultiAssignRef *) expr);
+			break;
+
+		case T_GroupingFunc:
+			result = transformGroupingFunc(pstate, (GroupingFunc *) expr);
 			break;
 
 		case T_NamedArgExpr:

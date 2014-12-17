@@ -153,21 +153,6 @@ _equalVar(const Var *a, const Var *b)
 }
 
 static bool
-_equalGrouping(const Grouping *a, const Grouping *b)
-{
-	COMPARE_NODE_FIELD(args);
-
-	/*
-	 * We must not compare the refs or cols field
-	 */
-
-	COMPARE_LOCATION_FIELD(location);
-	COMPARE_SCALAR_FIELD(agglevelsup);
-
-	return true;
-}
-
-static bool
 _equalGroupedVar(const GroupedVar *a, const GroupedVar *b)
 {
 	COMPARE_SCALAR_FIELD(varno);
@@ -232,6 +217,21 @@ _equalAggref(const Aggref *a, const Aggref *b)
 	COMPARE_SCALAR_FIELD(aggstar);
 	COMPARE_SCALAR_FIELD(aggvariadic);
 	COMPARE_SCALAR_FIELD(aggkind);
+	COMPARE_SCALAR_FIELD(agglevelsup);
+	COMPARE_LOCATION_FIELD(location);
+
+	return true;
+}
+
+static bool
+_equalGroupingFunc(const GroupingFunc *a, const GroupingFunc *b)
+{
+	COMPARE_NODE_FIELD(args);
+
+	/*
+	 * We must not compare the refs or cols field
+	 */
+
 	COMPARE_SCALAR_FIELD(agglevelsup);
 	COMPARE_LOCATION_FIELD(location);
 
@@ -2629,9 +2629,6 @@ equal(const void *a, const void *b)
 		case T_GroupedVar:
 			retval = _equalGroupedVar(a, b);
 			break;
-		case T_Grouping:
-			retval = _equalGrouping(a, b);
-			break;
 		case T_Const:
 			retval = _equalConst(a, b);
 			break;
@@ -2640,6 +2637,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_Aggref:
 			retval = _equalAggref(a, b);
+			break;
+		case T_GroupingFunc:
+			retval = _equalGroupingFunc(a, b);
 			break;
 		case T_WindowFunc:
 			retval = _equalWindowFunc(a, b);

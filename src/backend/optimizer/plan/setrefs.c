@@ -1155,9 +1155,9 @@ fix_expr_common(PlannerInfo *root, Node *node)
 				lappend_oid(root->glob->relationOids,
 							DatumGetObjectId(con->constvalue));
 	}
-	else if (IsA(node, Grouping))
+	else if (IsA(node, GroupingFunc))
 	{
-		Grouping   *g = (Grouping *) node;
+		GroupingFunc *g = (GroupingFunc *) node;
 		AttrNumber *refmap = root->grouping_map;
 
 		/* If there are no grouping sets, we don't need this. */
@@ -1364,11 +1364,11 @@ set_group_vars_mutator(Node *node, set_group_vars_context *context)
 
 		return (Node *) var;
 	}
-	else if (IsA(node, Aggref) || IsA(node, Grouping))
+	else if (IsA(node, Aggref) || IsA(node, GroupingFunc))
 	{
 		/*
 		 * don't recurse into Aggrefs, since they see the values prior
-		 * to grouping.
+		 * to grouping.  GroupingFuncs don't see them at all.
 		 */
 		return node;
 	}

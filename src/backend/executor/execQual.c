@@ -184,8 +184,9 @@ static Datum ExecEvalArrayCoerceExpr(ArrayCoerceExprState *astate,
 						bool *isNull, ExprDoneCond *isDone);
 static Datum ExecEvalCurrentOfExpr(ExprState *exprstate, ExprContext *econtext,
 					  bool *isNull, ExprDoneCond *isDone);
-static Datum ExecEvalGroupingExpr(GroupingState *gstate, ExprContext *econtext,
-								  bool *isNull, ExprDoneCond *isDone);
+static Datum ExecEvalGroupingFuncExpr(GroupingFuncExprState *gstate,
+						ExprContext *econtext,
+						bool *isNull, ExprDoneCond *isDone);
 
 
 /* ----------------------------------------------------------------
@@ -3072,16 +3073,16 @@ ExecEvalCaseTestExpr(ExprState *exprstate,
 }
 
 /*
- * ExecEvalGroupingExpr
+ * ExecEvalGroupingFuncExpr
  * Return a bitmask with a bit for each column.
  * A bit is set if the column is not a part of grouping.
  */
 
 static Datum
-ExecEvalGroupingExpr(GroupingState *gstate,
-					 ExprContext *econtext,
-					 bool *isNull,
-					 ExprDoneCond *isDone)
+ExecEvalGroupingFuncExpr(GroupingFuncExprState *gstate,
+						 ExprContext *econtext,
+						 bool *isNull,
+						 ExprDoneCond *isDone)
 {
 	int result = 0;
 	int current_val= 0;
@@ -4509,27 +4510,6 @@ ExecInitExpr(Expr *node, PlanState *parent)
 			state = (ExprState *) makeNode(ExprState);
 			state->evalfunc = ExecEvalScalarVar;
 			break;
-		case T_Grouping:
-			{
-				Grouping	   *grp_node = (Grouping *) node;
-				GroupingState  *grp_state = makeNode(GroupingState);
-				Agg			   *agg = NULL;
-
-				if (!parent
-					|| !IsA(parent->plan, Agg))
-					elog(ERROR, "Parent of GROUPING is not Agg node");
-
-				agg = (Agg *) (parent->plan);
-
-				if (agg->groupingSets)
-					grp_state->clauses = grp_node->cols;
-				else
-					grp_state->clauses = NIL;
-
-				state = (ExprState *) grp_state;
-				state->evalfunc = (ExprStateEvalFunc) ExecEvalGroupingExpr;
-			}
-			break;
 		case T_Const:
 			state = (ExprState *) makeNode(ExprState);
 			state->evalfunc = ExecEvalConst;
@@ -4596,6 +4576,27 @@ ExecInitExpr(Expr *node, PlanState *parent)
 					elog(ERROR, "Aggref found in non-Agg plan node");
 				}
 				state = (ExprState *) astate;
+			}
+			break;
+		case T_GroupingFunc:
+			{
+				GroupingFunc   *grp_node = (GroupingFunc *) node;
+				GroupingFuncExprState *grp_state = makeNode(GroupingFuncExprState);
+				Agg			   *agg = NULL;
+
+				if (!parent
+					|| !IsA(parent->plan, Agg))
+					elog(ERROR, "Parent of GROUPING is not Agg node");
+
+				agg = (Agg *) (parent->plan);
+
+				if (agg->groupingSets)
+					grp_state->clauses = grp_node->cols;
+				else
+					grp_state->clauses = NIL;
+
+				state = (ExprState *) grp_state;
+				state->evalfunc = (ExprStateEvalFunc) ExecEvalGroupingFuncExpr;
 			}
 			break;
 		case T_WindowFunc:

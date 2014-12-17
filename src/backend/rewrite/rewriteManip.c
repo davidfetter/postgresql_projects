@@ -92,10 +92,11 @@ contain_aggs_of_level_walker(Node *node,
 			return true;		/* abort the tree traversal and return true */
 		/* else fall through to examine argument */
 	}
-	if (IsA(node, Grouping))
+	if (IsA(node, GroupingFunc))
 	{
-		if (((Grouping *) node)->agglevelsup == context->sublevels_up)
+		if (((GroupingFunc *) node)->agglevelsup == context->sublevels_up)
 			return true;
+		/* else fall through to examine argument */
 	}
 	if (IsA(node, Query))
 	{
@@ -162,12 +163,12 @@ locate_agg_of_level_walker(Node *node,
 		}
 		/* else fall through to examine argument */
 	}
-	if (IsA(node, Grouping))
+	if (IsA(node, GroupingFunc))
 	{
-		if (((Grouping *) node)->agglevelsup == context->sublevels_up &&
-			((Grouping *) node)->location >= 0)
+		if (((GroupingFunc *) node)->agglevelsup == context->sublevels_up &&
+			((GroupingFunc *) node)->location >= 0)
 		{
-			context->agg_location = ((Grouping *) node)->location;
+			context->agg_location = ((GroupingFunc *) node)->location;
 			return true;		/* abort the tree traversal and return true */
 		}
 	}
@@ -717,9 +718,9 @@ IncrementVarSublevelsUp_walker(Node *node,
 			agg->agglevelsup += context->delta_sublevels_up;
 		/* fall through to recurse into argument */
 	}
-	if (IsA(node, Grouping))
+	if (IsA(node, GroupingFunc))
 	{
-		Grouping	   *grp = (Grouping *) node;
+		GroupingFunc   *grp = (GroupingFunc *) node;
 
 		if (grp->agglevelsup >= context->min_sublevels_up)
 			grp->agglevelsup += context->delta_sublevels_up;

@@ -337,11 +337,11 @@ replace_outer_agg(PlannerInfo *root, Aggref *agg)
 }
 
 /*
- * Generate a Param node to replace the given Grouping expression
- * which is expected to have agglevelsup > 0 (ie, it is not local).
+ * Generate a Param node to replace the given GroupingFunc expression which is
+ * expected to have agglevelsup > 0 (ie, it is not local).
  */
 static Param *
-replace_outer_grouping(PlannerInfo *root, Grouping *grp)
+replace_outer_grouping(PlannerInfo *root, GroupingFunc *grp)
 {
 	Param	   *retval;
 	PlannerParamItem *pitem;
@@ -349,7 +349,7 @@ replace_outer_grouping(PlannerInfo *root, Grouping *grp)
 
 	Assert(grp->agglevelsup > 0 && grp->agglevelsup < root->query_level);
 
-	/* Find the query level the Grouping belongs to */
+	/* Find the query level the GroupingFunc belongs to */
 	for (levelsup = grp->agglevelsup; levelsup > 0; levelsup--)
 		root = root->parent_root;
 
@@ -357,7 +357,7 @@ replace_outer_grouping(PlannerInfo *root, Grouping *grp)
 	 * It does not seem worthwhile to try to match duplicate outer aggs. Just
 	 * make a new slot every time.
 	 */
-	grp = (Grouping *) copyObject(grp);
+	grp = (GroupingFunc *) copyObject(grp);
 	IncrementVarSublevelsUp((Node *) grp, -((int) grp->agglevelsup), 0);
 	Assert(grp->agglevelsup == 0);
 
@@ -1892,10 +1892,10 @@ replace_correlation_vars_mutator(Node *node, PlannerInfo *root)
 		if (((Aggref *) node)->agglevelsup > 0)
 			return (Node *) replace_outer_agg(root, (Aggref *) node);
 	}
-	if (IsA(node, Grouping))
+	if (IsA(node, GroupingFunc))
 	{
-		if (((Grouping *) node)->agglevelsup > 0)
-			return (Node *) replace_outer_grouping(root, (Grouping *) node);
+		if (((GroupingFunc *) node)->agglevelsup > 0)
+			return (Node *) replace_outer_grouping(root, (GroupingFunc *) node);
 	}
 	return expression_tree_mutator(node,
 								   replace_correlation_vars_mutator,

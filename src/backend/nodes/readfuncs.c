@@ -456,20 +456,6 @@ _readVar(void)
 	READ_DONE();
 }
 
-static Grouping *
-_readGrouping(void)
-{
-	READ_LOCALS(Grouping);
-
-	READ_NODE_FIELD(args);
-	READ_NODE_FIELD(refs);
-	READ_NODE_FIELD(cols);
-	READ_LOCATION_FIELD(location);
-	READ_INT_FIELD(agglevelsup);
-
-	READ_DONE();
-}
-
 /*
  * _readGroupedVar
  */
@@ -555,6 +541,23 @@ _readAggref(void)
 	READ_BOOL_FIELD(aggvariadic);
 	READ_CHAR_FIELD(aggkind);
 	READ_UINT_FIELD(agglevelsup);
+	READ_LOCATION_FIELD(location);
+
+	READ_DONE();
+}
+
+/*
+ * _readGroupingFunc
+ */
+static GroupingFunc *
+_readGroupingFunc(void)
+{
+	READ_LOCALS(GroupingFunc);
+
+	READ_NODE_FIELD(args);
+	READ_NODE_FIELD(refs);
+	READ_NODE_FIELD(cols);
+	READ_INT_FIELD(agglevelsup);
 	READ_LOCATION_FIELD(location);
 
 	READ_DONE();
@@ -1376,14 +1379,14 @@ parseNodeString(void)
 		return_value = _readVar();
 	else if (MATCH("GROUPEDVAR", 10))
 		return_value = _readGroupedVar();
-	else if (MATCH("GROUPING", 8))
-		return_value = _readGrouping();
 	else if (MATCH("CONST", 5))
 		return_value = _readConst();
 	else if (MATCH("PARAM", 5))
 		return_value = _readParam();
 	else if (MATCH("AGGREF", 6))
 		return_value = _readAggref();
+	else if (MATCH("GROUPINGFUNC", 12))
+		return_value = _readGroupingFunc();
 	else if (MATCH("WINDOWFUNC", 10))
 		return_value = _readWindowFunc();
 	else if (MATCH("ARRAYREF", 8))

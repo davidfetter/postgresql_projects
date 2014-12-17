@@ -6801,6 +6801,16 @@ get_rule_expr(Node *node, deparse_context *context,
 			get_agg_expr((Aggref *) node, context);
 			break;
 
+		case T_GroupingFunc:
+			{
+				GroupingFunc *gexpr = (GroupingFunc *) node;
+
+				appendStringInfoString(buf, "GROUPING(");
+				get_rule_expr((Node *) gexpr->args, context, true);
+				appendStringInfoChar(buf, ')');
+			}
+			break;
+
 		case T_WindowFunc:
 			get_windowfunc_expr((WindowFunc *) node, context);
 			break;
@@ -7682,16 +7692,6 @@ get_rule_expr(Node *node, deparse_context *context,
 				else
 					appendStringInfo(buf, "CURRENT OF $%d",
 									 cexpr->cursor_param);
-			}
-			break;
-
-		case T_Grouping:
-			{
-				Grouping *gexpr = (Grouping *) node;
-
-				appendStringInfoString(buf, "GROUPING(");
-				get_rule_expr((Node *) gexpr->args, context, true);
-				appendStringInfoChar(buf, ')');
 			}
 			break;
 

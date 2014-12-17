@@ -929,18 +929,6 @@ _outVar(StringInfo str, const Var *node)
 }
 
 static void
-_outGrouping(StringInfo str, const Grouping *node)
-{
-	WRITE_NODE_TYPE("GROUPING");
-
-	WRITE_NODE_FIELD(args);
-	WRITE_NODE_FIELD(refs);
-	WRITE_NODE_FIELD(cols);
-	WRITE_LOCATION_FIELD(location);
-	WRITE_INT_FIELD(agglevelsup);
-}
-
-static void
 _outGroupedVar(StringInfo str, const GroupedVar *node)
 {
 	WRITE_NODE_TYPE("GROUPEDVAR");
@@ -1007,6 +995,18 @@ _outAggref(StringInfo str, const Aggref *node)
 	WRITE_BOOL_FIELD(aggvariadic);
 	WRITE_CHAR_FIELD(aggkind);
 	WRITE_UINT_FIELD(agglevelsup);
+	WRITE_LOCATION_FIELD(location);
+}
+
+static void
+_outGroupingFunc(StringInfo str, const GroupingFunc *node)
+{
+	WRITE_NODE_TYPE("GROUPINGFUNC");
+
+	WRITE_NODE_FIELD(args);
+	WRITE_NODE_FIELD(refs);
+	WRITE_NODE_FIELD(cols);
+	WRITE_INT_FIELD(agglevelsup);
 	WRITE_LOCATION_FIELD(location);
 }
 
@@ -2995,9 +2995,6 @@ _outNode(StringInfo str, const void *obj)
 			case T_GroupedVar:
 				_outGroupedVar(str, obj);
 				break;
-			case T_Grouping:
-				_outGrouping(str, obj);
-				break;
 			case T_Const:
 				_outConst(str, obj);
 				break;
@@ -3006,6 +3003,9 @@ _outNode(StringInfo str, const void *obj)
 				break;
 			case T_Aggref:
 				_outAggref(str, obj);
+				break;
+			case T_GroupingFunc:
+				_outGroupingFunc(str, obj);
 				break;
 			case T_WindowFunc:
 				_outWindowFunc(str, obj);

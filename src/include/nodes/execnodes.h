@@ -602,6 +602,21 @@ typedef struct AggrefExprState
 } AggrefExprState;
 
 /* ----------------
+ *		GroupingFuncExprState node
+ *
+ * The list of column numbers refers to the input tuples of the Agg node to
+ * which the GroupingFunc belongs, and may contain 0 for references to columns
+ * that are only present in grouping sets processed by different Agg nodes (and
+ * which are therefore always considered "grouping" here).
+ * ----------------
+ */
+typedef struct GroupingFuncExprState
+{
+	ExprState	xprstate;
+	List	   *clauses;		/* integer list of column numbers */
+} GroupingFuncExprState;
+
+/* ----------------
  *		WindowFuncExprState node
  * ----------------
  */
@@ -917,16 +932,6 @@ typedef struct MinMaxExprState
 	List	   *args;			/* the arguments */
 	FmgrInfo	cfunc;			/* lookup info for comparison func */
 } MinMaxExprState;
-
-/* ----------------
- *		GroupingState node
- * ----------------
- */
-typedef struct GroupingState
-{
-	ExprState	xprstate;
-	List        *clauses;
-} GroupingState;
 
 /* ----------------
  *		XmlExprState node

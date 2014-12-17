@@ -564,9 +564,9 @@ pull_var_clause_walker(Node *node, pull_var_clause_context *context)
 				break;
 		}
 	}
-	else if (IsA(node, Grouping))
+	else if (IsA(node, GroupingFunc))
 	{
-		if (((Grouping *) node)->agglevelsup != 0)
+		if (((GroupingFunc *) node)->agglevelsup != 0)
 			elog(ERROR, "Upper-level GROUPING found where not expected");
 		switch (context->aggbehavior)
 		{

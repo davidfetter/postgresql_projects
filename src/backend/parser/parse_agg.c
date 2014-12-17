@@ -223,19 +223,19 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	check_agglevels_and_constraints(pstate, (Node *) agg);
 }
 
-/* transformGroupingExpr
+/* transformGroupingFunc
  * Transform a GROUPING expression
  *
  * GROUPING() behaves very like an aggregate.  Processing of levels and nesting
  * is done as for aggregates.  We set p_hasAggs for these expressions too.
  */
 Node *
-transformGroupingExpr(ParseState *pstate, Grouping *p)
+transformGroupingFunc(ParseState *pstate, GroupingFunc *p)
 {
 	ListCell   *lc;
 	List	   *args = p->args;
 	List	   *result_list = NIL;
-	Grouping   *result = makeNode(Grouping);
+	GroupingFunc *result = makeNode(GroupingFunc);
 
 	if (list_length(args) > 31)
 		ereport(ERROR,
@@ -293,7 +293,7 @@ check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 	}
 	else
 	{
-		Grouping *grp = (Grouping *) expr;
+		GroupingFunc *grp = (GroupingFunc *) expr;
 
 		args = grp->args;
 		location = grp->location;
@@ -647,9 +647,9 @@ check_agg_arguments_walker(Node *node,
 		/* no need to examine args of the inner aggregate */
 		return false;
 	}
-	if (IsA(node, Grouping))
+	if (IsA(node, GroupingFunc))
 	{
-		int			agglevelsup = ((Grouping *) node)->agglevelsup;
+		int			agglevelsup = ((GroupingFunc *) node)->agglevelsup;
 
 		/* convert levelsup to frame of reference of original query */
 		agglevelsup -= context->sublevels_up;
@@ -1196,11 +1196,11 @@ check_ungrouped_columns_walker(Node *node,
 			return false;
 	}
 
-	if (IsA(node, Grouping))
+	if (IsA(node, GroupingFunc))
 	{
-		Grouping *grp = (Grouping *) node;
+		GroupingFunc *grp = (GroupingFunc *) node;
 
-		/* we handled Grouping separately, no need to recheck at this level. */
+		/* handled GroupingFunc separately, no need to recheck at this level */
 
 		if ((int) grp->agglevelsup >= context->sublevels_up)
 			return false;
@@ -1403,12 +1403,12 @@ finalize_grouping_exprs_walker(Node *node,
 			return false;
 	}
 
-	if (IsA(node, Grouping))
+	if (IsA(node, GroupingFunc))
 	{
-		Grouping *grp = (Grouping *) node;
+		GroupingFunc *grp = (GroupingFunc *) node;
 
 		/*
-		 * We only need to check Grouping nodes at the exact level to which
+		 * We only need to check GroupingFunc nodes at the exact level to which
 		 * they belong, since they cannot mix levels in arguments.
 		 */
 
