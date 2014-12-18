@@ -1395,25 +1395,39 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		{
 			List	   *groupExprs;
 
-			groupExprs = get_sortgrouplist_exprs(parse->groupClause,
-												 parse->targetList);
 			if (parse->groupingSets)
 			{
-				ListCell   *lc;
+				ListCell   *lc,
+						   *lc2;
 
 				dNumGroups = 0;
 
-				foreach(lc, parse->groupingSets)
+				forboth(lc, rollup_groupclauses, lc2, rollup_lists)
 				{
-					dNumGroups += estimate_num_groups(root,
-													  groupExprs,
-													  path_rows,
-													  (List **) &(lfirst(lc)));
+					ListCell   *lc3;
+
+					groupExprs = get_sortgrouplist_exprs(lfirst(lc),
+														 parse->targetList);
+
+					foreach(lc3, lfirst(lc2))
+					{
+						List   *gset = lfirst(lc3);
+
+						dNumGroups += estimate_num_groups(root,
+														  groupExprs,
+														  path_rows,
+														  &gset);
+					}
 				}
 			}
 			else
+			{
+				groupExprs = get_sortgrouplist_exprs(parse->groupClause,
+													 parse->targetList);
+
 				dNumGroups = estimate_num_groups(root, groupExprs, path_rows,
 												 NULL);
+			}
 
 			/*
 			 * In GROUP BY mode, an absolute LIMIT is relative to the number
