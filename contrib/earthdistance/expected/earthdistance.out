@@ -9,7 +9,7 @@
 --
 CREATE EXTENSION earthdistance;  -- fail, must install cube first
 ERROR:  required extension "cube" is not installed
-CREATE EXTENSION "cube";
+CREATE EXTENSION cube;
 CREATE EXTENSION earthdistance;
 --
 -- The radius of the Earth we are using.
@@ -892,7 +892,7 @@ SELECT cube_dim(ll_to_earth(0,0)) <= 3;
  t
 (1 row)
 
-SELECT abs(cube_distance(ll_to_earth(0,0), '(0)'::"cube") / earth() - 1) <
+SELECT abs(cube_distance(ll_to_earth(0,0), '(0)'::cube) / earth() - 1) <
        '10e-12'::float8;
  ?column? 
 ----------
@@ -910,7 +910,7 @@ SELECT cube_dim(ll_to_earth(30,60)) <= 3;
  t
 (1 row)
 
-SELECT abs(cube_distance(ll_to_earth(30,60), '(0)'::"cube") / earth() - 1) <
+SELECT abs(cube_distance(ll_to_earth(30,60), '(0)'::cube) / earth() - 1) <
        '10e-12'::float8;
  ?column? 
 ----------
@@ -928,7 +928,7 @@ SELECT cube_dim(ll_to_earth(60,90)) <= 3;
  t
 (1 row)
 
-SELECT abs(cube_distance(ll_to_earth(60,90), '(0)'::"cube") / earth() - 1) <
+SELECT abs(cube_distance(ll_to_earth(60,90), '(0)'::cube) / earth() - 1) <
        '10e-12'::float8;
  ?column? 
 ----------
@@ -946,7 +946,7 @@ SELECT cube_dim(ll_to_earth(-30,-90)) <= 3;
  t
 (1 row)
 
-SELECT abs(cube_distance(ll_to_earth(-30,-90), '(0)'::"cube") / earth() - 1) <
+SELECT abs(cube_distance(ll_to_earth(-30,-90), '(0)'::cube) / earth() - 1) <
        '10e-12'::float8;
  ?column? 
 ----------
@@ -959,35 +959,35 @@ SELECT abs(cube_distance(ll_to_earth(-30,-90), '(0)'::"cube") / earth() - 1) <
 -- list what's installed
 \dT
                                               List of data types
- Schema |  Name  |                                         Description                                         
---------+--------+---------------------------------------------------------------------------------------------
- public | "cube" | multi-dimensional cube '(FLOAT-1, FLOAT-2, ..., FLOAT-N), (FLOAT-1, FLOAT-2, ..., FLOAT-N)'
- public | earth  | 
+ Schema | Name  |                                         Description                                         
+--------+-------+---------------------------------------------------------------------------------------------
+ public | cube  | multi-dimensional cube '(FLOAT-1, FLOAT-2, ..., FLOAT-N), (FLOAT-1, FLOAT-2, ..., FLOAT-N)'
+ public | earth | 
 (2 rows)
 
-drop extension "cube";  -- fail, earthdistance requires it
+drop extension cube;  -- fail, earthdistance requires it
 ERROR:  cannot drop extension cube because other objects depend on it
 DETAIL:  extension earthdistance depends on extension cube
 HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 drop extension earthdistance;
-drop type "cube";  -- fail, extension cube requires it
-ERROR:  cannot drop type "cube" because extension cube requires it
+drop type cube;  -- fail, extension cube requires it
+ERROR:  cannot drop type cube because extension cube requires it
 HINT:  You can drop extension cube instead.
 -- list what's installed
 \dT
-                                              List of data types
- Schema |  Name  |                                         Description                                         
---------+--------+---------------------------------------------------------------------------------------------
- public | "cube" | multi-dimensional cube '(FLOAT-1, FLOAT-2, ..., FLOAT-N), (FLOAT-1, FLOAT-2, ..., FLOAT-N)'
+                                             List of data types
+ Schema | Name |                                         Description                                         
+--------+------+---------------------------------------------------------------------------------------------
+ public | cube | multi-dimensional cube '(FLOAT-1, FLOAT-2, ..., FLOAT-N), (FLOAT-1, FLOAT-2, ..., FLOAT-N)'
 (1 row)
 
-create table foo (f1 "cube", f2 int);
-drop extension "cube";  -- fail, foo.f1 requires it
+create table foo (f1 cube, f2 int);
+drop extension cube;  -- fail, foo.f1 requires it
 ERROR:  cannot drop extension cube because other objects depend on it
-DETAIL:  table foo column f1 depends on type "cube"
+DETAIL:  table foo column f1 depends on type cube
 HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 drop table foo;
-drop extension "cube";
+drop extension cube;
 -- list what's installed
 \dT
      List of data types
@@ -1008,7 +1008,7 @@ drop extension "cube";
 (0 rows)
 
 create schema c;
-create extension "cube" with schema c;
+create extension cube with schema c;
 -- list what's installed
 \dT public.*
      List of data types
@@ -1029,23 +1029,23 @@ create extension "cube" with schema c;
 (0 rows)
 
 \dT c.*
-                                               List of data types
- Schema |   Name   |                                         Description                                         
---------+----------+---------------------------------------------------------------------------------------------
- c      | c."cube" | multi-dimensional cube '(FLOAT-1, FLOAT-2, ..., FLOAT-N), (FLOAT-1, FLOAT-2, ..., FLOAT-N)'
+                                              List of data types
+ Schema |  Name  |                                         Description                                         
+--------+--------+---------------------------------------------------------------------------------------------
+ c      | c.cube | multi-dimensional cube '(FLOAT-1, FLOAT-2, ..., FLOAT-N), (FLOAT-1, FLOAT-2, ..., FLOAT-N)'
 (1 row)
 
-create table foo (f1 c."cube", f2 int);
-drop extension "cube";  -- fail, foo.f1 requires it
+create table foo (f1 c.cube, f2 int);
+drop extension cube;  -- fail, foo.f1 requires it
 ERROR:  cannot drop extension cube because other objects depend on it
-DETAIL:  table foo column f1 depends on type c."cube"
+DETAIL:  table foo column f1 depends on type c.cube
 HINT:  Use DROP ... CASCADE to drop the dependent objects too.
 drop schema c;  -- fail, cube requires it
 ERROR:  cannot drop schema c because other objects depend on it
 DETAIL:  extension cube depends on schema c
-table foo column f1 depends on type c."cube"
+table foo column f1 depends on type c.cube
 HINT:  Use DROP ... CASCADE to drop the dependent objects too.
-drop extension "cube" cascade;
+drop extension cube cascade;
 NOTICE:  drop cascades to table foo column f1
 \d foo
       Table "public.foo"
