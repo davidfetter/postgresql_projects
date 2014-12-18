@@ -958,6 +958,7 @@ runShellCommand(CState *st, char *variable, char **argv, int argc)
 	{
 		if (!timer_exceeded)
 			fprintf(stderr, "%s: cannot read the result\n", argv[0]);
+		(void) pclose(fp);
 		return false;
 	}
 	if (pclose(fp) < 0)
@@ -2539,6 +2540,10 @@ printResults(int ttype, int64 normal_xacts, int nclients,
 		printf("number of transactions actually processed: " INT64_FORMAT "\n",
 			   normal_xacts);
 	}
+
+	/* Remaining stats are nonsensical if we failed to execute any xacts */
+	if (normal_xacts <= 0)
+		return;
 
 	if (throttle_delay && latency_limit)
 		printf("number of transactions skipped: " INT64_FORMAT " (%.3f %%)\n",
