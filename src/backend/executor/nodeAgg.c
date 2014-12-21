@@ -1302,15 +1302,15 @@ agg_retrieve_direct(AggState *aggstate)
 		else
 		{
 			/*
-			 * we no longer care what group we just projected, the next projection
-			 * will always be the first (or only) grouping set (unless the input
-			 * proves to be empty).
+			 * We no longer care what group we just projected, the next
+			 * projection will always be the first (or only) grouping set
+			 * (unless the input proves to be empty).
 			 */
 			aggstate->projected_set = 0;
 
 			/*
-			 * If we don't already have the first tuple of the new group, fetch it
-			 * from the outer plan.
+			 * If we don't already have the first tuple of the new group, fetch
+			 * it from the outer plan.
 			 */
 			if (aggstate->grp_firstTuple == NULL)
 			{
@@ -1358,7 +1358,7 @@ agg_retrieve_direct(AggState *aggstate)
 			}
 
 			/*
-			 * Initialize working state for a new input tuple group
+			 * Initialize working state for a new input tuple group.
 			 */
 			initialize_aggregates(aggstate, peragg, pergroup, numReset);
 
@@ -1893,11 +1893,11 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 * Create expression contexts.  We need three or more, one for
 	 * per-input-tuple processing, one for per-output-tuple processing, and one
 	 * for each grouping set.  The per-tuple memory context of the
-	 * per-grouping-set ExprContexts replaces the standalone memory context
-	 * formerly used to hold transition values.  We cheat a little by using
-	 * ExecAssignExprContext() to build all of them.
+	 * per-grouping-set ExprContexts (aggcontexts) replaces the standalone
+	 * memory context formerly used to hold transition values.  We cheat a
+	 * little by using ExecAssignExprContext() to build all of them.
 	 *
-	 * NOTE: the details of what is stored in aggcontext and what is stored in
+	 * NOTE: the details of what is stored in aggcontexts and what is stored in
 	 * the regular per-query memory context are driven by a simple decision: we
 	 * want to reset the aggcontext at group boundaries (if not hashing) and in
 	 * ExecReScanAgg to recover no-longer-wanted space.
