@@ -1092,6 +1092,7 @@ copyVar(Var *var)
  * We must look up operator opcode info for OpExpr and related nodes,
  * add OIDs from regclass Const nodes into root->glob->relationOids, and
  * add catalog TIDs for user-defined functions into root->glob->invalItems.
+ * We also fill in column index lists for GROUPING() expressions.
  *
  * We assume it's okay to update opcode info in-place.  So this could possibly
  * scribble on the planner's input data structures, but it's OK.
@@ -1313,7 +1314,6 @@ fix_scan_expr_walker(Node *node, fix_scan_expr_context *context)
  *    Modify any Var references in the target list of a non-trivial
  *    (i.e. contains grouping sets) Agg node to use GroupedVar instead,
  *    which will conditionally replace them with nulls at runtime.
- *    Also fill in the cols list of any GROUPING() node.
  */
 static void
 set_group_vars(PlannerInfo *root, Agg *agg)
