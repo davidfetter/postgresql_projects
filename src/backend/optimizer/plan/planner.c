@@ -1460,8 +1460,9 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		{
 			/*
 			 * Ungrouped aggregate will certainly want to read all the tuples,
-			 * and it will deliver a single result row (so leave dNumGroups
-			 * set to 1).
+			 * and it will deliver a single result row per grouping set (or 1
+			 * if no grouping sets were explicitly given, in which case leave
+			 * dNumGroups as-is)
 			 */
 			tuple_fraction = 0.0;
 			if (parse->groupingSets)
@@ -1564,7 +1565,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			/*
 			 * If grouping, decide whether to use sorted or hashed grouping.
 			 * If grouping sets are present, we can currently do only sorted
-			 * grouping
+			 * grouping.
 			 */
 
 			if (parse->groupingSets)
