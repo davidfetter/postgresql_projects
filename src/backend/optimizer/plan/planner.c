@@ -1724,7 +1724,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												groupColIdx,
 												extract_grouping_ops(parse->groupClause),
 												NIL,
-												false,
+												NULL,
 												numGroups,
 												result_plan);
 				/* Hashed aggregation produces randomly-ordered results */
@@ -1732,7 +1732,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			}
 			else if (parse->hasAggs || (parse->groupingSets && parse->groupClause))
 			{
-				bool		is_chained = false;
+				int			chain_depth = 0;
 
 				/*
 				 * If we need multiple grouping nodes, start stacking them up;
@@ -1783,7 +1783,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 						if (list_length(rollup_groupclauses) == 1)
 						{
 							aggstrategy = AGG_SORTED;
-							if (!is_chained)
+							if (chain_depth == 0)
 								current_pathkeys = root->group_pathkeys;
 						}
 						else
@@ -1804,11 +1804,11 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 													new_grpColIdx,
 													extract_grouping_ops(groupClause),
 													gsets,
-													is_chained && (aggstrategy != AGG_CHAINED),
+													(aggstrategy != AGG_CHAINED) ? &chain_depth : NULL,
 													numGroups,
 													result_plan);
 
-					is_chained = true;
+					chain_depth += 1;
 
 					if (refmap)
 						pfree(refmap);
@@ -2114,7 +2114,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 													result_plan->targetlist),
 								 extract_grouping_ops(parse->distinctClause),
 											NIL,
-											false,
+											NULL,
 											numDistinctRows,
 											result_plan);
 			/* Hashed aggregation produces randomly-ordered results */

@@ -2547,7 +2547,7 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 					finalize_primnode((Node *) agg_chain_head->plan.targetlist, &context);
 					finalize_primnode((Node *) agg_chain_head->plan.qual, &context);
 				}
-				else if (agg->chain_head)
+				else if (agg->chain_depth > 0)
 					agg_chain_head = agg;
 			}
 			break;

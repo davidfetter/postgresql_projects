@@ -1030,7 +1030,7 @@ create_unique_plan(PlannerInfo *root, UniquePath *best_path)
 								 groupColIdx,
 								 groupOperators,
 								 NIL,
-								 false,
+								 NULL,
 								 numGroups,
 								 subplan);
 	}
@@ -4359,7 +4359,7 @@ Agg *
 make_agg(PlannerInfo *root, List *tlist, List *qual,
 		 AggStrategy aggstrategy, const AggClauseCosts *aggcosts,
 		 int numGroupCols, AttrNumber *grpColIdx, Oid *grpOperators,
-		 List *groupingSets, bool chain_head,
+		 List *groupingSets, int *chain_depth_p,
 		 long numGroups,
 		 Plan *lefttree)
 {
@@ -4369,7 +4369,7 @@ make_agg(PlannerInfo *root, List *tlist, List *qual,
 	QualCost	qual_cost;
 
 	node->aggstrategy = aggstrategy;
-	node->chain_head = chain_head;
+	node->chain_depth = chain_depth_p ? *chain_depth_p : 0;
 	node->numCols = numGroupCols;
 	node->grpColIdx = grpColIdx;
 	node->grpOperators = grpOperators;
@@ -4416,7 +4416,7 @@ make_agg(PlannerInfo *root, List *tlist, List *qual,
 
 	if (aggstrategy == AGG_CHAINED)
 	{
-		Assert(!chain_head);
+		Assert(!chain_depth_p);
 		plan->plan_rows = lefttree->plan_rows;
 		plan->plan_width = lefttree->plan_width;
 

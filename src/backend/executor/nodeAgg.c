@@ -1624,6 +1624,20 @@ agg_retrieve_chained(AggState *aggstate)
 	if (TupIsNull(outerslot))
 	{
 		aggstate->agg_done = true;
+
+		/*
+		 * We're out of input, so the calling node has all the data it needs
+		 * and (if it's a Sort) is about to sort it. We preemptively request a
+		 * rescan of our input plan here, so that Sort nodes containing data
+		 * that is no longer needed will free their memory.  The intention here
+		 * is to bound the peak memory requirement for the whole chain to
+		 * 2*work_mem if REWIND was not requested, or 3*work_mem if REWIND was
+		 * requested and we had to supply a Sort node for the original data
+		 * source plan.
+		 */
+
+		ExecReScan(outerPlanState(aggstate));
+
 		return NULL;
 	}
 
@@ -1827,10 +1841,10 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	int			numaggs,
 				aggno;
 	ListCell   *l;
-	int        numGroupingSets = 1;
-	int        currentsortno = 0;
-	int        i = 0;
-	int        j = 0;
+	int			numGroupingSets = 1;
+	int			currentsortno = 0;
+	int			i = 0;
+	int			j = 0;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
@@ -1859,6 +1873,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->hashtable = NULL;
 	aggstate->chain_depth = 0;
 	aggstate->chain_rescan = 0;
+	aggstate->chain_eflags = eflags;
+	aggstate->chain_top = false;
 	aggstate->chain_head = NULL;
 	aggstate->chain_tuplestore = NULL;
 
@@ -1920,7 +1936,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	ExecInitResultTupleSlot(estate, &aggstate->ss.ps);
 	aggstate->hashslot = ExecInitExtraTupleSlot(estate);
 
-
 	/*
 	 * initialize child expressions
 	 *
@@ -1932,19 +1947,31 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 */
 	if (node->aggstrategy == AGG_CHAINED)
 	{
-		Assert(estate->agg_chain_head);
+		AggState   *chain_head = estate->agg_chain_head;
+		Agg		   *chain_head_plan;
 
-		aggstate->chain_head = estate->agg_chain_head;
-		aggstate->chain_head->chain_depth++;
+		Assert(chain_head);
+
+		aggstate->chain_head = chain_head;
+		chain_head->chain_depth++;
+
+		chain_head_plan = (Agg *) chain_head->ss.ps.plan;
+
+		/*
+		 * If we reached the originally declared depth, we must be the "top"
+		 * (furthest from plan root) node in the chain.
+		 */
+		if (chain_head_plan->chain_depth == chain_head->chain_depth)
+			aggstate->chain_top = true;
 
 		/*
 		 * Snarf the real targetlist and qual from the chain head node
 		 */
 		aggstate->ss.ps.targetlist = (List *)
-			ExecInitExpr((Expr *) aggstate->chain_head->ss.ps.plan->targetlist,
+			ExecInitExpr((Expr *) chain_head_plan->plan.targetlist,
 						 (PlanState *) aggstate);
 		aggstate->ss.ps.qual = (List *)
-			ExecInitExpr((Expr *) aggstate->chain_head->ss.ps.plan->qual,
+			ExecInitExpr((Expr *) chain_head_plan->plan.qual,
 						 (PlanState *) aggstate);
 	}
 	else
@@ -1957,7 +1984,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 						 (PlanState *) aggstate);
 	}
 
-	if (node->chain_head)
+	if (node->chain_depth > 0)
 	{
 		save_chain_head = estate->agg_chain_head;
 		estate->agg_chain_head = aggstate;
@@ -1970,13 +1997,22 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 *
 	 * If we are doing a hashed aggregation then the child plan does not need
 	 * to handle REWIND efficiently; see ExecReScanAgg.
+	 *
+	 * If we have more than one associated ChainAggregate node, then we turn
+	 * off REWIND and restore it in the chain top, so that the intermediate
+	 * Sort nodes will discard their data on rescan.  This lets us put an upper
+	 * bound on the memory usage, even when we have a long chain of sorts (at
+	 * the cost of having to re-sort on rewind, which is why we don't do it
+	 * for only one node where no memory would be saved).
 	 */
-	if (node->aggstrategy == AGG_HASHED)
+	if (aggstate->chain_top)
+		eflags = aggstate->chain_head->chain_eflags;
+	else if (node->aggstrategy == AGG_HASHED || node->chain_depth > 1)
 		eflags &= ~EXEC_FLAG_REWIND;
 	outerPlan = outerPlan(node);
 	outerPlanState(aggstate) = ExecInitNode(outerPlan, estate, eflags);
 
-	if (node->chain_head)
+	if (node->chain_depth > 0)
 	{
 		estate->agg_chain_head = save_chain_head;
 	}
@@ -2472,7 +2508,7 @@ ExecEndAgg(AggState *node)
 	for (i = 0; i < numGroupingSets; ++i)
 		ReScanExprContext(node->aggcontext[i]);
 
-	if (node->chain_tuplestore && !node->chain_head)
+	if (node->chain_tuplestore && node->chain_depth > 0)
 		tuplestore_end(node->chain_tuplestore);
 
 	/*
@@ -2606,12 +2642,11 @@ ExecReScanAgg(AggState *node)
 	 * whether we need to reset the tuplestore depends on whether anything
 	 * (specifically the Sort nodes) protects the child ChainAggs from rescan.
 	 * Since this is hard to know in advance, we have the ChainAggs signal us
-	 * as to whether the reset is needed. (We assume that either all children
-	 * in the chain are protected or none are; since all Sort nodes in the
-	 * chain should have the same flags. If this changes, it would probably be
-	 * necessary to add a signalling param to force child rescan.)
+	 * as to whether the reset is needed.  Since we're preempting the rescan
+	 * in some cases, we only check whether any ChainAgg node was reached in
+	 * the rescan; the others may have already been reset.
 	 */
-	if (aggnode->chain_head)
+	if (aggnode->chain_depth > 0)
 	{
 		if (node->ss.ps.lefttree->chgParam)
 			tuplestore_clear(node->chain_tuplestore);
@@ -2621,12 +2656,10 @@ ExecReScanAgg(AggState *node)
 
 			ExecReScan(node->ss.ps.lefttree);
 
-			if (node->chain_rescan == node->chain_depth)
+			if (node->chain_rescan > 0)
 				tuplestore_clear(node->chain_tuplestore);
-			else if (node->chain_rescan == 0)
-				tuplestore_rescan(node->chain_tuplestore);
 			else
-				elog(ERROR, "chained aggregate rescan depth error");
+				tuplestore_rescan(node->chain_tuplestore);
 		}
 		node->chain_done = false;
 	}

@@ -1796,6 +1796,8 @@ typedef struct AggState
 	TupleHashIterator hashiter; /* for iterating through hash table */
 	int			chain_depth;	/* number of chained child nodes */
 	int			chain_rescan;	/* rescan indicator */
+	int			chain_eflags;	/* saved eflags for rewind optimization */
+	bool		chain_top;		/* true for the "top" node in a chain */
 	struct AggState	*chain_head;
 	Tuplestorestate *chain_tuplestore;
 } AggState;
