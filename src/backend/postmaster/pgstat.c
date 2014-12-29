@@ -1132,12 +1132,11 @@ pgstat_collect_oids(Oid catalogid)
 	memset(&hash_ctl, 0, sizeof(hash_ctl));
 	hash_ctl.keysize = sizeof(Oid);
 	hash_ctl.entrysize = sizeof(Oid);
-	hash_ctl.hash = oid_hash;
 	hash_ctl.hcxt = CurrentMemoryContext;
 	htab = hash_create("Temporary table of OIDs",
 					   PGSTAT_TAB_HASH_SIZE,
 					   &hash_ctl,
-					   HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+					   HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 
 	rel = heap_open(catalogid, AccessShareLock);
 	snapshot = RegisterSnapshot(GetLatestSnapshot());
@@ -1520,11 +1519,10 @@ pgstat_init_function_usage(FunctionCallInfoData *fcinfo,
 		memset(&hash_ctl, 0, sizeof(hash_ctl));
 		hash_ctl.keysize = sizeof(Oid);
 		hash_ctl.entrysize = sizeof(PgStat_BackendFunctionEntry);
-		hash_ctl.hash = oid_hash;
 		pgStatFunctions = hash_create("Function stat entries",
 									  PGSTAT_FUNCTION_HASH_SIZE,
 									  &hash_ctl,
-									  HASH_ELEM | HASH_FUNCTION);
+									  HASH_ELEM | HASH_BLOBS);
 	}
 
 	/* Get the stats entry for this function, create if necessary */
@@ -2563,7 +2561,7 @@ pgstat_bestart(void)
 	beentry = MyBEEntry;
 	do
 	{
-		beentry->st_changecount++;
+		pgstat_increment_changecount_before(beentry);
 	} while ((beentry->st_changecount & 1) == 0);
 
 	beentry->st_procpid = MyProcPid;
@@ -2588,8 +2586,7 @@ pgstat_bestart(void)
 	beentry->st_appname[NAMEDATALEN - 1] = '\0';
 	beentry->st_activity[pgstat_track_activity_query_size - 1] = '\0';
 
-	beentry->st_changecount++;
-	Assert((beentry->st_changecount & 1) == 0);
+	pgstat_increment_changecount_after(beentry);
 
 	/* Update app name to current GUC setting */
 	if (application_name)
@@ -2624,12 +2621,11 @@ pgstat_beshutdown_hook(int code, Datum arg)
 	 * before and after.  We use a volatile pointer here to ensure the
 	 * compiler doesn't try to get cute.
 	 */
-	beentry->st_changecount++;
+	pgstat_increment_changecount_before(beentry);
 
 	beentry->st_procpid = 0;	/* mark invalid */
 
-	beentry->st_changecount++;
-	Assert((beentry->st_changecount & 1) == 0);
+	pgstat_increment_changecount_after(beentry);
 }
 
 
@@ -2666,7 +2662,7 @@ pgstat_report_activity(BackendState state, const char *cmd_str)
 			 * non-disabled state.  As our final update, change the state and
 			 * clear fields we will not be updating anymore.
 			 */
-			beentry->st_changecount++;
+			pgstat_increment_changecount_before(beentry);
 			beentry->st_state = STATE_DISABLED;
 			beentry->st_state_start_timestamp = 0;
 			beentry->st_activity[0] = '\0';
@@ -2674,8 +2670,7 @@ pgstat_report_activity(BackendState state, const char *cmd_str)
 			/* st_xact_start_timestamp and st_waiting are also disabled */
 			beentry->st_xact_start_timestamp = 0;
 			beentry->st_waiting = false;
-			beentry->st_changecount++;
-			Assert((beentry->st_changecount & 1) == 0);
+			pgstat_increment_changecount_after(beentry);
 		}
 		return;
 	}
@@ -2695,7 +2690,7 @@ pgstat_report_activity(BackendState state, const char *cmd_str)
 	/*
 	 * Now update the status entry
 	 */
-	beentry->st_changecount++;
+	pgstat_increment_changecount_before(beentry);
 
 	beentry->st_state = state;
 	beentry->st_state_start_timestamp = current_timestamp;
@@ -2707,8 +2702,7 @@ pgstat_report_activity(BackendState state, const char *cmd_str)
 		beentry->st_activity_start_timestamp = start_timestamp;
 	}
 
-	beentry->st_changecount++;
-	Assert((beentry->st_changecount & 1) == 0);
+	pgstat_increment_changecount_after(beentry);
 }
 
 /* ----------
@@ -2734,13 +2728,12 @@ pgstat_report_appname(const char *appname)
 	 * st_changecount before and after.  We use a volatile pointer here to
 	 * ensure the compiler doesn't try to get cute.
 	 */
-	beentry->st_changecount++;
+	pgstat_increment_changecount_before(beentry);
 
 	memcpy((char *) beentry->st_appname, appname, len);
 	beentry->st_appname[len] = '\0';
 
-	beentry->st_changecount++;
-	Assert((beentry->st_changecount & 1) == 0);
+	pgstat_increment_changecount_after(beentry);
 }
 
 /*
@@ -2760,10 +2753,9 @@ pgstat_report_xact_timestamp(TimestampTz tstamp)
 	 * st_changecount before and after.  We use a volatile pointer here to
 	 * ensure the compiler doesn't try to get cute.
 	 */
-	beentry->st_changecount++;
+	pgstat_increment_changecount_before(beentry);
 	beentry->st_xact_start_timestamp = tstamp;
-	beentry->st_changecount++;
-	Assert((beentry->st_changecount & 1) == 0);
+	pgstat_increment_changecount_after(beentry);
 }
 
 /* ----------
@@ -2839,7 +2831,10 @@ pgstat_read_current_status(void)
 		 */
 		for (;;)
 		{
-			int			save_changecount = beentry->st_changecount;
+			int			before_changecount;
+			int			after_changecount;
+
+			pgstat_save_changecount_before(beentry, before_changecount);
 
 			localentry->backendStatus.st_procpid = beentry->st_procpid;
 			if (localentry->backendStatus.st_procpid > 0)
@@ -2856,8 +2851,9 @@ pgstat_read_current_status(void)
 				localentry->backendStatus.st_activity = localactivity;
 			}
 
-			if (save_changecount == beentry->st_changecount &&
-				(save_changecount & 1) == 0)
+			pgstat_save_changecount_after(beentry, after_changecount);
+			if (before_changecount == after_changecount &&
+				(before_changecount & 1) == 0)
 				break;
 
 			/* Make sure we can break out of loop if stuck... */
@@ -2927,12 +2923,17 @@ pgstat_get_backend_current_activity(int pid, bool checkUser)
 
 		for (;;)
 		{
-			int			save_changecount = vbeentry->st_changecount;
+			int			before_changecount;
+			int			after_changecount;
+
+			pgstat_save_changecount_before(vbeentry, before_changecount);
 
 			found = (vbeentry->st_procpid == pid);
 
-			if (save_changecount == vbeentry->st_changecount &&
-				(save_changecount & 1) == 0)
+			pgstat_save_changecount_after(vbeentry, after_changecount);
+
+			if (before_changecount == after_changecount &&
+				(before_changecount & 1) == 0)
 				break;
 
 			/* Make sure we can break out of loop if stuck... */
@@ -3480,19 +3481,17 @@ reset_dbentry_counters(PgStat_StatDBEntry *dbentry)
 	memset(&hash_ctl, 0, sizeof(hash_ctl));
 	hash_ctl.keysize = sizeof(Oid);
 	hash_ctl.entrysize = sizeof(PgStat_StatTabEntry);
-	hash_ctl.hash = oid_hash;
 	dbentry->tables = hash_create("Per-database table",
 								  PGSTAT_TAB_HASH_SIZE,
 								  &hash_ctl,
-								  HASH_ELEM | HASH_FUNCTION);
+								  HASH_ELEM | HASH_BLOBS);
 
 	hash_ctl.keysize = sizeof(Oid);
 	hash_ctl.entrysize = sizeof(PgStat_StatFuncEntry);
-	hash_ctl.hash = oid_hash;
 	dbentry->functions = hash_create("Per-database function",
 									 PGSTAT_FUNCTION_HASH_SIZE,
 									 &hash_ctl,
-									 HASH_ELEM | HASH_FUNCTION);
+									 HASH_ELEM | HASH_BLOBS);
 }
 
 /*
@@ -3899,10 +3898,9 @@ pgstat_read_statsfiles(Oid onlydb, bool permanent, bool deep)
 	memset(&hash_ctl, 0, sizeof(hash_ctl));
 	hash_ctl.keysize = sizeof(Oid);
 	hash_ctl.entrysize = sizeof(PgStat_StatDBEntry);
-	hash_ctl.hash = oid_hash;
 	hash_ctl.hcxt = pgStatLocalContext;
 	dbhash = hash_create("Databases hash", PGSTAT_DB_HASH_SIZE, &hash_ctl,
-						 HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+						 HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 
 	/*
 	 * Clear out global and archiver statistics so they start from zero in
@@ -4023,21 +4021,19 @@ pgstat_read_statsfiles(Oid onlydb, bool permanent, bool deep)
 				memset(&hash_ctl, 0, sizeof(hash_ctl));
 				hash_ctl.keysize = sizeof(Oid);
 				hash_ctl.entrysize = sizeof(PgStat_StatTabEntry);
-				hash_ctl.hash = oid_hash;
 				hash_ctl.hcxt = pgStatLocalContext;
 				dbentry->tables = hash_create("Per-database table",
 											  PGSTAT_TAB_HASH_SIZE,
 											  &hash_ctl,
-								   HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+									  HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 
 				hash_ctl.keysize = sizeof(Oid);
 				hash_ctl.entrysize = sizeof(PgStat_StatFuncEntry);
-				hash_ctl.hash = oid_hash;
 				hash_ctl.hcxt = pgStatLocalContext;
 				dbentry->functions = hash_create("Per-database function",
 												 PGSTAT_FUNCTION_HASH_SIZE,
 												 &hash_ctl,
-								   HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+									  HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 
 				/*
 				 * If requested, read the data from the database-specific

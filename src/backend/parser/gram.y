@@ -5581,6 +5581,7 @@ opt_restart_seqs:
  *				 CAST (<src type> AS <dst type>) |
  *				 COLUMN <relname>.<colname> |
  *				 CONSTRAINT <constraintname> ON <relname> |
+ *				 CONSTRAINT <constraintname> ON DOMAIN <domainname> |
  *				 FUNCTION <funcname> (arg1, arg2, ...) |
  *				 LARGE OBJECT <oid> |
  *				 OPERATOR <op> (leftoperand_typ, rightoperand_typ) |
@@ -5632,10 +5633,19 @@ CommentStmt:
 			| COMMENT ON CONSTRAINT name ON any_name IS comment_text
 				{
 					CommentStmt *n = makeNode(CommentStmt);
-					n->objtype = OBJECT_CONSTRAINT;
+					n->objtype = OBJECT_TABCONSTRAINT;
 					n->objname = lappend($6, makeString($4));
 					n->objargs = NIL;
 					n->comment = $8;
+					$$ = (Node *) n;
+				}
+			| COMMENT ON CONSTRAINT name ON DOMAIN_P any_name IS comment_text
+				{
+					CommentStmt *n = makeNode(CommentStmt);
+					n->objtype = OBJECT_DOMCONSTRAINT;
+					n->objname = lappend($7, makeString($4));
+					n->objargs = NIL;
+					n->comment = $9;
 					$$ = (Node *) n;
 				}
 			| COMMENT ON POLICY name ON any_name IS comment_text
@@ -7364,8 +7374,7 @@ RenameStmt: ALTER AGGREGATE func_name aggr_args RENAME TO name
 			| ALTER DOMAIN_P any_name RENAME CONSTRAINT name TO name
 				{
 					RenameStmt *n = makeNode(RenameStmt);
-					n->renameType = OBJECT_CONSTRAINT;
-					n->relationType = OBJECT_DOMAIN;
+					n->renameType = OBJECT_DOMCONSTRAINT;
 					n->object = $3;
 					n->subname = $6;
 					n->newname = $8;
@@ -7633,8 +7642,7 @@ RenameStmt: ALTER AGGREGATE func_name aggr_args RENAME TO name
 			| ALTER TABLE relation_expr RENAME CONSTRAINT name TO name
 				{
 					RenameStmt *n = makeNode(RenameStmt);
-					n->renameType = OBJECT_CONSTRAINT;
-					n->relationType = OBJECT_TABLE;
+					n->renameType = OBJECT_TABCONSTRAINT;
 					n->relation = $3;
 					n->subname = $6;
 					n->newname = $8;

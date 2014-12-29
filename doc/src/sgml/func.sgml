@@ -11179,11 +11179,13 @@ SELECT ... WHERE CASE WHEN x &lt;&gt; 0 THEN y/x &gt; 1.5 ELSE false END;
 
    <note>
     <para>
-     As described in <xref linkend="xfunc-volatility">, functions and
-     operators marked <literal>IMMUTABLE</literal> can be evaluated when
-     the query is planned rather than when it is executed.  This means
-     that constant parts of a subexpression that is not evaluated during
-     query execution might still be evaluated during query planning.
+     As described in <xref linkend="syntax-express-eval">, there are various
+     situations in which subexpressions of an expression are evaluated at
+     different times, so that the principle that <quote><token>CASE</token>
+     evaluates only necessary subexpressions</quote> is not ironclad.  For
+     example a constant <literal>1/0</> subexpression will usually result in
+     a division-by-zero failure at planning time, even if it's within
+     a <token>CASE</token> arm that would never be entered at run time.
     </para>
    </note>
   </sect2>
@@ -12230,15 +12232,15 @@ NULL baz</literallayout>(3 rows)</entry>
        <indexterm>
         <primary>json_agg</primary>
        </indexterm>
-       <function>json_agg(<replaceable class="parameter">record</replaceable>)</function>
+       <function>json_agg(<replaceable class="parameter">expression</replaceable>)</function>
       </entry>
       <entry>
-       <type>record</type>
+       <type>any</type>
       </entry>
       <entry>
        <type>json</type>
       </entry>
-      <entry>aggregates records as a JSON array of objects</entry>
+      <entry>aggregates values as a JSON array</entry>
      </row>
 
      <row>
@@ -12246,15 +12248,15 @@ NULL baz</literallayout>(3 rows)</entry>
        <indexterm>
         <primary>jsonb_agg</primary>
        </indexterm>
-       <function>jsonb_agg(<replaceable class="parameter">record</replaceable>)</function>
+       <function>jsonb_agg(<replaceable class="parameter">expression</replaceable>)</function>
       </entry>
       <entry>
-       <type>record</type>
+       <type>any</type>
       </entry>
       <entry>
        <type>jsonb</type>
       </entry>
-      <entry>aggregates records as a JSON array of objects</entry>
+      <entry>aggregates values as a JSON array</entry>
      </row>
 
      <row>
@@ -12265,7 +12267,7 @@ NULL baz</literallayout>(3 rows)</entry>
        <function>json_object_agg(<replaceable class="parameter">name</replaceable>, <replaceable class="parameter">value</replaceable>)</function>
       </entry>
       <entry>
-       <type>("any", "any")</type>
+       <type>(any, any)</type>
       </entry>
       <entry>
        <type>json</type>
@@ -12281,7 +12283,7 @@ NULL baz</literallayout>(3 rows)</entry>
        <function>jsonb_object_agg(<replaceable class="parameter">name</replaceable>, <replaceable class="parameter">value</replaceable>)</function>
       </entry>
       <entry>
-       <type>("any", "any")</type>
+       <type>(any, any)</type>
       </entry>
       <entry>
        <type>jsonb</type>
@@ -17794,6 +17796,19 @@ FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger();
         <entry><literal>objsubid</literal></entry>
         <entry><type>int32</type></entry>
         <entry>Object sub-id (e.g. attribute number for columns)</entry>
+       </row>
+       <row>
+        <entry><literal>original</literal></entry>
+        <entry><type>bool</type></entry>
+        <entry>Flag used to identify the root object(s) of the deletion</entry>
+       </row>
+       <row>
+        <entry><literal>normal</literal></entry>
+        <entry><type>bool</type></entry>
+        <entry>
+         Flag indicating that there's a normal dependency relationship
+         in the dependency graph leading to this object
+        </entry>
        </row>
        <row>
         <entry><literal>object_type</literal></entry>

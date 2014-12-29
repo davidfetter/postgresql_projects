@@ -117,6 +117,8 @@ typedef struct SQLDropObject
 	const char *objname;
 	const char *objidentity;
 	const char *objecttype;
+	bool		original;
+	bool		normal;
 	slist_node	next;
 } SQLDropObject;
 
@@ -1051,10 +1053,11 @@ EventTriggerSupportsObjectType(ObjectType obtype)
 		case OBJECT_ATTRIBUTE:
 		case OBJECT_CAST:
 		case OBJECT_COLUMN:
-		case OBJECT_CONSTRAINT:
 		case OBJECT_COLLATION:
 		case OBJECT_CONVERSION:
+		case OBJECT_DEFAULT:
 		case OBJECT_DOMAIN:
+		case OBJECT_DOMCONSTRAINT:
 		case OBJECT_EXTENSION:
 		case OBJECT_FDW:
 		case OBJECT_FOREIGN_SERVER:
@@ -1071,6 +1074,7 @@ EventTriggerSupportsObjectType(ObjectType obtype)
 		case OBJECT_RULE:
 		case OBJECT_SCHEMA:
 		case OBJECT_SEQUENCE:
+		case OBJECT_TABCONSTRAINT:
 		case OBJECT_TABLE:
 		case OBJECT_TRIGGER:
 		case OBJECT_TSCONFIGURATION:
@@ -1238,7 +1242,7 @@ trackDroppedObjectsNeeded(void)
  * Register one object as being dropped by the current command.
  */
 void
-EventTriggerSQLDropAddObject(ObjectAddress *object)
+EventTriggerSQLDropAddObject(const ObjectAddress *object, bool original, bool normal)
 {
 	SQLDropObject *obj;
 	MemoryContext oldcxt;
@@ -1257,6 +1261,8 @@ EventTriggerSQLDropAddObject(ObjectAddress *object)
 
 	obj = palloc0(sizeof(SQLDropObject));
 	obj->address = *object;
+	obj->original = original;
+	obj->normal = normal;
 
 	/*
 	 * Obtain schema names from the object's catalog tuple, if one exists;
@@ -1384,8 +1390,8 @@ pg_event_trigger_dropped_objects(PG_FUNCTION_ARGS)
 	{
 		SQLDropObject *obj;
 		int			i = 0;
-		Datum		values[7];
-		bool		nulls[7];
+		Datum		values[9];
+		bool		nulls[9];
 
 		obj = slist_container(SQLDropObject, next, iter.cur);
 
@@ -1400,6 +1406,12 @@ pg_event_trigger_dropped_objects(PG_FUNCTION_ARGS)
 
 		/* objsubid */
 		values[i++] = Int32GetDatum(obj->address.objectSubId);
+
+		/* original */
+		values[i++] = BoolGetDatum(obj->original);
+
+		/* normal */
+		values[i++] = BoolGetDatum(obj->normal);
 
 		/* object_type */
 		values[i++] = CStringGetTextDatum(obj->objecttype);
