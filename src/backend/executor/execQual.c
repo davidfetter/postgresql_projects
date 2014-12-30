@@ -3085,7 +3085,7 @@ ExecEvalGroupingFuncExpr(GroupingFuncExprState *gstate,
 						 ExprDoneCond *isDone)
 {
 	int result = 0;
-	int current_val= 0;
+	int attnum = 0;
 	ListCell *lc;
 
 	if (isDone)
@@ -3095,11 +3095,11 @@ ExecEvalGroupingFuncExpr(GroupingFuncExprState *gstate,
 
 	foreach(lc, (gstate->clauses))
 	{
-		current_val = lfirst_int(lc);
+		attnum = lfirst_int(lc);
 
 		result = result << 1;
 
-		if (!bms_is_member(current_val, econtext->grouped_cols))
+		if (!bms_is_member(attnum, econtext->grouped_cols))
 			result = result | 1;
 	}
 
