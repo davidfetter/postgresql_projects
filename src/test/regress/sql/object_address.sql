@@ -132,7 +132,7 @@ WITH objects (type, name, args) AS (VALUES
 				('cast', '{int8}', '{int4}'),
 				('collation', '{default}', '{}'),
 				('table constraint', '{addr_nsp, gentable, a_chk}', '{}'),
-				('domain constraint', '{addr_nsp, gendomain, domconstr}', '{}'),
+				('domain constraint', '{addr_nsp.gendomain}', '{domconstr}'),
 				('conversion', '{pg_catalog, ascii_to_mic}', '{}'),
 				('default value', '{addr_nsp, gentable, b}', '{}'),
 				('language', '{plpgsql}', '{}'),
@@ -159,9 +159,14 @@ WITH objects (type, name, args) AS (VALUES
 				-- event trigger
 				('policy', '{addr_nsp, gentable, genpol}', '{}')
         )
-SELECT (pg_identify_object(classid, objid, subobjid)).*
-  FROM objects, pg_get_object_address(type, name, args)
-ORDER BY classid, objid;
+SELECT (pg_identify_object(addr1.classid, addr1.objid, addr1.subobjid)).*,
+	-- test roundtrip through pg_identify_object_as_address
+	ROW(pg_identify_object(addr1.classid, addr1.objid, addr1.subobjid)) =
+	ROW(pg_identify_object(addr2.classid, addr2.objid, addr2.subobjid))
+	  FROM objects, pg_get_object_address(type, name, args) addr1,
+			pg_identify_object_as_address(classid, objid, subobjid) ioa(typ,nms,args),
+			pg_get_object_address(typ, nms, ioa.args) as addr2
+	ORDER BY addr1.classid, addr1.objid;
 
 ---
 --- Cleanup resources
