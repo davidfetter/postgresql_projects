@@ -75,8 +75,6 @@ static void show_upper_qual(List *qual, const char *qlabel,
 				ExplainState *es);
 static void show_sort_keys(SortState *sortstate, List *ancestors,
 			   ExplainState *es);
-static void show_ordercheck_keys(OrderCheckState *ocstate, List *ancestors,
-			   ExplainState *es);
 static void show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 					   ExplainState *es);
 static void show_agg_keys(AggState *astate, List *ancestors,
@@ -1442,9 +1440,6 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			show_sort_keys((SortState *) planstate, ancestors, es);
 			show_sort_info((SortState *) planstate, es);
 			break;
-	    case T_OrderCheck:
-			show_ordercheck_keys((OrderCheckState *) planstate, ancestors, es);
-			break;
 		case T_MergeAppend:
 			show_merge_append_keys((MergeAppendState *) planstate,
 								   ancestors, es);
@@ -1790,19 +1785,6 @@ show_sort_keys(SortState *sortstate, List *ancestors, ExplainState *es)
 	show_sort_group_keys((PlanState *) sortstate, "Sort Key",
 						 plan->numCols, plan->sortColIdx,
 						 ancestors, es);
-}
-
-/*
- * Show the sort keys for an OrderCheck node.
- */
-static void
-show_ordercheck_keys(OrderCheckState *ocstate, List *ancestors, ExplainState *es)
-{
-	OrderCheck	   *plan = (OrderCheck *) ocstate->ss.ps.plan;
-
-	/*show_sort_group_keys((PlanState *) ocstate, "OrderCheck Key",
-						 plan->numCols, plan->sortColIdx,
-						 ancestors, es);*/
 }
 
 /*
