@@ -10245,9 +10245,10 @@ table2-mapping
 
   <para>
    <xref linkend="functions-json-creation-table"> shows the functions that are
-   available for creating <type>json</type> values.
-   (Currently, there are no equivalent functions for <type>jsonb</>, but you
-   can cast the result of one of these functions to <type>jsonb</>.)
+   available for creating <type>json</type> and <type>jsonb</type> values.
+   (There are no equivalent functions for <type>jsonb</>, of the <literal>row_to_json</>
+   and <literal>array_to_json</> functions. However, the <literal>to_jsonb</>
+   function supplies much the same functionality as these functions would.)
   </para>
 
   <indexterm>
@@ -10268,6 +10269,18 @@ table2-mapping
   <indexterm>
    <primary>json_object</primary>
   </indexterm>
+  <indexterm>
+   <primary>to_jsonb</primary>
+  </indexterm>
+  <indexterm>
+   <primary>jsonb_build_array</primary>
+  </indexterm>
+  <indexterm>
+   <primary>jsonb_build_object</primary>
+  </indexterm>
+  <indexterm>
+   <primary>jsonb_object</primary>
+  </indexterm>
 
   <table id="functions-json-creation-table">
     <title>JSON Creation Functions</title>
@@ -10282,17 +10295,18 @@ table2-mapping
      </thead>
      <tbody>
       <row>
+       <entry><para><literal>to_json(anyelement)</literal>
+          </para><para><literal>to_jsonb(anyelement)</literal>
+       </para></entry>
        <entry>
-         <literal>to_json(anyelement)</literal>
-       </entry>
-       <entry>
-         Returns the value as JSON.  Arrays and composites are converted
+         Returns the value as <type>json</> or <type>jsonb</>.
+         Arrays and composites are converted
          (recursively) to arrays and objects; otherwise, if there is a cast
          from the type to <type>json</type>, the cast function will be used to
-         perform the conversion; otherwise, a JSON scalar value is produced.
+         perform the conversion; otherwise, a scalar value is produced.
          For any scalar type other than a number, a Boolean, or a null value,
-         the text representation will be used, properly quoted and escaped
-         so that it is a valid JSON string.
+         the text representation will be used, in such a fashion that it is a 
+         valid <type>json</> or <type>jsonb</> value.
        </entry>
        <entry><literal>to_json('Fred said "Hi."'::text)</literal></entry>
        <entry><literal>"Fred said \"Hi.\""</literal></entry>
@@ -10321,9 +10335,9 @@ table2-mapping
        <entry><literal>{"f1":1,"f2":"foo"}</literal></entry>
       </row>
       <row>
-       <entry>
-         <literal>json_build_array(VARIADIC "any")</literal>
-       </entry>
+       <entry><para><literal>json_build_array(VARIADIC "any")</literal>
+          </para><para><literal>jsonb_build_array(VARIADIC "any")</literal>
+       </para></entry>
        <entry>
          Builds a possibly-heterogeneously-typed JSON array out of a variadic
          argument list.
@@ -10332,9 +10346,9 @@ table2-mapping
        <entry><literal>[1, 2, "3", 4, 5]</literal></entry>
       </row>
       <row>
-       <entry>
-         <literal>json_build_object(VARIADIC "any")</literal>
-       </entry>
+       <entry><para><literal>json_build_object(VARIADIC "any")</literal>
+          </para><para><literal>jsonb_build_object(VARIADIC "any")</literal>
+       </para></entry>
        <entry>
          Builds a JSON object out of a variadic argument list.  By
          convention, the argument list consists of alternating
@@ -10344,9 +10358,9 @@ table2-mapping
        <entry><literal>{"foo": 1, "bar": 2}</literal></entry>
       </row>
       <row>
-       <entry>
-         <literal>json_object(text[])</literal>
-       </entry>
+       <entry><para><literal>json_object(text[])</literal>
+          </para><para><literal>jsonb_object(text[])</literal>
+       </para></entry>
        <entry>
          Builds a JSON object out of a text array.  The array must have either
          exactly one dimension with an even number of members, in which case
@@ -10359,9 +10373,9 @@ table2-mapping
        <entry><literal>{"a": "1", "b": "def", "c": "3.5"}</literal></entry>
       </row>
       <row>
-       <entry>
-         <literal>json_object(keys text[], values text[])</literal>
-       </entry>
+       <entry><para><literal>json_object(keys text[], values text[])</literal>
+          </para><para><literal>json_object(keys text[], values text[])</literal>
+       </para></entry>
        <entry>
          This form of <function>json_object</> takes keys and values pairwise from two separate
          arrays. In all other respects it is identical to the one-argument form.
@@ -10716,6 +10730,19 @@ table2-mapping
 </programlisting>
        </entry>
       </row>
+      <row>
+       <entry><para><literal>json_strip_nulls(from_json json)</literal>
+         </para><para><literal>jsonb_strip_nulls(from_json jsonb)</literal>
+       </para></entry>
+       <entry><para><type>json</type></para><para><type>jsonb</type></para></entry>
+       <entry>
+         Returns <replaceable>from_json</replaceable>
+         with all object fields that have null values omitted. Other null values
+         are untouched.
+       </entry>
+       <entry><literal>json_strip_nulls('[{"f1":1,"f2":null},2,null,3]')</literal></entry>
+       <entry><literal>[{"f1":1},2,null,3]</literal></entry>
+       </row>
      </tbody>
     </tgroup>
    </table>
@@ -10752,12 +10779,23 @@ table2-mapping
     </para>
   </note>
 
+  <note>
+    <para>
+      If the argument to <literal>json_strip_nulls</> contains duplicate
+      field names in any object, the result could be semantically somewhat
+      different, depending on the order in which they occur. This is not an
+      issue for <literal>jsonb_strip_nulls</> since jsonb values never have
+      duplicate object field names.
+    </para>
+  </note>
+
   <para>
     See also <xref linkend="functions-aggregate"> for the aggregate
     function <function>json_agg</function> which aggregates record
     values as JSON, and the aggregate function
     <function>json_object_agg</function> which aggregates pairs of values
-    into a JSON object.
+    into a JSON object, and their <type>jsonb</type> equivalents,
+    <function>jsonb_agg</> and <function>jsonb_object_agg</>.
   </para>
 
  </sect1>
@@ -11141,11 +11179,13 @@ SELECT ... WHERE CASE WHEN x &lt;&gt; 0 THEN y/x &gt; 1.5 ELSE false END;
 
    <note>
     <para>
-     As described in <xref linkend="xfunc-volatility">, functions and
-     operators marked <literal>IMMUTABLE</literal> can be evaluated when
-     the query is planned rather than when it is executed.  This means
-     that constant parts of a subexpression that is not evaluated during
-     query execution might still be evaluated during query planning.
+     As described in <xref linkend="syntax-express-eval">, there are various
+     situations in which subexpressions of an expression are evaluated at
+     different times, so that the principle that <quote><token>CASE</token>
+     evaluates only necessary subexpressions</quote> is not ironclad.  For
+     example a constant <literal>1/0</> subexpression will usually result in
+     a division-by-zero failure at planning time, even if it's within
+     a <token>CASE</token> arm that would never be entered at run time.
     </para>
    </note>
   </sect2>
@@ -12190,15 +12230,31 @@ NULL baz</literallayout>(3 rows)</entry>
        <indexterm>
         <primary>json_agg</primary>
        </indexterm>
-       <function>json_agg(<replaceable class="parameter">record</replaceable>)</function>
+       <function>json_agg(<replaceable class="parameter">expression</replaceable>)</function>
       </entry>
       <entry>
-       <type>record</type>
+       <type>any</type>
       </entry>
       <entry>
        <type>json</type>
       </entry>
-      <entry>aggregates records as a JSON array of objects</entry>
+      <entry>aggregates values as a JSON array</entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>jsonb_agg</primary>
+       </indexterm>
+       <function>jsonb_agg(<replaceable class="parameter">expression</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>any</type>
+      </entry>
+      <entry>
+       <type>jsonb</type>
+      </entry>
+      <entry>aggregates values as a JSON array</entry>
      </row>
 
      <row>
@@ -12209,10 +12265,26 @@ NULL baz</literallayout>(3 rows)</entry>
        <function>json_object_agg(<replaceable class="parameter">name</replaceable>, <replaceable class="parameter">value</replaceable>)</function>
       </entry>
       <entry>
-       <type>("any", "any")</type>
+       <type>(any, any)</type>
       </entry>
       <entry>
        <type>json</type>
+      </entry>
+      <entry>aggregates name/value pairs as a JSON object</entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>jsonb_object_agg</primary>
+       </indexterm>
+       <function>jsonb_object_agg(<replaceable class="parameter">name</replaceable>, <replaceable class="parameter">value</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>(any, any)</type>
+      </entry>
+      <entry>
+       <type>jsonb</type>
       </entry>
       <entry>aggregates name/value pairs as a JSON object</entry>
      </row>
@@ -12363,8 +12435,8 @@ SELECT count(*) FROM sometable;
 
   <para>
    The aggregate functions <function>array_agg</function>,
-   <function>json_agg</function>,
-   <function>json_object_agg</function>,
+   <function>json_agg</function>, <function>jsonb_agg</function>,
+   <function>json_object_agg</function>, <function>jsonb_object_agg</function>,
    <function>string_agg</function>,
    and <function>xmlagg</function>, as well as similar user-defined
    aggregate functions, produce meaningfully different result values
@@ -15236,14 +15308,6 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
    </indexterm>
 
    <indexterm>
-    <primary>pg_describe_object</primary>
-   </indexterm>
-
-   <indexterm>
-    <primary>pg_identify_object</primary>
-   </indexterm>
-
-   <indexterm>
     <primary>pg_get_constraintdef</primary>
    </indexterm>
 
@@ -15356,16 +15420,6 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
        <entry><literal><function>format_type(<parameter>type_oid</parameter>, <parameter>typemod</>)</function></literal></entry>
        <entry><type>text</type></entry>
        <entry>get SQL name of a data type</entry>
-      </row>
-      <row>
-       <entry><literal><function>pg_describe_object(<parameter>catalog_id</parameter>, <parameter>object_id</parameter>, <parameter>object_sub_id</parameter>)</function></literal></entry>
-       <entry><type>text</type></entry>
-       <entry>get description of a database object</entry>
-      </row>
-      <row>
-       <entry><literal><function>pg_identify_object(<parameter>catalog_id</parameter> <type>oid</>, <parameter>object_id</parameter> <type>oid</>, <parameter>object_sub_id</parameter> <type>integer</>)</function></literal></entry>
-       <entry><parameter>type</> <type>text</>, <parameter>schema</> <type>text</>, <parameter>name</> <type>text</>, <parameter>identity</> <type>text</></entry>
-       <entry>get identity of a database object</entry>
       </row>
       <row>
        <entry><literal><function>pg_get_constraintdef(<parameter>constraint_oid</parameter>)</function></literal></entry>
@@ -15636,31 +15690,6 @@ SELECT pg_type_is_visible('myschema.widget'::regtype);
   </para>
 
   <para>
-   <function>pg_describe_object</function> returns a textual description of a database
-   object specified by catalog OID, object OID and a (possibly zero) sub-object ID.
-   This description is intended to be human-readable, and might be translated,
-   depending on server configuration.
-   This is useful to determine the identity of an object as stored in the
-   <structname>pg_depend</structname> catalog.
-  </para>
-
-  <para>
-   <function>pg_identify_object</function> returns a row containing enough information
-   to uniquely identify the database object specified by catalog OID, object OID and a
-   (possibly zero) sub-object ID.  This information is intended to be machine-readable,
-   and is never translated.
-   <parameter>type</> identifies the type of database object;
-   <parameter>schema</> is the schema name that the object belongs in, or
-   <literal>NULL</> for object types that do not belong to schemas;
-   <parameter>name</> is the name of the object, quoted if necessary, only
-   present if it can be used (alongside schema name, if pertinent) as a unique
-   identifier of the object, otherwise <literal>NULL</>;
-   <parameter>identity</> is the complete object identity, with the precise format
-   depending on object type, and each part within the format being
-   schema-qualified and quoted as necessary.
-  </para>
-
-  <para>
    <function>pg_typeof</function> returns the OID of the data type of the
    value that is passed to it.  This can be helpful for troubleshooting or
    dynamically constructing SQL queries.  The function is declared as
@@ -15716,6 +15745,112 @@ SELECT collation for ('foo' COLLATE "de_DE");
    rather than throwing an error if the name is not found (or, for
    <function>to_regproc</function> and <function>to_regoper</function>, if
    the given name matches multiple objects).
+  </para>
+
+   <indexterm>
+    <primary>pg_describe_object</primary>
+   </indexterm>
+
+   <indexterm>
+    <primary>pg_identify_object</primary>
+   </indexterm>
+
+   <indexterm>
+    <primary>pg_identify_object_as_address</primary>
+   </indexterm>
+
+   <indexterm>
+    <primary>pg_get_object_address</primary>
+   </indexterm>
+
+  <para>
+   <xref linkend="functions-info-object-table"> lists functions related to
+   database object identification and addressing.
+  </para>
+
+   <table id="functions-info-object-table">
+    <title>Object Information and Addressing Functions</title>
+    <tgroup cols="3">
+     <thead>
+      <row><entry>Name</entry> <entry>Return Type</entry> <entry>Description</entry></row>
+     </thead>
+
+     <tbody>
+      <row>
+       <entry><literal><function>pg_describe_object(<parameter>catalog_id</parameter>, <parameter>object_id</parameter>, <parameter>object_sub_id</parameter>)</function></literal></entry>
+       <entry><type>text</type></entry>
+       <entry>get description of a database object</entry>
+      </row>
+      <row>
+       <entry><literal><function>pg_identify_object(<parameter>catalog_id</parameter> <type>oid</>, <parameter>object_id</parameter> <type>oid</>, <parameter>object_sub_id</parameter> <type>integer</>)</function></literal></entry>
+       <entry><parameter>type</> <type>text</>, <parameter>schema</> <type>text</>, <parameter>name</> <type>text</>, <parameter>identity</> <type>text</></entry>
+       <entry>get identity of a database object</entry>
+      </row>
+      <row>
+       <entry><literal><function>pg_identify_object_as_address(<parameter>catalog_id</parameter> <type>oid</>, <parameter>object_id</parameter> <type>oid</>, <parameter>object_sub_id</parameter> <type>integer</>)</function></literal></entry>
+       <entry><parameter>type</> <type>text</>, <parameter>name</> <type>text[]</>, <parameter>args</> <type>text[]</></entry>
+       <entry>get external representation of a database object's address</entry>
+      </row>
+      <row>
+       <entry><literal><function>pg_get_object_address(<parameter>type</parameter> <type>text</>, <parameter>name</parameter> <type>text[]</>, <parameter>args</parameter> <type>text[]</>)</function></literal></entry>
+       <entry><parameter>catalog_id</> <type>oid</>, <parameter>object_id</> <type>oid</>, <parameter>object_sub_id</> <type>int32</></entry>
+       <entry>get address of a database object, from its external representation</entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+
+  <para>
+   <function>pg_describe_object</function> returns a textual description of a database
+   object specified by catalog OID, object OID and a (possibly zero) sub-object ID.
+   This description is intended to be human-readable, and might be translated,
+   depending on server configuration.
+   This is useful to determine the identity of an object as stored in the
+   <structname>pg_depend</structname> catalog.
+  </para>
+
+  <para>
+   <function>pg_identify_object</function> returns a row containing enough information
+   to uniquely identify the database object specified by catalog OID, object OID and a
+   (possibly zero) sub-object ID.  This information is intended to be machine-readable,
+   and is never translated.
+   <parameter>type</> identifies the type of database object;
+   <parameter>schema</> is the schema name that the object belongs in, or
+   <literal>NULL</> for object types that do not belong to schemas;
+   <parameter>name</> is the name of the object, quoted if necessary, only
+   present if it can be used (alongside schema name, if pertinent) as a unique
+   identifier of the object, otherwise <literal>NULL</>;
+   <parameter>identity</> is the complete object identity, with the precise format
+   depending on object type, and each part within the format being
+   schema-qualified and quoted as necessary.
+  </para>
+
+  <para>
+   <function>pg_identify_object_as_address</function> returns a row containing
+   enough information to uniquely identify the database object specified by
+   catalog OID, object OID and a (possibly zero) sub-object ID.  The returned
+   information is independent of the current server, that is, it could be used
+   to identify an identically named object in another server.
+   <parameter>type</> identifies the type of database object;
+   <parameter>name</> and <parameter>args</> are text arrays that together
+   form a reference to the object.  These three columns can be passed to
+   <function>pg_get_object_address</> to obtain the internal address
+   of the object.
+   This function is the inverse of <function>pg_get_object_address</function>.
+  </para>
+
+  <para>
+   <function>pg_get_object_address</function> returns a row containing enough
+   information to uniquely identify the database object specified by its
+   type and object name and argument arrays.  The returned values are the
+   ones that would be used in system catalogs such as <structname>pg_depend</>
+   and can be passed to other system functions such as
+   <function>pg_identify_object</> or <function>pg_describe_object</>.
+   <parameter>catalog_id</> is the OID of the system catalog containing the
+   object;
+   <parameter>object_id</> is the OID of the object itself, and
+   <parameter>object_sub_id</> is the object sub-ID, or zero if none.
+   This function is the inverse of <function>pg_identify_object_as_address</function>.
   </para>
 
    <indexterm>
@@ -17658,6 +17793,19 @@ FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger();
         <entry>Object sub-id (e.g. attribute number for columns)</entry>
        </row>
        <row>
+        <entry><literal>original</literal></entry>
+        <entry><type>bool</type></entry>
+        <entry>Flag used to identify the root object(s) of the deletion</entry>
+       </row>
+       <row>
+        <entry><literal>normal</literal></entry>
+        <entry><type>bool</type></entry>
+        <entry>
+         Flag indicating that there's a normal dependency relationship
+         in the dependency graph leading to this object
+        </entry>
+       </row>
+       <row>
         <entry><literal>object_type</literal></entry>
         <entry><type>text</type></entry>
         <entry>Type of the object</entry>
@@ -17685,6 +17833,24 @@ FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger();
         <entry>
          Text rendering of the object identity, schema-qualified. Each and every
          identifier present in the identity is quoted if necessary.
+        </entry>
+       </row>
+       <row>
+        <entry><literal>address_names</literal></entry>
+        <entry><type>text[]</type></entry>
+        <entry>
+         An array that, together with <literal>object_type</literal> and
+         <literal>address_args</literal>,
+         can be used by the <function>pg_get_object_address()</function> to
+         recreate the object address in a remote server containing an
+         identically named object of the same kind.
+        </entry>
+       </row>
+       <row>
+        <entry><literal>address_args</literal></entry>
+        <entry><type>text[]</type></entry>
+        <entry>
+         Complement for <literal>address_names</literal> above.
         </entry>
        </row>
       </tbody>
