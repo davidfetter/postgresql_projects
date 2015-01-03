@@ -1513,12 +1513,6 @@ pg_get_object_address(PG_FUNCTION_ARGS)
 	 */
 	switch (type)
 	{
-		case OBJECT_LARGEOBJECT:
-			if (list_length(name) != 1)
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("name list length must be exactly %d", 1)));
-			break;
 		case OBJECT_DOMCONSTRAINT:
 		case OBJECT_OPCLASS:
 		case OBJECT_OPFAMILY:
@@ -3370,7 +3364,8 @@ getObjectIdentityParts(const ObjectAddress *object,
 									   quote_qualified_identifier(schema,
 												   NameStr(coll->collname)));
 				if (objname)
-					*objname = list_make2(schema, NameStr(coll->collname));
+					*objname = list_make2(schema,
+										  pstrdup(NameStr(coll->collname)));
 				ReleaseSysCache(collTup);
 				break;
 			}
@@ -3667,7 +3662,7 @@ getObjectIdentityParts(const ObjectAddress *object,
 								 quote_identifier(NameStr(rule->rulename)));
 				getRelationIdentity(&buffer, rule->ev_class, objname);
 				if (objname)
-					*objname = lappend(*objname, NameStr(rule->rulename));
+					*objname = lappend(*objname, pstrdup(NameStr(rule->rulename)));
 
 				heap_close(ruleDesc, AccessShareLock);
 				break;
@@ -3693,7 +3688,7 @@ getObjectIdentityParts(const ObjectAddress *object,
 								 quote_identifier(NameStr(trig->tgname)));
 				getRelationIdentity(&buffer, trig->tgrelid, objname);
 				if (objname)
-					*objname = lappend(*objname, NameStr(trig->tgname));
+					*objname = lappend(*objname, pstrdup(NameStr(trig->tgname)));
 
 				heap_close(trigDesc, AccessShareLock);
 				break;
@@ -3719,7 +3714,7 @@ getObjectIdentityParts(const ObjectAddress *object,
 								 quote_identifier(NameStr(policy->polname)));
 				getRelationIdentity(&buffer, policy->polrelid, objname);
 				if (objname)
-					*objname = lappend(*objname, NameStr(policy->polname));
+					*objname = lappend(*objname, pstrdup(NameStr(policy->polname)));
 
 				heap_close(polDesc, AccessShareLock);
 				break;
@@ -4040,13 +4035,12 @@ getObjectIdentityParts(const ObjectAddress *object,
 
 	/*
 	 * If a get_object_address representation was requested, make sure we are
-	 * providing one.  We don't check for objargs, because many of the cases
-	 * above leave it as NIL.
+	 * providing one.  We don't check objargs, because many of the cases above
+	 * leave it as NIL.
 	 */
 	if (objname && *objname == NIL)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("requested object address for object type that cannot support it")));
+		elog(ERROR, "requested object address for unsupported object class %d: text result \"%s\"",
+			 (int) getObjectClass(object), buffer.data);
 
 	return buffer.data;
 }
