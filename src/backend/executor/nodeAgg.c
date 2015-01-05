@@ -243,7 +243,7 @@ typedef struct AggStatePerAggData
 	 * rest.
 	 */
 
-	Tuplesortstate **sortstate;	/* sort object, if DISTINCT or ORDER BY */
+	Tuplesortstate **sortstates;	/* sort objects, if DISTINCT or ORDER BY */
 
 	/*
 	 * This field is a pre-initialized FunctionCallInfo struct used for
@@ -365,15 +365,15 @@ initialize_aggregates(AggState *aggstate,
 				 * In case of rescan, maybe there could be an uncompleted sort
 				 * operation?  Clean it up if so.
 				 */
-				if (peraggstate->sortstate[i])
-					tuplesort_end(peraggstate->sortstate[i]);
+				if (peraggstate->sortstates[i])
+					tuplesort_end(peraggstate->sortstates[i]);
 
 				/*
 				 * We use a plain Datum sorter when there's a single input column;
 				 * otherwise sort the full tuple.  (See comments for
 				 * process_ordered_aggregate_single.)
 				 */
-				peraggstate->sortstate[i] =
+				peraggstate->sortstates[i] =
 					(peraggstate->numInputs == 1) ?
 					tuplesort_begin_datum(peraggstate->evaldesc->attrs[0]->atttypid,
 										  peraggstate->sortOperators[0],
@@ -606,11 +606,11 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 			{
 				/* OK, put the tuple into the tuplesort object */
 				if (peraggstate->numInputs == 1)
-					tuplesort_putdatum(peraggstate->sortstate[groupno],
+					tuplesort_putdatum(peraggstate->sortstates[groupno],
 									   slot->tts_values[0],
 									   slot->tts_isnull[0]);
 				else
-					tuplesort_puttupleslot(peraggstate->sortstate[groupno], slot);
+					tuplesort_puttupleslot(peraggstate->sortstates[groupno], slot);
 			}
 		}
 		else
@@ -679,7 +679,7 @@ process_ordered_aggregate_single(AggState *aggstate,
 
 	Assert(peraggstate->numDistinctCols < 2);
 
-	tuplesort_performsort(peraggstate->sortstate[aggstate->current_set]);
+	tuplesort_performsort(peraggstate->sortstates[aggstate->current_set]);
 
 	/* Load the column into argument 1 (arg 0 will be transition value) */
 	newVal = fcinfo->arg + 1;
@@ -691,7 +691,7 @@ process_ordered_aggregate_single(AggState *aggstate,
 	 * pfree them when they are no longer needed.
 	 */
 
-	while (tuplesort_getdatum(peraggstate->sortstate[aggstate->current_set], true,
+	while (tuplesort_getdatum(peraggstate->sortstates[aggstate->current_set], true,
 							  newVal, isNull))
 	{
 		/*
@@ -735,8 +735,8 @@ process_ordered_aggregate_single(AggState *aggstate,
 	if (!oldIsNull && !peraggstate->inputtypeByVal)
 		pfree(DatumGetPointer(oldVal));
 
-	tuplesort_end(peraggstate->sortstate[aggstate->current_set]);
-	peraggstate->sortstate[aggstate->current_set] = NULL;
+	tuplesort_end(peraggstate->sortstates[aggstate->current_set]);
+	peraggstate->sortstates[aggstate->current_set] = NULL;
 }
 
 /*
@@ -765,13 +765,13 @@ process_ordered_aggregate_multi(AggState *aggstate,
 	bool		haveOldValue = false;
 	int			i;
 
-	tuplesort_performsort(peraggstate->sortstate[aggstate->current_set]);
+	tuplesort_performsort(peraggstate->sortstates[aggstate->current_set]);
 
 	ExecClearTuple(slot1);
 	if (slot2)
 		ExecClearTuple(slot2);
 
-	while (tuplesort_gettupleslot(peraggstate->sortstate[aggstate->current_set], true, slot1))
+	while (tuplesort_gettupleslot(peraggstate->sortstates[aggstate->current_set], true, slot1))
 	{
 		/*
 		 * Extract the first numTransInputs columns as datums to pass to the
@@ -819,8 +819,8 @@ process_ordered_aggregate_multi(AggState *aggstate,
 	if (slot2)
 		ExecClearTuple(slot2);
 
-	tuplesort_end(peraggstate->sortstate[aggstate->current_set]);
-	peraggstate->sortstate[aggstate->current_set] = NULL;
+	tuplesort_end(peraggstate->sortstates[aggstate->current_set]);
+	peraggstate->sortstates[aggstate->current_set] = NULL;
 }
 
 /*
@@ -2178,10 +2178,10 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		/* Begin filling in the peraggstate data */
 		peraggstate->aggrefstate = aggrefstate;
 		peraggstate->aggref = aggref;
-		peraggstate->sortstate = (Tuplesortstate**) palloc0(sizeof(Tuplesortstate*) * numGroupingSets);
+		peraggstate->sortstates = (Tuplesortstate**) palloc0(sizeof(Tuplesortstate*) * numGroupingSets);
 
 		for (currentsortno = 0; currentsortno < numGroupingSets; currentsortno++)
-			peraggstate->sortstate[currentsortno] = NULL;
+			peraggstate->sortstates[currentsortno] = NULL;
 
 		/* Fetch the pg_aggregate row */
 		aggTuple = SearchSysCache1(AGGFNOID,
@@ -2499,8 +2499,8 @@ ExecEndAgg(AggState *node)
 
 		for (i = 0; i < numGroupingSets; i++)
 		{
-			if (peraggstate->sortstate[i])
-				tuplesort_end(peraggstate->sortstate[i]);
+			if (peraggstate->sortstates[i])
+				tuplesort_end(peraggstate->sortstates[i]);
 		}
 	}
 
@@ -2569,10 +2569,10 @@ ExecReScanAgg(AggState *node)
 		{
 			AggStatePerAgg peraggstate = &node->peragg[aggno];
 
-			if (peraggstate->sortstate[setno])
+			if (peraggstate->sortstates[setno])
 			{
-				tuplesort_end(peraggstate->sortstate[setno]);
-				peraggstate->sortstate[setno] = NULL;
+				tuplesort_end(peraggstate->sortstates[setno]);
+				peraggstate->sortstates[setno] = NULL;
 			}
 		}
 	}
