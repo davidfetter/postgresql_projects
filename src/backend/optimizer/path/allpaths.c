@@ -1315,8 +1315,12 @@ set_function_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	required_outer = rel->lateral_relids;
 
 	/* For SRFs, we consider if there is a preordering present. If we have
-	 * a preordering, we build PathKey and generate a path based on the
-	 * PathKey.
+	 * a preordering, we create an OrderCheck path and set the new path's
+	 * pathkeys as the preorder pathkeys.
+	 * OrderCheck paths essentially add an OrderCheck node on top of FunctionScan
+	 * node that is already present. Additional cost of OrderCheck node is number of
+	 * sort keys * number of rows * operator cost (since OrderCheck node will look
+	 * at each tuple being projected and compare it for order.
 	 */
 	foreach(lc_funcs, (rte->functions))
 	{

@@ -2942,7 +2942,7 @@ _outNode(StringInfo str, const void *obj)
 			case T_Sort:
 				_outSort(str, obj);
 				break;
-		    case T_OrderCheck:
+		case T_OrderCheck:
 				_outOrderCheck(str, obj);
 				break;
 			case T_Unique:

@@ -240,9 +240,9 @@ ExecReScan(PlanState *node)
 			ExecReScanUnique((UniqueState *) node);
 			break;
 
-	    case T_OrderCheckState:
-			ExecReScanOrderCheck((OrderCheckState *) node);
-			break;
+	case T_OrderCheckState:
+		ExecReScanOrderCheck((OrderCheckState *) node);
+		break;
 
 		case T_HashState:
 			ExecReScanHash((HashState *) node);

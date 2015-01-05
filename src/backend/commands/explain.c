@@ -956,9 +956,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_Sort:
 			pname = sname = "Sort";
 			break;
-	    case T_OrderCheck:
-		    pname = sname = "OrderCheck";
-		    break;
+	case T_OrderCheck:
+		pname = sname = "OrderCheck";
+		break;
 		case T_Group:
 			pname = sname = "Group";
 			break;

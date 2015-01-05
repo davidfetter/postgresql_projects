@@ -844,10 +844,10 @@ CreateFunction(CreateFunctionStmt *stmt, const char *queryString)
 	Form_pg_language languageStruct;
 	Form_pg_attribute ret_att;
 	List	   *as_clause;
-	TupleDesc  tupdesc_type;
 	List       *preorder_sortclause = NIL;
-	List       *types_tupdesc = NIL;
+	TupleDesc  types_tupdesc;
 	ListCell   *lc;
+	int iter_tupdescattrs = 0;
 
 	/* Convert list of names to a name and namespace */
 	namespaceId = QualifiedNameGetCreationNamespace(stmt->funcname,
@@ -1009,20 +1009,15 @@ CreateFunction(CreateFunctionStmt *stmt, const char *queryString)
 
 		if (stmt->parameters && prorettype == RECORDOID)
 		{
-			tupdesc_type = build_function_result_tupdesc_d(PointerGetDatum(allParameterTypes),
+			types_tupdesc = build_function_result_tupdesc_d(PointerGetDatum(allParameterTypes),
 														   PointerGetDatum(parameterModes),
 														   PointerGetDatum(parameterNames));
 
 
-			if (tupdesc_type)
-				types_tupdesc = lappend(types_tupdesc, tupdesc_type);
 		}
 		else if (prorettype == TYPTYPE_COMPOSITE)
 		{
-			tupdesc_type = TypeGetTupleDesc(prorettype, NULL);
-
-			if (tupdesc_type)
-				types_tupdesc = lappend(types_tupdesc, tupdesc_type);
+			types_tupdesc = TypeGetTupleDesc(prorettype, NULL);
 		}
 
 		foreach(lc, stmt->preorderClause)
@@ -1032,7 +1027,6 @@ CreateFunction(CreateFunctionStmt *stmt, const char *queryString)
 			ColumnRef *current_cref;
 			Oid typeid = 0;
 			char *cref_val;
-			ListCell *lc_tupdesc;
 			bool isFound = false;
 
 			if (!(IsA(current_val->node, ColumnRef)))
@@ -1043,31 +1037,25 @@ CreateFunction(CreateFunctionStmt *stmt, const char *queryString)
 			current_cref = (ColumnRef *) (current_val->node);
 			cref_val =  strVal(linitial(current_cref->fields));
 
-			foreach(lc_tupdesc, types_tupdesc)
+			current_location = -1;
+
+			isFound = true;
+
+			for (iter_tupdescattrs = 0;iter_tupdescattrs < types_tupdesc->natts;iter_tupdescattrs++)
 			{
-				TupleDesc current_tupdesc = (TupleDesc) (lfirst(lc_tupdesc));
-				int iter_tupdescattrs = 0;
-
-				current_location = -1;
-
-				isFound = true;
-
-				for (iter_tupdescattrs = 0;iter_tupdescattrs < current_tupdesc->natts;iter_tupdescattrs++)
+				ret_att = types_tupdesc->attrs[iter_tupdescattrs];
+				if (namestrcmp(&(ret_att->attname), cref_val) == 0)
 				{
-					ret_att = current_tupdesc->attrs[iter_tupdescattrs];
-					if (namestrcmp(&(ret_att->attname), cref_val) == 0)
-					{
-						typeid = ret_att->atttypid;
-						current_location = iter_tupdescattrs + 1;
-						break;
-					}
+					typeid = ret_att->atttypid;
+					current_location = iter_tupdescattrs + 1;
+					break;
 				}
-
-				if (current_location == -1)
-					ereport(ERROR,
-							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-							 errmsg("ORDER BY element not present in result type")));
 			}
+
+			if (current_location == -1)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("ORDER BY element not present in result type")));
 
 			if (!isFound)
 			{
@@ -1229,7 +1217,7 @@ CreateFunction(CreateFunctionStmt *stmt, const char *queryString)
 						   PointerGetDatum(proconfig),
 						   procost,
 						   prorows,
-		                   preorder_sortclause);
+						   preorder_sortclause);
 }
 
 /*

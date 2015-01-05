@@ -100,14 +100,14 @@ CREATE [ OR REPLACE ] FUNCTION
     If ORDER BY is specified with wrong order i.e if rows are not returned by source query
     in the order specified by ORDER BY clause, calling the function with ORDER BY clause will
     raise an error.
-    <command> CREATE OR REPLACE FUNCTION testfunc(OUT e int) returns setof int as ' SELECT * FROM generate_series(1,10)
+    <programlisting> CREATE OR REPLACE FUNCTION testfunc(OUT e int) returns setof int as ' SELECT * FROM generate_series(1,10)
      ORDER BY generate_series; ' language 'sql' ORDER BY e DESC;
 
      SELECT * FROM testfunc() ORDER BY e DESC;
      ERROR:  Order not same as specified
      STATEMENT:  SELECT * FROM testfunc() ORDER BY e DESC;
      ERROR:  Order not same as specified
-     </command>
+     </programlisting>
 
   </para>
 

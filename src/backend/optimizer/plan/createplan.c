@@ -1820,7 +1820,7 @@ create_functionscan_plan(PlannerInfo *root, Path *best_path,
 												 &sortColIdx,
 												 &sortOperators,
 												 &collations,
-								                 &nullsFirst);
+								   &nullsFirst);
 
 		order_check_plan = make_ordercheck(root,
 										   (Plan *) (scan_plan),
@@ -5049,7 +5049,7 @@ is_projection_capable_plan(Plan *plan)
 		case T_Material:
 		case T_Sort:
 		case T_Unique:
-	    case T_OrderCheck:
+	case T_OrderCheck:
 		case T_SetOp:
 		case T_LockRows:
 		case T_Limit:

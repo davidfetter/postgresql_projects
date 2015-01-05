@@ -302,7 +302,7 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 												  estate, eflags);
 			break;
 
-	    case T_OrderCheck:
+	case T_OrderCheck:
 			result = (PlanState *) ExecInitOrderCheck((OrderCheck *) node,
 													  estate, eflags);
 			break;
@@ -500,7 +500,7 @@ ExecProcNode(PlanState *node)
 			result = ExecUnique((UniqueState *) node);
 			break;
 
-	    case T_OrderCheckState:
+	case T_OrderCheckState:
 			result = ExecOrderCheck((OrderCheckState *) node);
 			break;
 
@@ -744,7 +744,7 @@ ExecEndNode(PlanState *node)
 			ExecEndUnique((UniqueState *) node);
 			break;
 
-	    case T_OrderCheckState:
+	case T_OrderCheckState:
 			ExecEndOrderCheck((OrderCheckState *) node);
 			break;
 
