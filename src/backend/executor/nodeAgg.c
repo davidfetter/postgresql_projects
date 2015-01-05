@@ -1199,8 +1199,8 @@ agg_retrieve_direct(AggState *aggstate)
 	int			   aggno;
 	bool           hasRollup = aggstate->numsets > 0;
 	int            numGroupingSets = Max(aggstate->numsets, 1);
-	int            currentGroup = 0;
-	int            currentSize = 0;
+	int            currentGroupingSet = 0;
+	int            currentGSSize = 0;
 	int            numReset = 1;
 	int            i;
 
@@ -1262,9 +1262,9 @@ agg_retrieve_direct(AggState *aggstate)
 		}
 
 		if (aggstate->projected_set >= 0 && aggstate->projected_set < (numGroupingSets - 1))
-			currentSize = aggstate->gset_lengths[aggstate->projected_set + 1];
+			currentGSSize = aggstate->gset_lengths[aggstate->projected_set + 1];
 		else
-			currentSize = 0;
+			currentGSSize = 0;
 
 		/*-
 		 * If a subgroup for the current grouping set is present, project it.
@@ -1286,10 +1286,10 @@ agg_retrieve_direct(AggState *aggstate)
 			|| (node->aggstrategy == AGG_SORTED
 				&& aggstate->projected_set != -1
 				&& aggstate->projected_set < (numGroupingSets - 1)
-				&& currentSize > 0
+				&& currentGSSize > 0
 				&& !execTuplesMatch(econtext->ecxt_outertuple,
 									tmpcontext->ecxt_outertuple,
-									currentSize,
+									currentGSSize,
 									node->grpColIdx,
 									aggstate->eqfunctions,
 									tmpcontext->ecxt_per_tuple_memory)))
@@ -1297,7 +1297,7 @@ agg_retrieve_direct(AggState *aggstate)
 			++aggstate->projected_set;
 
 			Assert(aggstate->projected_set < numGroupingSets);
-			Assert(currentSize > 0 || aggstate->input_done);
+			Assert(currentGSSize > 0 || aggstate->input_done);
 		}
 		else
 		{
@@ -1440,17 +1440,17 @@ agg_retrieve_direct(AggState *aggstate)
 
 		Assert(aggstate->projected_set >= 0);
 
-		aggstate->current_set = currentGroup = aggstate->projected_set;
+		aggstate->current_set = currentGroupingSet = aggstate->projected_set;
 
 		if (hasRollup)
-			econtext->grouped_cols = aggstate->grouped_cols[currentGroup];
+			econtext->grouped_cols = aggstate->grouped_cols[currentGroupingSet];
 
 		for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 		{
 			AggStatePerAgg peraggstate = &peragg[aggno];
 			AggStatePerGroup pergroupstate;
 
-			pergroupstate = &pergroup[aggno + (currentGroup * (aggstate->numaggs))];
+			pergroupstate = &pergroup[aggno + (currentGroupingSet * (aggstate->numaggs))];
 
 			if (peraggstate->numSortCols > 0)
 			{
@@ -2532,7 +2532,7 @@ ExecReScanAgg(AggState *node)
 	Agg		   *aggnode = (Agg *) node->ss.ps.plan;
 	int			aggno;
 	int         numGroupingSets = Max(node->numsets, 1);
-	int         groupno;
+	int         setno;
 	int         i;
 
 	node->agg_done = false;
@@ -2565,14 +2565,14 @@ ExecReScanAgg(AggState *node)
 	/* Make sure we have closed any open tuplesorts */
 	for (aggno = 0; aggno < node->numaggs; aggno++)
 	{
-		for (groupno = 0; groupno < numGroupingSets; groupno++)
+		for (setno = 0; setno < numGroupingSets; setno++)
 		{
 			AggStatePerAgg peraggstate = &node->peragg[aggno];
 
-			if (peraggstate->sortstate[groupno])
+			if (peraggstate->sortstate[setno])
 			{
-				tuplesort_end(peraggstate->sortstate[groupno]);
-				peraggstate->sortstate[groupno] = NULL;
+				tuplesort_end(peraggstate->sortstate[setno]);
+				peraggstate->sortstate[setno] = NULL;
 			}
 		}
 	}
