@@ -50,8 +50,8 @@
  *	  pass-by-reference, we have to be careful to copy it into a longer-lived
  *	  memory context, and free the prior value to avoid memory leakage.  We
  *	  store transvalues in the memory contexts aggstate->aggcontexts (one per
- *	  grouping set), which is also used for the hashtable structures in
- *	  AGG_HASHED mode.  The node's regular econtext
+ *	  grouping set, see below), which is also used for the hashtable structures
+ *	  in AGG_HASHED mode.  The node's regular econtext
  *	  (aggstate->ss.ps.ps_ExprContext) is used to run finalize functions and
  *	  compute the output tuple; this context can be reset once per output
  *	  tuple.
@@ -85,6 +85,48 @@
  *	  need some fallback logic to use this, since there's no Aggref node
  *	  for a window function.)
  *
+ *	  Grouping sets:
+ *
+ *	  A list of grouping sets which is structurally equivalent to a ROLLUP
+ *	  clause (e.g. (a,b,c), (a,b), (a)) can be processed in a single pass over
+ *	  ordered data.  We do this by keeping a separate set of transition values
+ *	  for each grouping set being concurrently processed; for each input tuple
+ *	  we update them all, and on group boundaries we reset some initial subset
+ *	  of the states (the list of grouping sets is ordered from most specific to
+ *	  least specific).  One AGG_SORTED node thus handles any number of grouping
+ *	  sets as long as they share a sort order.
+ *
+ *	  To handle multiple grouping sets that _don't_ share a sort order, we use
+ *	  a different strategy.  An AGG_CHAINED node receives rows in sorted order
+ *	  and returns them unchanged, but computes transition values for its own
+ *	  list of grouping sets.  At group boundaries, rather than returning the
+ *	  aggregated row (which is incompatible with the input rows), it writes it
+ *	  to a side-channel in the form of a tuplestore.  Thus, a number of
+ *	  AGG_CHAINED nodes are associated with a single AGG_SORTED node (the
+ *	  "chain head"), which creates the side channel and, when it has returned
+ *	  all of its own data, returns the tuples from the tuplestore to its own
+ *	  caller.
+ *
+ *	  (Because the AGG_CHAINED node does not project aggregate values into the
+ *	  main executor path, its targetlist and qual are dummy, and it gets the
+ *	  real aggregate targetlist and qual from the chain head node.)
+ *
+ *	  In order to avoid excess memory consumption from a chain of alternating
+ *	  Sort and AGG_CHAINED nodes, we reset each child Sort node preemptively,
+ *	  allowing us to cap the memory usage for all the sorts in the chain at
+ *	  twice the usage for a single node.
+ *
+ *	  From the perspective of aggregate transition and final functions, the
+ *	  only issue regarding grouping sets is this: a single call site (flinfo)
+ *	  of an aggregate function may be used for updating several different
+ *	  transition values in turn. So the function must not cache in the flinfo
+ *	  anything which logically belongs as part of the transition value (most
+ *	  importantly, the memory context in which the transition value exists).
+ *	  The support API functions (AggCheckCallContext, AggRegisterCallback) are
+ *	  sensitive to the grouping set for which the aggregate function is
+ *	  currently being called.
+ *
+ *	  TODO: AGG_HASHED doesn't support multiple grouping sets yet.
  *
  * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
@@ -1244,7 +1286,7 @@ agg_retrieve_direct(AggState *aggstate)
 		 * aggregate functions store working state in such contexts.
 		 *
 		 * We use ReScanExprContext not just ResetExprContext because we want
-		 * any registered shutdown callbacks to be called.	That allows
+		 * any registered shutdown callbacks to be called.  That allows
 		 * aggregate functions to ensure they've cleaned up any non-memory
 		 * resources.
 		 */

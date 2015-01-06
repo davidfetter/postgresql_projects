@@ -131,6 +131,7 @@ typedef enum NodeTag
 	T_RangeVar,
 	T_Expr,
 	T_Var,
+	T_GroupedVar,
 	T_Const,
 	T_Param,
 	T_Aggref,
@@ -174,7 +175,6 @@ typedef enum NodeTag
 	T_JoinExpr,
 	T_FromExpr,
 	T_IntoClause,
-	T_GroupedVar,
 
 	/*
 	 * TAGS FOR EXPRESSION STATE NODES (execnodes.h)
