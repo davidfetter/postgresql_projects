@@ -1751,11 +1751,19 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 					if (groupClause)
 					{
-						/* need to remap groupColIdx */
-
 						if (gsets)
 						{
 							Assert(refmap);
+
+							/*
+							 * need to remap groupColIdx, which has the column
+							 * indices for every clause in parse->groupClause
+							 * indexed by list position, to a local version for
+							 * this node which lists only the clauses included in
+							 * groupClause by position in that list. The refmap for
+							 * this node (indexed by sortgroupref) contains 0 for
+							 * clauses not present in this node's groupClause.
+							 */
 
 							new_grpColIdx = palloc0(sizeof(AttrNumber) * list_length(linitial(gsets)));
 
@@ -1783,6 +1791,12 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 						if (list_length(rollup_groupclauses) == 1)
 						{
 							aggstrategy = AGG_SORTED;
+
+							/*
+							 * If there aren't any other chained aggregates, then
+							 * we didn't disturb the originally required input
+							 * sort order.
+							 */
 							if (chain_depth == 0)
 								current_pathkeys = root->group_pathkeys;
 						}
@@ -2733,7 +2747,6 @@ limit_needed(Query *parse)
 }
 
 
-
 /*
  * preprocess_groupclause - do preparatory work on GROUP BY clause
  *
@@ -2749,6 +2762,11 @@ limit_needed(Query *parse)
  *
  * Note: we need no comparable processing of the distinctClause because
  * the parser already enforced that that matches ORDER BY.
+ *
+ * For grouping sets, the order of items is instead forced to agree with that
+ * of the grouping set (and items not in the grouping set are skipped). The
+ * work of sorting the order of grouping set elements to match the ORDER BY if
+ * possible is done elsewhere.
  */
 static List *
 preprocess_groupclause(PlannerInfo *root, List *force)
@@ -2759,7 +2777,7 @@ preprocess_groupclause(PlannerInfo *root, List *force)
 	ListCell   *sl;
 	ListCell   *gl;
 
-	/* For grouping sets, we may need to force the ordering */
+	/* For grouping sets, we need to force the ordering */
 	if (force)
 	{
 		foreach(sl, force)
@@ -2848,7 +2866,10 @@ preprocess_groupclause(PlannerInfo *root, List *force)
  * even with optimization off and assertions on.)
  *
  * We use the Hopcroft-Karp algorithm for the graph matching; it seems to work
- * well enough for our purposes.
+ * well enough for our purposes.  This implementation is based on pseudocode
+ * found at:
+ *
+ * http://en.wikipedia.org/w/index.php?title=Hopcroft%E2%80%93Karp_algorithm&oldid=593898016
  *
  * This implementation uses the same indices for elements of U and V (the two
  * halves of the graph) because in our case they are always the same size, and

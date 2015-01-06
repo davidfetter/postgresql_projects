@@ -3074,8 +3074,12 @@ ExecEvalCaseTestExpr(ExprState *exprstate,
 
 /*
  * ExecEvalGroupingFuncExpr
- * Return a bitmask with a bit for each column.
- * A bit is set if the column is not a part of grouping.
+ *
+ * Return a bitmask with a bit for each (unevaluated) argument expression
+ * (rightmost arg is least significant bit).
+ *
+ * A bit is set if the corresponding expression is NOT part of the set of
+ * grouping expressions in the current grouping set.
  */
 
 static Datum
@@ -4580,9 +4584,9 @@ ExecInitExpr(Expr *node, PlanState *parent)
 			break;
 		case T_GroupingFunc:
 			{
-				GroupingFunc   *grp_node = (GroupingFunc *) node;
+				GroupingFunc *grp_node = (GroupingFunc *) node;
 				GroupingFuncExprState *grp_state = makeNode(GroupingFuncExprState);
-				Agg			   *agg = NULL;
+				Agg		   *agg = NULL;
 
 				if (!parent
 					|| !IsA(parent->plan, Agg))
