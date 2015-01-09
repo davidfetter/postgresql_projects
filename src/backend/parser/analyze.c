@@ -1942,8 +1942,8 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	nsitem->p_lateral_only = false;
 	nsitem->p_lateral_ok = true;
 
-	/* 
-	 * Check if (SET(*) = SELECT ...)  is present. If it is present we 
+	/*
+	 * Check if (SET(*) = SELECT ...)  is present. If it is present we
 	 * resolve and populate the remaining needed MultiAssignRefs in the
      * target list.
      */
@@ -1951,6 +1951,9 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	{
 		ResTarget *current_val = linitial(stmt->targetList);
 
+		/* We make a List of the inner values in case we see a SET(*) in raw parse
+		 * representation. While this is a bit hacky, this is the cleanest way to
+		 * avoid a new node */
 		if (IsA((current_val->val), List))
 		{
 			Node *inner_val = linitial((List *) (current_val->val));
@@ -2042,6 +2045,8 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 			Assert(IsA(origTarget, ResTarget));
 		}
 
+		/* There is no column name for a * operation, so absence of a name
+		 * indicated that we have a SET(*) operation */
 		if (!(origTarget) || !(origTarget->name))
 			isStar = true;
 

@@ -9489,7 +9489,8 @@ multiple_set_clause:
 			    {
 					ResTarget *res_col = makeNode(ResTarget);
 
-					/* Make a single node having all target values in a list */
+					/* We cheat a little here by making a single Restarget node but assigning the entire ctext_row
+					 * value to it. This is done since we cannot resolve attribute names at this stage */
 					res_col->val = (Node *) $5;
 					res_col->location = @2;
 
@@ -9500,7 +9501,7 @@ multiple_set_clause:
 					SubLink *sl = makeNode(SubLink);
 					int ncolumns = -1;  /* We do not know the number of columns yet */
 
-					/* 
+					/*
 					 * Create a MultiAssignRef source as representative for the entire set
 					 * since we cannot look up attributes of target relation here.
 					 */
