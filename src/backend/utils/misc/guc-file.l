@@ -2,7 +2,7 @@
 /*
  * Scanner for the configuration file
  *
- * Copyright (c) 2000-2014, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2015, PostgreSQL Global Development Group
  *
  * src/backend/utils/misc/guc-file.l
  */
@@ -318,7 +318,7 @@ ProcessConfigFile(GucContext context)
 		/* Now we can re-apply the wired-in default (i.e., the boot_val) */
 		if (set_config_option(gconf->name, NULL,
 							  context, PGC_S_DEFAULT,
-							  GUC_ACTION_SET, true, 0) > 0)
+							  GUC_ACTION_SET, true, 0, false) > 0)
 		{
 			/* Log the change if appropriate */
 			if (context == PGC_SIGHUP)
@@ -373,7 +373,7 @@ ProcessConfigFile(GucContext context)
 
 		scres = set_config_option(item->name, item->value,
 								  context, PGC_S_FILE,
-								  GUC_ACTION_SET, true, 0);
+								  GUC_ACTION_SET, true, 0, false);
 		if (scres > 0)
 		{
 			/* variable was updated, so log the change if appropriate */

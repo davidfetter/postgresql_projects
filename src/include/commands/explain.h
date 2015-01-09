@@ -3,7 +3,7 @@
  * explain.h
  *	  prototypes for explain.c
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994-5, Regents of the University of California
  *
  * src/include/commands/explain.h
@@ -30,9 +30,10 @@ typedef struct ExplainState
 	/* options */
 	bool		verbose;		/* be verbose */
 	bool		analyze;		/* print actual times */
-	bool		costs;			/* print costs */
+	bool		costs;			/* print estimated costs */
 	bool		buffers;		/* print buffer usage */
-	bool		timing;			/* print timing */
+	bool		timing;			/* print detailed node timing */
+	bool		summary;		/* print total planning and execution timing */
 	ExplainFormat format;		/* output format */
 	/* other states */
 	PlannedStmt *pstmt;			/* top of plan */

@@ -181,7 +181,7 @@
  * 7) Mark state 3 final because state 5 of source NFA is marked as final.
  *
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -915,11 +915,10 @@ transformGraph(TrgmNFA *trgmNFA)
 	hashCtl.keysize = sizeof(TrgmStateKey);
 	hashCtl.entrysize = sizeof(TrgmState);
 	hashCtl.hcxt = CurrentMemoryContext;
-	hashCtl.hash = tag_hash;
 	trgmNFA->states = hash_create("Trigram NFA",
 								  1024,
 								  &hashCtl,
-								  HASH_ELEM | HASH_CONTEXT | HASH_FUNCTION);
+								  HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 
 	/* Create initial state: ambiguous prefix, NFA's initial state */
 	MemSet(&initkey, 0, sizeof(initkey));

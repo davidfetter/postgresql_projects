@@ -29,7 +29,7 @@
  * and a non-lossy page.
  *
  *
- * Copyright (c) 2003-2014, PostgreSQL Global Development Group
+ * Copyright (c) 2003-2015, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/nodes/tidbitmap.c
@@ -221,12 +221,11 @@ tbm_create_pagetable(TIDBitmap *tbm)
 	MemSet(&hash_ctl, 0, sizeof(hash_ctl));
 	hash_ctl.keysize = sizeof(BlockNumber);
 	hash_ctl.entrysize = sizeof(PagetableEntry);
-	hash_ctl.hash = tag_hash;
 	hash_ctl.hcxt = tbm->mcxt;
 	tbm->pagetable = hash_create("TIDBitmap",
 								 128,	/* start small and extend */
 								 &hash_ctl,
-								 HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+								 HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 
 	/* If entry1 is valid, push it into the hashtable */
 	if (tbm->status == TBM_ONE_PAGE)

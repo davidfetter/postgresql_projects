@@ -31,7 +31,7 @@
  * for too long.)
  *
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -283,7 +283,7 @@ GetNonHistoricCatalogSnapshot(Oid relid)
 {
 	/*
 	 * If the caller is trying to scan a relation that has no syscache, no
-	 * catcache invalidations will be sent when it is updated.  For a a few
+	 * catcache invalidations will be sent when it is updated.  For a few
 	 * key relations, snapshot invalidations are sent instead.  If we're
 	 * trying to scan a relation for which neither catcache nor snapshot
 	 * invalidations are sent, we must refresh the snapshot every time.

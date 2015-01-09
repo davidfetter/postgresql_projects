@@ -3,7 +3,7 @@
  * miscinit.c
  *	  miscellaneous initialization support stuff
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -220,6 +220,16 @@ SetSessionUserId(Oid userid, bool is_superuser)
 	/* We force the effective user IDs to match, too */
 	OuterUserId = userid;
 	CurrentUserId = userid;
+}
+
+/*
+ * GetAuthenticatedUserId - get the authenticated user ID
+ */
+Oid
+GetAuthenticatedUserId(void)
+{
+	AssertState(OidIsValid(AuthenticatedUserId));
+	return AuthenticatedUserId;
 }
 
 

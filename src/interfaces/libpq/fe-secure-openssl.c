@@ -4,7 +4,7 @@
  *	  OpenSSL support
  *
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -184,6 +184,15 @@ pgtls_open_client(PGconn *conn)
 
 	/* Begin or continue the actual handshake */
 	return open_client_SSL(conn);
+}
+
+/*
+ *  Is there unread data waiting in the SSL read buffer?
+ */
+bool
+pgtls_read_pending(PGconn *conn)
+{
+	return SSL_pending(conn->ssl);
 }
 
 /*

@@ -9,7 +9,7 @@
  *	  polluting the namespace with lots of stuff...
  *
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/c.h
@@ -578,12 +578,12 @@ typedef NameData *Name;
  */
 #ifndef USE_ASSERT_CHECKING
 
-#define Assert(condition)
+#define Assert(condition)	((void)true)
 #define AssertMacro(condition)	((void)true)
-#define AssertArg(condition)
-#define AssertState(condition)
+#define AssertArg(condition)	((void)true)
+#define AssertState(condition)	((void)true)
 #define AssertPointerAlignment(ptr, bndr)	((void)true)
-#define Trap(condition, errorType)
+#define Trap(condition, errorType)	((void)true)
 #define TrapMacro(condition, errorType) (true)
 
 #elif defined(FRONTEND)

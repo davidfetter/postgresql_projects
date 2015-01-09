@@ -3,7 +3,7 @@
  * auto_explain.c
  *
  *
- * Copyright (c) 2008-2014, PostgreSQL Global Development Group
+ * Copyright (c) 2008-2015, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  contrib/auto_explain/auto_explain.c
@@ -301,6 +301,7 @@ explain_ExecutorEnd(QueryDesc *queryDesc)
 			es.verbose = auto_explain_log_verbose;
 			es.buffers = (es.analyze && auto_explain_log_buffers);
 			es.timing = (es.analyze && auto_explain_log_timing);
+			es.summary = es.analyze;
 			es.format = auto_explain_log_format;
 
 			ExplainBeginOutput(&es);

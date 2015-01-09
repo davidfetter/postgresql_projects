@@ -3,7 +3,7 @@
  * postgres.c
  *	  POSTGRES C Backend Interface
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -1546,7 +1546,9 @@ exec_bind_message(StringInfo input_message)
 	 * snapshot active till we're done, so that plancache.c doesn't have to
 	 * take new ones.
 	 */
-	if (numParams > 0 || analyze_requires_snapshot(psrc->raw_parse_tree))
+	if (numParams > 0 ||
+		(psrc->raw_parse_tree &&
+		 analyze_requires_snapshot(psrc->raw_parse_tree)))
 	{
 		PushActiveSnapshot(GetTransactionSnapshot());
 		snapshot_set = true;

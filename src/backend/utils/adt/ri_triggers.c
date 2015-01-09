@@ -13,7 +13,7 @@
  *	plan --- consider improving this someday.
  *
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  *
  * src/backend/utils/adt/ri_triggers.c
  *
@@ -2422,7 +2422,7 @@ RI_Initial_Check(Trigger *trigger, Relation fk_rel, Relation pk_rel)
 	snprintf(workmembuf, sizeof(workmembuf), "%d", maintenance_work_mem);
 	(void) set_config_option("work_mem", workmembuf,
 							 PGC_USERSET, PGC_S_SESSION,
-							 GUC_ACTION_SAVE, true, 0);
+							 GUC_ACTION_SAVE, true, 0, false);
 
 	if (SPI_connect() != SPI_OK_CONNECT)
 		elog(ERROR, "SPI_connect failed");
@@ -3326,10 +3326,9 @@ ri_InitHashTables(void)
 	memset(&ctl, 0, sizeof(ctl));
 	ctl.keysize = sizeof(Oid);
 	ctl.entrysize = sizeof(RI_ConstraintInfo);
-	ctl.hash = oid_hash;
 	ri_constraint_cache = hash_create("RI constraint cache",
 									  RI_INIT_CONSTRAINTHASHSIZE,
-									  &ctl, HASH_ELEM | HASH_FUNCTION);
+									  &ctl, HASH_ELEM | HASH_BLOBS);
 
 	/* Arrange to flush cache on pg_constraint changes */
 	CacheRegisterSyscacheCallback(CONSTROID,
@@ -3339,18 +3338,16 @@ ri_InitHashTables(void)
 	memset(&ctl, 0, sizeof(ctl));
 	ctl.keysize = sizeof(RI_QueryKey);
 	ctl.entrysize = sizeof(RI_QueryHashEntry);
-	ctl.hash = tag_hash;
 	ri_query_cache = hash_create("RI query cache",
 								 RI_INIT_QUERYHASHSIZE,
-								 &ctl, HASH_ELEM | HASH_FUNCTION);
+								 &ctl, HASH_ELEM | HASH_BLOBS);
 
 	memset(&ctl, 0, sizeof(ctl));
 	ctl.keysize = sizeof(RI_CompareKey);
 	ctl.entrysize = sizeof(RI_CompareHashEntry);
-	ctl.hash = tag_hash;
 	ri_compare_cache = hash_create("RI compare cache",
 								   RI_INIT_QUERYHASHSIZE,
-								   &ctl, HASH_ELEM | HASH_FUNCTION);
+								   &ctl, HASH_ELEM | HASH_BLOBS);
 }
 
 

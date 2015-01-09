@@ -5,7 +5,7 @@
  *	  strategy.
  *
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/storage/buf_internals.h
@@ -191,7 +191,7 @@ extern bool StrategyRejectBuffer(BufferAccessStrategy strategy,
 					 volatile BufferDesc *buf);
 
 extern int	StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc);
-extern void StrategyNotifyBgWriter(Latch *bgwriterLatch);
+extern void StrategyNotifyBgWriter(int bgwprocno);
 
 extern Size StrategyShmemSize(void);
 extern void StrategyInitialize(bool init);

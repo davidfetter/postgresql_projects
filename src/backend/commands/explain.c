@@ -3,7 +3,7 @@
  * explain.c
  *	  Explain query execution plans
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994-5, Regents of the University of California
  *
  * IDENTIFICATION
@@ -190,6 +190,9 @@ ExplainQuery(ExplainStmt *stmt, const char *queryString,
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("EXPLAIN option TIMING requires ANALYZE")));
+
+	/* currently, summary option is not exposed to users; just set it */
+	es.summary = es.analyze;
 
 	/*
 	 * Parse analysis was done already, but we still have to run the rule
@@ -431,7 +434,8 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 
 	/*
 	 * We always collect timing for the entire statement, even when node-level
-	 * timing is off, so we don't look at es->timing here.
+	 * timing is off, so we don't look at es->timing here.  (We could skip
+	 * this if !es->summary, but it's hardly worth the complication.)
 	 */
 	INSTR_TIME_SET_CURRENT(starttime);
 
@@ -493,7 +497,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	/* Create textual dump of plan tree */
 	ExplainPrintPlan(es, queryDesc);
 
-	if (es->costs && planduration)
+	if (es->summary && planduration)
 	{
 		double		plantime = INSTR_TIME_GET_DOUBLE(*planduration);
 
@@ -526,7 +530,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 
 	totaltime += elapsed_time(&starttime);
 
-	if (es->analyze)
+	if (es->summary)
 	{
 		if (es->format == EXPLAIN_FORMAT_TEXT)
 			appendStringInfo(es->str, "Execution time: %.3f ms\n",
@@ -564,7 +568,6 @@ ExplainPrintPlan(ExplainState *es, QueryDesc *queryDesc)
 
 /*
  * ExplainPrintTriggers -
-
  *	  convert a QueryDesc's trigger statistics to text and append it to
  *	  es->str
  *
@@ -720,6 +723,7 @@ ExplainPreScanNode(PlanState *planstate, Bitmapset **rels_used)
 		case T_CteScan:
 		case T_WorkTableScan:
 		case T_ForeignScan:
+		case T_CustomScan:
 			*rels_used = bms_add_member(*rels_used,
 										((Scan *) plan)->scanrelid);
 			break;
@@ -849,6 +853,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 	const char *sname;			/* node type name for non-text output */
 	const char *strategy = NULL;
 	const char *operation = NULL;
+	const char *custom_name = NULL;
 	int			save_indent = es->indent;
 	bool		haschildren;
 
@@ -936,6 +941,14 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			break;
 		case T_ForeignScan:
 			pname = sname = "Foreign Scan";
+			break;
+		case T_CustomScan:
+			sname = "Custom Scan";
+			custom_name = ((CustomScan *) plan)->methods->CustomName;
+			if (custom_name)
+				pname = psprintf("Custom Scan (%s)", custom_name);
+			else
+				pname = sname;
 			break;
 		case T_Material:
 			pname = sname = "Materialize";
@@ -1038,6 +1051,8 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			ExplainPropertyText("Parent Relationship", relationship, es);
 		if (plan_name)
 			ExplainPropertyText("Subplan Name", plan_name, es);
+		if (custom_name)
+			ExplainPropertyText("Custom Plan Provider", custom_name, es);
 	}
 
 	switch (nodeTag(plan))
@@ -1051,6 +1066,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_CteScan:
 		case T_WorkTableScan:
 		case T_ForeignScan:
+		case T_CustomScan:
 			ExplainScanTarget((Scan *) plan, es);
 			break;
 		case T_IndexScan:
@@ -1353,6 +1369,18 @@ ExplainNode(PlanState *planstate, List *ancestors,
 				show_instrumentation_count("Rows Removed by Filter", 1,
 										   planstate, es);
 			show_foreignscan_info((ForeignScanState *) planstate, es);
+			break;
+		case T_CustomScan:
+			{
+				CustomScanState *css = (CustomScanState *) planstate;
+
+				show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
+				if (plan->qual)
+					show_instrumentation_count("Rows Removed by Filter", 1,
+											   planstate, es);
+				if (css->methods->ExplainCustomScan)
+					css->methods->ExplainCustomScan(css, ancestors, es);
+			}
 			break;
 		case T_NestLoop:
 			show_upper_qual(((NestLoop *) plan)->join.joinqual,
@@ -1901,18 +1929,24 @@ show_hash_info(HashState *hashstate, ExplainState *es)
 		if (es->format != EXPLAIN_FORMAT_TEXT)
 		{
 			ExplainPropertyLong("Hash Buckets", hashtable->nbuckets, es);
+			ExplainPropertyLong("Original Hash Buckets",
+								hashtable->nbuckets_original, es);
 			ExplainPropertyLong("Hash Batches", hashtable->nbatch, es);
 			ExplainPropertyLong("Original Hash Batches",
 								hashtable->nbatch_original, es);
 			ExplainPropertyLong("Peak Memory Usage", spacePeakKb, es);
 		}
-		else if (hashtable->nbatch_original != hashtable->nbatch)
+		else if (hashtable->nbatch_original != hashtable->nbatch ||
+				 hashtable->nbuckets_original != hashtable->nbuckets)
 		{
 			appendStringInfoSpaces(es->str, es->indent * 2);
 			appendStringInfo(es->str,
-			"Buckets: %d  Batches: %d (originally %d)  Memory Usage: %ldkB\n",
-							 hashtable->nbuckets, hashtable->nbatch,
-							 hashtable->nbatch_original, spacePeakKb);
+							 "Buckets: %d (originally %d)  Batches: %d (originally %d)  Memory Usage: %ldkB\n",
+							 hashtable->nbuckets,
+							 hashtable->nbuckets_original,
+							 hashtable->nbatch,
+							 hashtable->nbatch_original,
+							 spacePeakKb);
 		}
 		else
 		{
@@ -2112,6 +2146,7 @@ ExplainTargetRel(Plan *plan, Index rti, ExplainState *es)
 		case T_BitmapHeapScan:
 		case T_TidScan:
 		case T_ForeignScan:
+		case T_CustomScan:
 		case T_ModifyTable:
 			/* Assert it's on a real relation */
 			Assert(rte->rtekind == RTE_RELATION);

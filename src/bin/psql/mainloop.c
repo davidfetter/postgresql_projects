@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2014, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2015, PostgreSQL Global Development Group
  *
  * src/bin/psql/mainloop.c
  */
@@ -174,6 +174,18 @@ MainLoop(FILE *source)
 		/* ignore UTF-8 Unicode byte-order mark */
 		if (pset.lineno == 1 && pset.encoding == PG_UTF8 && strncmp(line, "\xef\xbb\xbf", 3) == 0)
 			memmove(line, line + 3, strlen(line + 3) + 1);
+
+		/* Detect attempts to run custom-format dumps as SQL scripts */
+		if (pset.lineno == 1 && !pset.cur_cmd_interactive &&
+			strncmp(line, "PGDMP", 5) == 0)
+		{
+			free(line);
+			puts(_("The input is a PostgreSQL custom-format dump.\n"
+				   "Use the pg_restore command-line client to restore this dump to a database.\n"));
+			fflush(stdout);
+			successResult = EXIT_FAILURE;
+			break;
+		}
 
 		/* nothing left on line? then ignore */
 		if (line[0] == '\0' && !psql_scan_in_quote(scan_state))

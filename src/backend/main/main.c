@@ -9,7 +9,7 @@
  * proper FooMain() routine for the incarnation.
  *
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -260,6 +260,12 @@ startup_hacks(const char *progname)
 
 		/* In case of general protection fault, don't show GUI popup box */
 		SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+
+#ifndef HAVE_GETTIMEOFDAY
+		/* Figure out which syscall to use to capture timestamp information */
+		init_win32_gettimeofday();
+#endif
+
 	}
 #endif   /* WIN32 */
 

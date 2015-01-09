@@ -12,7 +12,7 @@
  * to assorted legacy behaviors that we still try to preserve, notably that
  * we must return a tuples-processed count in the completionTag.
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -27,6 +27,8 @@
 #include "access/htup_details.h"
 #include "access/sysattr.h"
 #include "access/xact.h"
+#include "access/xlog.h"
+#include "catalog/namespace.h"
 #include "catalog/toasting.h"
 #include "commands/createas.h"
 #include "commands/matview.h"
@@ -84,6 +86,22 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 	PlannedStmt *plan;
 	QueryDesc  *queryDesc;
 	ScanDirection dir;
+
+	if (stmt->if_not_exists)
+	{
+		Oid	nspid;
+
+		nspid = RangeVarGetCreationNamespace(stmt->into->rel);
+
+		if (get_relname_relid(stmt->into->rel->relname, nspid))
+		{
+			ereport(NOTICE,
+					(errcode(ERRCODE_DUPLICATE_TABLE),
+					 errmsg("relation \"%s\" already exists, skipping",
+							stmt->into->rel->relname)));
+			return InvalidOid;
+		}
+	}
 
 	/*
 	 * Create the tuple receiver object and insert info it will need

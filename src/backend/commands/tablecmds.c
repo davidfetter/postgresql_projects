@@ -3,7 +3,7 @@
  * tablecmds.c
  *	  Commands for creating and altering table structures and settings
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -21,6 +21,7 @@
 #include "access/relscan.h"
 #include "access/sysattr.h"
 #include "access/xact.h"
+#include "access/xlog.h"
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/heap.h"
@@ -36,7 +37,6 @@
 #include "catalog/pg_inherits_fn.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_opclass.h"
-#include "catalog/pg_rowsecurity.h"
 #include "catalog/pg_tablespace.h"
 #include "catalog/pg_trigger.h"
 #include "catalog/pg_type.h"
@@ -46,6 +46,7 @@
 #include "commands/cluster.h"
 #include "commands/comment.h"
 #include "commands/defrem.h"
+#include "commands/event_trigger.h"
 #include "commands/policy.h"
 #include "commands/sequence.h"
 #include "commands/tablecmds.h"
@@ -153,7 +154,7 @@ typedef struct AlteredTableInfo
 	List	   *constraints;	/* List of NewConstraint */
 	List	   *newvals;		/* List of NewColumnValue */
 	bool		new_notnull;	/* T if we added new NOT NULL constraints */
-	bool		rewrite;		/* T if a rewrite is forced */
+	int			rewrite;		/* Reason for forced rewrite, if any */
 	Oid			newTableSpace;	/* new tablespace; 0 means no change */
 	bool		chgPersistence; /* T if SET LOGGED/UNLOGGED is used */
 	char		newrelpersistence;		/* if above is true */
@@ -303,13 +304,15 @@ static void validateForeignKeyConstraint(char *conname,
 static void createForeignKeyTriggers(Relation rel, Oid refRelOid,
 						 Constraint *fkconstraint,
 						 Oid constraintOid, Oid indexOid);
-static void ATController(Relation rel, List *cmds, bool recurse, LOCKMODE lockmode);
+static void ATController(AlterTableStmt *parsetree,
+						 Relation rel, List *cmds, bool recurse, LOCKMODE lockmode);
 static void ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 		  bool recurse, bool recursing, LOCKMODE lockmode);
 static void ATRewriteCatalogs(List **wqueue, LOCKMODE lockmode);
 static void ATExecCmd(List **wqueue, AlteredTableInfo *tab, Relation rel,
 		  AlterTableCmd *cmd, LOCKMODE lockmode);
-static void ATRewriteTables(List **wqueue, LOCKMODE lockmode);
+static void ATRewriteTables(AlterTableStmt *parsetree,
+							List **wqueue, LOCKMODE lockmode);
 static void ATRewriteTable(AlteredTableInfo *tab, Oid OIDNewHeap, LOCKMODE lockmode);
 static AlteredTableInfo *ATGetQueueEntry(List **wqueue, Relation rel);
 static void ATSimplePermissions(Relation rel, int allowed_targets);
@@ -392,7 +395,6 @@ static void ATExecClusterOn(Relation rel, const char *indexName,
 				LOCKMODE lockmode);
 static void ATExecDropCluster(Relation rel, LOCKMODE lockmode);
 static bool ATPrepChangePersistence(Relation rel, bool toLogged);
-static void ATChangeIndexesPersistence(Oid relid, char relpersistence);
 static void ATPrepSetTableSpace(AlteredTableInfo *tab, Relation rel,
 					char *tablespacename, LOCKMODE lockmode);
 static void ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmode);
@@ -477,10 +479,6 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 				 errmsg("ON COMMIT can only be used on temporary tables")));
-	if (stmt->constraints != NIL && relkind == RELKIND_FOREIGN_TABLE)
-		ereport(ERROR,
-				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-				 errmsg("constraints are not supported on foreign tables")));
 
 	/*
 	 * Look up the namespace in which we are supposed to create the relation,
@@ -1196,7 +1194,8 @@ ExecuteTruncate(TruncateStmt *stmt)
 			 * as the relfilenode value. The old storage file is scheduled for
 			 * deletion at commit.
 			 */
-			RelationSetNewRelfilenode(rel, RecentXmin, minmulti);
+			RelationSetNewRelfilenode(rel, rel->rd_rel->relpersistence,
+									  RecentXmin, minmulti);
 			if (rel->rd_rel->relpersistence == RELPERSISTENCE_UNLOGGED)
 				heap_create_init_fork(rel);
 
@@ -1209,7 +1208,8 @@ ExecuteTruncate(TruncateStmt *stmt)
 			if (OidIsValid(toast_relid))
 			{
 				rel = relation_open(toast_relid, AccessExclusiveLock);
-				RelationSetNewRelfilenode(rel, RecentXmin, minmulti);
+				RelationSetNewRelfilenode(rel, rel->rd_rel->relpersistence,
+										  RecentXmin, minmulti);
 				if (rel->rd_rel->relpersistence == RELPERSISTENCE_UNLOGGED)
 					heap_create_init_fork(rel);
 				heap_close(rel, NoLock);
@@ -2457,7 +2457,7 @@ RenameConstraint(RenameStmt *stmt)
 	Oid			relid = InvalidOid;
 	Oid			typid = InvalidOid;
 
-	if (stmt->relationType == OBJECT_DOMAIN)
+	if (stmt->renameType == OBJECT_DOMCONSTRAINT)
 	{
 		Relation	rel;
 		HeapTuple	tup;
@@ -2723,7 +2723,8 @@ AlterTable(Oid relid, LOCKMODE lockmode, AlterTableStmt *stmt)
 
 	CheckTableNotInUse(rel, "ALTER TABLE");
 
-	ATController(rel, stmt->cmds, interpretInhOption(stmt->relation->inhOpt),
+	ATController(stmt,
+				 rel, stmt->cmds, interpretInhOption(stmt->relation->inhOpt),
 				 lockmode);
 }
 
@@ -2746,7 +2747,7 @@ AlterTableInternal(Oid relid, List *cmds, bool recurse)
 
 	rel = relation_open(relid, lockmode);
 
-	ATController(rel, cmds, recurse, lockmode);
+	ATController(NULL, rel, cmds, recurse, lockmode);
 }
 
 /*
@@ -3014,8 +3015,15 @@ AlterTableGetLockLevel(List *cmds)
 	return lockmode;
 }
 
+/*
+ * ATController provides top level control over the phases.
+ *
+ * parsetree is passed in to allow it to be passed to event triggers
+ * when requested.
+ */
 static void
-ATController(Relation rel, List *cmds, bool recurse, LOCKMODE lockmode)
+ATController(AlterTableStmt *parsetree,
+			 Relation rel, List *cmds, bool recurse, LOCKMODE lockmode)
 {
 	List	   *wqueue = NIL;
 	ListCell   *lcmd;
@@ -3035,7 +3043,7 @@ ATController(Relation rel, List *cmds, bool recurse, LOCKMODE lockmode)
 	ATRewriteCatalogs(&wqueue, lockmode);
 
 	/* Phase 3: scan/rewrite tables as needed */
-	ATRewriteTables(&wqueue, lockmode);
+	ATRewriteTables(parsetree, &wqueue, lockmode);
 }
 
 /*
@@ -3142,7 +3150,7 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 			pass = AT_PASS_ADD_INDEX;
 			break;
 		case AT_AddConstraint:	/* ADD CONSTRAINT */
-			ATSimplePermissions(rel, ATT_TABLE);
+			ATSimplePermissions(rel, ATT_TABLE | ATT_FOREIGN_TABLE);
 			/* Recursion occurs during execution phase */
 			/* No command-specific prep needed except saving recurse flag */
 			if (recurse)
@@ -3156,7 +3164,7 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 			pass = AT_PASS_ADD_CONSTR;
 			break;
 		case AT_DropConstraint:	/* DROP CONSTRAINT */
-			ATSimplePermissions(rel, ATT_TABLE);
+			ATSimplePermissions(rel, ATT_TABLE | ATT_FOREIGN_TABLE);
 			/* Recursion occurs during execution phase */
 			/* No command-specific prep needed except saving recurse flag */
 			if (recurse)
@@ -3194,7 +3202,7 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 			/* force rewrite if necessary; see comment in ATRewriteTables */
 			if (tab->chgPersistence)
 			{
-				tab->rewrite = true;
+				tab->rewrite |= AT_REWRITE_ALTER_PERSISTENCE;
 				tab->newrelpersistence = RELPERSISTENCE_PERMANENT;
 			}
 			pass = AT_PASS_MISC;
@@ -3205,7 +3213,7 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 			/* force rewrite if necessary; see comment in ATRewriteTables */
 			if (tab->chgPersistence)
 			{
-				tab->rewrite = true;
+				tab->rewrite |= AT_REWRITE_ALTER_PERSISTENCE;
 				tab->newrelpersistence = RELPERSISTENCE_UNLOGGED;
 			}
 			pass = AT_PASS_MISC;
@@ -3606,7 +3614,7 @@ ATExecCmd(List **wqueue, AlteredTableInfo *tab, Relation rel,
  * ATRewriteTables: ALTER TABLE phase 3
  */
 static void
-ATRewriteTables(List **wqueue, LOCKMODE lockmode)
+ATRewriteTables(AlterTableStmt *parsetree, List **wqueue, LOCKMODE lockmode)
 {
 	ListCell   *ltab;
 
@@ -3633,7 +3641,7 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 		 * constraints, so it's not necessary/appropriate to enforce them just
 		 * during ALTER.)
 		 */
-		if (tab->newvals != NIL || tab->rewrite)
+		if (tab->newvals != NIL || tab->rewrite > 0)
 		{
 			Relation	rel;
 
@@ -3654,7 +3662,7 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 		 * and assigns a new relfilenode, we automatically create or drop an
 		 * init fork for the relation as appropriate.
 		 */
-		if (tab->rewrite)
+		if (tab->rewrite > 0)
 		{
 			/* Build a temporary relation and copy data */
 			Relation	OldHeap;
@@ -3709,6 +3717,21 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 			heap_close(OldHeap, NoLock);
 
 			/*
+			 * Fire off an Event Trigger now, before actually rewriting the
+			 * table.
+			 *
+			 * We don't support Event Trigger for nested commands anywhere,
+			 * here included, and parsetree is given NULL when coming from
+			 * AlterTableInternal.
+			 *
+			 * And fire it only once.
+			 */
+			if (parsetree)
+				EventTriggerTableRewrite((Node *)parsetree,
+										 tab->relid,
+										 tab->rewrite);
+
+			/*
 			 * Create transient table that will receive the modified data.
 			 *
 			 * Ensure it is marked correctly as logged or unlogged.  We have
@@ -3734,16 +3757,6 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 			ATRewriteTable(tab, OIDNewHeap, lockmode);
 
 			/*
-			 * Change the persistence marking of indexes, if necessary.  This
-			 * is so that the new copies are built with the right persistence
-			 * in the reindex step below.  Note we cannot do this earlier,
-			 * because the rewrite step might read the indexes, and that would
-			 * cause buffers for them to have the wrong setting.
-			 */
-			if (tab->chgPersistence)
-				ATChangeIndexesPersistence(tab->relid, tab->newrelpersistence);
-
-			/*
 			 * Swap the physical files of the old and new heaps, then rebuild
 			 * indexes and discard the old heap.  We can use RecentXmin for
 			 * the table's new relfrozenxid because we rewrote all the tuples
@@ -3755,7 +3768,8 @@ ATRewriteTables(List **wqueue, LOCKMODE lockmode)
 							 false, false, true,
 							 !OidIsValid(tab->newTableSpace),
 							 RecentXmin,
-							 ReadNextMultiXactId());
+							 ReadNextMultiXactId(),
+							 persistence);
 		}
 		else
 		{
@@ -4010,7 +4024,7 @@ ATRewriteTable(AlteredTableInfo *tab, Oid OIDNewHeap, LOCKMODE lockmode)
 
 		while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 		{
-			if (tab->rewrite)
+			if (tab->rewrite > 0)
 			{
 				Oid			tupOid = InvalidOid;
 
@@ -4836,7 +4850,7 @@ ATExecAddColumn(List **wqueue, AlteredTableInfo *tab, Relation rel,
 			newval->expr = expression_planner(defval);
 
 			tab->newvals = lappend(tab->newvals, newval);
-			tab->rewrite = true;
+			tab->rewrite |= AT_REWRITE_DEFAULT_VAL;
 		}
 
 		/*
@@ -4853,7 +4867,7 @@ ATExecAddColumn(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	 * table to fix that.
 	 */
 	if (isOid)
-		tab->rewrite = true;
+		tab->rewrite |= AT_REWRITE_ALTER_OID;
 
 	/*
 	 * Add needed dependency entries for the new column.
@@ -5665,7 +5679,7 @@ ATExecDropColumn(List **wqueue, Relation rel, const char *colName,
 		tab = ATGetQueueEntry(wqueue, rel);
 
 		/* Tell Phase 3 to physically remove the OID column */
-		tab->rewrite = true;
+		tab->rewrite |= AT_REWRITE_ALTER_OID;
 	}
 }
 
@@ -5691,7 +5705,7 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 	/* suppress schema rights check when rebuilding existing index */
 	check_rights = !is_rebuild;
 	/* skip index build if phase 3 will do it or we're reusing an old one */
-	skip_build = tab->rewrite || OidIsValid(stmt->oldNode);
+	skip_build = tab->rewrite > 0 || OidIsValid(stmt->oldNode);
 	/* suppress notices when rebuilding existing index */
 	quiet = is_rebuild;
 
@@ -7694,7 +7708,7 @@ ATPrepAlterColumnType(List **wqueue,
 
 		tab->newvals = lappend(tab->newvals, newval);
 		if (ATColumnChangeRequiresRewrite(transform, attnum))
-			tab->rewrite = true;
+			tab->rewrite |= AT_REWRITE_COLUMN_REWRITE;
 	}
 	else if (transform)
 		ereport(ERROR,
@@ -7988,6 +8002,24 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("cannot alter type of a column used in a trigger definition"),
+						 errdetail("%s depends on column \"%s\"",
+								   getObjectDescription(&foundObject),
+								   colName)));
+				break;
+
+			case OCLASS_POLICY:
+
+				/*
+				 * A policy can depend on a column because the column is
+				 * specified in the policy's USING or WITH CHECK qual
+				 * expressions.  It might be possible to rewrite and recheck
+				 * the policy expression, but punt for now.  It's certainly
+				 * easy enough to remove and recreate the policy; still,
+				 * FIXME someday.
+				 */
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot alter type of a column used in a policy definition"),
 						 errdetail("%s depends on column \"%s\"",
 								   getObjectDescription(&foundObject),
 								   colName)));
@@ -8421,7 +8453,7 @@ ATPostAlterTypeParse(Oid oldId, Oid oldRelId, Oid refRelId, char *cmd,
 								con->old_pktable_oid = refRelId;
 								/* rewriting neither side of a FK */
 								if (con->contype == CONSTR_FOREIGN &&
-									!rewrite && !tab->rewrite)
+									!rewrite && tab->rewrite == 0)
 									TryReuseForeignKey(oldId, con);
 								cmd->subtype = AT_ReAddConstraint;
 								tab->subcmds[AT_PASS_OLD_CONSTR] =
@@ -10876,48 +10908,6 @@ ATPrepChangePersistence(Relation rel, bool toLogged)
 	heap_close(pg_constraint, AccessShareLock);
 
 	return true;
-}
-
-/*
- * Update the pg_class entry of each index for the given relation to the
- * given persistence.
- */
-static void
-ATChangeIndexesPersistence(Oid relid, char relpersistence)
-{
-	Relation	rel;
-	Relation	pg_class;
-	List	   *indexes;
-	ListCell   *cell;
-
-	pg_class = heap_open(RelationRelationId, RowExclusiveLock);
-
-	/* We already have a lock on the table */
-	rel = relation_open(relid, NoLock);
-	indexes = RelationGetIndexList(rel);
-	foreach(cell, indexes)
-	{
-		Oid			indexid = lfirst_oid(cell);
-		HeapTuple	tuple;
-		Form_pg_class pg_class_form;
-
-		tuple = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(indexid));
-		if (!HeapTupleIsValid(tuple))
-			elog(ERROR, "cache lookup failed for relation %u",
-				 indexid);
-
-		pg_class_form = (Form_pg_class) GETSTRUCT(tuple);
-		pg_class_form->relpersistence = relpersistence;
-		simple_heap_update(pg_class, &tuple->t_self, tuple);
-
-		/* keep catalog indexes current */
-		CatalogUpdateIndexes(pg_class, tuple);
-
-		heap_freetuple(tuple);
-	}
-
-	heap_close(pg_class, RowExclusiveLock);
-	heap_close(rel, NoLock);
 }
 
 /*

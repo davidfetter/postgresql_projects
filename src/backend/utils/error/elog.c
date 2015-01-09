@@ -43,7 +43,7 @@
  * overflow.)
  *
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -1081,6 +1081,25 @@ errhidestmt(bool hide_stmt)
 	return 0;					/* return value does not matter */
 }
 
+/*
+ * errhidecontext --- optionally suppress CONTEXT: field of log entry
+ *
+ * This should only be used for verbose debugging messages where the repeated
+ * inclusion of CONTEXT: bloats the log volume too much.
+ */
+int
+errhidecontext(bool hide_ctx)
+{
+	ErrorData  *edata = &errordata[errordata_stack_depth];
+
+	/* we don't bother incrementing recursion_depth */
+	CHECK_STACK_DEPTH();
+
+	edata->hide_ctx = hide_ctx;
+
+	return 0;					/* return value does not matter */
+}
+
 
 /*
  * errfunction --- add reporting function name to the current error
@@ -1574,6 +1593,57 @@ FlushErrorState(void)
 	recursion_depth = 0;
 	/* Delete all data in ErrorContext */
 	MemoryContextResetAndDeleteChildren(ErrorContext);
+}
+
+/*
+ * ThrowErrorData --- report an error described by an ErrorData structure
+ *
+ * This is intended to be used to re-report errors originally thrown by
+ * background worker processes and then propagated (with or without
+ * modification) to the backend responsible for them.
+ */
+void
+ThrowErrorData(ErrorData *edata)
+{
+	ErrorData *newedata;
+	MemoryContext	oldcontext;
+
+	if (!errstart(edata->elevel, edata->filename, edata->lineno,
+				  edata->funcname, NULL))
+		return;
+
+	newedata = &errordata[errordata_stack_depth];
+	oldcontext = MemoryContextSwitchTo(edata->assoc_context);
+
+	/* Copy the supplied fields to the error stack. */
+	if (edata->sqlerrcode > 0)
+		newedata->sqlerrcode = edata->sqlerrcode;
+	if (edata->message)
+		newedata->message = pstrdup(edata->message);
+	if (edata->detail)
+		newedata->detail = pstrdup(edata->detail);
+	if (edata->detail_log)
+		newedata->detail_log = pstrdup(edata->detail_log);
+	if (edata->hint)
+		newedata->hint = pstrdup(edata->hint);
+	if (edata->context)
+		newedata->context = pstrdup(edata->context);
+	if (edata->schema_name)
+		newedata->schema_name = pstrdup(edata->schema_name);
+	if (edata->table_name)
+		newedata->table_name = pstrdup(edata->table_name);
+	if (edata->column_name)
+		newedata->column_name = pstrdup(edata->column_name);
+	if (edata->datatype_name)
+		newedata->datatype_name = pstrdup(edata->datatype_name);
+	if (edata->constraint_name)
+		newedata->constraint_name = pstrdup(edata->constraint_name);
+	if (edata->internalquery)
+		newedata->internalquery = pstrdup(edata->internalquery);
+
+	MemoryContextSwitchTo(oldcontext);
+
+	errfinish(0);
 }
 
 /*
@@ -2673,7 +2743,8 @@ write_csvlog(ErrorData *edata)
 	appendStringInfoChar(&buf, ',');
 
 	/* errcontext */
-	appendCSVLiteral(&buf, edata->context);
+	if (!edata->hide_ctx)
+		appendCSVLiteral(&buf, edata->context);
 	appendStringInfoChar(&buf, ',');
 
 	/* user query --- only reported if not disabled by the caller */
@@ -2805,7 +2876,7 @@ send_message_to_server_log(ErrorData *edata)
 			append_with_tabs(&buf, edata->internalquery);
 			appendStringInfoChar(&buf, '\n');
 		}
-		if (edata->context)
+		if (edata->context && !edata->hide_ctx)
 		{
 			log_line_prefix(&buf, edata);
 			appendStringInfoString(&buf, _("CONTEXT:  "));

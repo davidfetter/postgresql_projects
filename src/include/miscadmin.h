@@ -10,7 +10,7 @@
  *	  Over time, this has also become the preferred place for widely known
  *	  resource-limitation stuff, such as work_mem and check_stack_depth().
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/miscadmin.h
@@ -283,6 +283,7 @@ extern char *GetUserNameFromId(Oid roleid);
 extern Oid	GetUserId(void);
 extern Oid	GetOuterUserId(void);
 extern Oid	GetSessionUserId(void);
+extern Oid	GetAuthenticatedUserId(void);
 extern void GetUserIdAndSecContext(Oid *userid, int *sec_context);
 extern void SetUserIdAndSecContext(Oid userid, int sec_context);
 extern bool InLocalUserIdChange(void);

@@ -3,7 +3,7 @@
  * auth.c
  *	  Routines to handle network authentication
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -1590,8 +1590,9 @@ auth_peer(hbaPort *port)
 	if (!pw)
 	{
 		ereport(LOG,
-				(errmsg("failed to look up local user id %ld: %s",
-		   (long) uid, errno ? strerror(errno) : _("user does not exist"))));
+				(errmsg("could not look up local user ID %ld: %s",
+						(long) uid,
+						errno ? strerror(errno) : _("user does not exist"))));
 		return STATUS_ERROR;
 	}
 

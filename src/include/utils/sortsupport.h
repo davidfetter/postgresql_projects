@@ -37,7 +37,7 @@
  * function for such cases, but probably not any other acceleration method.
  *
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/sortsupport.h
@@ -48,6 +48,7 @@
 #define SORTSUPPORT_H
 
 #include "access/attnum.h"
+#include "utils/relcache.h"
 
 typedef struct SortSupportData *SortSupport;
 
@@ -152,5 +153,7 @@ ApplySortComparator(Datum datum1, bool isNull1,
 /* Other functions in utils/sort/sortsupport.c */
 extern void PrepareSortSupportComparisonShim(Oid cmpFunc, SortSupport ssup);
 extern void PrepareSortSupportFromOrderingOp(Oid orderingOp, SortSupport ssup);
+extern void PrepareSortSupportFromIndexRel(Relation indexRel, int16 strategy,
+										   SortSupport ssup);
 
 #endif   /* SORTSUPPORT_H */

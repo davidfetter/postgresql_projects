@@ -4,7 +4,7 @@
  *	  POSTGRES error reporting/logging definitions.
  *
  *
- * Portions Copyright (c) 1996-2014, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/elog.h
@@ -221,6 +221,7 @@ errcontext_msg(const char *fmt,...)
 __attribute__((format(PG_PRINTF_ATTRIBUTE, 1, 2)));
 
 extern int	errhidestmt(bool hide_stmt);
+extern int	errhidecontext(bool hide_ctx);
 
 extern int	errfunction(const char *funcname);
 extern int	errposition(int cursorpos);
@@ -385,6 +386,7 @@ typedef struct ErrorData
 	bool		output_to_client;		/* will report to client? */
 	bool		show_funcname;	/* true to force funcname inclusion */
 	bool		hide_stmt;		/* true to prevent STATEMENT: inclusion */
+	bool		hide_ctx;		/* true to prevent CONTEXT: inclusion */
 	const char *filename;		/* __FILE__ of ereport() call */
 	int			lineno;			/* __LINE__ of ereport() call */
 	const char *funcname;		/* __func__ of ereport() call */
@@ -415,6 +417,7 @@ extern ErrorData *CopyErrorData(void);
 extern void FreeErrorData(ErrorData *edata);
 extern void FlushErrorState(void);
 extern void ReThrowError(ErrorData *edata) __attribute__((noreturn));
+extern void ThrowErrorData(ErrorData *edata);
 extern void pg_re_throw(void) __attribute__((noreturn));
 
 extern char *GetErrorContextStack(void);
