@@ -9654,6 +9654,10 @@ multiple_set_clause:
 					 * column name expanding in parser transformation stage.
 					 * We make Lists at each level so that we can detect we have a
 					 * * in transformation stage.
+					 * The main difference between this ResTarget node and other ResTarget
+					 * nodes is that this node is primarily a representative node representing
+					 * the yet to be done column expansion as compared to normal ResTarget
+					 * nodes which are primarily a node per member of target list.
 					 */
 					ResTarget *res_col = makeNode(ResTarget);
 					MultiAssignRef *r = makeNode(MultiAssignRef);
