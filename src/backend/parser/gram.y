@@ -9648,6 +9648,12 @@ multiple_set_clause:
 					/*
 					 * Create a MultiAssignRef source as representative for the entire set
 					 * since we cannot look up attributes of target relation here.
+					 * A ResTarget node is made and MultiAssignRef source is assigned
+					 * as the ResTarget node's val.
+					 * Since we do not have column names at this stage, we shall have
+					 * column name expanding in parser transformation stage.
+					 * We make Lists at each level so that we can detect we have a
+					 * * in transformation stage.
 					 */
 					ResTarget *res_col = makeNode(ResTarget);
 					MultiAssignRef *r = makeNode(MultiAssignRef);

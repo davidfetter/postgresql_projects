@@ -1965,6 +1965,7 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 					  current_val->location, false,
 					  &(rel_cols_list), NULL);
 
+			/* (*) = (SELECT ...) case. Same hack to avoid new node */
 			if (IsA(inner_val, MultiAssignRef))
 			{
 				MultiAssignRef *orig_val = (MultiAssignRef *) (inner_val);
