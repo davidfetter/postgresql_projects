@@ -9629,7 +9629,7 @@ multiple_set_clause:
 
 					$$ = $2;
 				}
-            | '(' '*' ')' '=' ctext_row
+           | '(' '*' ')' '=' ctext_row
 			    {
 					ResTarget *res_col = makeNode(ResTarget);
 
@@ -9655,9 +9655,10 @@ multiple_set_clause:
 					 * We make Lists at each level so that we can detect we have a
 					 * * in transformation stage.
 					 * The main difference between this ResTarget node and other ResTarget
-					 * nodes is that this node is primarily a representative node representing
-					 * the yet to be done column expansion as compared to normal ResTarget
-					 * nodes which are primarily a node per member of target list.
+					 * nodes is that unlike other ResTarget nodes which are column refs,
+					 * this ResTarget node currently does not represent anything useful
+					 * but will be expanded to column names list in parser transformation
+					 * stage.
 					 */
 					ResTarget *res_col = makeNode(ResTarget);
 					MultiAssignRef *r = makeNode(MultiAssignRef);
