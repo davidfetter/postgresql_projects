@@ -9635,6 +9635,7 @@ multiple_set_clause:
 
 					/* We cheat a little here by making a single Restarget node but assigning the entire ctext_row
 					 * value to it. This is done since we cannot resolve attribute names at this stage */
+					res_col->name = NULL;
 					res_col->val = (Node *) $5;
 					res_col->location = @2;
 
@@ -9654,10 +9655,9 @@ multiple_set_clause:
 					 * column name expanding in parser transformation stage.
 					 * We make Lists at each level so that we can detect we have a
 					 * * in transformation stage.
-					 * The main difference between this ResTarget node and other ResTarget
-					 * nodes is that unlike other ResTarget nodes which are column refs,
-					 * this ResTarget node currently does not represent anything useful
-					 * but will be expanded to column names list in parser transformation
+					 * We currently do not have any place in the code where we have a ResTarget
+					 * node with name value as NULL. Hence, we can safely make a dummy ResTarget node
+					 * here and set name value to NULL and check it later in parser transformation
 					 * stage.
 					 */
 					ResTarget *res_col = makeNode(ResTarget);
@@ -9674,8 +9674,9 @@ multiple_set_clause:
 					r->source = (Node *) sl;
 					r->colno = 1;
 					r->ncolumns = ncolumns;
-					res_col->val = (Node *) list_make1(r);
+					res_col->val = (Node *) r;
 
+					res_col->name = NULL;
 					res_col->location = @2;
 
 					$$ = list_make1(res_col);

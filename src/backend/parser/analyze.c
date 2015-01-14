@@ -1947,12 +1947,12 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	{
 		ResTarget *current_val = linitial(stmt->targetList);
 
-		/* We make a List of the inner values in case we see a SET(*) in raw parse
-		 * representation. While this is a bit hacky, this is the cleanest way to
-		 * avoid a new node */
-		if (IsA((current_val->val), List))
+		/* Currently there is no way that ResTarget node's name value is set to NULL except
+		 * for UPDATE SET (*) case. Hence we can safely depend on name value being NULL as
+		 * a check for present of UPDATE SET (*) case.
+		 */
+		if (current_val->name == NULL)
 		{
-			Node *inner_val = linitial((List *) (current_val->val));
 			List *rel_cols_list;
 			int rteindex = 0;
 			int sublevels_up = 0;
@@ -1965,10 +1965,9 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 					  current_val->location, false,
 					  &(rel_cols_list), NULL);
 
-			/* (*) = (SELECT ...) case. Same hack to avoid new node */
-			if (IsA(inner_val, MultiAssignRef))
+			if (IsA(current_val->val, MultiAssignRef))
 			{
-				MultiAssignRef *orig_val = (MultiAssignRef *) (inner_val);
+				MultiAssignRef *orig_val = (MultiAssignRef *) (current_val->val);
 
 				orig_val->ncolumns = list_length(rel_cols_list);
 
