@@ -1947,9 +1947,10 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	{
 		ResTarget *current_val = linitial(stmt->targetList);
 
-		/* Currently there is no way that ResTarget node's name value is set to NULL except
-		 * for UPDATE SET (*) case. Hence we can safely depend on name value being NULL as
-		 * a check for present of UPDATE SET (*) case.
+		/* Currently there is no way that ResTarget node's name value in UPDATE command
+		 * is set to NULL except for UPDATE SET (*) case.
+		 * Hence we can safely depend on name value being NULL as a check for
+		 * presence of UPDATE SET (*) case.
 		 */
 		if (current_val->name == NULL)
 		{

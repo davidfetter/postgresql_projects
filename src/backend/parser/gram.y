@@ -9656,7 +9656,7 @@ multiple_set_clause:
 					 * We make Lists at each level so that we can detect we have a
 					 * * in transformation stage.
 					 * We currently do not have any place in the code where we have a ResTarget
-					 * node with name value as NULL. Hence, we can safely make a dummy ResTarget node
+					 * node in UPDATE command with name value as NULL. Hence, we can safely make a dummy ResTarget node
 					 * here and set name value to NULL and check it later in parser transformation
 					 * stage.
 					 */
