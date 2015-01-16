@@ -130,8 +130,6 @@ PgStat_MsgBgWriter BgWriterStats;
  */
 NON_EXEC_STATIC pgsocket pgStatSock = PGINVALID_SOCKET;
 
-static Latch pgStatLatch;
-
 static struct sockaddr_storage pgStatAddr;
 
 static time_t last_pgstat_start_time;
@@ -695,11 +693,10 @@ pgstat_start(void)
 #ifndef EXEC_BACKEND
 		case 0:
 			/* in postmaster child ... */
+			InitPostmasterChild();
+
 			/* Close the postmaster's sockets */
 			ClosePostmasterPorts(false);
-
-			/* Lose the postmaster's on-exit routines */
-			on_exit_reset();
 
 			/* Drop our connection to postmaster's shared memory, as well */
 			dsm_detach_all();
@@ -3152,32 +3149,10 @@ PgstatCollectorMain(int argc, char *argv[])
 	PgStat_Msg	msg;
 	int			wr;
 
-	IsUnderPostmaster = true;	/* we are a postmaster subprocess now */
-
-	MyProcPid = getpid();		/* reset MyProcPid */
-
-	MyStartTime = time(NULL);	/* record Start Time for logging */
-
-	/*
-	 * If possible, make this process a group leader, so that the postmaster
-	 * can signal any child processes too.  (pgstat probably never has any
-	 * child processes, but for consistency we make all postmaster child
-	 * processes do this.)
-	 */
-#ifdef HAVE_SETSID
-	if (setsid() < 0)
-		elog(FATAL, "setsid() failed: %m");
-#endif
-
-	InitializeLatchSupport();	/* needed for latch waits */
-
-	/* Initialize private latch for use by signal handlers */
-	InitLatch(&pgStatLatch);
-
 	/*
 	 * Ignore all signals usually bound to some action in the postmaster,
 	 * except SIGHUP and SIGQUIT.  Note we don't need a SIGUSR1 handler to
-	 * support latch operations, because pgStatLatch is local not shared.
+	 * support latch operations, because we only use a local latch.
 	 */
 	pqsignal(SIGHUP, pgstat_sighup_handler);
 	pqsignal(SIGINT, SIG_IGN);
@@ -3223,7 +3198,7 @@ PgstatCollectorMain(int argc, char *argv[])
 	for (;;)
 	{
 		/* Clear any already-pending wakeups */
-		ResetLatch(&pgStatLatch);
+		ResetLatch(MyLatch);
 
 		/*
 		 * Quit if we get SIGQUIT from the postmaster.
@@ -3381,7 +3356,7 @@ PgstatCollectorMain(int argc, char *argv[])
 
 		/* Sleep until there's something to do */
 #ifndef WIN32
-		wr = WaitLatchOrSocket(&pgStatLatch,
+		wr = WaitLatchOrSocket(MyLatch,
 					 WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_SOCKET_READABLE,
 							   pgStatSock,
 							   -1L);
@@ -3397,7 +3372,7 @@ PgstatCollectorMain(int argc, char *argv[])
 		 * to not provoke "pgstat wait timeout" complaints from
 		 * backend_read_statsfile.
 		 */
-		wr = WaitLatchOrSocket(&pgStatLatch,
+		wr = WaitLatchOrSocket(MyLatch,
 		WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_SOCKET_READABLE | WL_TIMEOUT,
 							   pgStatSock,
 							   2 * 1000L /* msec */ );
@@ -3427,7 +3402,7 @@ pgstat_exit(SIGNAL_ARGS)
 	int			save_errno = errno;
 
 	need_exit = true;
-	SetLatch(&pgStatLatch);
+	SetLatch(MyLatch);
 
 	errno = save_errno;
 }
@@ -3439,7 +3414,7 @@ pgstat_sighup_handler(SIGNAL_ARGS)
 	int			save_errno = errno;
 
 	got_SIGHUP = true;
-	SetLatch(&pgStatLatch);
+	SetLatch(MyLatch);
 
 	errno = save_errno;
 }

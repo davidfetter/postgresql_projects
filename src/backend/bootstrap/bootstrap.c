@@ -14,7 +14,6 @@
  */
 #include "postgres.h"
 
-#include <time.h>
 #include <unistd.h>
 #include <signal.h>
 
@@ -191,19 +190,11 @@ AuxiliaryProcessMain(int argc, char *argv[])
 	char	   *userDoption = NULL;
 
 	/*
-	 * initialize globals
+	 * Initialize process environment (already done if under postmaster, but
+	 * not if standalone).
 	 */
-	MyProcPid = getpid();
-
-	MyStartTime = time(NULL);
-
-	/* Compute paths, if we didn't inherit them from postmaster */
-	if (my_exec_path[0] == '\0')
-	{
-		if (find_my_exec(progname, my_exec_path) < 0)
-			elog(FATAL, "%s: could not locate my own executable path",
-				 progname);
-	}
+	if (!IsUnderPostmaster)
+		InitStandaloneProcess(argv[0]);
 
 	/*
 	 * process command arguments
@@ -513,51 +504,13 @@ BootstrapModeMain(void)
 static void
 bootstrap_signals(void)
 {
-	if (IsUnderPostmaster)
-	{
-		/*
-		 * If possible, make this process a group leader, so that the
-		 * postmaster can signal any child processes too.
-		 */
-#ifdef HAVE_SETSID
-		if (setsid() < 0)
-			elog(FATAL, "setsid() failed: %m");
-#endif
+	Assert(!IsUnderPostmaster);
 
-		/*
-		 * Properly accept or ignore signals the postmaster might send us
-		 */
-		pqsignal(SIGHUP, SIG_IGN);
-		pqsignal(SIGINT, SIG_IGN);		/* ignore query-cancel */
-		pqsignal(SIGTERM, die);
-		pqsignal(SIGQUIT, quickdie);
-		pqsignal(SIGALRM, SIG_IGN);
-		pqsignal(SIGPIPE, SIG_IGN);
-		pqsignal(SIGUSR1, SIG_IGN);
-		pqsignal(SIGUSR2, SIG_IGN);
-
-		/*
-		 * Reset some signals that are accepted by postmaster but not here
-		 */
-		pqsignal(SIGCHLD, SIG_DFL);
-		pqsignal(SIGTTIN, SIG_DFL);
-		pqsignal(SIGTTOU, SIG_DFL);
-		pqsignal(SIGCONT, SIG_DFL);
-		pqsignal(SIGWINCH, SIG_DFL);
-
-		/*
-		 * Unblock signals (they were blocked when the postmaster forked us)
-		 */
-		PG_SETMASK(&UnBlockSig);
-	}
-	else
-	{
-		/* Set up appropriately for interactive use */
-		pqsignal(SIGHUP, die);
-		pqsignal(SIGINT, die);
-		pqsignal(SIGTERM, die);
-		pqsignal(SIGQUIT, die);
-	}
+	/* Set up appropriately for interactive use */
+	pqsignal(SIGHUP, die);
+	pqsignal(SIGINT, die);
+	pqsignal(SIGTERM, die);
+	pqsignal(SIGQUIT, die);
 }
 
 /*
