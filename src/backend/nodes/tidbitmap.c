@@ -268,6 +268,8 @@ void
 tbm_add_tuples(TIDBitmap *tbm, const ItemPointer tids, int ntids,
 			   bool recheck)
 {
+	BlockNumber currblk = InvalidBlockNumber;
+	PagetableEntry *page = NULL;	/* only valid when currblk is valid */
 	int			i;
 
 	Assert(!tbm->iterating);
@@ -275,7 +277,6 @@ tbm_add_tuples(TIDBitmap *tbm, const ItemPointer tids, int ntids,
 	{
 		BlockNumber blk = ItemPointerGetBlockNumber(tids + i);
 		OffsetNumber off = ItemPointerGetOffsetNumber(tids + i);
-		PagetableEntry *page;
 		int			wordnum,
 					bitnum;
 
@@ -283,10 +284,22 @@ tbm_add_tuples(TIDBitmap *tbm, const ItemPointer tids, int ntids,
 		if (off < 1 || off > MAX_TUPLES_PER_PAGE)
 			elog(ERROR, "tuple offset out of range: %u", off);
 
-		if (tbm_page_is_lossy(tbm, blk))
-			continue;			/* whole page is already marked */
+		/*
+		 * Look up target page unless we already did.  This saves cycles when
+		 * the input includes consecutive tuples on the same page, which is
+		 * common enough to justify an extra test here.
+		 */
+		if (blk != currblk)
+		{
+			if (tbm_page_is_lossy(tbm, blk))
+				page = NULL;	/* remember page is lossy */
+			else
+				page = tbm_get_pageentry(tbm, blk);
+			currblk = blk;
+		}
 
-		page = tbm_get_pageentry(tbm, blk);
+		if (page == NULL)
+			continue;			/* whole page is already marked */
 
 		if (page->ischunk)
 		{
@@ -303,7 +316,11 @@ tbm_add_tuples(TIDBitmap *tbm, const ItemPointer tids, int ntids,
 		page->recheck |= recheck;
 
 		if (tbm->nentries > tbm->maxentries)
+		{
 			tbm_lossify(tbm);
+			/* Page could have been converted to lossy, so force new lookup */
+			currblk = InvalidBlockNumber;
+		}
 	}
 }
 
