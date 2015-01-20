@@ -537,8 +537,8 @@ convert_sourcefiles_in(char *source_subdir, char *dest_dir, char *dest_subdir, c
 	if (directory_exists(testtablespace))
 		if (!rmtree(testtablespace, true))
 		{
-			fprintf(stderr, _("\n%s: could not remove test tablespace \"%s\": %s\n"),
-					progname, testtablespace, strerror(errno));
+			fprintf(stderr, _("\n%s: could not remove test tablespace \"%s\"\n"),
+					progname, testtablespace);
 			exit(2);
 		}
 	make_directory(testtablespace);
@@ -2392,7 +2392,8 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 			header(_("removing existing temp installation"));
 			if (!rmtree(temp_install, true))
 			{
-				fprintf(stderr, _("\n%s: could not remove temp installation \"%s\": %s\n"), progname, temp_install, strerror(errno));
+				fprintf(stderr, _("\n%s: could not remove temp installation \"%s\"\n"),
+						progname, temp_install);
 				exit(2);
 			}
 		}
@@ -2456,12 +2457,12 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		}
 
 		/*
-		 * Adjust the default postgresql.conf as needed for regression
-		 * testing. The user can specify a file to be appended; in any case we
-		 * set max_prepared_transactions to enable testing of prepared xacts.
-		 * (Note: to reduce the probability of unexpected shmmax failures,
-		 * don't set max_prepared_transactions any higher than actually needed
-		 * by the prepared_xacts regression test.)
+		 * Adjust the default postgresql.conf for regression testing. The user
+		 * can specify a file to be appended; in any case we expand logging
+		 * and set max_prepared_transactions to enable testing of prepared
+		 * xacts.  (Note: to reduce the probability of unexpected shmmax
+		 * failures, don't set max_prepared_transactions any higher than
+		 * actually needed by the prepared_xacts regression test.)
 		 */
 		snprintf(buf, sizeof(buf), "%s/data/postgresql.conf", temp_install);
 		pg_conf = fopen(buf, "a");
@@ -2471,6 +2472,10 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 			exit(2);
 		}
 		fputs("\n# Configuration added by pg_regress\n\n", pg_conf);
+		fputs("log_autovacuum_min_duration = 0\n", pg_conf);
+		fputs("log_checkpoints = on\n", pg_conf);
+		fputs("log_lock_waits = on\n", pg_conf);
+		fputs("log_temp_files = 128kB\n", pg_conf);
 		fputs("max_prepared_transactions = 2\n", pg_conf);
 
 		if (temp_config != NULL)
@@ -2662,6 +2667,19 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 	{
 		header(_("shutting down postmaster"));
 		stop_postmaster();
+	}
+
+	/*
+	 * If there were no errors, remove the temp installation immediately to
+	 * conserve disk space.  (If there were errors, we leave the installation
+	 * in place for possible manual investigation.)
+	 */
+	if (temp_install && fail_count == 0 && fail_ignore_count == 0)
+	{
+		header(_("removing temporary installation"));
+		if (!rmtree(temp_install, true))
+			fprintf(stderr, _("\n%s: could not remove temp installation \"%s\"\n"),
+					progname, temp_install);
 	}
 
 	fclose(logfile);
