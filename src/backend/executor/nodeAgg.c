@@ -49,12 +49,15 @@
  *	  once per input tuple, so when the transvalue datatype is
  *	  pass-by-reference, we have to be careful to copy it into a longer-lived
  *	  memory context, and free the prior value to avoid memory leakage.  We
- *	  store transvalues in the memory contexts aggstate->aggcontexts (one per
- *	  grouping set, see below), which is also used for the hashtable structures
- *	  in AGG_HASHED mode.  The node's regular econtext
- *	  (aggstate->ss.ps.ps_ExprContext) is used to run finalize functions and
- *	  compute the output tuple; this context can be reset once per output
- *	  tuple.
+ *	  store transvalues in another set of econtexts, aggstate->aggcontexts (one
+ *	  per grouping set, see below), which are also used for the hashtable
+ *	  structures in AGG_HASHED mode.  These econtexts are rescanned, not just
+ *	  reset, at group boundaries so that aggregate transition functions can
+ *	  register shutdown callbacks via AggRegisterCallback.
+ *
+ *	  The node's regular econtext (aggstate->ss.ps.ps_ExprContext) is used to
+ *	  run finalize functions and compute the output tuple; this context can be
+ *	  reset once per output tuple.
  *
  *	  The executor's AggState node is passed as the fmgr "context" value in
  *	  all transfunc and finalfunc calls.  It is not recommended that the
