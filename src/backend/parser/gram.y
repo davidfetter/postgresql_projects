@@ -9674,7 +9674,7 @@ multiple_set_clause:
 					r->source = (Node *) sl;
 					r->colno = 1;
 					r->ncolumns = ncolumns;
-					res_col->val = list_make1((Node *) r);
+					res_col->val = (Node *) r;
 
 					res_col->name = NULL;
 					res_col->location = @2;

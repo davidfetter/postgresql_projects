@@ -16,6 +16,11 @@ INSERT INTO update_test VALUES(84, 97, 'test4');
 
 SELECT * FROM update_test;
 
+-- Check SET(*) case
+UPDATE update_test SET(*) = (SELECT * FROM update_test WHERE b = 107)  WHERE b=10;
+
+SELECT a,b, char_length(c) FROM update_test;
+
 UPDATE update_test SET a = DEFAULT, b = DEFAULT;
 
 SELECT * FROM update_test;
@@ -76,8 +81,5 @@ UPDATE update_test AS t SET b = update_test.b + 10 WHERE t.a = 10;
 -- Make sure that we can update to a TOASTed value.
 UPDATE update_test SET c = repeat('x', 10000) WHERE c = 'car';
 SELECT a, b, char_length(c) FROM update_test;
-
--- Check SET(*) case
-UPDATE update_test SET(*) = (SELECT * FROM update_test WHERE b = 107)  WHERE b=10;
 
 DROP TABLE update_test;

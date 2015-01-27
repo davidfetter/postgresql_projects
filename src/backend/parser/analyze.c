@@ -1955,6 +1955,7 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 		if (current_val->name == NULL)
 		{
 			List *rel_cols_list;
+			List *expanded_tlist = NULL;
 			int rteindex = 0;
 			int sublevels_up = 0;
 			int i = 0;
@@ -1968,20 +1969,32 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 
 			if (IsA(current_val->val, MultiAssignRef))
 			{
+				ResTarget *orig_res = makeNode(ResTarget);
 				MultiAssignRef *orig_val = (MultiAssignRef *) (current_val->val);
 
 				orig_val->ncolumns = list_length(rel_cols_list);
 
+				orig_res->name = NULL;
+				orig_res->val = (Node *) orig_val;
+
+				expanded_tlist = list_make1(orig_res);
+
 				for (i = 1;i < list_length(rel_cols_list);i++)
 				{
+					ResTarget *current_res = makeNode(ResTarget);
 					MultiAssignRef *r = makeNode(MultiAssignRef);
 
 					r->source = orig_val->source;
 					r->colno = i + 1;
 					r->ncolumns = orig_val->ncolumns;
 
-					lappend((List *) (current_val->val), r);
+					current_res->name = NULL;
+					current_res->val = (Node *) r;
+
+					lappend(expanded_tlist, current_res);
 				}
+
+				stmt->targetList = expanded_tlist;
 			}
 		}
 	}
