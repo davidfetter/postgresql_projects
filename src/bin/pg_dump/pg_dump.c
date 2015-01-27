@@ -209,6 +209,7 @@ static void addBoundaryDependencies(DumpableObject **dobjs, int numObjs,
 
 static void getDomainConstraints(Archive *fout, TypeInfo *tyinfo);
 static void getTableData(DumpOptions *dopt, TableInfo *tblinfo, int numTables, bool oids);
+static bool hasExtensionMember(TableInfo *tblinfo, int numTables);
 static void makeTableDataInfo(DumpOptions *dopt, TableInfo *tbinfo, bool oids);
 static void buildMatViewRefreshDependencies(Archive *fout);
 static void getTableDataFKConstraints(void);
@@ -730,9 +731,20 @@ main(int argc, char **argv)
 
 	if (!dopt.schemaOnly)
 	{
+		bool has_ext_member;
+
 		getTableData(&dopt, tblinfo, numTables, dopt.oids);
+
+		/* Search if there's dumpable table's members in an extension */
+		has_ext_member = hasExtensionMember(tblinfo, numTables);
+
 		buildMatViewRefreshDependencies(fout);
-		if (dopt.dataOnly)
+		/*
+		 * Get FK constraints even with schema+data if extension's
+		 * members have FK because in this case tables need to be
+		 * dump-ordered too.
+		 */
+		if (dopt.dataOnly || has_ext_member)
 			getTableDataFKConstraints();
 	}
 
@@ -1852,6 +1864,26 @@ getTableData(DumpOptions *dopt, TableInfo *tblinfo, int numTables, bool oids)
 }
 
 /*
+ * hasExtensionMember -
+ *	  return true when on of the dumpable object
+ *	  is an extension members
+ */
+static bool
+hasExtensionMember(TableInfo *tblinfo, int numTables)
+{
+	int			i;
+
+	for (i = 0; i < numTables; i++)
+	{
+		if (tblinfo[i].dobj.ext_member)
+			return true;
+	}
+
+	return false;
+}
+
+
+/*
  * Make a dumpable object for the data of this specific table
  *
  * Note: we make a TableDataInfo if and only if we are going to dump the
@@ -2026,10 +2058,12 @@ buildMatViewRefreshDependencies(Archive *fout)
  * getTableDataFKConstraints -
  *	  add dump-order dependencies reflecting foreign key constraints
  *
- * This code is executed only in a data-only dump --- in schema+data dumps
- * we handle foreign key issues by not creating the FK constraints until
- * after the data is loaded.  In a data-only dump, however, we want to
- * order the table data objects in such a way that a table's referenced
+ * This code is executed only in a data-only dump or when there is extension's
+ * member -- in schema+data dumps we handle foreign key issues by not creating
+ * the FK constraints until after the data is loaded. In a data-only dump or
+ * when there is an extension member to dump (schema dumps do not concern
+ * extension's objects, they are created during the CREATE EXTENSION), we want
+ * to order the table data objects in such a way that a table's referenced
  * tables are restored first.  (In the presence of circular references or
  * self-references this may be impossible; we'll detect and complain about
  * that during the dependency sorting step.)
@@ -2925,7 +2959,12 @@ dumpPolicy(Archive *fout, DumpOptions *dopt, PolicyInfo *polinfo)
 	PQExpBuffer delqry;
 	const char *cmd;
 
+	/* Policy is SCHEMA only */
 	if (dopt->dataOnly)
+		return;
+
+	/* CREATE EXTENSION should take care of that */
+	if ((tbinfo != NULL) && tbinfo->dobj.ext_member)
 		return;
 
 	/*
@@ -7878,6 +7917,10 @@ dumpTableComment(Archive *fout, DumpOptions *dopt, TableInfo *tbinfo,
 
 	/* Comments are SCHEMA not data */
 	if (dopt->dataOnly)
+		return;
+
+	/* CREATE EXTENSION should take care of that */
+	if ((tbinfo != NULL) && tbinfo->dobj.ext_member)
 		return;
 
 	/* Search for comments associated with relation, using table */
@@ -13134,6 +13177,10 @@ dumpTableSecLabel(Archive *fout, DumpOptions *dopt, TableInfo *tbinfo, const cha
 	if (dopt->dataOnly)
 		return;
 
+	/* CREATE EXTENSION should take care of that */
+	if ((tbinfo != NULL) && tbinfo->dobj.ext_member)
+		return;
+
 	/* Search for comments associated with relation, using table */
 	nlabels = findSecLabels(fout,
 							tbinfo->dobj.catId.tableoid,
@@ -13341,7 +13388,7 @@ collectSecLabels(Archive *fout, SecLabelItem **items)
 static void
 dumpTable(Archive *fout, DumpOptions *dopt, TableInfo *tbinfo)
 {
-	if (tbinfo->dobj.dump && !dopt->dataOnly)
+	if (tbinfo->dobj.dump && !dopt->dataOnly && !tbinfo->dobj.ext_member)
 	{
 		char	   *namecopy;
 
@@ -13478,6 +13525,10 @@ dumpTableSchema(Archive *fout, DumpOptions *dopt, TableInfo *tbinfo)
 	char	   *ftoptions;
 	int			j,
 				k;
+
+	/* CREATE EXTENSION should take care of that */
+	if ((tbinfo != NULL) && tbinfo->dobj.ext_member)
+		return;
 
 	/* Make sure we are in proper schema */
 	selectSourceSchema(fout, tbinfo->dobj.namespace->dobj.name);
@@ -14113,6 +14164,10 @@ dumpAttrDef(Archive *fout, DumpOptions *dopt, AttrDefInfo *adinfo)
 	if (!tbinfo->dobj.dump || dopt->dataOnly)
 		return;
 
+	/* CREATE EXTENSION should take care of that */
+	if ((tbinfo != NULL) && tbinfo->dobj.ext_member)
+		return;
+
 	/* Skip if not "separate"; it was dumped in the table's definition */
 	if (!adinfo->separate)
 		return;
@@ -14198,6 +14253,10 @@ dumpIndex(Archive *fout, DumpOptions *dopt, IndxInfo *indxinfo)
 	PQExpBuffer labelq;
 
 	if (dopt->dataOnly)
+		return;
+
+	/* CREATE EXTENSION should take care of that */
+	if ((tbinfo != NULL) && tbinfo->dobj.ext_member)
 		return;
 
 	q = createPQExpBuffer();
@@ -14287,6 +14346,10 @@ dumpConstraint(Archive *fout, DumpOptions *dopt, ConstraintInfo *coninfo)
 
 	/* Skip if not to be dumped */
 	if (!coninfo->dobj.dump || dopt->dataOnly)
+		return;
+
+	/* CREATE EXTENSION should take care of that */
+	if ((tbinfo != NULL) && tbinfo->dobj.ext_member)
 		return;
 
 	q = createPQExpBuffer();
@@ -14513,7 +14576,13 @@ static void
 dumpTableConstraintComment(Archive *fout, DumpOptions *dopt, ConstraintInfo *coninfo)
 {
 	TableInfo  *tbinfo = coninfo->contable;
-	PQExpBuffer labelq = createPQExpBuffer();
+	PQExpBuffer labelq;
+
+	/* CREATE EXTENSION should take care of that */
+	if ((tbinfo != NULL) && tbinfo->dobj.ext_member)
+		return;
+
+	labelq = createPQExpBuffer();
 
 	appendPQExpBuffer(labelq, "CONSTRAINT %s ",
 					  fmtId(coninfo->dobj.name));
@@ -14590,9 +14659,17 @@ dumpSequence(Archive *fout, DumpOptions *dopt, TableInfo *tbinfo)
 	char		bufm[100],
 				bufx[100];
 	bool		cycled;
-	PQExpBuffer query = createPQExpBuffer();
-	PQExpBuffer delqry = createPQExpBuffer();
-	PQExpBuffer labelq = createPQExpBuffer();
+	PQExpBuffer query;
+	PQExpBuffer delqry;
+	PQExpBuffer labelq;
+
+	/* CREATE EXTENSION should take care of that */
+	if ((tbinfo != NULL) && tbinfo->dobj.ext_member)
+		return;
+
+	query = createPQExpBuffer();
+	delqry = createPQExpBuffer();
+	labelq = createPQExpBuffer();
 
 	/* Make sure we are in proper schema */
 	selectSourceSchema(fout, tbinfo->dobj.namespace->dobj.name);
@@ -14855,6 +14932,10 @@ dumpTrigger(Archive *fout, DumpOptions *dopt, TriggerInfo *tginfo)
 	 * created in the first place for non-dumpable triggers
 	 */
 	if (dopt->dataOnly)
+		return;
+
+	/* CREATE EXTENSION should take care of that */
+	if ((tbinfo != NULL) && tbinfo->dobj.ext_member)
 		return;
 
 	query = createPQExpBuffer();
@@ -15131,6 +15212,10 @@ dumpRule(Archive *fout, DumpOptions *dopt, RuleInfo *rinfo)
 
 	/* Skip if not to be dumped */
 	if (!rinfo->dobj.dump || dopt->dataOnly)
+		return;
+
+	/* CREATE EXTENSION should take care of that */
+	if ((tbinfo != NULL) && tbinfo->dobj.ext_member)
 		return;
 
 	/*
@@ -15423,6 +15508,9 @@ getExtensionMembership(Archive *fout, DumpOptions *dopt, ExtensionInfo extinfo[]
 
 				if (dumpobj)
 				{
+					/* Mark member table as dumpable */
+					configtbl->dobj.dump = true;
+
 					/*
 					 * Note: config tables are dumped without OIDs regardless
 					 * of the --oids setting.  This is because row filtering
