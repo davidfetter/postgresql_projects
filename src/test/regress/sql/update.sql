@@ -9,7 +9,10 @@ CREATE TABLE update_test (
 );
 
 INSERT INTO update_test VALUES (5, 10, 'foo');
-INSERT INTO update_test(b, a) VALUES (15, 10);
+INSERT INTO update_test VALUES (15, 10, 'test1');
+INSERT INTO update_test VALUES(105, 107, 'test2');
+INSERT INTO update_test VALUES(112, 93, 'test3');
+INSERT INTO update_test VALUES(84, 97, 'test4');
 
 SELECT * FROM update_test;
 
@@ -21,7 +24,7 @@ SELECT * FROM update_test;
 UPDATE update_test AS t SET b = 10 WHERE t.a = 10;
 
 SELECT * FROM update_test;
-
+INSERT INTO update_test(b, a) VALUES(112,93);
 UPDATE update_test t SET b = t.b + 10 WHERE t.a = 10;
 
 SELECT * FROM update_test;
@@ -73,5 +76,8 @@ UPDATE update_test AS t SET b = update_test.b + 10 WHERE t.a = 10;
 -- Make sure that we can update to a TOASTed value.
 UPDATE update_test SET c = repeat('x', 10000) WHERE c = 'car';
 SELECT a, b, char_length(c) FROM update_test;
+
+-- Check SET(*) case
+UPDATE update_test SET(*) = (SELECT * FROM update_test WHERE b = 107)  WHERE b=10;
 
 DROP TABLE update_test;
