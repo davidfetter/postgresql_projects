@@ -1979,6 +1979,8 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 
 				expanded_tlist = list_make1(orig_res);
 
+				/* Change targetlist to have corresponding ResTarget nodes
+				 * as corresponding to the columns in target relation */
 				for (i = 1;i < list_length(rel_cols_list);i++)
 				{
 					ResTarget *current_res = makeNode(ResTarget);
@@ -1994,7 +1996,7 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 					lappend(expanded_tlist, current_res);
 				}
 			}
-			else if (IsA(current_val->val, List))
+			else if (IsA(current_val->val, List))  /* SET(*) = (val, val,...) case */
 			{
 				ListCell *lc_val;
 				ListCell *lc_relcol;
@@ -2002,6 +2004,8 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 				if (list_length(rel_cols_list) != list_length((List *)(current_val->val)))
 					elog(ERROR, "number of columns does not match number of values");
 
+				/* Change targetlist to have corresponding ResTarget nodes
+				 * as corresponding to the columns in target relation */
 				forboth(lc_val, (List *) (current_val->val), lc_relcol, rel_cols_list)
 				{
 					ResTarget *current_res = makeNode(ResTarget);
