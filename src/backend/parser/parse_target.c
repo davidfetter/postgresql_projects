@@ -124,7 +124,6 @@ transformTargetList(ParseState *pstate, List *targetlist,
 {
 	List	   *p_target = NIL;
 	ListCell   *o_target;
-	bool       isStar = false;
 
 	/* Shouldn't have any leftover multiassign items at start */
 	Assert(pstate->p_multiassign_exprs == NIL);
@@ -164,110 +163,13 @@ transformTargetList(ParseState *pstate, List *targetlist,
 				continue;
 			}
 		}
-		else if (IsA(res->val, List))
-		{
-			List *rel_cols_list;
-			ListCell *lc;
-			ListCell *lc_cols;
-			int rteindex;
-			int sublevels_up;
-
-			/* SET (*) = ... is present */
-			isStar = true;
-
-			rteindex = RTERangeTablePosn(pstate, pstate->p_target_rangetblentry,
-										 &sublevels_up);
-
-			expandRTE(pstate->p_target_rangetblentry, rteindex, sublevels_up,
-					  res->location, false,
-					  &(rel_cols_list), NULL);
-
-			if (list_length(rel_cols_list) != list_length((List *)(res->val)))
-				elog(ERROR, "number of columns does not match number of values");
-
-			forboth(lc, (List *) (res->val), lc_cols, rel_cols_list)
-			{
-				Node *current_val = lfirst(lc);
-				char *current_resname = strVal(lfirst(lc_cols));
-
-				/*
-				 * Check for "something.*".  Depending on the complexity of the
-				 * "something", the star could appear as the last field in ColumnRef,
-				 * or as the last indirection item in A_Indirection.
-				 */
-				if (IsA(current_val, ColumnRef))
-				{
-					ColumnRef  *cref = (ColumnRef *) current_val;
-
-					if (IsA(llast(cref->fields), A_Star))
-					{
-						List *current_result = ExpandColumnRefStar(pstate, cref,
-																   true);
-						ListCell *lc_result;
-
-						/* It is something.*, expand into multiple items */
-						foreach(lc_result, current_result)
-						{
-							TargetEntry *tle_current = lfirst(lc_result);
-
-							tle_current->resname = current_resname;
-						}
-
-						p_target = list_concat(p_target, current_result);
-						continue;
-					}
-				}
-				else if (IsA(current_val, A_Indirection))
-				{
-					A_Indirection *ind = (A_Indirection *) current_val;
-
-					if (IsA(llast(ind->indirection), A_Star))
-					{
-						List *current_result = ExpandIndirectionStar(pstate, ind,
-																	 true, exprKind);
-						ListCell *lc_result;
-
-						/* It is something.*, expand into multiple items */
-						foreach(lc_result, current_result)
-						{
-							TargetEntry *tle_current = lfirst(lc_result);
-
-							tle_current->resname = current_resname;
-						}
-
-						p_target = list_concat(p_target,
-											   current_result);
-						continue;
-					}
-				}
-
-				/*
-				 * Not "something.*", so transform as a single expression
-				 */
-				p_target = lappend(p_target,
-								   transformTargetEntry(pstate,
-														current_val,
-														NULL,
-														exprKind,
-														current_resname,
-														false));
-			}
-		}
-
-		if (!isStar)
-		{
-			/*
-			 * Not "SET (*) =... " and "something.*",
-			 * so transform as a single expression
-			 */
-			p_target = lappend(p_target,
-							   transformTargetEntry(pstate,
-													res->val,
-													NULL,
-													exprKind,
-													res->name,
-													false));
-		}
+		p_target = lappend(p_target,
+						   transformTargetEntry(pstate,
+												res->val,
+												NULL,
+												exprKind,
+												res->name,
+												false));
 	}
 
 	/*

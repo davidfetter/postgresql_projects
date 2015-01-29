@@ -21,6 +21,10 @@ UPDATE update_test SET(*) = (SELECT * FROM update_test WHERE b = 107)  WHERE b=1
 
 SELECT a,b, char_length(c) FROM update_test;
 
+UPDATE update_test SET(*) = (DEFAULT, DEFAULT, DEFAULT) WHERE b = 93;
+
+SELECT * FROM update_test;
+
 UPDATE update_test SET a = DEFAULT, b = DEFAULT;
 
 SELECT * FROM update_test;

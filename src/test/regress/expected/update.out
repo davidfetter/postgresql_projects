@@ -33,15 +33,26 @@ SELECT a,b, char_length(c) FROM update_test;
  105 | 107 |           5
 (5 rows)
 
+UPDATE update_test SET(*) = (DEFAULT, DEFAULT, DEFAULT) WHERE b = 93;
+SELECT * FROM update_test;
+  a  |  b  |   c   
+-----+-----+-------
+ 105 | 107 | test2
+  84 |  97 | test4
+ 105 | 107 | test2
+ 105 | 107 | test2
+  10 |     | 
+(5 rows)
+
 UPDATE update_test SET a = DEFAULT, b = DEFAULT;
 SELECT * FROM update_test;
  a  | b |   c   
 ----+---+-------
  10 |   | test2
- 10 |   | test3
  10 |   | test4
  10 |   | test2
  10 |   | test2
+ 10 |   | 
 (5 rows)
 
 -- aliases for the UPDATE target table
@@ -50,10 +61,10 @@ SELECT * FROM update_test;
  a  | b  |   c   
 ----+----+-------
  10 | 10 | test2
- 10 | 10 | test3
  10 | 10 | test4
  10 | 10 | test2
  10 | 10 | test2
+ 10 | 10 | 
 (5 rows)
 
 INSERT INTO update_test(b, a) VALUES(112,93);
@@ -63,10 +74,10 @@ SELECT * FROM update_test;
 ----+-----+-------
  93 | 112 | 
  10 |  20 | test2
- 10 |  20 | test3
  10 |  20 | test4
  10 |  20 | test2
  10 |  20 | test2
+ 10 |  20 | 
 (6 rows)
 
 --
@@ -79,10 +90,10 @@ SELECT * FROM update_test;
 -----+-----+-------
   93 | 112 | 
  100 |  20 | test2
- 100 |  20 | test3
  100 |  20 | test4
  100 |  20 | test2
  100 |  20 | test2
+ 100 |  20 | 
 (6 rows)
 
 --
@@ -94,16 +105,16 @@ SELECT * FROM update_test;
 -----+-----+-------
   93 | 112 | 
  100 |  20 | test2
- 100 |  20 | test3
  100 |  20 | test4
  100 |  20 | test2
  100 |  20 | test2
+ 100 |  20 | 
   93 | 113 | 
  100 |  21 | test2
- 100 |  21 | test3
  100 |  21 | test4
  100 |  21 | test2
  100 |  21 | test2
+ 100 |  21 | 
 (12 rows)
 
 UPDATE update_test SET (c,b,a) = ('bugle', b+11, DEFAULT) WHERE c = 'foo';
@@ -112,16 +123,16 @@ SELECT * FROM update_test;
 -----+-----+-------
   93 | 112 | 
  100 |  20 | test2
- 100 |  20 | test3
  100 |  20 | test4
  100 |  20 | test2
  100 |  20 | test2
+ 100 |  20 | 
   93 | 113 | 
  100 |  21 | test2
- 100 |  21 | test3
  100 |  21 | test4
  100 |  21 | test2
  100 |  21 | test2
+ 100 |  21 | 
 (12 rows)
 
 UPDATE update_test SET (c,b) = ('car', a+b), a = a + 1 WHERE a = 10;
@@ -130,16 +141,16 @@ SELECT * FROM update_test;
 -----+-----+-------
   93 | 112 | 
  100 |  20 | test2
- 100 |  20 | test3
  100 |  20 | test4
  100 |  20 | test2
  100 |  20 | test2
+ 100 |  20 | 
   93 | 113 | 
  100 |  21 | test2
- 100 |  21 | test3
  100 |  21 | test4
  100 |  21 | test2
  100 |  21 | test2
+ 100 |  21 | 
 (12 rows)
 
 -- fail, multi assignment to same column:
@@ -155,15 +166,15 @@ SELECT * FROM update_test;
   93 | 112 | 
   93 | 113 | 
  100 |  21 | test2
- 100 |  21 | test3
  100 |  21 | test4
  100 |  21 | test2
  100 |  21 | test2
+ 100 |  21 | 
      |     | test2
-     |     | test3
      |     | test4
      |     | test2
      |     | test2
+     |     | 
 (12 rows)
 
 -- correlated sub-select:
@@ -177,15 +188,15 @@ SELECT * FROM update_test;
   93 | 112 | 
   93 | 113 | 
  100 |  21 | test2
- 100 |  21 | test3
  100 |  21 | test4
  100 |  21 | test2
  100 |  21 | test2
+ 100 |  21 | 
      |     | test2
-     |     | test3
      |     | test4
      |     | test2
      |     | test2
+     |     | 
 (12 rows)
 
 -- fail, multiple rows supplied:
@@ -200,15 +211,15 @@ SELECT * FROM update_test;
   93 | 112 | 
   93 | 113 | 
  100 |  21 | test2
- 100 |  21 | test3
  100 |  21 | test4
  100 |  21 | test2
  100 |  21 | test2
+ 100 |  21 | 
      |     | test2
-     |     | test3
      |     | test4
      |     | test2
      |     | test2
+     |     | 
 (12 rows)
 
 -- if an alias for the target table is specified, don't allow references
@@ -229,12 +240,12 @@ SELECT a, b, char_length(c) FROM update_test;
  100 |  21 |           5
  100 |  21 |           5
  100 |  21 |           5
- 100 |  21 |           5
+ 100 |  21 |            
      |     |           5
      |     |           5
      |     |           5
      |     |           5
-     |     |           5
+     |     |            
 (12 rows)
 
 DROP TABLE update_test;
