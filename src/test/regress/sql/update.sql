@@ -8,22 +8,31 @@ CREATE TABLE update_test (
     c   TEXT
 );
 
+CREATE TABLE update_star (
+    a   INT DEFAULT 10,
+    b   INT,
+    c   TEXT
+);
+
 INSERT INTO update_test VALUES (5, 10, 'foo');
-INSERT INTO update_test VALUES (15, 10, 'test1');
-INSERT INTO update_test VALUES(105, 107, 'test2');
-INSERT INTO update_test VALUES(112, 93, 'test3');
-INSERT INTO update_test VALUES(84, 97, 'test4');
+INSERT INTO update_test(b, a) VALUES (15, 10);
+
+INSERT INTO update_star VALUES(105, 107, 'test2');
+INSERT INTO update_star VALUES(112, 93, 'test3');
+INSERT INTO update_star VALUES(84, 97, 'test4');
 
 SELECT * FROM update_test;
 
 -- Check SET(*) case
-UPDATE update_test SET(*) = (SELECT * FROM update_test WHERE b = 107)  WHERE b=10;
+UPDATE update_star SET(*) = (SELECT * FROM update_star WHERE b = 107)  WHERE b=97;
 
-SELECT a,b, char_length(c) FROM update_test;
+SELECT a,b, char_length(c) FROM update_star;
 
-UPDATE update_test SET(*) = (DEFAULT, DEFAULT, DEFAULT) WHERE b = 93;
+UPDATE update_star SET(*) = (DEFAULT, DEFAULT, DEFAULT) WHERE b = 93;
 
-SELECT * FROM update_test;
+SELECT * FROM update_star;
+
+DROP TABLE update_star;
 
 UPDATE update_test SET a = DEFAULT, b = DEFAULT;
 

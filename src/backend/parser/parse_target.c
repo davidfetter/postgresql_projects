@@ -20,7 +20,6 @@
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
-#include "nodes/value.h"
 #include "parser/parsetree.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_expr.h"
@@ -163,6 +162,10 @@ transformTargetList(ParseState *pstate, List *targetlist,
 				continue;
 			}
 		}
+
+		/*
+		 * Not "something.*", so transform as a single expression
+		 */
 		p_target = lappend(p_target,
 						   transformTargetEntry(pstate,
 												res->val,

@@ -374,6 +374,9 @@ typedef struct A_ArrayExpr
  * In an UPDATE target list, 'name' is the name of the destination column,
  * 'indirection' stores any subscripts attached to the destination, and
  * 'val' is the expression to assign.
+ * In an UPDATE operation namve value for ResTarget is not expected to be NULL
+ * hence we set name value to NULL in case of SET(*) case. Parser transformation
+ * code depends on name being NULL as a sure shot proof of SET(*) being present.
  *
  * See A_Indirection for more info about what can appear in 'indirection'.
  */

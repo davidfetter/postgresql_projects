@@ -6,79 +6,69 @@ CREATE TABLE update_test (
     b   INT,
     c   TEXT
 );
+CREATE TABLE update_star (
+    a   INT DEFAULT 10,
+    b   INT,
+    c   TEXT
+);
 INSERT INTO update_test VALUES (5, 10, 'foo');
-INSERT INTO update_test VALUES (15, 10, 'test1');
-INSERT INTO update_test VALUES(105, 107, 'test2');
-INSERT INTO update_test VALUES(112, 93, 'test3');
-INSERT INTO update_test VALUES(84, 97, 'test4');
+INSERT INTO update_test(b, a) VALUES (15, 10);
+INSERT INTO update_star VALUES(105, 107, 'test2');
+INSERT INTO update_star VALUES(112, 93, 'test3');
+INSERT INTO update_star VALUES(84, 97, 'test4');
 SELECT * FROM update_test;
-  a  |  b  |   c   
------+-----+-------
-   5 |  10 | foo
-  15 |  10 | test1
- 105 | 107 | test2
- 112 |  93 | test3
-  84 |  97 | test4
-(5 rows)
+ a  | b  |  c  
+----+----+-----
+  5 | 10 | foo
+ 10 | 15 | 
+(2 rows)
 
 -- Check SET(*) case
-UPDATE update_test SET(*) = (SELECT * FROM update_test WHERE b = 107)  WHERE b=10;
-SELECT a,b, char_length(c) FROM update_test;
+UPDATE update_star SET(*) = (SELECT * FROM update_star WHERE b = 107)  WHERE b=97;
+SELECT a,b, char_length(c) FROM update_star;
   a  |  b  | char_length 
 -----+-----+-------------
  105 | 107 |           5
  112 |  93 |           5
-  84 |  97 |           5
  105 | 107 |           5
- 105 | 107 |           5
-(5 rows)
+(3 rows)
 
-UPDATE update_test SET(*) = (DEFAULT, DEFAULT, DEFAULT) WHERE b = 93;
-SELECT * FROM update_test;
+UPDATE update_star SET(*) = (DEFAULT, DEFAULT, DEFAULT) WHERE b = 93;
+SELECT * FROM update_star;
   a  |  b  |   c   
 -----+-----+-------
  105 | 107 | test2
-  84 |  97 | test4
- 105 | 107 | test2
  105 | 107 | test2
   10 |     | 
-(5 rows)
+(3 rows)
 
+DROP TABLE update_star;
 UPDATE update_test SET a = DEFAULT, b = DEFAULT;
 SELECT * FROM update_test;
- a  | b |   c   
-----+---+-------
- 10 |   | test2
- 10 |   | test4
- 10 |   | test2
- 10 |   | test2
+ a  | b |  c  
+----+---+-----
+ 10 |   | foo
  10 |   | 
-(5 rows)
+(2 rows)
 
 -- aliases for the UPDATE target table
 UPDATE update_test AS t SET b = 10 WHERE t.a = 10;
 SELECT * FROM update_test;
- a  | b  |   c   
-----+----+-------
- 10 | 10 | test2
- 10 | 10 | test4
- 10 | 10 | test2
- 10 | 10 | test2
+ a  | b  |  c  
+----+----+-----
+ 10 | 10 | foo
  10 | 10 | 
-(5 rows)
+(2 rows)
 
 INSERT INTO update_test(b, a) VALUES(112,93);
 UPDATE update_test t SET b = t.b + 10 WHERE t.a = 10;
 SELECT * FROM update_test;
- a  |  b  |   c   
-----+-----+-------
+ a  |  b  |  c  
+----+-----+-----
  93 | 112 | 
- 10 |  20 | test2
- 10 |  20 | test4
- 10 |  20 | test2
- 10 |  20 | test2
+ 10 |  20 | foo
  10 |  20 | 
-(6 rows)
+(3 rows)
 
 --
 -- Test VALUES in FROM
@@ -86,72 +76,51 @@ SELECT * FROM update_test;
 UPDATE update_test SET a=v.i FROM (VALUES(100, 20)) AS v(i, j)
   WHERE update_test.b = v.j;
 SELECT * FROM update_test;
-  a  |  b  |   c   
------+-----+-------
+  a  |  b  |  c  
+-----+-----+-----
   93 | 112 | 
- 100 |  20 | test2
- 100 |  20 | test4
- 100 |  20 | test2
- 100 |  20 | test2
+ 100 |  20 | foo
  100 |  20 | 
-(6 rows)
+(3 rows)
 
 --
 -- Test multiple-set-clause syntax
 --
 INSERT INTO update_test SELECT a,b+1,c FROM update_test;
 SELECT * FROM update_test;
-  a  |  b  |   c   
------+-----+-------
+  a  |  b  |  c  
+-----+-----+-----
   93 | 112 | 
- 100 |  20 | test2
- 100 |  20 | test4
- 100 |  20 | test2
- 100 |  20 | test2
+ 100 |  20 | foo
  100 |  20 | 
   93 | 113 | 
- 100 |  21 | test2
- 100 |  21 | test4
- 100 |  21 | test2
- 100 |  21 | test2
+ 100 |  21 | foo
  100 |  21 | 
-(12 rows)
+(6 rows)
 
 UPDATE update_test SET (c,b,a) = ('bugle', b+11, DEFAULT) WHERE c = 'foo';
 SELECT * FROM update_test;
   a  |  b  |   c   
 -----+-----+-------
   93 | 112 | 
- 100 |  20 | test2
- 100 |  20 | test4
- 100 |  20 | test2
- 100 |  20 | test2
  100 |  20 | 
   93 | 113 | 
- 100 |  21 | test2
- 100 |  21 | test4
- 100 |  21 | test2
- 100 |  21 | test2
  100 |  21 | 
-(12 rows)
+  10 |  31 | bugle
+  10 |  32 | bugle
+(6 rows)
 
 UPDATE update_test SET (c,b) = ('car', a+b), a = a + 1 WHERE a = 10;
 SELECT * FROM update_test;
-  a  |  b  |   c   
------+-----+-------
+  a  |  b  |  c  
+-----+-----+-----
   93 | 112 | 
- 100 |  20 | test2
- 100 |  20 | test4
- 100 |  20 | test2
- 100 |  20 | test2
  100 |  20 | 
   93 | 113 | 
- 100 |  21 | test2
- 100 |  21 | test4
- 100 |  21 | test2
- 100 |  21 | test2
  100 |  21 | 
-(12 rows)
+  11 |  41 | car
+  11 |  42 | car
+(6 rows)
 
 -- fail, multi assignment to same column:
 UPDATE update_test SET (c,b) = ('car', a+b), b = a + 1 WHERE a = 10;
@@ -161,43 +130,30 @@ UPDATE update_test
   SET (b,a) = (select a,b from update_test where b = 41 and c = 'car')
   WHERE a = 100 AND b = 20;
 SELECT * FROM update_test;
-  a  |  b  |   c   
------+-----+-------
+  a  |  b  |  c  
+-----+-----+-----
   93 | 112 | 
   93 | 113 | 
- 100 |  21 | test2
- 100 |  21 | test4
- 100 |  21 | test2
- 100 |  21 | test2
  100 |  21 | 
-     |     | test2
-     |     | test4
-     |     | test2
-     |     | test2
-     |     | 
-(12 rows)
+  11 |  41 | car
+  11 |  42 | car
+  41 |  11 | 
+(6 rows)
 
 -- correlated sub-select:
 UPDATE update_test o
   SET (b,a) = (select a+1,b from update_test i
                where i.a=o.a and i.b=o.b and i.c is not distinct from o.c);
-ERROR:  more than one row returned by a subquery used as an expression
 SELECT * FROM update_test;
-  a  |  b  |   c   
------+-----+-------
-  93 | 112 | 
-  93 | 113 | 
- 100 |  21 | test2
- 100 |  21 | test4
- 100 |  21 | test2
- 100 |  21 | test2
- 100 |  21 | 
-     |     | test2
-     |     | test4
-     |     | test2
-     |     | test2
-     |     | 
-(12 rows)
+  a  |  b  |  c  
+-----+-----+-----
+ 112 |  94 | 
+ 113 |  94 | 
+  21 | 101 | 
+  41 |  12 | car
+  42 |  12 | car
+  11 |  42 | 
+(6 rows)
 
 -- fail, multiple rows supplied:
 UPDATE update_test SET (b,a) = (select a+1,b from update_test);
@@ -206,21 +162,15 @@ ERROR:  more than one row returned by a subquery used as an expression
 UPDATE update_test SET (b,a) = (select a+1,b from update_test where a = 1000)
   WHERE a = 11;
 SELECT * FROM update_test;
-  a  |  b  |   c   
------+-----+-------
-  93 | 112 | 
-  93 | 113 | 
- 100 |  21 | test2
- 100 |  21 | test4
- 100 |  21 | test2
- 100 |  21 | test2
- 100 |  21 | 
-     |     | test2
-     |     | test4
-     |     | test2
-     |     | test2
+  a  |  b  |  c  
+-----+-----+-----
+ 112 |  94 | 
+ 113 |  94 | 
+  21 | 101 | 
+  41 |  12 | car
+  42 |  12 | car
      |     | 
-(12 rows)
+(6 rows)
 
 -- if an alias for the target table is specified, don't allow references
 -- to the original table name
@@ -234,18 +184,12 @@ UPDATE update_test SET c = repeat('x', 10000) WHERE c = 'car';
 SELECT a, b, char_length(c) FROM update_test;
   a  |  b  | char_length 
 -----+-----+-------------
-  93 | 112 |            
-  93 | 113 |            
- 100 |  21 |           5
- 100 |  21 |           5
- 100 |  21 |           5
- 100 |  21 |           5
- 100 |  21 |            
-     |     |           5
-     |     |           5
-     |     |           5
-     |     |           5
+ 112 |  94 |            
+ 113 |  94 |            
+  21 | 101 |            
      |     |            
-(12 rows)
+  41 |  12 |       10000
+  42 |  12 |       10000
+(6 rows)
 
 DROP TABLE update_test;

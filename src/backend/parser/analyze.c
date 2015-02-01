@@ -1955,6 +1955,9 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 		{
 			List *rel_cols_list;
 			List *expanded_tlist = NULL;
+			List *sub_list = NULL;
+			ListCell *lc_val;
+			ListCell *lc_relcol;
 			int rteindex = 0;
 			int sublevels_up = 0;
 			int i = 0;
@@ -1966,61 +1969,61 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 					  current_val->location, false,
 					  &(rel_cols_list), NULL);
 
+
 			/* SET(*) = (SELECT ...) case */
 			if (IsA(current_val->val, MultiAssignRef))
 			{
-				ResTarget *orig_res = makeNode(ResTarget);
 				MultiAssignRef *orig_val = (MultiAssignRef *) (current_val->val);
 
 				orig_val->ncolumns = list_length(rel_cols_list);
 
-				orig_res->name = strVal(list_nth(rel_cols_list, 0));
-				orig_res->val = (Node *) orig_val;
+				Assert(sub_list == NULL);
 
-				expanded_tlist = list_make1(orig_res);
+				sub_list = list_make1(orig_val);
 
 				/* Change targetlist to have corresponding ResTarget nodes
 				 * as corresponding to the columns in target relation */
 				for (i = 1;i < list_length(rel_cols_list);i++)
 				{
-					ResTarget *current_res = makeNode(ResTarget);
 					MultiAssignRef *r = makeNode(MultiAssignRef);
 
 					r->source = orig_val->source;
 					r->colno = i + 1;
 					r->ncolumns = orig_val->ncolumns;
 
-					current_res->name = strVal(list_nth(rel_cols_list, i));
-					current_res->val = (Node *) r;
-
-					lappend(expanded_tlist, current_res);
+					lappend(sub_list, r);
 				}
 			}
 			else if (IsA(current_val->val, List))  /* SET(*) = (val, val,...) case */
 			{
-				ListCell *lc_val;
-				ListCell *lc_relcol;
 
-				if (list_length(rel_cols_list) != list_length((List *)(current_val->val)))
-					elog(ERROR, "number of columns does not match number of values");
+				Assert(sub_list == NULL);
+				sub_list = (List *) (current_val->val);
+			}
+			else
+			{
+				elog(ERROR, "Unknown type in UPDATE command");
+			}
 
-				/* Change targetlist to have corresponding ResTarget nodes
-				 * as corresponding to the columns in target relation */
-				forboth(lc_val, (List *) (current_val->val), lc_relcol, rel_cols_list)
+			if (list_length(rel_cols_list) != list_length(sub_list))
+				elog(ERROR, "number of columns does not match number of values");
+
+			/* Change targetlist to have corresponding ResTarget nodes
+			 * as corresponding to the columns in target relation */
+			forboth(lc_val, sub_list, lc_relcol, rel_cols_list)
+			{
+				ResTarget *current_res = makeNode(ResTarget);
+
+				current_res->name = strVal(lfirst(lc_relcol));
+				current_res->val = (Node *) (lfirst(lc_val));
+
+				if (expanded_tlist == NULL)
 				{
-					ResTarget *current_res = makeNode(ResTarget);
-
-					current_res->name = strVal(lfirst(lc_relcol));
-					current_res->val = (Node *) (lfirst(lc_val));
-
-					if (expanded_tlist == NULL)
-					{
-						expanded_tlist = list_make1(current_res);
-					}
-					else
-					{
-						lappend(expanded_tlist, current_res);
-					}
+					expanded_tlist = list_make1(current_res);
+				}
+				else
+				{
+					lappend(expanded_tlist, current_res);
 				}
 			}
 
