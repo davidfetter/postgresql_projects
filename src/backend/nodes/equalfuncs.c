@@ -293,6 +293,15 @@ _equalOpExpr(const OpExpr *a, const OpExpr *b)
 }
 
 static bool
+_equalStarJoinExpr(const StarJoinExpr *a, const StarJoinExpr *b)
+{
+	COMPARE_NODE_FIELD(args);
+	COMPARE_LOCATION_FIELD(location);
+
+	return true;
+}
+
+static bool
 _equalDistinctExpr(const DistinctExpr *a, const DistinctExpr *b)
 {
 	COMPARE_SCALAR_FIELD(opno);
@@ -2606,6 +2615,9 @@ equal(const void *a, const void *b)
 		case T_OpExpr:
 			retval = _equalOpExpr(a, b);
 			break;
+	case T_StarJoinExpr:
+		retval = _equalStarJoinExpr(a, b);
+		break;
 		case T_DistinctExpr:
 			retval = _equalDistinctExpr(a, b);
 			break;

@@ -422,6 +422,18 @@ typedef struct OpExpr
 } OpExpr;
 
 /*
+ * StarJoinExpr - expression node for a Star join
+ *
+ * The node holds hashable expressions for outer relation for Star join
+ */
+typedef struct StarJoinExpr
+{
+	Expr		xpr;
+	List        *args;
+	int			location;		/* token location, or -1 if unknown */
+} StarJoinExpr;
+
+/*
  * DistinctExpr - expression node for "x IS DISTINCT FROM y"
  *
  * Except for the nodetag, this is represented identically to an OpExpr

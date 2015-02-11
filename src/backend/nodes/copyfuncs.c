@@ -1276,6 +1276,20 @@ _copyOpExpr(const OpExpr *from)
 }
 
 /*
+ * _copyStarJoinExpr
+ */
+static StarJoinExpr *
+_copyStarJoinExpr(const StarJoinExpr *from)
+{
+	StarJoinExpr	   *newnode = makeNode(StarJoinExpr);
+
+	COPY_NODE_FIELD(args);
+	COPY_LOCATION_FIELD(location);
+
+	return newnode;
+}
+
+/*
  * _copyDistinctExpr (same as OpExpr)
  */
 static DistinctExpr *
@@ -4166,6 +4180,9 @@ copyObject(const void *from)
 		case T_OpExpr:
 			retval = _copyOpExpr(from);
 			break;
+	case T_StarJoinExpr:
+		retval = _copyStarJoinExpr(from);
+		break;
 		case T_DistinctExpr:
 			retval = _copyDistinctExpr(from);
 			break;

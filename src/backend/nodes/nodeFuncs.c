@@ -86,6 +86,9 @@ exprType(const Node *expr)
 		case T_ScalarArrayOpExpr:
 			type = BOOLOID;
 			break;
+	case T_StarJoinExpr:
+		type = BOOLOID;
+		break;
 		case T_BoolExpr:
 			type = BOOLOID;
 			break;
@@ -704,6 +707,8 @@ expression_returns_set_walker(Node *node, void *context)
 		return false;
 	if (IsA(node, XmlExpr))
 		return false;
+	if (IsA(node, StarJoinExpr))
+		return false;
 
 	return expression_tree_walker(node, expression_returns_set_walker,
 								  context);
@@ -882,6 +887,9 @@ exprCollation(const Node *expr)
 		case T_BooleanTest:
 			coll = InvalidOid;	/* result is always boolean */
 			break;
+	case T_StarJoinExpr:
+		coll = InvalidOid;	/* result is always boolean */
+		break;
 		case T_CoerceToDomain:
 			coll = ((const CoerceToDomain *) expr)->resultcollid;
 			break;
@@ -1089,6 +1097,9 @@ exprSetCollation(Node *expr, Oid collation)
 		case T_CurrentOfExpr:
 			Assert(!OidIsValid(collation));		/* result is always boolean */
 			break;
+	case T_StarJoinExpr:
+		Assert(!OidIsValid(collation));		/* result is always boolean */
+		break;
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(expr));
 			break;
@@ -1629,6 +1640,7 @@ expression_tree_walker(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 		case T_RangeTblRef:
+	case T_StarJoinExpr:
 		case T_SortGroupClause:
 			/* primitive node types with no expression subnodes */
 			break;
@@ -2160,6 +2172,7 @@ expression_tree_mutator(Node *node,
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
 		case T_RangeTblRef:
+	case T_StarJoinExpr:
 		case T_SortGroupClause:
 			return (Node *) copyObject(node);
 		case T_WithCheckOption:

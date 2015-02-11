@@ -68,6 +68,13 @@ typedef struct
 	int			rtoffset;
 } fix_upper_expr_context;
 
+typedef struct
+{
+	PlannerInfo *root;
+	Plan *outer_plan;
+	List *join_clause;
+} fix_star_qual_context;
+
 /*
  * Check if a Const node is a regclass value.  We accept plain OID too,
  * since a regclass Const will get folded to that type if it's an argument
@@ -134,6 +141,8 @@ static List *set_returning_clause_references(PlannerInfo *root,
 static bool fix_opfuncids_walker(Node *node, void *context);
 static bool extract_query_dependencies_walker(Node *node,
 								  PlannerInfo *context);
+static Node *fix_star_qual(PlannerInfo *root, Plan *outer_plan, List *join_clause);
+static Node *fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context);
 
 
 /*****************************************************************************
@@ -1282,6 +1291,14 @@ set_join_references(PlannerInfo *root, Join *join, int rtoffset)
 	outer_itlist = build_tlist_index(outer_plan->targetlist);
 	inner_itlist = build_tlist_index(inner_plan->targetlist);
 
+	if (IsA(join, HashJoin))
+	{
+		HashJoin   *hj = (HashJoin *) join;
+
+
+		fix_star_qual(root, &(hj->join.plan), hj->hashclauses);
+	}
+
 	/* All join plans have tlist, qual, and joinqual */
 	join->plan.targetlist = fix_join_expr(root,
 										  join->plan.targetlist,
@@ -1824,6 +1841,59 @@ fix_join_expr_mutator(Node *node, fix_join_expr_context *context)
 								   (void *) context);
 }
 
+/* fix_star_qual
+ * fix_star_qual is used for pushing down join quals in HashJoin nodes for
+ * star schema join cases.
+ */
+static Node*
+fix_star_qual(PlannerInfo *root, Plan *outer_plan, List *join_clause)
+{
+	fix_star_qual_context context;
+
+	context.root = root;
+	context.outer_plan = outer_plan;
+	context.join_clause = join_clause;
+
+	return (Node *) fix_star_qual_mutator(outer_plan, &context);
+}
+
+static Node*
+fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
+{
+	StarJoinExpr *str_expr = makeNode(StarJoinExpr);
+
+	if (current_node == NULL)
+		return NULL;
+
+	if (IsA(current_node, HashJoin))
+	{
+		return (Node *) (fix_star_qual_mutator((current_node->lefttree), context));
+	}
+	else if (IsA(current_node, SeqScan))
+	{
+		List *current_tlist = ((SeqScan*) (current_node))->plan.targetlist;
+		ListCell *tlist_lc;
+		ListCell *joinclause_lc;
+
+		forboth (tlist_lc, current_tlist, joinclause_lc, context->join_clause)
+		{
+			Var *current_tlistvar = (Var *) lfirst(tlist_lc);
+			OpExpr *current_opexpr = (OpExpr *) lfirst(joinclause_lc);
+			Var *current_opexprvar = (Var *) linitial(current_opexpr->args);
+			Var *copy_object = NULL;
+
+			if ((current_tlistvar->varno) == (current_opexprvar->varno))
+			{
+				copy_object = (Var *) copyObject(current_opexprvar);
+				lappend(str_expr->args, copy_object);
+			}
+		}
+
+		return (Node *) str_expr;
+	}
+
+	return NULL;
+}
 /*
  * fix_upper_expr
  *		Modifies an expression tree so that all Var nodes reference outputs

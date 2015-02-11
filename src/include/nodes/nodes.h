@@ -139,6 +139,7 @@ typedef enum NodeTag
 	T_FuncExpr,
 	T_NamedArgExpr,
 	T_OpExpr,
+	T_StarJoinExpr,
 	T_DistinctExpr,
 	T_NullIfExpr,
 	T_ScalarArrayOpExpr,

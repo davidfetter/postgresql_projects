@@ -620,6 +620,20 @@ _readOpExpr(void)
 }
 
 /*
+ * _readOpExpr
+ */
+static StarJoinExpr *
+_readStarJoinExpr(void)
+{
+	READ_LOCALS(StarJoinExpr);
+
+	READ_NODE_FIELD(args);
+	READ_LOCATION_FIELD(location);
+
+	READ_DONE();
+}
+
+/*
  * _readDistinctExpr
  */
 static DistinctExpr *
@@ -1337,6 +1351,8 @@ parseNodeString(void)
 		return_value = _readNamedArgExpr();
 	else if (MATCH("OPEXPR", 6))
 		return_value = _readOpExpr();
+	else if (MATCH("STARJOINEXPR", 12))
+		return_value = _readStarJoinExpr();
 	else if (MATCH("DISTINCTEXPR", 12))
 		return_value = _readDistinctExpr();
 	else if (MATCH("NULLIFEXPR", 10))

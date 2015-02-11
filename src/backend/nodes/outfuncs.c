@@ -1054,6 +1054,15 @@ _outOpExpr(StringInfo str, const OpExpr *node)
 }
 
 static void
+_outStarJoinExpr(StringInfo str, const StarJoinExpr *node)
+{
+	WRITE_NODE_TYPE("STARJOINEXPR");
+
+	WRITE_NODE_FIELD(args);
+	WRITE_LOCATION_FIELD(location);
+}
+
+static void
 _outDistinctExpr(StringInfo str, const DistinctExpr *node)
 {
 	WRITE_NODE_TYPE("DISTINCTEXPR");
@@ -2974,6 +2983,9 @@ _outNode(StringInfo str, const void *obj)
 			case T_OpExpr:
 				_outOpExpr(str, obj);
 				break;
+		case T_StarJoinExpr:
+			_outStarJoinExpr(str, obj);
+			break;
 			case T_DistinctExpr:
 				_outDistinctExpr(str, obj);
 				break;
