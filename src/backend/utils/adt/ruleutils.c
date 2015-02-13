@@ -7598,7 +7598,19 @@ get_rule_expr(Node *node, deparse_context *context,
 			appendStringInfoString(buf, "DEFAULT");
 			break;
 	case T_StarJoinExpr:
-		appendStringInfoString(buf, "STARJOINEXPR");
+	{
+		StarJoinExpr *sjeexpr = (StarJoinExpr *) node;
+		char	   *sep;
+		ListCell   *l;
+
+		sep = "";
+		foreach(l, (sjeexpr->args))
+		{
+			appendStringInfoString(buf, sep);
+			get_rule_expr((Node *) lfirst(l), context, showimplicit);
+			sep = ", ";
+		}
+	}
 		break;
 		case T_CurrentOfExpr:
 			{

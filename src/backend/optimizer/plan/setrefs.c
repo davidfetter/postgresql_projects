@@ -1861,20 +1861,67 @@ static Node*
 fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 {
 	StarJoinExpr *str_expr = makeNode(StarJoinExpr);
+	bool isjoin = false;
 
 	if (current_node == NULL)
 		return NULL;
 
 	if (IsA(current_node, HashJoin))
 	{
-		return (Node *) (fix_star_qual_mutator((current_node->lefttree), context));
+		HashJoin *current_hashjoin = (HashJoin *) current_node;
+
+		if (!((current_hashjoin->join.jointype == JOIN_INNER) ||
+			(current_hashjoin->join.jointype == JOIN_SEMI) ||
+			  (current_hashjoin->join.jointype == JOIN_ANTI)))
+			return (Node *) current_node;
+
+		isjoin = true;
 	}
-	else if (IsA(current_node, SeqScan))
+
+	else if (IsA(current_node, MergeJoin))
 	{
-		SeqScan *current_seqscan = (SeqScan *) (current_node);
-		List *current_tlist = ((SeqScan*) (current_node))->plan.targetlist;
+		MergeJoin *current_mergejoin = (MergeJoin *) current_node;
+
+		if (!((current_mergejoin->join.jointype == JOIN_INNER) ||
+			(current_mergejoin->join.jointype == JOIN_SEMI) ||
+			  (current_mergejoin->join.jointype == JOIN_ANTI)))
+			return (Node *) current_node;
+
+		isjoin = true;
+	}
+	else if (IsA(current_node, NestLoop))
+	{
+		NestLoop *current_nestloop = (NestLoop *) current_node;
+
+		if (!((current_nestloop->join.jointype == JOIN_INNER) ||
+			  (current_nestloop->join.jointype == JOIN_SEMI) ||
+			  (current_nestloop->join.jointype == JOIN_ANTI)))
+			return (Node *) current_node;
+
+		isjoin = true;
+	}
+	else if (IsA(current_node, SeqScan) || IsA(current_node, IndexScan))
+	{
+		List *current_tlist = NIL;
 		ListCell *tlist_lc;
 		ListCell *joinclause_lc;
+
+		if (IsA(current_node, SeqScan))
+			current_tlist = ((SeqScan*) (current_node))->plan.targetlist;
+		else if (IsA(current_node, IndexScan))
+			current_tlist = ((IndexScan*) (current_node))->scan.plan.targetlist;
+		else if (IsA(current_node, Append))
+		{
+			Append *current_appendnode = (Append *) current_node;
+			ListCell *lc_subplans;
+
+			foreach(lc_subplans, (current_appendnode->appendplans))
+			{
+				Plan *current_subplan = (Append *) lfirst(lc_subplans);
+
+				fix_star_qual_mutator(current_subplan, context);
+			}
+		}
 
 		forboth (tlist_lc, current_tlist, joinclause_lc, context->join_clause)
 		{
@@ -1884,7 +1931,8 @@ fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 			Var *current_opexprvar = (Var *) linitial(current_opexpr->args);
 			Var *copy_object = NULL;
 
-			if ((current_tlistvar->varno) == (current_opexprvar->varno))
+			if (((current_tlistvar->varno) == (current_opexprvar->varno)) &&
+				((current_tlistvar->varattno) == (current_opexprvar->varattno)))
 			{
 				copy_object = (Var *) copyObject(current_opexprvar);
 
@@ -1899,18 +1947,50 @@ fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 			}
 		}
 
-		if (current_seqscan->plan.qual == NULL)
+		if (IsA(current_node, SeqScan))
 		{
-			List *temp_str = list_make1(str_expr);
+			SeqScan *current_seqscan = (SeqScan *) (current_node);
 
-			current_seqscan->plan.qual = temp_str;
+			if (str_expr != NULL)
+			{
+				if (current_seqscan->plan.qual == NULL)
+				{
+					List *temp_str = list_make1(str_expr);
+
+					current_seqscan->plan.qual = temp_str;
+				}
+				else
+				{
+					current_seqscan->plan.qual = lappend((current_seqscan->plan.qual), str_expr);
+				}
+			}
 		}
-		//else
-		//{
-		//	current_seqscan->plan.qual = lappend((current_seqscan->plan.qual), str_expr);
-		//}
+		else if (IsA(current_node, IndexScan))
+		{
+			IndexScan *current_indexscan = (IndexScan *) (current_node);
+
+			if (str_expr != NULL)
+			{
+				if (current_indexscan->scan.plan.qual == NULL)
+				{
+					List *temp_str = list_make1(str_expr);
+
+					current_indexscan->scan.plan.qual = temp_str;
+				}
+				else
+				{
+					current_indexscan->scan.plan.qual = lappend((current_indexscan->scan.plan.qual), str_expr);
+				}
+			}
+		}
 
 		return (Node *) str_expr;
+	}
+
+	if (isjoin)
+	{
+		return (Node *) (fix_star_qual_mutator((current_node->lefttree), context));
+		//return (Node *) (fix_star_qual_mutator((current_node->righttree), context));
 	}
 
 	return NULL;
