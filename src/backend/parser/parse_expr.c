@@ -333,6 +333,7 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 		case T_ArrayRef:
 		case T_FuncExpr:
 		case T_OpExpr:
+	case T_StarJoinExpr:
 		case T_DistinctExpr:
 		case T_NullIfExpr:
 		case T_ScalarArrayOpExpr:

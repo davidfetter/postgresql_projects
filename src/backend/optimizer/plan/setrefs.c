@@ -1871,23 +1871,44 @@ fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 	}
 	else if (IsA(current_node, SeqScan))
 	{
+		SeqScan *current_seqscan = (SeqScan *) (current_node);
 		List *current_tlist = ((SeqScan*) (current_node))->plan.targetlist;
 		ListCell *tlist_lc;
 		ListCell *joinclause_lc;
 
 		forboth (tlist_lc, current_tlist, joinclause_lc, context->join_clause)
 		{
-			Var *current_tlistvar = (Var *) lfirst(tlist_lc);
 			OpExpr *current_opexpr = (OpExpr *) lfirst(joinclause_lc);
+			TargetEntry *current_tentry = (TargetEntry *) lfirst(tlist_lc);
+			Var *current_tlistvar = (Var *) (current_tentry->expr);
 			Var *current_opexprvar = (Var *) linitial(current_opexpr->args);
 			Var *copy_object = NULL;
 
 			if ((current_tlistvar->varno) == (current_opexprvar->varno))
 			{
 				copy_object = (Var *) copyObject(current_opexprvar);
-				lappend(str_expr->args, copy_object);
+
+				if (str_expr->args == NULL)
+				{
+					str_expr->args = list_make1(copy_object);
+				}
+				else
+				{
+					lappend(str_expr->args, copy_object);
+				}
 			}
 		}
+
+		if (current_seqscan->plan.qual == NULL)
+		{
+			List *temp_str = list_make1(str_expr);
+
+			current_seqscan->plan.qual = temp_str;
+		}
+		//else
+		//{
+		//	current_seqscan->plan.qual = lappend((current_seqscan->plan.qual), str_expr);
+		//}
 
 		return (Node *) str_expr;
 	}

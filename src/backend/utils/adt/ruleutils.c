@@ -6488,6 +6488,7 @@ isSimpleNode(Node *node, Node *parentNode, int prettyFlags)
 			}
 
 		case T_SubLink:
+	case T_StarJoinExpr:
 		case T_NullTest:
 		case T_BooleanTest:
 		case T_DistinctExpr:
@@ -7596,7 +7597,9 @@ get_rule_expr(Node *node, deparse_context *context,
 		case T_SetToDefault:
 			appendStringInfoString(buf, "DEFAULT");
 			break;
-
+	case T_StarJoinExpr:
+		appendStringInfoString(buf, "STARJOINEXPR");
+		break;
 		case T_CurrentOfExpr:
 			{
 				CurrentOfExpr *cexpr = (CurrentOfExpr *) node;

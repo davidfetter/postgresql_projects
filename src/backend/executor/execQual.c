@@ -114,6 +114,8 @@ static Datum ExecEvalFunc(FuncExprState *fcache, ExprContext *econtext,
 			 bool *isNull, ExprDoneCond *isDone);
 static Datum ExecEvalOper(FuncExprState *fcache, ExprContext *econtext,
 			 bool *isNull, ExprDoneCond *isDone);
+static Datum ExecEvalStarJoinExpr(FuncExprState *fcache, ExprContext *econtext,
+			 bool *isNull, ExprDoneCond *isDone);
 static Datum ExecEvalDistinct(FuncExprState *fcache, ExprContext *econtext,
 				 bool *isNull, ExprDoneCond *isDone);
 static Datum ExecEvalScalarArrayOp(ScalarArrayOpExprState *sstate,
@@ -2451,6 +2453,43 @@ ExecEvalOper(FuncExprState *fcache,
 }
 
 /* ----------------------------------------------------------------
+ *		ExecEvalStarJoinExpr
+ * ----------------------------------------------------------------
+ */
+static Datum
+ExecEvalStarJoinExpr(FuncExprState *fcache,
+			 ExprContext *econtext,
+			 bool *isNull,
+			 ExprDoneCond *isDone)
+{
+	/* This is called only the first time through */
+	StarJoinExpr	   *str_expr = (StarJoinExpr *) fcache->xprstate.expr;
+
+	/* Initialize function lookup info */
+	/*init_fcache(op->opfuncid, op->inputcollid, fcache,
+				econtext->ecxt_per_query_memory, true);
+
+	/*
+	 * We need to invoke ExecMakeFunctionResult if either the function itself
+	 * or any of its input expressions can return a set.  Otherwise, invoke
+	 * ExecMakeFunctionResultNoSets.  In either case, change the evalfunc
+	 * pointer to go directly there on subsequent uses.
+	 */
+	/*if (fcache->func.fn_retset || expression_returns_set((Node *) op->args))
+	{
+		fcache->xprstate.evalfunc = (ExprStateEvalFunc) ExecMakeFunctionResult;
+		return ExecMakeFunctionResult(fcache, econtext, isNull, isDone);
+	}
+	else
+	{
+		fcache->xprstate.evalfunc = (ExprStateEvalFunc) ExecMakeFunctionResultNoSets;
+		return ExecMakeFunctionResultNoSets(fcache, econtext, isNull, isDone);
+		}*/
+
+	return true;
+}
+
+/* ----------------------------------------------------------------
  *		ExecEvalDistinct
  *
  * IS DISTINCT FROM must evaluate arguments to determine whether
@@ -4577,6 +4616,18 @@ ExecInitExpr(Expr *node, PlanState *parent)
 				state = (ExprState *) fstate;
 			}
 			break;
+	    case T_StarJoinExpr:
+		{
+			StarJoinExpr	   *str_expr = (StarJoinExpr *) node;
+			FuncExprState *fstate = makeNode(FuncExprState);
+
+			fstate->xprstate.evalfunc = (ExprStateEvalFunc) ExecEvalStarJoinExpr;
+			fstate->args = (List *)
+				ExecInitExpr((Expr *) str_expr->args, parent);
+			fstate->func.fn_oid = InvalidOid;		/* not initialized */
+			state = (ExprState *) fstate;
+		}
+		break;
 		case T_DistinctExpr:
 			{
 				DistinctExpr *distinctexpr = (DistinctExpr *) node;
