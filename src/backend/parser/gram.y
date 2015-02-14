@@ -9629,8 +9629,8 @@ multiple_set_clause:
 
 					$$ = $2;
 				}
-           | '(' '*' ')' '=' ctext_row
-			    {
+| '(' '*' ')' '=' ctext_row
+{
 					ResTarget *res_col = makeNode(ResTarget);
 
 					/* We cheat a little here by making a single Restarget node but assigning the entire ctext_row
@@ -9641,8 +9641,8 @@ multiple_set_clause:
 
 					$$ = list_make1(res_col);
 				}
-            | '(' '*' ')' '=' select_with_parens
-				{
+| '(' '*' ')' '=' select_with_parens
+{
 					SubLink *sl = makeNode(SubLink);
 					int ncolumns = -1;  /* We do not know the number of columns yet */
 

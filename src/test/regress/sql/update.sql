@@ -42,7 +42,6 @@ SELECT * FROM update_test;
 UPDATE update_test AS t SET b = 10 WHERE t.a = 10;
 
 SELECT * FROM update_test;
-INSERT INTO update_test(b, a) VALUES(112,93);
 UPDATE update_test t SET b = t.b + 10 WHERE t.a = 10;
 
 SELECT * FROM update_test;

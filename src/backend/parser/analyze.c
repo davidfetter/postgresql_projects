@@ -1940,8 +1940,8 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	/*
 	 * Check if (SET(*) = SELECT ...)  is present. If it is present we
 	 * need to resolve and populate the remaining needed MultiAssignRefs in the
-     * target list. We modify target list in place and add needed MultiAssignRefs.
-     */
+	 * target list. We modify target list in place and add needed MultiAssignRefs.
+	 */
 	if (list_length(stmt->targetList) == 1)
 	{
 		ResTarget *current_val = linitial(stmt->targetList);
