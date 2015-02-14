@@ -148,6 +148,7 @@ extern int	max_worker_processes;
 extern PGDLLIMPORT int MyProcPid;
 extern PGDLLIMPORT pg_time_t MyStartTime;
 extern PGDLLIMPORT struct Port *MyProcPort;
+extern PGDLLIMPORT struct Latch *MyLatch;
 extern long MyCancelKey;
 extern int	MyPMChildSlot;
 
@@ -277,6 +278,9 @@ extern int	trace_recovery(int trace_level);
 extern char *DatabasePath;
 
 /* now in utils/init/miscinit.c */
+extern void InitPostmasterChild(void);
+extern void InitStandaloneProcess(const char *argv0);
+
 extern void SetDatabasePath(const char *path);
 
 extern char *GetUserNameFromId(Oid roleid);
@@ -298,6 +302,9 @@ extern void SetCurrentRoleId(Oid roleid, bool is_superuser);
 
 extern void SetDataDir(const char *dir);
 extern void ChangeToDataDir(void);
+
+extern void SwitchToSharedLatch(void);
+extern void SwitchBackToLocalLatch(void);
 
 /* in utils/misc/superuser.c */
 extern bool superuser(void);	/* current user is superuser */

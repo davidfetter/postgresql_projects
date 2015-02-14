@@ -41,6 +41,7 @@ typedef struct ExplainState
 	List	   *rtable_names;	/* alias names for RTEs */
 	int			indent;			/* current indentation level */
 	List	   *grouping_stack; /* format-specific grouping state */
+	List	   *deparse_cxt;	/* context list for deparsing expressions */
 } ExplainState;
 
 /* Hook for plugins to get control in ExplainOneQuery() */
@@ -59,7 +60,7 @@ extern PGDLLIMPORT explain_get_index_name_hook_type explain_get_index_name_hook;
 extern void ExplainQuery(ExplainStmt *stmt, const char *queryString,
 			 ParamListInfo params, DestReceiver *dest);
 
-extern void ExplainInitState(ExplainState *es);
+extern ExplainState *NewExplainState(void);
 
 extern TupleDesc ExplainResultDesc(ExplainStmt *stmt);
 

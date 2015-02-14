@@ -64,7 +64,6 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/time.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "access/heapam.h"
@@ -383,11 +382,10 @@ StartAutoVacLauncher(void)
 #ifndef EXEC_BACKEND
 		case 0:
 			/* in postmaster child ... */
+			InitPostmasterChild();
+
 			/* Close the postmaster's sockets */
 			ClosePostmasterPorts(false);
-
-			/* Lose the postmaster's on-exit routines */
-			on_exit_reset();
 
 			AutoVacLauncherMain(0, NULL);
 			break;
@@ -408,15 +406,7 @@ AutoVacLauncherMain(int argc, char *argv[])
 {
 	sigjmp_buf	local_sigjmp_buf;
 
-	/* we are a postmaster subprocess now */
-	IsUnderPostmaster = true;
 	am_autovacuum_launcher = true;
-
-	/* reset MyProcPid */
-	MyProcPid = getpid();
-
-	/* record Start Time for logging */
-	MyStartTime = time(NULL);
 
 	/* Identify myself via ps */
 	init_ps_display("autovacuum launcher process", "", "", "");
@@ -428,17 +418,6 @@ AutoVacLauncherMain(int argc, char *argv[])
 		pg_usleep(PostAuthDelay * 1000000L);
 
 	SetProcessingMode(InitProcessing);
-
-	/*
-	 * If possible, make this process a group leader, so that the postmaster
-	 * can signal any child processes too.  (autovacuum probably never has any
-	 * child processes, but for consistency we make all postmaster child
-	 * processes do this.)
-	 */
-#ifdef HAVE_SETSID
-	if (setsid() < 0)
-		elog(FATAL, "setsid() failed: %m");
-#endif
 
 	/*
 	 * Set up signal handlers.  We operate on databases much like a regular
@@ -610,11 +589,11 @@ AutoVacLauncherMain(int argc, char *argv[])
 		 * Wait until naptime expires or we get some type of signal (all the
 		 * signal handlers will wake us by calling SetLatch).
 		 */
-		rc = WaitLatch(&MyProc->procLatch,
+		rc = WaitLatch(MyLatch,
 					   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
 					   (nap.tv_sec * 1000L) + (nap.tv_usec / 1000L));
 
-		ResetLatch(&MyProc->procLatch);
+		ResetLatch(MyLatch);
 
 		DisableCatchupInterrupt();
 
@@ -1362,8 +1341,7 @@ avl_sighup_handler(SIGNAL_ARGS)
 	int			save_errno = errno;
 
 	got_SIGHUP = true;
-	if (MyProc)
-		SetLatch(&MyProc->procLatch);
+	SetLatch(MyLatch);
 
 	errno = save_errno;
 }
@@ -1375,8 +1353,7 @@ avl_sigusr2_handler(SIGNAL_ARGS)
 	int			save_errno = errno;
 
 	got_SIGUSR2 = true;
-	if (MyProc)
-		SetLatch(&MyProc->procLatch);
+	SetLatch(MyLatch);
 
 	errno = save_errno;
 }
@@ -1388,8 +1365,7 @@ avl_sigterm_handler(SIGNAL_ARGS)
 	int			save_errno = errno;
 
 	got_SIGTERM = true;
-	if (MyProc)
-		SetLatch(&MyProc->procLatch);
+	SetLatch(MyLatch);
 
 	errno = save_errno;
 }
@@ -1455,11 +1431,10 @@ StartAutoVacWorker(void)
 #ifndef EXEC_BACKEND
 		case 0:
 			/* in postmaster child ... */
+			InitPostmasterChild();
+
 			/* Close the postmaster's sockets */
 			ClosePostmasterPorts(false);
-
-			/* Lose the postmaster's on-exit routines */
-			on_exit_reset();
 
 			AutoVacWorkerMain(0, NULL);
 			break;
@@ -1481,31 +1456,12 @@ AutoVacWorkerMain(int argc, char *argv[])
 	sigjmp_buf	local_sigjmp_buf;
 	Oid			dbid;
 
-	/* we are a postmaster subprocess now */
-	IsUnderPostmaster = true;
 	am_autovacuum_worker = true;
-
-	/* reset MyProcPid */
-	MyProcPid = getpid();
-
-	/* record Start Time for logging */
-	MyStartTime = time(NULL);
 
 	/* Identify myself via ps */
 	init_ps_display("autovacuum worker process", "", "", "");
 
 	SetProcessingMode(InitProcessing);
-
-	/*
-	 * If possible, make this process a group leader, so that the postmaster
-	 * can signal any child processes too.  (autovacuum probably never has any
-	 * child processes, but for consistency we make all postmaster child
-	 * processes do this.)
-	 */
-#ifdef HAVE_SETSID
-	if (setsid() < 0)
-		elog(FATAL, "setsid() failed: %m");
-#endif
 
 	/*
 	 * Set up signal handlers.  We operate on databases much like a regular

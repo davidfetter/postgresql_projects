@@ -162,7 +162,7 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 		int			syncRepState;
 
 		/* Must reset the latch before testing state. */
-		ResetLatch(&MyProc->procLatch);
+		ResetLatch(MyLatch);
 
 		/*
 		 * Try checking the state without the lock first.  There's no
@@ -172,20 +172,10 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 		 * walsender changes the state to SYNC_REP_WAIT_COMPLETE, it will
 		 * never update it again, so we can't be seeing a stale value in that
 		 * case.
-		 *
-		 * Note: on machines with weak memory ordering, the acquisition of the
-		 * lock is essential to avoid race conditions: we cannot be sure the
-		 * sender's state update has reached main memory until we acquire the
-		 * lock.  We could get rid of this dance if SetLatch/ResetLatch
-		 * contained memory barriers.
 		 */
 		syncRepState = MyProc->syncRepState;
 		if (syncRepState == SYNC_REP_WAITING)
-		{
-			LWLockAcquire(SyncRepLock, LW_SHARED);
 			syncRepState = MyProc->syncRepState;
-			LWLockRelease(SyncRepLock);
-		}
 		if (syncRepState == SYNC_REP_WAIT_COMPLETE)
 			break;
 
@@ -245,7 +235,7 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 		 * Wait on latch.  Any condition that should wake us up will set the
 		 * latch, so no need for timeout.
 		 */
-		WaitLatch(&MyProc->procLatch, WL_LATCH_SET | WL_POSTMASTER_DEATH, -1);
+		WaitLatch(MyLatch, WL_LATCH_SET | WL_POSTMASTER_DEATH, -1);
 	}
 
 	/*
