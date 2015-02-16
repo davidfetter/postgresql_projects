@@ -23,6 +23,7 @@
 #include "optimizer/planmain.h"
 #include "optimizer/planner.h"
 #include "optimizer/tlist.h"
+#include "optimizer/subselect.h"
 #include "tcop/utility.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
@@ -1861,7 +1862,7 @@ static Node*
 fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 {
 	StarJoinExpr *str_expr = makeNode(StarJoinExpr);
-	bool isjoin = false;
+	int paramid = -1;
 
 	if (current_node == NULL)
 		return NULL;
@@ -1869,15 +1870,30 @@ fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 	if (IsA(current_node, HashJoin))
 	{
 		HashJoin *current_hashjoin = (HashJoin *) current_node;
+		Node *ret_node;
 
 		if (!((current_hashjoin->join.jointype == JOIN_INNER) ||
 			(current_hashjoin->join.jointype == JOIN_SEMI) ||
 			  (current_hashjoin->join.jointype == JOIN_ANTI)))
 			return (Node *) current_node;
 
-		isjoin = true;
-	}
+		paramid = SS_assign_special_param((context->root));
 
+		current_hashjoin->params = list_make1_int(paramid);
+
+		ret_node = fix_star_qual_mutator((current_node->lefttree), context);
+
+		if (ret_node)
+		{
+			StarJoinExpr *current_sjexpr = (StarJoinExpr *) (ret_node);
+
+			current_sjexpr->params = list_make1_int(paramid);
+
+			return (Node *) current_sjexpr;
+		}
+
+		return ret_node;
+	}
 	else if (IsA(current_node, MergeJoin))
 	{
 		MergeJoin *current_mergejoin = (MergeJoin *) current_node;
@@ -1885,9 +1901,9 @@ fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 		if (!((current_mergejoin->join.jointype == JOIN_INNER) ||
 			(current_mergejoin->join.jointype == JOIN_SEMI) ||
 			  (current_mergejoin->join.jointype == JOIN_ANTI)))
-			return (Node *) current_node;
+			return NULL;
 
-		isjoin = true;
+		return (Node *) (fix_star_qual_mutator((current_node->lefttree), context));
 	}
 	else if (IsA(current_node, NestLoop))
 	{
@@ -1896,9 +1912,9 @@ fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 		if (!((current_nestloop->join.jointype == JOIN_INNER) ||
 			  (current_nestloop->join.jointype == JOIN_SEMI) ||
 			  (current_nestloop->join.jointype == JOIN_ANTI)))
-			return (Node *) current_node;
+			return NULL;
 
-		isjoin = true;
+		return (Node *) (fix_star_qual_mutator((current_node->lefttree), context));
 	}
 	else if (IsA(current_node, SeqScan) || IsA(current_node, IndexScan))
 	{
@@ -1917,7 +1933,7 @@ fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 
 			foreach(lc_subplans, (current_appendnode->appendplans))
 			{
-				Plan *current_subplan = (Append *) lfirst(lc_subplans);
+				Plan *current_subplan = (Plan *) lfirst(lc_subplans);
 
 				fix_star_qual_mutator(current_subplan, context);
 			}
@@ -1985,12 +2001,6 @@ fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 		}
 
 		return (Node *) str_expr;
-	}
-
-	if (isjoin)
-	{
-		return (Node *) (fix_star_qual_mutator((current_node->lefttree), context));
-		//return (Node *) (fix_star_qual_mutator((current_node->righttree), context));
 	}
 
 	return NULL;

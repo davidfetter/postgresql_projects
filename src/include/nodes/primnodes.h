@@ -430,6 +430,7 @@ typedef struct StarJoinExpr
 {
 	Expr		xpr;
 	List        *args;
+	List        *params;        /* List of Param IDs. */
 	int			location;		/* token location, or -1 if unknown */
 } StarJoinExpr;
 

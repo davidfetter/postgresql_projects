@@ -598,6 +598,7 @@ typedef struct HashJoin
 {
 	Join		join;
 	List	   *hashclauses;
+	List       *params;
 } HashJoin;
 
 /* ----------------
