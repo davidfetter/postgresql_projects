@@ -634,6 +634,7 @@ _outHashJoin(StringInfo str, const HashJoin *node)
 	_outJoinPlanInfo(str, (const Join *) node);
 
 	WRITE_NODE_FIELD(hashclauses);
+	WRITE_NODE_FIELD(params);
 }
 
 static void
@@ -1060,6 +1061,7 @@ _outStarJoinExpr(StringInfo str, const StarJoinExpr *node)
 
 	WRITE_NODE_FIELD(args);
 	WRITE_LOCATION_FIELD(location);
+	WRITE_NODE_FIELD(params);
 }
 
 static void

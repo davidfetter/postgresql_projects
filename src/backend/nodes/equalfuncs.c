@@ -297,6 +297,7 @@ _equalStarJoinExpr(const StarJoinExpr *a, const StarJoinExpr *b)
 {
 	COMPARE_NODE_FIELD(args);
 	COMPARE_LOCATION_FIELD(location);
+	COMPARE_NODE_FIELD(params);
 
 	return true;
 }

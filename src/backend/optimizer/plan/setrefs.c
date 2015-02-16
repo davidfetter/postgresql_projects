@@ -74,6 +74,7 @@ typedef struct
 	PlannerInfo *root;
 	Plan *outer_plan;
 	List *join_clause;
+	int paramid;
 } fix_star_qual_context;
 
 /*
@@ -1850,10 +1851,15 @@ static Node*
 fix_star_qual(PlannerInfo *root, Plan *outer_plan, List *join_clause)
 {
 	fix_star_qual_context context;
+	int paramid = -1;
 
 	context.root = root;
 	context.outer_plan = outer_plan;
 	context.join_clause = join_clause;
+
+	paramid = SS_assign_special_param(root);
+
+	context.paramid = paramid;
 
 	return (Node *) fix_star_qual_mutator(outer_plan, &context);
 }
@@ -1862,7 +1868,6 @@ static Node*
 fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 {
 	StarJoinExpr *str_expr = makeNode(StarJoinExpr);
-	int paramid = -1;
 
 	if (current_node == NULL)
 		return NULL;
@@ -1877,9 +1882,7 @@ fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 			  (current_hashjoin->join.jointype == JOIN_ANTI)))
 			return (Node *) current_node;
 
-		paramid = SS_assign_special_param((context->root));
-
-		current_hashjoin->params = list_make1_int(paramid);
+		current_hashjoin->params = list_make1_int(context->paramid);
 
 		ret_node = fix_star_qual_mutator((current_node->lefttree), context);
 
@@ -1887,7 +1890,7 @@ fix_star_qual_mutator(Plan *current_node, fix_star_qual_context *context)
 		{
 			StarJoinExpr *current_sjexpr = (StarJoinExpr *) (ret_node);
 
-			current_sjexpr->params = list_make1_int(paramid);
+			current_sjexpr->params = list_make1_int(context->paramid);
 
 			return (Node *) current_sjexpr;
 		}

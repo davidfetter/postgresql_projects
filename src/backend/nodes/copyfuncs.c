@@ -729,6 +729,7 @@ _copyHashJoin(const HashJoin *from)
 	 * copy remainder of node
 	 */
 	COPY_NODE_FIELD(hashclauses);
+	COPY_NODE_FIELD(params);
 
 	return newnode;
 }
@@ -1285,6 +1286,7 @@ _copyStarJoinExpr(const StarJoinExpr *from)
 
 	COPY_NODE_FIELD(args);
 	COPY_LOCATION_FIELD(location);
+	COPY_NODE_FIELD(params);
 
 	return newnode;
 }

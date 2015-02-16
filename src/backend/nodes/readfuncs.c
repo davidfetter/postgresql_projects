@@ -629,6 +629,7 @@ _readStarJoinExpr(void)
 
 	READ_NODE_FIELD(args);
 	READ_LOCATION_FIELD(location);
+	READ_NODE_FIELD(params);
 
 	READ_DONE();
 }
