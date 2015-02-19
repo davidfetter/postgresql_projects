@@ -4616,7 +4616,7 @@ ExecInitExpr(Expr *node, PlanState *parent)
 				state = (ExprState *) fstate;
 			}
 			break;
-	    case T_StarJoinExpr:
+		case T_StarJoinExpr:
 		{
 			StarJoinExpr	   *str_expr = (StarJoinExpr *) node;
 			FuncExprState *fstate = makeNode(FuncExprState);
