@@ -89,6 +89,7 @@ typedef struct ArrayBuildState
 	int16		typlen;			/* needed info about datatype */
 	bool		typbyval;
 	char		typalign;
+	bool		private_cxt;	/* use private memory context */
 } ArrayBuildState;
 
 /*
@@ -109,6 +110,7 @@ typedef struct ArrayBuildStateArr
 	int			lbs[MAXDIM];
 	Oid			array_type;		/* data type of the arrays */
 	Oid			element_type;	/* data type of the array elements */
+	bool		private_cxt;	/* use private memory context */
 } ArrayBuildStateArr;
 
 /*
@@ -248,19 +250,26 @@ extern Datum array_remove(PG_FUNCTION_ARGS);
 extern Datum array_replace(PG_FUNCTION_ARGS);
 extern Datum width_bucket_array(PG_FUNCTION_ARGS);
 
+extern Datum array_get_element(Datum arraydatum, int nSubscripts, int *indx,
+				  int arraytyplen, int elmlen, bool elmbyval, char elmalign,
+				  bool *isNull);
+extern Datum array_set_element(Datum arraydatum, int nSubscripts, int *indx,
+				  Datum dataValue, bool isNull,
+				  int arraytyplen, int elmlen, bool elmbyval, char elmalign);
+extern Datum array_get_slice(Datum arraydatum, int nSubscripts,
+				int *upperIndx, int *lowerIndx,
+				int arraytyplen, int elmlen, bool elmbyval, char elmalign);
+extern Datum array_set_slice(Datum arraydatum, int nSubscripts,
+				int *upperIndx, int *lowerIndx,
+				Datum srcArrayDatum, bool isNull,
+				int arraytyplen, int elmlen, bool elmbyval, char elmalign);
+
 extern Datum array_ref(ArrayType *array, int nSubscripts, int *indx,
 		  int arraytyplen, int elmlen, bool elmbyval, char elmalign,
 		  bool *isNull);
 extern ArrayType *array_set(ArrayType *array, int nSubscripts, int *indx,
 		  Datum dataValue, bool isNull,
 		  int arraytyplen, int elmlen, bool elmbyval, char elmalign);
-extern ArrayType *array_get_slice(ArrayType *array, int nSubscripts,
-				int *upperIndx, int *lowerIndx,
-				int arraytyplen, int elmlen, bool elmbyval, char elmalign);
-extern ArrayType *array_set_slice(ArrayType *array, int nSubscripts,
-				int *upperIndx, int *lowerIndx,
-				ArrayType *srcArray, bool isNull,
-				int arraytyplen, int elmlen, bool elmbyval, char elmalign);
 
 extern Datum array_map(FunctionCallInfo fcinfo, Oid inpType, Oid retType,
 		  ArrayMapState *amstate);
@@ -286,7 +295,7 @@ extern void deconstruct_array(ArrayType *array,
 extern bool array_contains_nulls(ArrayType *array);
 
 extern ArrayBuildState *initArrayResult(Oid element_type,
-				MemoryContext rcontext);
+				MemoryContext rcontext, bool subcontext);
 extern ArrayBuildState *accumArrayResult(ArrayBuildState *astate,
 				 Datum dvalue, bool disnull,
 				 Oid element_type,
@@ -297,7 +306,7 @@ extern Datum makeMdArrayResult(ArrayBuildState *astate, int ndims,
 				  int *dims, int *lbs, MemoryContext rcontext, bool release);
 
 extern ArrayBuildStateArr *initArrayResultArr(Oid array_type, Oid element_type,
-				   MemoryContext rcontext);
+				   MemoryContext rcontext, bool subcontext);
 extern ArrayBuildStateArr *accumArrayResultArr(ArrayBuildStateArr *astate,
 					Datum dvalue, bool disnull,
 					Oid array_type,
@@ -306,7 +315,7 @@ extern Datum makeArrayResultArr(ArrayBuildStateArr *astate,
 				   MemoryContext rcontext, bool release);
 
 extern ArrayBuildStateAny *initArrayResultAny(Oid input_type,
-				   MemoryContext rcontext);
+				   MemoryContext rcontext, bool subcontext);
 extern ArrayBuildStateAny *accumArrayResultAny(ArrayBuildStateAny *astate,
 					Datum dvalue, bool disnull,
 					Oid input_type,
@@ -334,7 +343,8 @@ extern int32 *ArrayGetIntegerTypmods(ArrayType *arr, int *n);
 /*
  * prototypes for functions defined in array_userfuncs.c
  */
-extern Datum array_push(PG_FUNCTION_ARGS);
+extern Datum array_append(PG_FUNCTION_ARGS);
+extern Datum array_prepend(PG_FUNCTION_ARGS);
 extern Datum array_cat(PG_FUNCTION_ARGS);
 
 extern ArrayType *create_singleton_array(FunctionCallInfo fcinfo,

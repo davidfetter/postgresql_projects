@@ -1258,12 +1258,10 @@ ReorderBufferCommit(ReorderBuffer *rb, TransactionId xid,
 					TimestampTz commit_time)
 {
 	ReorderBufferTXN *txn;
-	ReorderBufferIterTXNState *iterstate = NULL;
-	ReorderBufferChange *change;
-
+	volatile Snapshot snapshot_now;
 	volatile CommandId command_id = FirstCommandId;
-	volatile Snapshot snapshot_now = NULL;
-	volatile bool using_subtxn = false;
+	bool		using_subtxn;
+	ReorderBufferIterTXNState *volatile iterstate = NULL;
 
 	txn = ReorderBufferTXNByXid(rb, xid, false, NULL, InvalidXLogRecPtr,
 								false);
@@ -1301,20 +1299,21 @@ ReorderBufferCommit(ReorderBuffer *rb, TransactionId xid,
 	/* setup the initial snapshot */
 	SetupHistoricSnapshot(snapshot_now, txn->tuplecid_hash);
 
+	/*
+	 * Decoding needs access to syscaches et al., which in turn use
+	 * heavyweight locks and such. Thus we need to have enough state around to
+	 * keep track of those.  The easiest way is to simply use a transaction
+	 * internally.  That also allows us to easily enforce that nothing writes
+	 * to the database by checking for xid assignments.
+	 *
+	 * When we're called via the SQL SRF there's already a transaction
+	 * started, so start an explicit subtransaction there.
+	 */
+	using_subtxn = IsTransactionOrTransactionBlock();
+
 	PG_TRY();
 	{
-
-		/*
-		 * Decoding needs access to syscaches et al., which in turn use
-		 * heavyweight locks and such. Thus we need to have enough state
-		 * around to keep track of those. The easiest way is to simply use a
-		 * transaction internally. That also allows us to easily enforce that
-		 * nothing writes to the database by checking for xid assignments.
-		 *
-		 * When we're called via the SQL SRF there's already a transaction
-		 * started, so start an explicit subtransaction there.
-		 */
-		using_subtxn = IsTransactionOrTransactionBlock();
+		ReorderBufferChange *change;
 
 		if (using_subtxn)
 			BeginInternalSubTransaction("replay");
@@ -1324,7 +1323,7 @@ ReorderBufferCommit(ReorderBuffer *rb, TransactionId xid,
 		rb->begin(rb, txn);
 
 		iterstate = ReorderBufferIterTXNInit(rb, txn);
-		while ((change = ReorderBufferIterTXNNext(rb, iterstate)))
+		while ((change = ReorderBufferIterTXNNext(rb, iterstate)) != NULL)
 		{
 			Relation	relation = NULL;
 			Oid			reloid;
@@ -1472,7 +1471,9 @@ ReorderBufferCommit(ReorderBuffer *rb, TransactionId xid,
 			}
 		}
 
+		/* clean up the iterator */
 		ReorderBufferIterTXNFinish(rb, iterstate);
+		iterstate = NULL;
 
 		/* call commit callback */
 		rb->commit(rb, txn, commit_lsn);
@@ -1639,7 +1640,7 @@ ReorderBufferForget(ReorderBuffer *rb, TransactionId xid, XLogRecPtr lsn)
 	 */
 	if (txn->base_snapshot != NULL && txn->ninvalidations > 0)
 	{
-		bool use_subtxn = IsTransactionOrTransactionBlock();
+		bool		use_subtxn = IsTransactionOrTransactionBlock();
 
 		if (use_subtxn)
 			BeginInternalSubTransaction("replay");
@@ -2013,14 +2014,12 @@ ReorderBufferSerializeChange(ReorderBuffer *rb, ReorderBufferTXN *txn,
 				newtup = change->data.tp.newtuple;
 
 				if (oldtup)
-					oldlen = offsetof(ReorderBufferTupleBuf, data)
-						+oldtup->tuple.t_len
-						- offsetof(HeapTupleHeaderData, t_bits);
+					oldlen = offsetof(ReorderBufferTupleBuf, t_data) +
+						oldtup->tuple.t_len;
 
 				if (newtup)
-					newlen = offsetof(ReorderBufferTupleBuf, data)
-						+newtup->tuple.t_len
-						- offsetof(HeapTupleHeaderData, t_bits);
+					newlen = offsetof(ReorderBufferTupleBuf, t_data) +
+						newtup->tuple.t_len;
 
 				sz += oldlen;
 				sz += newlen;
@@ -2261,27 +2260,25 @@ ReorderBufferRestoreChange(ReorderBuffer *rb, ReorderBufferTXN *txn,
 		case REORDER_BUFFER_CHANGE_DELETE:
 			if (change->data.tp.newtuple)
 			{
-				Size		len = offsetof(ReorderBufferTupleBuf, data)
-				+((ReorderBufferTupleBuf *) data)->tuple.t_len
-				- offsetof(HeapTupleHeaderData, t_bits);
+				Size		len = offsetof(ReorderBufferTupleBuf, t_data) +
+				((ReorderBufferTupleBuf *) data)->tuple.t_len;
 
 				change->data.tp.newtuple = ReorderBufferGetTupleBuf(rb);
 				memcpy(change->data.tp.newtuple, data, len);
 				change->data.tp.newtuple->tuple.t_data =
-					&change->data.tp.newtuple->header;
+					&change->data.tp.newtuple->t_data.header;
 				data += len;
 			}
 
 			if (change->data.tp.oldtuple)
 			{
-				Size		len = offsetof(ReorderBufferTupleBuf, data)
-				+((ReorderBufferTupleBuf *) data)->tuple.t_len
-				- offsetof(HeapTupleHeaderData, t_bits);
+				Size		len = offsetof(ReorderBufferTupleBuf, t_data) +
+				((ReorderBufferTupleBuf *) data)->tuple.t_len;
 
 				change->data.tp.oldtuple = ReorderBufferGetTupleBuf(rb);
 				memcpy(change->data.tp.oldtuple, data, len);
 				change->data.tp.oldtuple->tuple.t_data =
-					&change->data.tp.oldtuple->header;
+					&change->data.tp.oldtuple->t_data.header;
 				data += len;
 			}
 			break;
@@ -2659,7 +2656,7 @@ ReorderBufferToastReplace(ReorderBuffer *rb, ReorderBufferTXN *txn,
 	 */
 	tmphtup = heap_form_tuple(desc, attrs, isnull);
 	Assert(newtup->tuple.t_len <= MaxHeapTupleSize);
-	Assert(&newtup->header == newtup->tuple.t_data);
+	Assert(&newtup->t_data.header == newtup->tuple.t_data);
 
 	memcpy(newtup->tuple.t_data, tmphtup->t_data, tmphtup->t_len);
 	newtup->tuple.t_len = tmphtup->t_len;

@@ -295,7 +295,6 @@ INSERT INTO document VALUES (10, 33, 1, current_user, 'hoge');
 SET SESSION AUTHORIZATION rls_regress_user1;
 INSERT INTO document VALUES (8, 44, 1, 'rls_regress_user1', 'my third manga'); -- Must fail with unique violation, revealing presence of did we can't see
 ERROR:  duplicate key value violates unique constraint "document_pkey"
-DETAIL:  Key (did)=(8) already exists.
 SELECT * FROM document WHERE did = 8; -- and confirm we can't see it
  did | cid | dlevel | dauthor | dtitle 
 -----+-----+--------+---------+--------
@@ -1035,22 +1034,25 @@ EXPLAIN (COSTS OFF) EXECUTE p2(2);
 --
 SET SESSION AUTHORIZATION rls_regress_user1;
 EXPLAIN (COSTS OFF) UPDATE t1 SET b = b || b WHERE f_leak(b);
-             QUERY PLAN              
--------------------------------------
+                QUERY PLAN                 
+-------------------------------------------
  Update on t1 t1_3
    ->  Subquery Scan on t1
          Filter: f_leak(t1.b)
-         ->  Seq Scan on t1 t1_4
-               Filter: ((a % 2) = 0)
+         ->  LockRows
+               ->  Seq Scan on t1 t1_4
+                     Filter: ((a % 2) = 0)
    ->  Subquery Scan on t1_1
          Filter: f_leak(t1_1.b)
-         ->  Seq Scan on t2
-               Filter: ((a % 2) = 0)
+         ->  LockRows
+               ->  Seq Scan on t2
+                     Filter: ((a % 2) = 0)
    ->  Subquery Scan on t1_2
          Filter: f_leak(t1_2.b)
-         ->  Seq Scan on t3
-               Filter: ((a % 2) = 0)
-(13 rows)
+         ->  LockRows
+               ->  Seq Scan on t3
+                     Filter: ((a % 2) = 0)
+(16 rows)
 
 UPDATE t1 SET b = b || b WHERE f_leak(b);
 NOTICE:  f_leak => bbb
@@ -1059,14 +1061,15 @@ NOTICE:  f_leak => bcd
 NOTICE:  f_leak => def
 NOTICE:  f_leak => yyy
 EXPLAIN (COSTS OFF) UPDATE only t1 SET b = b || '_updt' WHERE f_leak(b);
-             QUERY PLAN              
--------------------------------------
+                QUERY PLAN                 
+-------------------------------------------
  Update on t1 t1_1
    ->  Subquery Scan on t1
          Filter: f_leak(t1.b)
-         ->  Seq Scan on t1 t1_2
-               Filter: ((a % 2) = 0)
-(5 rows)
+         ->  LockRows
+               ->  Seq Scan on t1 t1_2
+                     Filter: ((a % 2) = 0)
+(6 rows)
 
 UPDATE only t1 SET b = b || '_updt' WHERE f_leak(b);
 NOTICE:  f_leak => bbbbbb
@@ -1132,32 +1135,36 @@ SELECT * FROM t1;
 SET SESSION AUTHORIZATION rls_regress_user1;
 SET row_security TO ON;
 EXPLAIN (COSTS OFF) DELETE FROM only t1 WHERE f_leak(b);
-             QUERY PLAN              
--------------------------------------
+                QUERY PLAN                 
+-------------------------------------------
  Delete on t1 t1_1
    ->  Subquery Scan on t1
          Filter: f_leak(t1.b)
-         ->  Seq Scan on t1 t1_2
-               Filter: ((a % 2) = 0)
-(5 rows)
+         ->  LockRows
+               ->  Seq Scan on t1 t1_2
+                     Filter: ((a % 2) = 0)
+(6 rows)
 
 EXPLAIN (COSTS OFF) DELETE FROM t1 WHERE f_leak(b);
-             QUERY PLAN              
--------------------------------------
+                QUERY PLAN                 
+-------------------------------------------
  Delete on t1 t1_3
    ->  Subquery Scan on t1
          Filter: f_leak(t1.b)
-         ->  Seq Scan on t1 t1_4
-               Filter: ((a % 2) = 0)
+         ->  LockRows
+               ->  Seq Scan on t1 t1_4
+                     Filter: ((a % 2) = 0)
    ->  Subquery Scan on t1_1
          Filter: f_leak(t1_1.b)
-         ->  Seq Scan on t2
-               Filter: ((a % 2) = 0)
+         ->  LockRows
+               ->  Seq Scan on t2
+                     Filter: ((a % 2) = 0)
    ->  Subquery Scan on t1_2
          Filter: f_leak(t1_2.b)
-         ->  Seq Scan on t3
-               Filter: ((a % 2) = 0)
-(13 rows)
+         ->  LockRows
+               ->  Seq Scan on t3
+                     Filter: ((a % 2) = 0)
+(16 rows)
 
 DELETE FROM only t1 WHERE f_leak(b) RETURNING oid, *, t1;
 NOTICE:  f_leak => bbbbbb_updt
@@ -1683,7 +1690,6 @@ EXPLAIN (COSTS OFF) WITH cte1 AS (SELECT * FROM t1 WHERE f_leak(b)) SELECT * FRO
 
 WITH cte1 AS (UPDATE t1 SET a = a + 1 RETURNING *) SELECT * FROM cte1; --fail
 ERROR:  new row violates WITH CHECK OPTION for "t1"
-DETAIL:  Failing row contains (1, cfcd208495d565ef66e7dff9f98764da).
 WITH cte1 AS (UPDATE t1 SET a = a RETURNING *) SELECT * FROM cte1; --ok
  a  |                b                 
 ----+----------------------------------
@@ -1702,7 +1708,6 @@ WITH cte1 AS (UPDATE t1 SET a = a RETURNING *) SELECT * FROM cte1; --ok
 
 WITH cte1 AS (INSERT INTO t1 VALUES (21, 'Fail') RETURNING *) SELECT * FROM cte1; --fail
 ERROR:  new row violates WITH CHECK OPTION for "t1"
-DETAIL:  Failing row contains (21, Fail).
 WITH cte1 AS (INSERT INTO t1 VALUES (20, 'Success') RETURNING *) SELECT * FROM cte1; --ok
  a  |    b    
 ----+---------

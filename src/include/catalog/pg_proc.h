@@ -66,7 +66,7 @@ CATALOG(pg_proc,1255) BKI_BOOTSTRAP BKI_ROWTYPE_OID(81) BKI_SCHEMA_MACRO
 	text		proargnames[1]; /* parameter names (NULL if no names) */
 	pg_node_tree proargdefaults;/* list of expression trees for argument
 								 * defaults (NULL if none) */
-	text		prosrc;			/* procedure source text */
+	text		prosrc BKI_FORCE_NOT_NULL; /* procedure source text */
 	text		probin;			/* secondary procedure info (can be NULL) */
 	text		proconfig[1];	/* procedure-local GUC settings */
 	aclitem		proacl[1];		/* access permissions */
@@ -878,9 +878,9 @@ DATA(insert OID = 2176 (  array_length	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2
 DESCR("array length");
 DATA(insert OID = 3179 (  cardinality	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 1 0 23 "2277" _null_ _null_ _null_ _null_ array_cardinality _null_ _null_ _null_ ));
 DESCR("array cardinality");
-DATA(insert OID = 378 (  array_append	   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2277 "2277 2283" _null_ _null_ _null_ _null_ array_push _null_ _null_ _null_ ));
+DATA(insert OID = 378 (  array_append	   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2277 "2277 2283" _null_ _null_ _null_ _null_ array_append _null_ _null_ _null_ ));
 DESCR("append element onto end of array");
-DATA(insert OID = 379 (  array_prepend	   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2277 "2283 2277" _null_ _null_ _null_ _null_ array_push _null_ _null_ _null_ ));
+DATA(insert OID = 379 (  array_prepend	   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2277 "2283 2277" _null_ _null_ _null_ _null_ array_prepend _null_ _null_ _null_ ));
 DESCR("prepend element onto front of array");
 DATA(insert OID = 383 (  array_cat		   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2277 "2277 2277" _null_ _null_ _null_ _null_ array_cat _null_ _null_ _null_ ));
 DATA(insert OID = 394 (  string_to_array   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 1009 "25 25" _null_ _null_ _null_ _null_ text_to_array _null_ _null_ _null_ ));
@@ -2852,6 +2852,8 @@ DESCR("statistics: total execution time of function in current transaction, in m
 DATA(insert OID = 3048 (  pg_stat_get_xact_function_self_time	PGNSP PGUID 12 1 0 0 0 f f f f t f v 1 0 701 "26" _null_ _null_ _null_ _null_ pg_stat_get_xact_function_self_time _null_ _null_ _null_ ));
 DESCR("statistics: self execution time of function in current transaction, in msec");
 
+DATA(insert OID = 3788 (  pg_stat_get_snapshot_timestamp PGNSP PGUID 12 1 0 0 0 f f f f t f s 0 0 1184 "" _null_ _null_ _null_ _null_	pg_stat_get_snapshot_timestamp _null_ _null_ _null_ ));
+DESCR("statistics: timestamp of the current statistics snapshot");
 DATA(insert OID = 2230 (  pg_stat_clear_snapshot		PGNSP PGUID 12 1 0 0 0 f f f f f f v 0 0 2278 "" _null_ _null_ _null_ _null_	pg_stat_clear_snapshot _null_ _null_ _null_ ));
 DESCR("statistics: discard current transaction's statistics snapshot");
 DATA(insert OID = 2274 (  pg_stat_reset					PGNSP PGUID 12 1 0 0 0 f f f f f f v 0 0 2278 "" _null_ _null_ _null_ _null_	pg_stat_reset _null_ _null_ _null_ ));

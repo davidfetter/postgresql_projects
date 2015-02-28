@@ -65,6 +65,12 @@ int			SessionReplicationRole = SESSION_REPLICATION_ROLE_ORIGIN;
 /* How many levels deep into trigger execution are we? */
 static int	MyTriggerDepth = 0;
 
+/*
+ * Note that this macro also exists in executor/execMain.c.  There does not
+ * appear to be any good header to put it into, given the structures that
+ * it uses, so we let them be duplicated.  Be sure to update both if one needs
+ * to be changed, however.
+ */
 #define GetModifiedColumns(relinfo, estate) \
 	(rt_fetch((relinfo)->ri_RangeTableIndex, (estate)->es_range_table)->modifiedCols)
 
@@ -2999,7 +3005,7 @@ typedef struct SetConstraintStateData
 	bool		all_isdeferred;
 	int			numstates;		/* number of trigstates[] entries in use */
 	int			numalloc;		/* allocated size of trigstates[] */
-	SetConstraintTriggerData trigstates[1];		/* VARIABLE LENGTH ARRAY */
+	SetConstraintTriggerData trigstates[FLEXIBLE_ARRAY_MEMBER];
 } SetConstraintStateData;
 
 typedef SetConstraintStateData *SetConstraintState;
@@ -4392,8 +4398,8 @@ SetConstraintStateCreate(int numalloc)
 	 */
 	state = (SetConstraintState)
 		MemoryContextAllocZero(TopTransactionContext,
-							   sizeof(SetConstraintStateData) +
-						   (numalloc - 1) *sizeof(SetConstraintTriggerData));
+							   offsetof(SetConstraintStateData, trigstates) +
+						   numalloc * sizeof(SetConstraintTriggerData));
 
 	state->numalloc = numalloc;
 
@@ -4434,8 +4440,8 @@ SetConstraintStateAddItem(SetConstraintState state,
 		newalloc = Max(newalloc, 8);	/* in case original has size 0 */
 		state = (SetConstraintState)
 			repalloc(state,
-					 sizeof(SetConstraintStateData) +
-					 (newalloc - 1) *sizeof(SetConstraintTriggerData));
+					 offsetof(SetConstraintStateData, trigstates) +
+					 newalloc * sizeof(SetConstraintTriggerData));
 		state->numalloc = newalloc;
 		Assert(state->numstates < state->numalloc);
 	}

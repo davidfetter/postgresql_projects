@@ -3415,6 +3415,7 @@ getObjectIdentityParts(const ObjectAddress *object,
 			{
 				HeapTuple	conTup;
 				Form_pg_conversion conForm;
+				char	   *schema;
 
 				conTup = SearchSysCache1(CONVOID,
 										 ObjectIdGetDatum(object->objectId));
@@ -3422,10 +3423,13 @@ getObjectIdentityParts(const ObjectAddress *object,
 					elog(ERROR, "cache lookup failed for conversion %u",
 						 object->objectId);
 				conForm = (Form_pg_conversion) GETSTRUCT(conTup);
+				schema = get_namespace_name(conForm->connamespace);
 				appendStringInfoString(&buffer,
-								quote_identifier(NameStr(conForm->conname)));
+								quote_qualified_identifier(schema,
+														   NameStr(conForm->conname)));
 				if (objname)
 					*objname = list_make1(pstrdup(NameStr(conForm->conname)));
+				pfree(schema);
 				ReleaseSysCache(conTup);
 				break;
 			}
@@ -3529,7 +3533,7 @@ getObjectIdentityParts(const ObjectAddress *object,
 				appendStringInfoString(&buffer,
 									   quote_qualified_identifier(schema,
 												 NameStr(opcForm->opcname)));
-				appendStringInfo(&buffer, " for %s",
+				appendStringInfo(&buffer, " USING %s",
 								 quote_identifier(NameStr(amForm->amname)));
 				if (objname)
 				{
@@ -4066,7 +4070,7 @@ getOpFamilyIdentity(StringInfo buffer, Oid opfid, List **objname, List **objargs
 	amForm = (Form_pg_am) GETSTRUCT(amTup);
 
 	schema = get_namespace_name(opfForm->opfnamespace);
-	appendStringInfo(buffer, "%s for %s",
+	appendStringInfo(buffer, "%s USING %s",
 					 quote_qualified_identifier(schema,
 												NameStr(opfForm->opfname)),
 					 NameStr(amForm->amname));

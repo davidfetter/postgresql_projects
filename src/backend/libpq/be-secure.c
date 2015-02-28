@@ -32,8 +32,10 @@
 #endif
 
 #include "libpq/libpq.h"
+#include "miscadmin.h"
 #include "tcop/tcopprot.h"
 #include "utils/memutils.h"
+#include "storage/proc.h"
 
 
 char	   *ssl_cert_file;
@@ -125,17 +127,54 @@ ssize_t
 secure_read(Port *port, void *ptr, size_t len)
 {
 	ssize_t		n;
+	int			waitfor;
 
+retry:
 #ifdef USE_SSL
+	waitfor = 0;
 	if (port->ssl_in_use)
 	{
-		n = be_tls_read(port, ptr, len);
+		n = be_tls_read(port, ptr, len, &waitfor);
 	}
 	else
 #endif
 	{
 		n = secure_raw_read(port, ptr, len);
+		waitfor = WL_SOCKET_READABLE;
 	}
+
+	/* In blocking mode, wait until the socket is ready */
+	if (n < 0 && !port->noblock && (errno == EWOULDBLOCK || errno == EAGAIN))
+	{
+		int		w;
+
+		Assert(waitfor);
+
+		w = WaitLatchOrSocket(MyLatch,
+							  WL_LATCH_SET | waitfor,
+							  port->sock, 0);
+
+		/* Handle interrupt. */
+		if (w & WL_LATCH_SET)
+		{
+			ResetLatch(MyLatch);
+			ProcessClientReadInterrupt(true);
+
+			/*
+			 * We'll retry the read. Most likely it will return immediately
+			 * because there's still no data available, and we'll wait
+			 * for the socket to become ready again.
+			 */
+		}
+		goto retry;
+	}
+
+	/*
+	 * Process interrupts that happened while (or before) receiving. Note that
+	 * we signal that we're not blocking, which will prevent some types of
+	 * interrupts from being processed.
+	 */
+	ProcessClientReadInterrupt(false);
 
 	return n;
 }
@@ -145,11 +184,17 @@ secure_raw_read(Port *port, void *ptr, size_t len)
 {
 	ssize_t		n;
 
-	prepare_for_client_read();
-
+	/*
+	 * Try to read from the socket without blocking. If it succeeds we're
+	 * done, otherwise we'll wait for the socket using the latch mechanism.
+	 */
+#ifdef WIN32
+	pgwin32_noblock = true;
+#endif
 	n = recv(port->sock, ptr, len, 0);
-
-	client_read_ended();
+#ifdef WIN32
+	pgwin32_noblock = false;
+#endif
 
 	return n;
 }
@@ -162,15 +207,53 @@ ssize_t
 secure_write(Port *port, void *ptr, size_t len)
 {
 	ssize_t		n;
+	int			waitfor;
 
+retry:
+	waitfor = 0;
 #ifdef USE_SSL
 	if (port->ssl_in_use)
 	{
-		n = be_tls_write(port, ptr, len);
+		n = be_tls_write(port, ptr, len, &waitfor);
 	}
 	else
 #endif
+	{
 		n = secure_raw_write(port, ptr, len);
+		waitfor = WL_SOCKET_WRITEABLE;
+	}
+
+	if (n < 0 && !port->noblock && (errno == EWOULDBLOCK || errno == EAGAIN))
+	{
+		int		w;
+
+		Assert(waitfor);
+
+		w = WaitLatchOrSocket(MyLatch,
+							  WL_LATCH_SET | waitfor,
+							  port->sock, 0);
+
+		/* Handle interrupt. */
+		if (w & WL_LATCH_SET)
+		{
+			ResetLatch(MyLatch);
+			ProcessClientWriteInterrupt(true);
+
+			/*
+			 * We'll retry the write. Most likely it will return immediately
+			 * because there's still no data available, and we'll wait
+			 * for the socket to become ready again.
+			 */
+		}
+		goto retry;
+	}
+
+	/*
+	 * Process interrupts that happened while (or before) sending. Note that
+	 * we signal that we're not blocking, which will prevent some types of
+	 * interrupts from being processed.
+	 */
+	ProcessClientWriteInterrupt(false);
 
 	return n;
 }
@@ -178,5 +261,15 @@ secure_write(Port *port, void *ptr, size_t len)
 ssize_t
 secure_raw_write(Port *port, const void *ptr, size_t len)
 {
-	return send(port->sock, ptr, len, 0);
+	ssize_t		n;
+
+#ifdef WIN32
+	pgwin32_noblock = true;
+#endif
+	n = send(port->sock, ptr, len, 0);
+#ifdef WIN32
+	pgwin32_noblock = false;
+#endif
+
+	return n;
 }

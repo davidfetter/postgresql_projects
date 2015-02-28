@@ -24,7 +24,7 @@ PostgreSQL documentation
 CREATE POLICY <replaceable class="parameter">name</replaceable> ON <replaceable class="parameter">table_name</replaceable>
     [ FOR { ALL | SELECT | INSERT | UPDATE | DELETE } ]
     [ TO { <replaceable class="parameter">role_name</replaceable> | PUBLIC } [, ...] ]
-    [ USING ( <replaceable class="parameter">expression</replaceable> ) ]
+    [ USING ( <replaceable class="parameter">using_expression</replaceable> ) ]
     [ WITH CHECK ( <replaceable class="parameter">check_expression</replaceable> ) ]
 </synopsis>
  </refsynopsisdiv>
@@ -39,14 +39,21 @@ CREATE POLICY <replaceable class="parameter">name</replaceable> ON <replaceable 
   </para>
 
   <para>
-   A policy limits the ability to SELECT, INSERT, UPDATE, or DELETE rows
-   in a table to those rows which match the relevant policy expression.
-   Existing table rows are checked against the expression specified via
-   USING, while new rows that would be created via INSERT or UPDATE are
-   checked against the expression specified via WITH CHECK.  Generally,
-   the system will enforce filter conditions imposed using security
-   policies prior to qualifications that appear in the query itself, in
-   order to the prevent the inadvertent exposure of the protected data to
+   A policy grants the ability to SELECT, INSERT, UPDATE, or DELETE rows
+   which match the relevant policy expression.  Existing table rows are
+   checked against the expression specified via USING, while new rows that
+   would be created via INSERT or UPDATE are checked against the expression
+   specified via WITH CHECK.  When a USING expression returns true for a given
+   row then that row is visible to the user, while if a false or null is
+   returned then the row is not visible.  When a WITH CHECK expression
+   returns true for a row then that row is added, while if a false or null is
+   returned then an error occurs.
+  </para>
+
+  <para>
+   Generally, the system will enforce filter conditions imposed using
+   security policies prior to qualifications that appear in the query itself,
+   in order to the prevent the inadvertent exposure of the protected data to
    user-defined functions which might not be trustworthy.  However,
    functions and operators marked by the system (or the system
    administrator) as LEAKPROOF may be evaluated before policy
@@ -63,7 +70,11 @@ CREATE POLICY <replaceable class="parameter">name</replaceable> ON <replaceable 
    Policies can be applied for specific commands or for specific roles.  The
    default for newly created policies is that they apply for all commands and
    roles, unless otherwise specified.  If multiple policies apply to a given
-   query, they will be combined using OR.
+   query, they will be combined using OR.  Further, for commands which can have
+   both USING and WITH CHECK policies (ALL and UPDATE), if no WITH CHECK policy
+   is defined then the USING policy will be used for both what rows are visible
+   (normal USING case) and which rows will be allowed to be added (WITH CHECK
+   case).
   </para>
 
   <para>
@@ -148,13 +159,16 @@ CREATE POLICY <replaceable class="parameter">name</replaceable> ON <replaceable 
    </varlistentry>
 
    <varlistentry>
-    <term><replaceable class="parameter">expression</replaceable></term>
+    <term><replaceable class="parameter">using_expression</replaceable></term>
     <listitem>
      <para>
       Any <acronym>SQL</acronym> conditional expression (returning
       <type>boolean</type>).  The conditional expression cannot contain
       any aggregate or window functions.  This expression will be added
-      to queries to filter out the records which are visible to the query.
+      to queries that refer to the table if row level security is enabled
+      and rows for which the expression returns true will be visible.  Any
+      rows for which the expression returns false or null will not be
+      visible to the user.
      </para>
     </listitem>
    </varlistentry>
@@ -164,11 +178,13 @@ CREATE POLICY <replaceable class="parameter">name</replaceable> ON <replaceable 
     <listitem>
      <para>
       Any <acronym>SQL</acronym> conditional expression (returning
-      <type>boolean</type>).  The condition expression cannot contain
-      any aggregate or window functions.  This expression will be added
-      to queries which are attempting to add records to the table as
-      with-check options, and an error will be thrown if this condition
-      returns false for any records being added.
+      <type>boolean</type>).  The conditional expression cannot contain
+      any aggregate or window functions.  This expression will be used with
+      <command>INSERT</command> and <command>UPDATE</command> queries against
+      the table if row level security is enabled and only rows where the
+      expression evaluates to true will be allowed.  An error will be thrown
+      if the expression evaluates to false or null for any of the records
+      inserted or any of the records which result from the update.
      </para>
     </listitem>
    </varlistentry>
@@ -204,8 +220,10 @@ CREATE POLICY <replaceable class="parameter">name</replaceable> ON <replaceable 
          (using the WITH CHECK expression, if defined, and the USING expression
          otherwise).  If an INSERT or UPDATE command attempts to add rows to
          the table which do not pass the <literal>ALL</literal> WITH CHECK
-         (or USING, if no WITH CHECK expression is defined) expression, the
-         command will error.
+         expression, the entire command will be aborted.  Note that if only a
+         <literal>USING</literal> clause is specified then that clause will be
+         used for both <literal>USING</literal> and
+         <literal>WITH CHECK</literal> cases.
        </para>
       </listitem>
      </varlistentry>
@@ -256,7 +274,10 @@ CREATE POLICY <replaceable class="parameter">name</replaceable> ON <replaceable 
          relation (similar to the <literal>INSERT</literal> policy).
          Any rows whose resulting values do not pass the
          <literal>WITH CHECK</literal> expression will cause an ERROR and the
-         entire command will be aborted.
+         entire command will be aborted.  Note that if only a
+         <literal>USING</literal> clause is specified then that clause will be
+         used for both <literal>USING</literal> and
+         <literal>WITH CHECK</literal> cases.
        </para>
       </listitem>
      </varlistentry>

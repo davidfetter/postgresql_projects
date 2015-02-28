@@ -138,9 +138,9 @@ static inline int32 GetPrivateRefCount(Buffer buffer);
 static void ForgetPrivateRefCountEntry(PrivateRefCountEntry *ref);
 
 /*
- * Ensure that the the PrivateRefCountArray has sufficient space to store one
- * more entry. This has to be called before using NewPrivateRefCountEntry() to
- * fill a new entry - but it's perfectly fine to not use a reserved entry.
+ * Ensure that the PrivateRefCountArray has sufficient space to store one more
+ * entry. This has to be called before using NewPrivateRefCountEntry() to fill
+ * a new entry - but it's perfectly fine to not use a reserved entry.
  */
 static void
 ReservePrivateRefCountEntry(void)
@@ -898,7 +898,7 @@ BufferAlloc(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 		 * buffer pool, and check to see if the correct data has been loaded
 		 * into the buffer.
 		 */
-		buf = &BufferDescriptors[buf_id];
+		buf = GetBufferDescriptor(buf_id);
 
 		valid = PinBuffer(buf, strategy);
 
@@ -1105,7 +1105,7 @@ BufferAlloc(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 
 			/* remaining code should match code at top of routine */
 
-			buf = &BufferDescriptors[buf_id];
+			buf = GetBufferDescriptor(buf_id);
 
 			valid = PinBuffer(buf, strategy);
 
@@ -1328,7 +1328,7 @@ MarkBufferDirty(Buffer buffer)
 		return;
 	}
 
-	bufHdr = &BufferDescriptors[buffer - 1];
+	bufHdr = GetBufferDescriptor(buffer - 1);
 
 	Assert(BufferIsPinned(buffer));
 	/* unfortunately we can't check if the lock is held exclusively */
@@ -1380,7 +1380,7 @@ ReleaseAndReadBuffer(Buffer buffer,
 		Assert(BufferIsPinned(buffer));
 		if (BufferIsLocal(buffer))
 		{
-			bufHdr = &LocalBufferDescriptors[-buffer - 1];
+			bufHdr = GetLocalBufferDescriptor(-buffer - 1);
 			if (bufHdr->tag.blockNum == blockNum &&
 				RelFileNodeEquals(bufHdr->tag.rnode, relation->rd_node) &&
 				bufHdr->tag.forkNum == forkNum)
@@ -1390,7 +1390,7 @@ ReleaseAndReadBuffer(Buffer buffer,
 		}
 		else
 		{
-			bufHdr = &BufferDescriptors[buffer - 1];
+			bufHdr = GetBufferDescriptor(buffer - 1);
 			/* we have pin, so it's ok to examine tag without spinlock */
 			if (bufHdr->tag.blockNum == blockNum &&
 				RelFileNodeEquals(bufHdr->tag.rnode, relation->rd_node) &&
@@ -1609,7 +1609,7 @@ BufferSync(int flags)
 	num_to_write = 0;
 	for (buf_id = 0; buf_id < NBuffers; buf_id++)
 	{
-		volatile BufferDesc *bufHdr = &BufferDescriptors[buf_id];
+		volatile BufferDesc *bufHdr = GetBufferDescriptor(buf_id);
 
 		/*
 		 * Header spinlock is enough to examine BM_DIRTY, see comment in
@@ -1644,7 +1644,7 @@ BufferSync(int flags)
 	num_written = 0;
 	while (num_to_scan-- > 0)
 	{
-		volatile BufferDesc *bufHdr = &BufferDescriptors[buf_id];
+		volatile BufferDesc *bufHdr = GetBufferDescriptor(buf_id);
 
 		/*
 		 * We don't need to acquire the lock here, because we're only looking
@@ -2016,7 +2016,7 @@ BgBufferSync(void)
 static int
 SyncOneBuffer(int buf_id, bool skip_recently_used)
 {
-	volatile BufferDesc *bufHdr = &BufferDescriptors[buf_id];
+	volatile BufferDesc *bufHdr = GetBufferDescriptor(buf_id);
 	int			result = 0;
 
 	ReservePrivateRefCountEntry();
@@ -2196,13 +2196,13 @@ PrintBufferLeakWarning(Buffer buffer)
 	Assert(BufferIsValid(buffer));
 	if (BufferIsLocal(buffer))
 	{
-		buf = &LocalBufferDescriptors[-buffer - 1];
+		buf = GetLocalBufferDescriptor(-buffer - 1);
 		loccount = LocalRefCount[-buffer - 1];
 		backend = MyBackendId;
 	}
 	else
 	{
-		buf = &BufferDescriptors[buffer - 1];
+		buf = GetBufferDescriptor(buffer - 1);
 		loccount = GetPrivateRefCount(buffer);
 		backend = InvalidBackendId;
 	}
@@ -2265,9 +2265,9 @@ BufferGetBlockNumber(Buffer buffer)
 	Assert(BufferIsPinned(buffer));
 
 	if (BufferIsLocal(buffer))
-		bufHdr = &(LocalBufferDescriptors[-buffer - 1]);
+		bufHdr = GetLocalBufferDescriptor(-buffer - 1);
 	else
-		bufHdr = &BufferDescriptors[buffer - 1];
+		bufHdr = GetBufferDescriptor(buffer - 1);
 
 	/* pinned, so OK to read tag without spinlock */
 	return bufHdr->tag.blockNum;
@@ -2288,9 +2288,9 @@ BufferGetTag(Buffer buffer, RelFileNode *rnode, ForkNumber *forknum,
 	Assert(BufferIsPinned(buffer));
 
 	if (BufferIsLocal(buffer))
-		bufHdr = &(LocalBufferDescriptors[-buffer - 1]);
+		bufHdr = GetLocalBufferDescriptor(-buffer - 1);
 	else
-		bufHdr = &BufferDescriptors[buffer - 1];
+		bufHdr = GetBufferDescriptor(buffer - 1);
 
 	/* pinned, so OK to read tag without spinlock */
 	*rnode = bufHdr->tag.rnode;
@@ -2473,7 +2473,7 @@ BufferIsPermanent(Buffer buffer)
 	 * changing an aligned 2-byte BufFlags value is atomic, so we'll read the
 	 * old value or the new value, but not random garbage.
 	 */
-	bufHdr = &BufferDescriptors[buffer - 1];
+	bufHdr = GetBufferDescriptor(buffer - 1);
 	return (bufHdr->flags & BM_PERMANENT) != 0;
 }
 
@@ -2486,7 +2486,7 @@ BufferIsPermanent(Buffer buffer)
 XLogRecPtr
 BufferGetLSNAtomic(Buffer buffer)
 {
-	volatile BufferDesc *bufHdr = &BufferDescriptors[buffer - 1];
+	volatile BufferDesc *bufHdr = GetBufferDescriptor(buffer - 1);
 	char	   *page = BufferGetPage(buffer);
 	XLogRecPtr	lsn;
 
@@ -2549,7 +2549,7 @@ DropRelFileNodeBuffers(RelFileNodeBackend rnode, ForkNumber forkNum,
 
 	for (i = 0; i < NBuffers; i++)
 	{
-		volatile BufferDesc *bufHdr = &BufferDescriptors[i];
+		volatile BufferDesc *bufHdr = GetBufferDescriptor(i);
 
 		/*
 		 * We can make this a tad faster by prechecking the buffer tag before
@@ -2639,7 +2639,7 @@ DropRelFileNodesAllBuffers(RelFileNodeBackend *rnodes, int nnodes)
 	for (i = 0; i < NBuffers; i++)
 	{
 		RelFileNode *rnode = NULL;
-		volatile BufferDesc *bufHdr = &BufferDescriptors[i];
+		volatile BufferDesc *bufHdr = GetBufferDescriptor(i);
 
 		/*
 		 * As in DropRelFileNodeBuffers, an unlocked precheck should be safe
@@ -2703,7 +2703,7 @@ DropDatabaseBuffers(Oid dbid)
 
 	for (i = 0; i < NBuffers; i++)
 	{
-		volatile BufferDesc *bufHdr = &BufferDescriptors[i];
+		volatile BufferDesc *bufHdr = GetBufferDescriptor(i);
 
 		/*
 		 * As in DropRelFileNodeBuffers, an unlocked precheck should be safe
@@ -2732,10 +2732,11 @@ void
 PrintBufferDescs(void)
 {
 	int			i;
-	volatile BufferDesc *buf = BufferDescriptors;
 
-	for (i = 0; i < NBuffers; ++i, ++buf)
+	for (i = 0; i < NBuffers; ++i)
 	{
+		volatile BufferDesc *buf = GetBufferDescriptor(i);
+
 		/* theoretically we should lock the bufhdr here */
 		elog(LOG,
 			 "[%02d] (freeNext=%d, rel=%s, "
@@ -2753,10 +2754,11 @@ void
 PrintPinnedBufs(void)
 {
 	int			i;
-	volatile BufferDesc *buf = BufferDescriptors;
 
-	for (i = 0; i < NBuffers; ++i, ++buf)
+	for (i = 0; i < NBuffers; ++i)
 	{
+		volatile BufferDesc *buf = GetBufferDescriptor(i);
+
 		if (GetPrivateRefCount(i + 1) > 0)
 		{
 			/* theoretically we should lock the bufhdr here */
@@ -2764,7 +2766,7 @@ PrintPinnedBufs(void)
 				 "[%02d] (freeNext=%d, rel=%s, "
 				 "blockNum=%u, flags=0x%x, refcount=%u %d)",
 				 i, buf->freeNext,
-				 relpath(buf->tag.rnode, buf->tag.forkNum),
+				 relpathperm(buf->tag.rnode, buf->tag.forkNum),
 				 buf->tag.blockNum, buf->flags,
 				 buf->refcount, GetPrivateRefCount(i + 1));
 		}
@@ -2804,7 +2806,7 @@ FlushRelationBuffers(Relation rel)
 	{
 		for (i = 0; i < NLocBuffer; i++)
 		{
-			bufHdr = &LocalBufferDescriptors[i];
+			bufHdr = GetLocalBufferDescriptor(i);
 			if (RelFileNodeEquals(bufHdr->tag.rnode, rel->rd_node) &&
 				(bufHdr->flags & BM_VALID) && (bufHdr->flags & BM_DIRTY))
 			{
@@ -2842,7 +2844,7 @@ FlushRelationBuffers(Relation rel)
 
 	for (i = 0; i < NBuffers; i++)
 	{
-		bufHdr = &BufferDescriptors[i];
+		bufHdr = GetBufferDescriptor(i);
 
 		/*
 		 * As in DropRelFileNodeBuffers, an unlocked precheck should be safe
@@ -2894,7 +2896,7 @@ FlushDatabaseBuffers(Oid dbid)
 
 	for (i = 0; i < NBuffers; i++)
 	{
-		bufHdr = &BufferDescriptors[i];
+		bufHdr = GetBufferDescriptor(i);
 
 		/*
 		 * As in DropRelFileNodeBuffers, an unlocked precheck should be safe
@@ -2938,7 +2940,7 @@ ReleaseBuffer(Buffer buffer)
 		return;
 	}
 
-	UnpinBuffer(&BufferDescriptors[buffer - 1], true);
+	UnpinBuffer(GetBufferDescriptor(buffer - 1), true);
 }
 
 /*
@@ -3007,7 +3009,7 @@ MarkBufferDirtyHint(Buffer buffer, bool buffer_std)
 		return;
 	}
 
-	bufHdr = &BufferDescriptors[buffer - 1];
+	bufHdr = GetBufferDescriptor(buffer - 1);
 
 	Assert(GetPrivateRefCount(buffer) > 0);
 	/* here, either share or exclusive lock is OK */
@@ -3161,7 +3163,7 @@ LockBuffer(Buffer buffer, int mode)
 	if (BufferIsLocal(buffer))
 		return;					/* local buffers need no lock */
 
-	buf = &(BufferDescriptors[buffer - 1]);
+	buf = GetBufferDescriptor(buffer - 1);
 
 	if (mode == BUFFER_LOCK_UNLOCK)
 		LWLockRelease(buf->content_lock);
@@ -3187,7 +3189,7 @@ ConditionalLockBuffer(Buffer buffer)
 	if (BufferIsLocal(buffer))
 		return true;			/* act as though we got it */
 
-	buf = &(BufferDescriptors[buffer - 1]);
+	buf = GetBufferDescriptor(buffer - 1);
 
 	return LWLockConditionalAcquire(buf->content_lock, LW_EXCLUSIVE);
 }
@@ -3231,7 +3233,7 @@ LockBufferForCleanup(Buffer buffer)
 		elog(ERROR, "incorrect local pin count: %d",
 			 GetPrivateRefCount(buffer));
 
-	bufHdr = &BufferDescriptors[buffer - 1];
+	bufHdr = GetBufferDescriptor(buffer - 1);
 
 	for (;;)
 	{
@@ -3270,6 +3272,20 @@ LockBufferForCleanup(Buffer buffer)
 		}
 		else
 			ProcWaitForSignal();
+
+		/*
+		 * Remove flag marking us as waiter. Normally this will not be set
+		 * anymore, but ProcWaitForSignal() can return for other signals as
+		 * well.  We take care to only reset the flag if we're the waiter, as
+		 * theoretically another backend could have started waiting. That's
+		 * impossible with the current usages due to table level locking, but
+		 * better be safe.
+		 */
+		LockBufHdr(bufHdr);
+		if ((bufHdr->flags & BM_PIN_COUNT_WAITER) != 0 &&
+			bufHdr->wait_backend_pid == MyProcPid)
+			bufHdr->flags &= ~BM_PIN_COUNT_WAITER;
+		UnlockBufHdr(bufHdr);
 
 		PinCountWaitBuf = NULL;
 		/* Loop back and try again */
@@ -3332,7 +3348,7 @@ ConditionalLockBufferForCleanup(Buffer buffer)
 	if (!ConditionalLockBuffer(buffer))
 		return false;
 
-	bufHdr = &BufferDescriptors[buffer - 1];
+	bufHdr = GetBufferDescriptor(buffer - 1);
 	LockBufHdr(bufHdr);
 	Assert(bufHdr->refcount > 0);
 	if (bufHdr->refcount == 1)

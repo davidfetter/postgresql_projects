@@ -1363,16 +1363,13 @@ pg_policies| SELECT n.nspname AS schemaname,
               WHERE (pg_authid.oid = ANY (pol.polroles))
               ORDER BY pg_authid.rolname)
         END AS roles,
-        CASE
-            WHEN (pol.polcmd IS NULL) THEN 'ALL'::text
-            ELSE
-            CASE pol.polcmd
-                WHEN 'r'::"char" THEN 'SELECT'::text
-                WHEN 'a'::"char" THEN 'INSERT'::text
-                WHEN 'u'::"char" THEN 'UPDATE'::text
-                WHEN 'd'::"char" THEN 'DELETE'::text
-                ELSE NULL::text
-            END
+        CASE pol.polcmd
+            WHEN 'r'::"char" THEN 'SELECT'::text
+            WHEN 'a'::"char" THEN 'INSERT'::text
+            WHEN 'w'::"char" THEN 'UPDATE'::text
+            WHEN 'd'::"char" THEN 'DELETE'::text
+            WHEN '*'::"char" THEN 'ALL'::text
+            ELSE NULL::text
         END AS cmd,
     pg_get_expr(pol.polqual, pol.polrelid) AS qual,
     pg_get_expr(pol.polwithcheck, pol.polrelid) AS with_check
@@ -1612,6 +1609,7 @@ pg_shadow| SELECT pg_authid.rolname AS usename,
     pg_authid.rolsuper AS usesuper,
     pg_authid.rolcatupdate AS usecatupd,
     pg_authid.rolreplication AS userepl,
+    pg_authid.rolbypassrls AS usebypassrls,
     pg_authid.rolpassword AS passwd,
     (pg_authid.rolvaliduntil)::abstime AS valuntil,
     s.setconfig AS useconfig
@@ -2066,6 +2064,7 @@ pg_user| SELECT pg_shadow.usename,
     pg_shadow.usesuper,
     pg_shadow.usecatupd,
     pg_shadow.userepl,
+    pg_shadow.usebypassrls,
     '********'::text AS passwd,
     pg_shadow.valuntil,
     pg_shadow.useconfig
@@ -2508,6 +2507,7 @@ select * from only t1_2;
  19
 (10 rows)
 
+reset constraint_exclusion;
 -- test various flavors of pg_get_viewdef()
 select pg_get_viewdef('shoe'::regclass) as unpretty;
                     unpretty                    
@@ -2679,3 +2679,56 @@ ALTER RULE "_RETURN" ON rule_v1 RENAME TO abc; -- ON SELECT rule cannot be renam
 ERROR:  renaming an ON SELECT rule is not allowed
 DROP VIEW rule_v1;
 DROP TABLE rule_t1;
+--
+-- check display of VALUES in view definitions
+--
+create view rule_v1 as values(1,2);
+\d+ rule_v1
+                 View "public.rule_v1"
+ Column  |  Type   | Modifiers | Storage | Description 
+---------+---------+-----------+---------+-------------
+ column1 | integer |           | plain   | 
+ column2 | integer |           | plain   | 
+View definition:
+ VALUES (1,2);
+
+drop view rule_v1;
+create view rule_v1(x) as values(1,2);
+\d+ rule_v1
+                 View "public.rule_v1"
+ Column  |  Type   | Modifiers | Storage | Description 
+---------+---------+-----------+---------+-------------
+ x       | integer |           | plain   | 
+ column2 | integer |           | plain   | 
+View definition:
+ SELECT "*VALUES*".column1 AS x,
+    "*VALUES*".column2
+   FROM (VALUES (1,2)) "*VALUES*";
+
+drop view rule_v1;
+create view rule_v1(x) as select * from (values(1,2)) v;
+\d+ rule_v1
+                 View "public.rule_v1"
+ Column  |  Type   | Modifiers | Storage | Description 
+---------+---------+-----------+---------+-------------
+ x       | integer |           | plain   | 
+ column2 | integer |           | plain   | 
+View definition:
+ SELECT v.column1 AS x,
+    v.column2
+   FROM ( VALUES (1,2)) v;
+
+drop view rule_v1;
+create view rule_v1(x) as select * from (values(1,2)) v(q,w);
+\d+ rule_v1
+                View "public.rule_v1"
+ Column |  Type   | Modifiers | Storage | Description 
+--------+---------+-----------+---------+-------------
+ x      | integer |           | plain   | 
+ w      | integer |           | plain   | 
+View definition:
+ SELECT v.q AS x,
+    v.w
+   FROM ( VALUES (1,2)) v(q, w);
+
+drop view rule_v1;

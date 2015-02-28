@@ -267,8 +267,12 @@ check_ddl_tag(const char *tag)
 		pg_strcasecmp(tag, "REFRESH MATERIALIZED VIEW") == 0 ||
 		pg_strcasecmp(tag, "ALTER DEFAULT PRIVILEGES") == 0 ||
 		pg_strcasecmp(tag, "ALTER LARGE OBJECT") == 0 ||
+		pg_strcasecmp(tag, "COMMENT") == 0 ||
+		pg_strcasecmp(tag, "GRANT") == 0 ||
+		pg_strcasecmp(tag, "REVOKE") == 0 ||
 		pg_strcasecmp(tag, "DROP OWNED") == 0 ||
-		pg_strcasecmp(tag, "IMPORT FOREIGN SCHEMA") == 0)
+		pg_strcasecmp(tag, "IMPORT FOREIGN SCHEMA") == 0 ||
+		pg_strcasecmp(tag, "SECURITY LABEL") == 0)
 		return EVENT_TRIGGER_COMMAND_TAG_OK;
 
 	/*
@@ -322,7 +326,8 @@ validate_table_rewrite_tags(const char *filtervar, List *taglist)
 static event_trigger_command_tag_check_result
 check_table_rewrite_ddl_tag(const char *tag)
 {
-	if (pg_strcasecmp(tag, "ALTER TABLE") == 0)
+	if (pg_strcasecmp(tag, "ALTER TABLE") == 0 ||
+		pg_strcasecmp(tag, "ALTER TYPE") == 0)
 		return EVENT_TRIGGER_COMMAND_TAG_OK;
 
 	return EVENT_TRIGGER_COMMAND_TAG_NOT_SUPPORTED;
@@ -1147,6 +1152,34 @@ EventTriggerSupportsObjectClass(ObjectClass objclass)
 	}
 
 	return true;
+}
+
+bool
+EventTriggerSupportsGrantObjectType(GrantObjectType objtype)
+{
+	switch (objtype)
+	{
+		case ACL_OBJECT_DATABASE:
+		case ACL_OBJECT_TABLESPACE:
+			/* no support for global objects */
+			return false;
+
+		case ACL_OBJECT_COLUMN:
+		case ACL_OBJECT_RELATION:
+		case ACL_OBJECT_SEQUENCE:
+		case ACL_OBJECT_DOMAIN:
+		case ACL_OBJECT_FDW:
+		case ACL_OBJECT_FOREIGN_SERVER:
+		case ACL_OBJECT_FUNCTION:
+		case ACL_OBJECT_LANGUAGE:
+		case ACL_OBJECT_LARGEOBJECT:
+		case ACL_OBJECT_NAMESPACE:
+		case ACL_OBJECT_TYPE:
+			return true;
+		default:
+			Assert(false);
+			return true;
+	}
 }
 
 /*

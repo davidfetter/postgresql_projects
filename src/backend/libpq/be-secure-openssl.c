@@ -71,6 +71,8 @@
 #endif
 
 #include "libpq/libpq.h"
+#include "miscadmin.h"
+#include "storage/latch.h"
 #include "tcop/tcopprot.h"
 #include "utils/memutils.h"
 
@@ -338,6 +340,7 @@ be_tls_open_server(Port *port)
 {
 	int			r;
 	int			err;
+	int			waitfor;
 
 	Assert(!port->ssl);
 	Assert(!port->peer);
@@ -371,12 +374,20 @@ aloop:
 		{
 			case SSL_ERROR_WANT_READ:
 			case SSL_ERROR_WANT_WRITE:
-#ifdef WIN32
-				pgwin32_waitforsinglesocket(SSL_get_fd(port->ssl),
-											(err == SSL_ERROR_WANT_READ) ?
-						FD_READ | FD_CLOSE | FD_ACCEPT : FD_WRITE | FD_CLOSE,
-											INFINITE);
-#endif
+				/* not allowed during connection establishment */
+				Assert(!port->noblock);
+
+				/*
+				 * No need to care about timeouts/interrupts here. At this
+				 * point authentication_timeout still employs
+				 * StartupPacketTimeoutHandler() which directly exits.
+				 */
+				if (err == SSL_ERROR_WANT_READ)
+					waitfor = WL_SOCKET_READABLE;
+				else
+					waitfor = WL_SOCKET_WRITEABLE;
+
+				WaitLatchOrSocket(MyLatch, waitfor, port->sock, 0);
 				goto aloop;
 			case SSL_ERROR_SYSCALL:
 				if (r < 0)
@@ -500,12 +511,11 @@ be_tls_close(Port *port)
  *	Read data from a secure connection.
  */
 ssize_t
-be_tls_read(Port *port, void *ptr, size_t len)
+be_tls_read(Port *port, void *ptr, size_t len, int *waitfor)
 {
 	ssize_t		n;
 	int			err;
 
-rloop:
 	errno = 0;
 	n = SSL_read(port->ssl, ptr, len);
 	err = SSL_get_error(port->ssl, n);
@@ -515,20 +525,15 @@ rloop:
 			port->count += n;
 			break;
 		case SSL_ERROR_WANT_READ:
+			*waitfor = WL_SOCKET_READABLE;
+			errno = EWOULDBLOCK;
+			n = -1;
+			break;
 		case SSL_ERROR_WANT_WRITE:
-			if (port->noblock)
-			{
-				errno = EWOULDBLOCK;
-				n = -1;
-				break;
-			}
-#ifdef WIN32
-			pgwin32_waitforsinglesocket(SSL_get_fd(port->ssl),
-										(err == SSL_ERROR_WANT_READ) ?
-									FD_READ | FD_CLOSE : FD_WRITE | FD_CLOSE,
-										INFINITE);
-#endif
-			goto rloop;
+			*waitfor = WL_SOCKET_WRITEABLE;
+			errno = EWOULDBLOCK;
+			n = -1;
+			break;
 		case SSL_ERROR_SYSCALL:
 			/* leave it to caller to ereport the value of errno */
 			if (n != -1)
@@ -563,7 +568,7 @@ rloop:
  *	Write data to a secure connection.
  */
 ssize_t
-be_tls_write(Port *port, void *ptr, size_t len)
+be_tls_write(Port *port, void *ptr, size_t len, int *waitfor)
 {
 	ssize_t		n;
 	int			err;
@@ -590,36 +595,16 @@ be_tls_write(Port *port, void *ptr, size_t len)
 		 */
 		SSL_clear_num_renegotiations(port->ssl);
 
+		/* without this, renegotiation fails when a client cert is used */
 		SSL_set_session_id_context(port->ssl, (void *) &SSL_context,
 								   sizeof(SSL_context));
+
 		if (SSL_renegotiate(port->ssl) <= 0)
 			ereport(COMMERROR,
 					(errcode(ERRCODE_PROTOCOL_VIOLATION),
 					 errmsg("SSL failure during renegotiation start")));
-		else
-		{
-			int			retries;
-
-			/*
-			 * A handshake can fail, so be prepared to retry it, but only
-			 * a few times.
-			 */
-			for (retries = 0;; retries++)
-			{
-				if (SSL_do_handshake(port->ssl) > 0)
-					break;	/* done */
-				ereport(COMMERROR,
-						(errcode(ERRCODE_PROTOCOL_VIOLATION),
-						 errmsg("SSL handshake failure on renegotiation, retrying")));
-				if (retries >= 20)
-					ereport(FATAL,
-							(errcode(ERRCODE_PROTOCOL_VIOLATION),
-							 errmsg("could not complete SSL handshake on renegotiation, too many failures")));
-			}
-		}
 	}
 
-wloop:
 	errno = 0;
 	n = SSL_write(port->ssl, ptr, len);
 	err = SSL_get_error(port->ssl, n);
@@ -629,14 +614,15 @@ wloop:
 			port->count += n;
 			break;
 		case SSL_ERROR_WANT_READ:
+			*waitfor = WL_SOCKET_READABLE;
+			errno = EWOULDBLOCK;
+			n = -1;
+			break;
 		case SSL_ERROR_WANT_WRITE:
-#ifdef WIN32
-			pgwin32_waitforsinglesocket(SSL_get_fd(port->ssl),
-										(err == SSL_ERROR_WANT_READ) ?
-									FD_READ | FD_CLOSE : FD_WRITE | FD_CLOSE,
-										INFINITE);
-#endif
-			goto wloop;
+			*waitfor = WL_SOCKET_WRITEABLE;
+			errno = EWOULDBLOCK;
+			n = -1;
+			break;
 		case SSL_ERROR_SYSCALL:
 			/* leave it to caller to ereport the value of errno */
 			if (n != -1)
@@ -722,7 +708,7 @@ my_sock_read(BIO *h, char *buf, int size)
 		if (res <= 0)
 		{
 			/* If we were interrupted, tell caller to retry */
-			if (errno == EINTR)
+			if (errno == EINTR || errno == EWOULDBLOCK || errno == EAGAIN)
 			{
 				BIO_set_retry_read(h);
 			}
@@ -741,7 +727,8 @@ my_sock_write(BIO *h, const char *buf, int size)
 	BIO_clear_retry_flags(h);
 	if (res <= 0)
 	{
-		if (errno == EINTR)
+		/* If we were interrupted, tell caller to retry */
+		if (errno == EINTR || errno == EWOULDBLOCK || errno == EAGAIN)
 		{
 			BIO_set_retry_write(h);
 		}

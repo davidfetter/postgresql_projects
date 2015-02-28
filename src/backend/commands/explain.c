@@ -739,9 +739,8 @@ ExplainPreScanNode(PlanState *planstate, Bitmapset **rels_used)
 										((Scan *) plan)->scanrelid);
 			break;
 		case T_ModifyTable:
-			/* cf ExplainModifyTarget */
 			*rels_used = bms_add_member(*rels_used,
-					  linitial_int(((ModifyTable *) plan)->resultRelations));
+									((ModifyTable *) plan)->nominalRelation);
 			break;
 		default:
 			break;
@@ -2259,16 +2258,7 @@ ExplainScanTarget(Scan *plan, ExplainState *es)
 static void
 ExplainModifyTarget(ModifyTable *plan, ExplainState *es)
 {
-	Index		rti;
-
-	/*
-	 * We show the name of the first target relation.  In multi-target-table
-	 * cases this should always be the parent of the inheritance tree.
-	 */
-	Assert(plan->resultRelations != NIL);
-	rti = linitial_int(plan->resultRelations);
-
-	ExplainTargetRel((Plan *) plan, rti, es);
+	ExplainTargetRel((Plan *) plan, plan->nominalRelation, es);
 }
 
 /*

@@ -1243,8 +1243,9 @@ exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 				{
 					/*
 					 * Initialize the magic SQLSTATE and SQLERRM variables for
-					 * the exception block. We needn't do this until we have
-					 * found a matching exception.
+					 * the exception block; this also frees values from any
+					 * prior use of the same exception. We needn't do this
+					 * until we have found a matching exception.
 					 */
 					PLpgSQL_var *state_var;
 					PLpgSQL_var *errm_var;
@@ -1267,13 +1268,6 @@ exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 					estate->err_text = NULL;
 
 					rc = exec_stmts(estate, exception->action);
-
-					free_var(state_var);
-					state_var->value = (Datum) 0;
-					state_var->isnull = true;
-					free_var(errm_var);
-					errm_var->value = (Datum) 0;
-					errm_var->isnull = true;
 
 					break;
 				}
@@ -2452,8 +2446,9 @@ exec_stmt_return(PLpgSQL_execstate *estate, PLpgSQL_stmt_return *stmt)
 	estate->retisnull = true;
 
 	/*
-	 * This special-case path covers record/row variables in fn_retistuple
-	 * functions, as well as functions with one or more OUT parameters.
+	 * Special case path when the RETURN expression is a simple variable
+	 * reference; in particular, this path is always taken in functions with
+	 * one or more OUT parameters.
 	 */
 	if (stmt->retvarno >= 0)
 	{
@@ -2576,8 +2571,9 @@ exec_stmt_return_next(PLpgSQL_execstate *estate,
 	natts = tupdesc->natts;
 
 	/*
-	 * This special-case path covers record/row variables in fn_retistuple
-	 * functions, as well as functions with one or more OUT parameters.
+	 * Special case path when the RETURN NEXT expression is a simple variable
+	 * reference; in particular, this path is always taken in functions with
+	 * one or more OUT parameters.
 	 */
 	if (stmt->retvarno >= 0)
 	{
@@ -4233,12 +4229,11 @@ exec_assign_value(PLpgSQL_execstate *estate,
 				PLpgSQL_expr *subscripts[MAXDIM];
 				int			subscriptvals[MAXDIM];
 				Datum		oldarraydatum,
+							newarraydatum,
 							coerced_value;
 				bool		oldarrayisnull;
 				Oid			parenttypoid;
 				int32		parenttypmod;
-				ArrayType  *oldarrayval;
-				ArrayType  *newarrayval;
 				SPITupleTable *save_eval_tuptable;
 				MemoryContext oldcontext;
 
@@ -4378,26 +4373,24 @@ exec_assign_value(PLpgSQL_execstate *estate,
 					(oldarrayisnull || *isNull))
 					return;
 
-				/* oldarrayval and newarrayval should be short-lived */
+				/* empty array, if any, and newarraydatum are short-lived */
 				oldcontext = MemoryContextSwitchTo(estate->eval_econtext->ecxt_per_tuple_memory);
 
 				if (oldarrayisnull)
-					oldarrayval = construct_empty_array(arrayelem->elemtypoid);
-				else
-					oldarrayval = (ArrayType *) DatumGetPointer(oldarraydatum);
+					oldarraydatum = PointerGetDatum(construct_empty_array(arrayelem->elemtypoid));
 
 				/*
 				 * Build the modified array value.
 				 */
-				newarrayval = array_set(oldarrayval,
-										nsubscripts,
-										subscriptvals,
-										coerced_value,
-										*isNull,
-										arrayelem->arraytyplen,
-										arrayelem->elemtyplen,
-										arrayelem->elemtypbyval,
-										arrayelem->elemtypalign);
+				newarraydatum = array_set_element(oldarraydatum,
+												  nsubscripts,
+												  subscriptvals,
+												  coerced_value,
+												  *isNull,
+												  arrayelem->arraytyplen,
+												  arrayelem->elemtyplen,
+												  arrayelem->elemtypbyval,
+												  arrayelem->elemtypalign);
 
 				MemoryContextSwitchTo(oldcontext);
 
@@ -4409,7 +4402,7 @@ exec_assign_value(PLpgSQL_execstate *estate,
 				 */
 				*isNull = false;
 				exec_assign_value(estate, target,
-								  PointerGetDatum(newarrayval),
+								  newarraydatum,
 								  arrayelem->arraytypoid, isNull);
 				break;
 			}

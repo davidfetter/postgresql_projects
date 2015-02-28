@@ -2172,6 +2172,22 @@ mergeruns(Tuplesortstate *state)
 		return;
 	}
 
+	if (state->sortKeys->abbrev_converter)
+	{
+		/*
+		 * If there are multiple runs to be merged, when we go to read back
+		 * tuples from disk, abbreviated keys will not have been stored, and we
+		 * don't care to regenerate them.  Disable abbreviation from this point
+		 * on.
+		 */
+		state->sortKeys->abbrev_converter = NULL;
+		state->sortKeys->comparator = state->sortKeys->abbrev_full_comparator;
+
+		/* Not strictly necessary, but be tidy */
+		state->sortKeys->abbrev_abort = NULL;
+		state->sortKeys->abbrev_full_comparator = NULL;
+	}
+
 	/* End of step D2: rewind all output tapes to prepare for merging */
 	for (tapenum = 0; tapenum < state->tapeRange; tapenum++)
 		LogicalTapeRewind(state->tapeset, tapenum, false);
@@ -3492,6 +3508,7 @@ comparetup_index_btree(const SortTuple *a, const SortTuple *b,
 	{
 		Datum		values[INDEX_MAX_KEYS];
 		bool		isnull[INDEX_MAX_KEYS];
+		char	   *key_desc;
 
 		/*
 		 * Some rather brain-dead implementations of qsort (such as the one in
@@ -3502,13 +3519,15 @@ comparetup_index_btree(const SortTuple *a, const SortTuple *b,
 		Assert(tuple1 != tuple2);
 
 		index_deform_tuple(tuple1, tupDes, values, isnull);
+
+		key_desc = BuildIndexValueDescription(state->indexRel, values, isnull);
+
 		ereport(ERROR,
 				(errcode(ERRCODE_UNIQUE_VIOLATION),
 				 errmsg("could not create unique index \"%s\"",
 						RelationGetRelationName(state->indexRel)),
-				 errdetail("Key %s is duplicated.",
-						   BuildIndexValueDescription(state->indexRel,
-													  values, isnull)),
+				 key_desc ? errdetail("Key %s is duplicated.", key_desc) :
+							errdetail("Duplicate keys exist."),
 				 errtableconstraint(state->heapRel,
 								 RelationGetRelationName(state->indexRel))));
 	}

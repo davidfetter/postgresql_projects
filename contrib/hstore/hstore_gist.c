@@ -6,7 +6,7 @@
 #include "access/gist.h"
 #include "access/skey.h"
 #include "catalog/pg_type.h"
-#include "utils/pg_crc.h"
+#include "common/pg_crc.h"
 
 #include "hstore.h"
 
@@ -41,7 +41,7 @@ typedef struct
 {
 	int32		vl_len_;		/* varlena header (do not touch directly!) */
 	int32		flag;
-	char		data[1];
+	char		data[FLEXIBLE_ARRAY_MEMBER];
 } GISTTYPE;
 
 #define ALLISTRUE		0x04

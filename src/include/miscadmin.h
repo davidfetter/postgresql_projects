@@ -52,6 +52,10 @@
  * will be held off until CHECK_FOR_INTERRUPTS() is done outside any
  * HOLD_INTERRUPTS() ... RESUME_INTERRUPTS() section.
  *
+ * There is also a mechanism to prevent query cancel interrupts, while still
+ * allowing die interrupts: HOLD_CANCEL_INTERRUPTS() and
+ * RESUME_CANCEL_INTERRUPTS().
+ *
  * Special mechanisms are used to let an interrupt be accepted when we are
  * waiting for a lock or when we are waiting for command input (but, of
  * course, only if the interrupt holdoff counter is zero).  See the
@@ -80,8 +84,8 @@ extern PGDLLIMPORT volatile bool ProcDiePending;
 extern volatile bool ClientConnectionLost;
 
 /* these are marked volatile because they are examined by signal handlers: */
-extern PGDLLIMPORT volatile bool ImmediateInterruptOK;
 extern PGDLLIMPORT volatile uint32 InterruptHoldoffCount;
+extern PGDLLIMPORT volatile uint32 QueryCancelHoldoffCount;
 extern PGDLLIMPORT volatile uint32 CritSectionCount;
 
 /* in tcop/postgres.c */
@@ -112,6 +116,14 @@ do { \
 do { \
 	Assert(InterruptHoldoffCount > 0); \
 	InterruptHoldoffCount--; \
+} while(0)
+
+#define HOLD_CANCEL_INTERRUPTS()  (QueryCancelHoldoffCount++)
+
+#define RESUME_CANCEL_INTERRUPTS() \
+do { \
+	Assert(QueryCancelHoldoffCount > 0); \
+	QueryCancelHoldoffCount--; \
 } while(0)
 
 #define START_CRIT_SECTION()  (CritSectionCount++)
@@ -294,7 +306,7 @@ extern bool InLocalUserIdChange(void);
 extern bool InSecurityRestrictedOperation(void);
 extern void GetUserIdAndContext(Oid *userid, bool *sec_def_context);
 extern void SetUserIdAndContext(Oid userid, bool sec_def_context);
-extern void InitializeSessionUserId(const char *rolename);
+extern void InitializeSessionUserId(const char *rolename, Oid useroid);
 extern void InitializeSessionUserIdStandalone(void);
 extern void SetSessionAuthorization(Oid userid, bool is_superuser);
 extern Oid	GetCurrentRoleId(void);
@@ -398,7 +410,7 @@ extern AuxProcType MyAuxProcType;
 extern void pg_split_opts(char **argv, int *argcp, char *optstr);
 extern void InitializeMaxBackends(void);
 extern void InitPostgres(const char *in_dbname, Oid dboid, const char *username,
-			 char *out_dbname);
+			 Oid useroid, char *out_dbname);
 extern void BaseInit(void);
 
 /* in utils/init/miscinit.c */

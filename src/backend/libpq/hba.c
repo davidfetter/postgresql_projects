@@ -680,42 +680,12 @@ check_hostname(hbaPort *port, const char *hostname)
 static bool
 check_ip(SockAddr *raddr, struct sockaddr * addr, struct sockaddr * mask)
 {
-	if (raddr->addr.ss_family == addr->sa_family)
-	{
-		/* Same address family */
-		if (!pg_range_sockaddr(&raddr->addr,
-							   (struct sockaddr_storage *) addr,
-							   (struct sockaddr_storage *) mask))
-			return false;
-	}
-#ifdef HAVE_IPV6
-	else if (addr->sa_family == AF_INET &&
-			 raddr->addr.ss_family == AF_INET6)
-	{
-		/*
-		 * If we're connected on IPv6 but the file specifies an IPv4 address
-		 * to match against, promote the latter to an IPv6 address before
-		 * trying to match the client's address.
-		 */
-		struct sockaddr_storage addrcopy,
-					maskcopy;
-
-		memcpy(&addrcopy, &addr, sizeof(addrcopy));
-		memcpy(&maskcopy, &mask, sizeof(maskcopy));
-		pg_promote_v4_to_v6_addr(&addrcopy);
-		pg_promote_v4_to_v6_mask(&maskcopy);
-
-		if (!pg_range_sockaddr(&raddr->addr, &addrcopy, &maskcopy))
-			return false;
-	}
-#endif   /* HAVE_IPV6 */
-	else
-	{
-		/* Wrong address family, no IPV6 */
-		return false;
-	}
-
-	return true;
+	if (raddr->addr.ss_family == addr->sa_family &&
+		pg_range_sockaddr(&raddr->addr,
+						  (struct sockaddr_storage *) addr,
+						  (struct sockaddr_storage *) mask))
+		return true;
+	return false;
 }
 
 /*
@@ -1996,6 +1966,8 @@ check_ident_usermap(IdentLine *identLine, const char *usermap_name,
 
 		if ((ofs = strstr(identLine->pg_role, "\\1")) != NULL)
 		{
+			int			offset;
+
 			/* substitution of the first argument requested */
 			if (matches[1].rm_so < 0)
 			{
@@ -2012,8 +1984,9 @@ check_ident_usermap(IdentLine *identLine, const char *usermap_name,
 			 * plus null terminator
 			 */
 			regexp_pgrole = palloc0(strlen(identLine->pg_role) - 2 + (matches[1].rm_eo - matches[1].rm_so) + 1);
-			strncpy(regexp_pgrole, identLine->pg_role, (ofs - identLine->pg_role));
-			memcpy(regexp_pgrole + strlen(regexp_pgrole),
+			offset = ofs - identLine->pg_role;
+			memcpy(regexp_pgrole, identLine->pg_role, offset);
+			memcpy(regexp_pgrole + offset,
 				   ident_user + matches[1].rm_so,
 				   matches[1].rm_eo - matches[1].rm_so);
 			strcat(regexp_pgrole, ofs + 2);

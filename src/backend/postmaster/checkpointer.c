@@ -130,7 +130,7 @@ typedef struct
 
 	int			num_requests;	/* current # of requests */
 	int			max_requests;	/* allocated array size */
-	CheckpointerRequest requests[1];	/* VARIABLE LENGTH ARRAY */
+	CheckpointerRequest requests[FLEXIBLE_ARRAY_MEMBER];
 } CheckpointerShmemStruct;
 
 static CheckpointerShmemStruct *CheckpointerShmem;
@@ -471,7 +471,7 @@ CheckpointerMain(void)
 				"checkpoints are occurring too frequently (%d seconds apart)",
 									   elapsed_secs,
 									   elapsed_secs),
-						 errhint("Consider increasing the configuration parameter \"checkpoint_segments\".")));
+						 errhint("Consider increasing the configuration parameter \"max_wal_size\".")));
 
 			/*
 			 * Initialize checkpointer-private variables used during
@@ -749,11 +749,11 @@ IsCheckpointOnSchedule(double progress)
 		return false;
 
 	/*
-	 * Check progress against WAL segments written and checkpoint_segments.
+	 * Check progress against WAL segments written and CheckPointSegments.
 	 *
 	 * We compare the current WAL insert location against the location
 	 * computed before calling CreateCheckPoint. The code in XLogInsert that
-	 * actually triggers a checkpoint when checkpoint_segments is exceeded
+	 * actually triggers a checkpoint when CheckPointSegments is exceeded
 	 * compares against RedoRecptr, so this is not completely accurate.
 	 * However, it's good enough for our purposes, we're only calculating an
 	 * estimate anyway.

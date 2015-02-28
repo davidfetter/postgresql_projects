@@ -322,7 +322,7 @@ typedef struct GinOptions
 {
 	int32		vl_len_;		/* varlena header (do not touch directly!) */
 	bool		useFastUpdate;	/* use fast updates? */
-	int			pendingListCleanupSize;	/* maximum size of pending list */
+	int			pendingListCleanupSize; /* maximum size of pending list */
 } GinOptions;
 
 #define GIN_DEFAULT_USE_FASTUPDATE	true
@@ -389,7 +389,7 @@ typedef struct
 {
 	ItemPointerData first;		/* first item in this posting list (unpacked) */
 	uint16		nbytes;			/* number of bytes that follow */
-	unsigned char bytes[1];		/* varbyte encoded items (variable length) */
+	unsigned char bytes[FLEXIBLE_ARRAY_MEMBER]; /* varbyte encoded items */
 } GinPostingList;
 
 #define SizeOfGinPostingList(plist) (offsetof(GinPostingList, bytes) + SHORTALIGN((plist)->nbytes) )
@@ -510,34 +510,6 @@ typedef struct ginxlogSplit
 #define GIN_INSERT_ISDATA	0x01	/* for both insert and split records */
 #define GIN_INSERT_ISLEAF	0x02	/* .. */
 #define GIN_SPLIT_ROOT		0x04	/* only for split records */
-
-typedef struct
-{
-	OffsetNumber separator;
-	OffsetNumber nitem;
-
-	/* FOLLOWS: IndexTuples */
-} ginxlogSplitEntry;
-
-typedef struct
-{
-	uint16		lsize;
-	uint16		rsize;
-	ItemPointerData lrightbound;	/* new right bound of left page */
-	ItemPointerData rrightbound;	/* new right bound of right page */
-
-	/* FOLLOWS: new compressed posting lists of left and right page */
-	char		newdata[1];
-} ginxlogSplitDataLeaf;
-
-typedef struct
-{
-	OffsetNumber separator;
-	OffsetNumber nitem;
-	ItemPointerData rightbound;
-
-	/* FOLLOWS: array of PostingItems */
-} ginxlogSplitDataInternal;
 
 /*
  * Vacuum simply WAL-logs the whole page, when anything is modified. This
@@ -888,6 +860,8 @@ typedef struct GinScanOpaqueData
 	uint32		totalentries;
 	uint32		allocentries;	/* allocated length of entries[] */
 
+	MemoryContext keyCtx;		/* used to hold key and entry data */
+
 	bool		isVoidRes;		/* true if query is unsatisfiable */
 } GinScanOpaqueData;
 
@@ -899,6 +873,7 @@ extern Datum ginrescan(PG_FUNCTION_ARGS);
 extern Datum ginmarkpos(PG_FUNCTION_ARGS);
 extern Datum ginrestrpos(PG_FUNCTION_ARGS);
 extern void ginNewScanKey(IndexScanDesc scan);
+extern void ginFreeScanKeys(GinScanOpaque so);
 
 /* ginget.c */
 extern Datum gingetbitmap(PG_FUNCTION_ARGS);

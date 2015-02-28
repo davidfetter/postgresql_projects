@@ -391,7 +391,7 @@ typedef struct
 struct varlena
 {
 	char		vl_len_[4];		/* Do not touch this field directly! */
-	char		vl_dat[1];
+	char		vl_dat[FLEXIBLE_ARRAY_MEMBER];	/* Data content is here */
 };
 
 #define VARHDRSZ		((int32) sizeof(int32))
@@ -424,8 +424,8 @@ typedef struct
 	Oid			elemtype;
 	int			dim1;
 	int			lbound1;
-	int16		values[1];		/* VARIABLE LENGTH ARRAY */
-} int2vector;					/* VARIABLE LENGTH STRUCT */
+	int16		values[FLEXIBLE_ARRAY_MEMBER];
+} int2vector;
 
 typedef struct
 {
@@ -435,8 +435,8 @@ typedef struct
 	Oid			elemtype;
 	int			dim1;
 	int			lbound1;
-	Oid			values[1];		/* VARIABLE LENGTH ARRAY */
-} oidvector;					/* VARIABLE LENGTH STRUCT */
+	Oid			values[FLEXIBLE_ARRAY_MEMBER];
+} oidvector;
 
 /*
  * Representation of a Name: effectively just a C string, but null-padded to
@@ -537,6 +537,7 @@ typedef NameData *Name;
 #define MAXALIGN(LEN)			TYPEALIGN(MAXIMUM_ALIGNOF, (LEN))
 /* MAXALIGN covers only built-in types, not buffers */
 #define BUFFERALIGN(LEN)		TYPEALIGN(ALIGNOF_BUFFER, (LEN))
+#define CACHELINEALIGN(LEN)		TYPEALIGN(PG_CACHE_LINE_SIZE, (LEN))
 
 #define TYPEALIGN_DOWN(ALIGNVAL,LEN)  \
 	(((uintptr_t) (LEN)) & ~((uintptr_t) ((ALIGNVAL) - 1)))

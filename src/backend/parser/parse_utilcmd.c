@@ -160,7 +160,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString)
 	 * Look up the creation namespace.  This also checks permissions on the
 	 * target namespace, locks it against concurrent drops, checks for a
 	 * preexisting relation in that namespace with the same name, and updates
-	 * stmt->relation->relpersistence if the select namespace is temporary.
+	 * stmt->relation->relpersistence if the selected namespace is temporary.
 	 */
 	namespaceid =
 		RangeVarGetAndCheckCreationNamespace(stmt->relation, NoLock,
@@ -1072,7 +1072,9 @@ generateClonedIndexStmt(CreateStmtContext *cxt, Relation source_idx,
 	index->oldNode = InvalidOid;
 	index->unique = idxrec->indisunique;
 	index->primary = idxrec->indisprimary;
+	index->transformed = true;	/* don't need transformIndexStmt */
 	index->concurrent = false;
+	index->if_not_exists = false;
 
 	/*
 	 * We don't try to preserve the name of the source index; instead, just
@@ -1530,7 +1532,9 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 	index->idxcomment = NULL;
 	index->indexOid = InvalidOid;
 	index->oldNode = InvalidOid;
+	index->transformed = false;
 	index->concurrent = false;
+	index->if_not_exists = false;
 
 	/*
 	 * If it's ALTER TABLE ADD CONSTRAINT USING INDEX, look up the index and
@@ -1941,6 +1945,10 @@ transformIndexStmt(Oid relid, IndexStmt *stmt, const char *queryString)
 	ListCell   *l;
 	Relation	rel;
 
+	/* Nothing to do if statement already transformed. */
+	if (stmt->transformed)
+		return stmt;
+
 	/*
 	 * We must not scribble on the passed-in IndexStmt, so copy it.  (This is
 	 * overkill, but easy.)
@@ -2020,6 +2028,9 @@ transformIndexStmt(Oid relid, IndexStmt *stmt, const char *queryString)
 
 	/* Close relation */
 	heap_close(rel, NoLock);
+
+	/* Mark statement as successfully transformed */
+	stmt->transformed = true;
 
 	return stmt;
 }

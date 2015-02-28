@@ -1885,17 +1885,12 @@ typedef struct
 <programlisting>
 typedef struct {
     int32 length;
-    char data[1];
+    char data[FLEXIBLE_ARRAY_MEMBER];
 } text;
 </programlisting>
 
-     Obviously,  the  data  field declared here is not long enough to hold
-     all possible strings.  Since it's impossible to declare a variable-size
-     structure in <acronym>C</acronym>, we rely on the knowledge that the
-     <acronym>C</acronym> compiler won't range-check array subscripts.  We
-     just allocate the necessary amount of space and then access the array as
-     if it were declared the right length.  (This is a common trick, which
-     you can read about in many textbooks about C.)
+     The <literal>[FLEXIBLE_ARRAY_MEMBER]</> notation means that the actual
+     length of the data part is not specified by this declaration.
     </para>
 
     <para>
@@ -2985,6 +2980,20 @@ SRF_RETURN_DONE(funcctx)
      cases, this means that you should switch into
      <structfield>multi_call_memory_ctx</> while doing the first-call setup.
     </para>
+
+    <warning>
+     <para>
+      While the actual arguments to the function remain unchanged between
+      calls, if you detoast the argument values (which is normally done
+      transparently by the
+      <function>PG_GETARG_<replaceable>xxx</replaceable></function> macro)
+      in the transient context then the detoasted copies will be freed on
+      each cycle. Accordingly, if you keep references to such values in
+      your <structfield>user_fctx</>, you must either copy them into the
+      <structfield>multi_call_memory_ctx</> after detoasting, or ensure
+      that you detoast the values only in that context.
+     </para>
+    </warning>
 
     <para>
      A complete pseudo-code example looks like the following:

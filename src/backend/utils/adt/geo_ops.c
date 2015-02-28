@@ -128,19 +128,19 @@ single_decode(char *str, float8 *x, char **s)
 	if (!PointerIsValid(str))
 		return FALSE;
 
-	while (isspace((unsigned char) *str))
-		str++;
 	*x = strtod(str, &cp);
+
 #ifdef GEODEBUG
-	printf("single_decode- (%x) try decoding %s to %g\n", (cp - str), str, *x);
+	printf("single_decode- decoded first %d chars of \"%s\" to %g\n",
+		   (int) (cp - str), str, *x);
 #endif
-	if (cp <= str)
-		return FALSE;
-	while (isspace((unsigned char) *cp))
-		cp++;
 
 	if (s != NULL)
+	{
+		while (isspace((unsigned char) *cp))
+			cp++;
 		*s = cp;
+	}
 
 	return TRUE;
 }	/* single_decode() */
@@ -1390,7 +1390,7 @@ path_in(PG_FUNCTION_ARGS)
 	}
 
 	base_size = sizeof(path->p[0]) * npts;
-	size = offsetof(PATH, p[0]) +base_size;
+	size = offsetof(PATH, p) +base_size;
 
 	/* Check for integer overflow */
 	if (base_size / npts != sizeof(path->p[0]) || size <= base_size)
@@ -1443,12 +1443,12 @@ path_recv(PG_FUNCTION_ARGS)
 
 	closed = pq_getmsgbyte(buf);
 	npts = pq_getmsgint(buf, sizeof(int32));
-	if (npts <= 0 || npts >= (int32) ((INT_MAX - offsetof(PATH, p[0])) / sizeof(Point)))
+	if (npts <= 0 || npts >= (int32) ((INT_MAX - offsetof(PATH, p)) / sizeof(Point)))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_BINARY_REPRESENTATION),
 			 errmsg("invalid number of points in external \"path\" value")));
 
-	size = offsetof(PATH, p[0]) +sizeof(path->p[0]) * npts;
+	size = offsetof(PATH, p) +sizeof(path->p[0]) * npts;
 	path = (PATH *) palloc(size);
 
 	SET_VARSIZE(path, size);
@@ -2019,10 +2019,6 @@ lseg_in(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 				 errmsg("invalid input syntax for type lseg: \"%s\"", str)));
 
-#ifdef NOT_USED
-	lseg->m = point_sl(&lseg->p[0], &lseg->p[1]);
-#endif
-
 	PG_RETURN_LSEG_P(lseg);
 }
 
@@ -2050,10 +2046,6 @@ lseg_recv(PG_FUNCTION_ARGS)
 	lseg->p[0].y = pq_getmsgfloat8(buf);
 	lseg->p[1].x = pq_getmsgfloat8(buf);
 	lseg->p[1].y = pq_getmsgfloat8(buf);
-
-#ifdef NOT_USED
-	lseg->m = point_sl(&lseg->p[0], &lseg->p[1]);
-#endif
 
 	PG_RETURN_LSEG_P(lseg);
 }
@@ -2091,10 +2083,6 @@ lseg_construct(PG_FUNCTION_ARGS)
 	result->p[1].x = pt2->x;
 	result->p[1].y = pt2->y;
 
-#ifdef NOT_USED
-	result->m = point_sl(pt1, pt2);
-#endif
-
 	PG_RETURN_LSEG_P(result);
 }
 
@@ -2106,10 +2094,6 @@ statlseg_construct(LSEG *lseg, Point *pt1, Point *pt2)
 	lseg->p[0].y = pt1->y;
 	lseg->p[1].x = pt2->x;
 	lseg->p[1].y = pt2->y;
-
-#ifdef NOT_USED
-	lseg->m = point_sl(pt1, pt2);
-#endif
 }
 
 Datum
@@ -2160,9 +2144,6 @@ lseg_parallel(PG_FUNCTION_ARGS)
 	LSEG	   *l1 = PG_GETARG_LSEG_P(0);
 	LSEG	   *l2 = PG_GETARG_LSEG_P(1);
 
-#ifdef NOT_USED
-	PG_RETURN_BOOL(FPeq(l1->m, l2->m));
-#endif
 	PG_RETURN_BOOL(FPeq(point_sl(&l1->p[0], &l1->p[1]),
 						point_sl(&l2->p[0], &l2->p[1])));
 }
@@ -2901,8 +2882,8 @@ close_ps(PG_FUNCTION_ARGS)
 		result = point_copy(&lseg->p[!yh]);		/* below the lseg, take lower
 												 * end pt */
 #ifdef GEODEBUG
-		printf("close_ps below: tmp A %f  B %f   C %f    m %f\n",
-			   tmp->A, tmp->B, tmp->C, tmp->m);
+		printf("close_ps below: tmp A %f  B %f   C %f\n",
+			   tmp->A, tmp->B, tmp->C);
 #endif
 		PG_RETURN_POINT_P(result);
 	}
@@ -2913,8 +2894,8 @@ close_ps(PG_FUNCTION_ARGS)
 		result = point_copy(&lseg->p[yh]);		/* above the lseg, take higher
 												 * end pt */
 #ifdef GEODEBUG
-		printf("close_ps above: tmp A %f  B %f   C %f    m %f\n",
-			   tmp->A, tmp->B, tmp->C, tmp->m);
+		printf("close_ps above: tmp A %f  B %f   C %f\n",
+			   tmp->A, tmp->B, tmp->C);
 #endif
 		PG_RETURN_POINT_P(result);
 	}
@@ -2925,8 +2906,8 @@ close_ps(PG_FUNCTION_ARGS)
 	 */
 	tmp = line_construct_pm(pt, invm);
 #ifdef GEODEBUG
-	printf("close_ps- tmp A %f  B %f   C %f    m %f\n",
-		   tmp->A, tmp->B, tmp->C, tmp->m);
+	printf("close_ps- tmp A %f  B %f   C %f\n",
+		   tmp->A, tmp->B, tmp->C);
 #endif
 	result = interpt_sl(lseg, tmp);
 	Assert(result != NULL);
@@ -3495,7 +3476,7 @@ poly_in(PG_FUNCTION_ARGS)
 			  errmsg("invalid input syntax for type polygon: \"%s\"", str)));
 
 	base_size = sizeof(poly->p[0]) * npts;
-	size = offsetof(POLYGON, p[0]) +base_size;
+	size = offsetof(POLYGON, p) +base_size;
 
 	/* Check for integer overflow */
 	if (base_size / npts != sizeof(poly->p[0]) || size <= base_size)
@@ -3549,12 +3530,12 @@ poly_recv(PG_FUNCTION_ARGS)
 	int			size;
 
 	npts = pq_getmsgint(buf, sizeof(int32));
-	if (npts <= 0 || npts >= (int32) ((INT_MAX - offsetof(POLYGON, p[0])) / sizeof(Point)))
+	if (npts <= 0 || npts >= (int32) ((INT_MAX - offsetof(POLYGON, p)) / sizeof(Point)))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_BINARY_REPRESENTATION),
 		  errmsg("invalid number of points in external \"polygon\" value")));
 
-	size = offsetof(POLYGON, p[0]) +sizeof(poly->p[0]) * npts;
+	size = offsetof(POLYGON, p) +sizeof(poly->p[0]) * npts;
 	poly = (POLYGON *) palloc0(size);	/* zero any holes */
 
 	SET_VARSIZE(poly, size);
@@ -4270,7 +4251,7 @@ path_add(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 
 	base_size = sizeof(p1->p[0]) * (p1->npts + p2->npts);
-	size = offsetof(PATH, p[0]) +base_size;
+	size = offsetof(PATH, p) +base_size;
 
 	/* Check for integer overflow */
 	if (base_size / sizeof(p1->p[0]) != (p1->npts + p2->npts) ||
@@ -4412,7 +4393,7 @@ path_poly(PG_FUNCTION_ARGS)
 	 * Never overflows: the old size fit in MaxAllocSize, and the new size is
 	 * just a small constant larger.
 	 */
-	size = offsetof(POLYGON, p[0]) +sizeof(poly->p[0]) * path->npts;
+	size = offsetof(POLYGON, p) +sizeof(poly->p[0]) * path->npts;
 	poly = (POLYGON *) palloc(size);
 
 	SET_VARSIZE(poly, size);
@@ -4487,7 +4468,7 @@ box_poly(PG_FUNCTION_ARGS)
 	int			size;
 
 	/* map four corners of the box to a polygon */
-	size = offsetof(POLYGON, p[0]) +sizeof(poly->p[0]) * 4;
+	size = offsetof(POLYGON, p) +sizeof(poly->p[0]) * 4;
 	poly = (POLYGON *) palloc(size);
 
 	SET_VARSIZE(poly, size);
@@ -4521,7 +4502,7 @@ poly_path(PG_FUNCTION_ARGS)
 	 * Never overflows: the old size fit in MaxAllocSize, and the new size is
 	 * smaller by a small constant.
 	 */
-	size = offsetof(PATH, p[0]) +sizeof(path->p[0]) * poly->npts;
+	size = offsetof(PATH, p) +sizeof(path->p[0]) * poly->npts;
 	path = (PATH *) palloc(size);
 
 	SET_VARSIZE(path, size);
@@ -5200,7 +5181,7 @@ circle_poly(PG_FUNCTION_ARGS)
 				 errmsg("must request at least 2 points")));
 
 	base_size = sizeof(poly->p[0]) * npts;
-	size = offsetof(POLYGON, p[0]) +base_size;
+	size = offsetof(POLYGON, p) +base_size;
 
 	/* Check for integer overflow */
 	if (base_size / npts != sizeof(poly->p[0]) || size <= base_size)

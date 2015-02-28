@@ -257,12 +257,6 @@ static Datum ExecEvalGroupingFuncExpr(GroupingFuncExprState *gstate,
  *
  * NOTE: if we get a NULL result from a subscript expression, we return NULL
  * when it's an array reference, or raise an error when it's an assignment.
- *
- * NOTE: we deliberately refrain from applying DatumGetArrayTypeP() here,
- * even though that might seem natural, because this code needs to support
- * both varlena arrays and fixed-length array types.  DatumGetArrayTypeP()
- * only works for the varlena kind.  The routines we call in arrayfuncs.c
- * have to know the difference (that's what they need refattrlength for).
  *----------
  */
 static Datum
@@ -272,8 +266,7 @@ ExecEvalArrayRef(ArrayRefExprState *astate,
 				 ExprDoneCond *isDone)
 {
 	ArrayRef   *arrayRef = (ArrayRef *) astate->xprstate.expr;
-	ArrayType  *array_source;
-	ArrayType  *resultArray;
+	Datum		array_source;
 	bool		isAssignment = (arrayRef->refassgnexpr != NULL);
 	bool		eisnull;
 	ListCell   *l;
@@ -283,11 +276,10 @@ ExecEvalArrayRef(ArrayRefExprState *astate,
 				lower;
 	int		   *lIndex;
 
-	array_source = (ArrayType *)
-		DatumGetPointer(ExecEvalExpr(astate->refexpr,
-									 econtext,
-									 isNull,
-									 isDone));
+	array_source = ExecEvalExpr(astate->refexpr,
+								econtext,
+								isNull,
+								isDone);
 
 	/*
 	 * If refexpr yields NULL, and it's a fetch, then result is NULL. In the
@@ -395,23 +387,24 @@ ExecEvalArrayRef(ArrayRefExprState *astate,
 			}
 			else if (lIndex == NULL)
 			{
-				econtext->caseValue_datum = array_ref(array_source, i,
-													  upper.indx,
-													  astate->refattrlength,
-													  astate->refelemlength,
-													  astate->refelembyval,
-													  astate->refelemalign,
-												&econtext->caseValue_isNull);
+				econtext->caseValue_datum =
+					array_get_element(array_source, i,
+									  upper.indx,
+									  astate->refattrlength,
+									  astate->refelemlength,
+									  astate->refelembyval,
+									  astate->refelemalign,
+									  &econtext->caseValue_isNull);
 			}
 			else
 			{
-				resultArray = array_get_slice(array_source, i,
-											  upper.indx, lower.indx,
-											  astate->refattrlength,
-											  astate->refelemlength,
-											  astate->refelembyval,
-											  astate->refelemalign);
-				econtext->caseValue_datum = PointerGetDatum(resultArray);
+				econtext->caseValue_datum =
+					array_get_slice(array_source, i,
+									upper.indx, lower.indx,
+									astate->refattrlength,
+									astate->refelemlength,
+									astate->refelembyval,
+									astate->refelemalign);
 				econtext->caseValue_isNull = false;
 			}
 		}
@@ -440,7 +433,7 @@ ExecEvalArrayRef(ArrayRefExprState *astate,
 		 */
 		if (astate->refattrlength > 0)	/* fixed-length array? */
 			if (eisnull || *isNull)
-				return PointerGetDatum(array_source);
+				return array_source;
 
 		/*
 		 * For assignment to varlena arrays, we handle a NULL original array
@@ -450,48 +443,45 @@ ExecEvalArrayRef(ArrayRefExprState *astate,
 		 */
 		if (*isNull)
 		{
-			array_source = construct_empty_array(arrayRef->refelemtype);
+			array_source = PointerGetDatum(construct_empty_array(arrayRef->refelemtype));
 			*isNull = false;
 		}
 
 		if (lIndex == NULL)
-			resultArray = array_set(array_source, i,
-									upper.indx,
-									sourceData,
-									eisnull,
-									astate->refattrlength,
-									astate->refelemlength,
-									astate->refelembyval,
-									astate->refelemalign);
+			return array_set_element(array_source, i,
+									 upper.indx,
+									 sourceData,
+									 eisnull,
+									 astate->refattrlength,
+									 astate->refelemlength,
+									 astate->refelembyval,
+									 astate->refelemalign);
 		else
-			resultArray = array_set_slice(array_source, i,
-										  upper.indx, lower.indx,
-								   (ArrayType *) DatumGetPointer(sourceData),
-										  eisnull,
-										  astate->refattrlength,
-										  astate->refelemlength,
-										  astate->refelembyval,
-										  astate->refelemalign);
-		return PointerGetDatum(resultArray);
+			return array_set_slice(array_source, i,
+								   upper.indx, lower.indx,
+								   sourceData,
+								   eisnull,
+								   astate->refattrlength,
+								   astate->refelemlength,
+								   astate->refelembyval,
+								   astate->refelemalign);
 	}
 
 	if (lIndex == NULL)
-		return array_ref(array_source, i, upper.indx,
-						 astate->refattrlength,
-						 astate->refelemlength,
-						 astate->refelembyval,
-						 astate->refelemalign,
-						 isNull);
+		return array_get_element(array_source, i,
+								 upper.indx,
+								 astate->refattrlength,
+								 astate->refelemlength,
+								 astate->refelembyval,
+								 astate->refelemalign,
+								 isNull);
 	else
-	{
-		resultArray = array_get_slice(array_source, i,
-									  upper.indx, lower.indx,
-									  astate->refattrlength,
-									  astate->refelemlength,
-									  astate->refelembyval,
-									  astate->refelemalign);
-		return PointerGetDatum(resultArray);
-	}
+		return array_get_slice(array_source, i,
+							   upper.indx, lower.indx,
+							   astate->refattrlength,
+							   astate->refelemlength,
+							   astate->refelembyval,
+							   astate->refelemalign);
 }
 
 /*
@@ -948,7 +938,9 @@ ExecEvalWholeRowVar(WholeRowVarExprState *wrvstate, ExprContext *econtext,
 	 * If we can't locate the RTE, assume the column names we've got are OK.
 	 * (As of this writing, the only cases where we can't locate the RTE are
 	 * in execution of trigger WHEN clauses, and then the Var will have the
-	 * trigger's relation's rowtype, so its names are fine.)
+	 * trigger's relation's rowtype, so its names are fine.)  Also, if the
+	 * creator of the RTE didn't bother to fill in an eref field, assume our
+	 * column names are OK.  (This happens in COPY, and perhaps other places.)
 	 */
 	if (econtext->ecxt_estate &&
 		variable->varno <= list_length(econtext->ecxt_estate->es_range_table))
@@ -956,7 +948,8 @@ ExecEvalWholeRowVar(WholeRowVarExprState *wrvstate, ExprContext *econtext,
 		RangeTblEntry *rte = rt_fetch(variable->varno,
 									  econtext->ecxt_estate->es_range_table);
 
-		ExecTypeSetColNames(output_tupdesc, rte->eref->colnames);
+		if (rte->eref)
+			ExecTypeSetColNames(output_tupdesc, rte->eref->colnames);
 	}
 
 	/* Bless the tupdesc if needed, and save it in the execution state */
