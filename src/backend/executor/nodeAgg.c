@@ -1289,8 +1289,9 @@ agg_retrieve_direct(AggState *aggstate)
 		/*
 		 * Clear the per-output-tuple context for each group, as well as
 		 * aggcontext (which contains any pass-by-ref transvalues of the old
-		 * group).  We also clear any child contexts of the aggcontext; some
-		 * aggregate functions store working state in such contexts.
+		 * group).  Some aggregate functions store working state in child
+		 * contexts; those now get reset automatically without us needing to
+		 * do anything special.
 		 *
 		 * We use ReScanExprContext not just ResetExprContext because we want
 		 * any registered shutdown callbacks to be called.  That allows
@@ -1310,7 +1311,6 @@ agg_retrieve_direct(AggState *aggstate)
 		for (i = 0; i < numReset; i++)
 		{
 			ReScanExprContext(aggstate->aggcontexts[i]);
-			MemoryContextDeleteChildren(aggstate->aggcontexts[i]->ecxt_per_tuple_memory);
 		}
 
 		/* Check if input is complete and there are no more groups to project. */
@@ -1680,7 +1680,6 @@ agg_retrieve_chained(AggState *aggstate)
 		ReScanExprContext(tmpcontext);
 		ReScanExprContext(econtext);
 		ReScanExprContext(aggstate->aggcontexts[currentSet]);
-		MemoryContextDeleteChildren(aggstate->aggcontexts[currentSet]->ecxt_per_tuple_memory);
 		if (++currentSet >= numGroupingSets)
 			break;
 	}
@@ -2646,19 +2645,18 @@ ExecReScanAgg(AggState *node)
 	/*
 	 * We don't need to ReScanExprContext the output tuple context here;
 	 * ExecReScan already did it. But we do need to reset our per-grouping-set
-	 * contexts, which may have transvalues stored in them.
+	 * contexts, which may have transvalues stored in them. (We use rescan
+	 * rather than just reset because transfns may have registered callbacks
+	 * that need to be run now.)
 	 *
 	 * Note that with AGG_HASHED, the hash table is allocated in a sub-context
-	 * of the aggcontext. We're going to rebuild the hash table from scratch,
-	 * so we need to use MemoryContextDeleteChildren() to avoid leaking the old
-	 * hash table's memory context header. (ReScanExprContext does the actual
-	 * reset, but it doesn't delete child contexts.)
+	 * of the aggcontext. This used to be an issue, but now, resetting a
+	 * context automatically deletes sub-contexts too.
 	 */
 
 	for (setno = 0; setno < numGroupingSets; setno++)
 	{
 		ReScanExprContext(node->aggcontexts[setno]);
-		MemoryContextDeleteChildren(node->aggcontexts[setno]->ecxt_per_tuple_memory);
 	}
 
 	/* Release first tuple of group, if we have made a copy */
