@@ -368,8 +368,6 @@ CreateRole(CreateRoleStmt *stmt)
 	new_record[Anum_pg_authid_rolinherit - 1] = BoolGetDatum(inherit);
 	new_record[Anum_pg_authid_rolcreaterole - 1] = BoolGetDatum(createrole);
 	new_record[Anum_pg_authid_rolcreatedb - 1] = BoolGetDatum(createdb);
-	/* superuser gets catupdate right by default */
-	new_record[Anum_pg_authid_rolcatupdate - 1] = BoolGetDatum(issuper);
 	new_record[Anum_pg_authid_rolcanlogin - 1] = BoolGetDatum(canlogin);
 	new_record[Anum_pg_authid_rolreplication - 1] = BoolGetDatum(isreplication);
 	new_record[Anum_pg_authid_rolconnlimit - 1] = Int32GetDatum(connlimit);
@@ -734,20 +732,12 @@ AlterRole(AlterRoleStmt *stmt)
 	MemSet(new_record_repl, false, sizeof(new_record_repl));
 
 	/*
-	 * issuper/createrole/catupdate/etc
-	 *
-	 * XXX It's rather unclear how to handle catupdate.  It's probably best to
-	 * keep it equal to the superuser status, otherwise you could end up with
-	 * a situation where no existing superuser can alter the catalogs,
-	 * including pg_authid!
+	 * issuper/createrole/etc
 	 */
 	if (issuper >= 0)
 	{
 		new_record[Anum_pg_authid_rolsuper - 1] = BoolGetDatum(issuper > 0);
 		new_record_repl[Anum_pg_authid_rolsuper - 1] = true;
-
-		new_record[Anum_pg_authid_rolcatupdate - 1] = BoolGetDatum(issuper > 0);
-		new_record_repl[Anum_pg_authid_rolcatupdate - 1] = true;
 	}
 
 	if (inherit >= 0)
@@ -1114,7 +1104,7 @@ DropRole(DropRoleStmt *stmt)
 /*
  * Rename role
  */
-Oid
+ObjectAddress
 RenameRole(const char *oldname, const char *newname)
 {
 	HeapTuple	oldtuple,
@@ -1128,6 +1118,7 @@ RenameRole(const char *oldname, const char *newname)
 	bool		repl_repl[Natts_pg_authid];
 	int			i;
 	Oid			roleid;
+	ObjectAddress address;
 
 	rel = heap_open(AuthIdRelationId, RowExclusiveLock);
 	dsc = RelationGetDescr(rel);
@@ -1216,6 +1207,8 @@ RenameRole(const char *oldname, const char *newname)
 
 	InvokeObjectPostAlterHook(AuthIdRelationId, roleid, 0);
 
+	ObjectAddressSet(address, AuthIdRelationId, roleid);
+
 	ReleaseSysCache(oldtuple);
 
 	/*
@@ -1223,7 +1216,7 @@ RenameRole(const char *oldname, const char *newname)
 	 */
 	heap_close(rel, NoLock);
 
-	return roleid;
+	return address;
 }
 
 /*

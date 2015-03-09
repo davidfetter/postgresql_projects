@@ -4,7 +4,7 @@ PGFILEDESC = "pgbench - a simple program for running benchmark tests"
 PGAPPICON = win32
 
 PROGRAM = pgbench
-OBJS	= pgbench.o $(WIN32RES)
+OBJS	= pgbench.o exprparse.o $(WIN32RES)
 
 PG_CPPFLAGS = -I$(libpq_srcdir)
 PG_LIBS = $(libpq_pgport) $(PTHREAD_LIBS)
@@ -18,8 +18,16 @@ subdir = contrib/pgbench
 top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 include $(top_srcdir)/contrib/contrib-global.mk
+
+distprep: exprparse.c exprscan.c
 endif
 
 ifneq ($(PORTNAME), win32)
 override CFLAGS += $(PTHREAD_CFLAGS)
 endif
+
+# exprscan is compiled as part of exprparse
+exprparse.o: exprscan.c
+
+maintainer-clean:
+	rm -f exprparse.c exprscan.c
