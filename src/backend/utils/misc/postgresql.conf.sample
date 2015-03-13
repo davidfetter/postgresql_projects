@@ -186,6 +186,7 @@
 					#   fsync_writethrough
 					#   open_sync
 #full_page_writes = on			# recover from partial page writes
+#wal_compression = off			# enable compression of full-page writes
 #wal_log_hints = off			# also do full page writes of non-critical updates
 					# (change requires restart)
 #wal_buffers = -1			# min 32kB, -1 sets based on shared_buffers
@@ -585,6 +586,7 @@
 #default_with_oids = off
 #escape_string_warning = on
 #lo_compat_privileges = off
+#operator_precedence_warning = off
 #quote_all_identifiers = off
 #sql_inheritance = on
 #standard_conforming_strings = on

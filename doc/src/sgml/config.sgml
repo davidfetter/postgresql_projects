@@ -2282,6 +2282,30 @@ include_dir 'conf.d'
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-wal-compression" xreflabel="wal_compression">
+      <term><varname>wal_compression</varname> (<type>boolean</type>)
+      <indexterm>
+       <primary><varname>wal_compression</> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        When this parameter is <literal>on</>, the <productname>PostgreSQL</>
+        server compresses a full page image written to WAL when
+        <xref linkend="guc-full-page-writes"> is on or during a base backup.
+        A compressed page image will be decompressed during WAL replay.
+        The default value is <literal>off</>.
+       </para>
+
+       <para>
+        Turning this parameter on can reduce the WAL volume without
+        increasing the risk of unrecoverable data corruption,
+        but at the cost of some extra CPU spent on the compression during
+        WAL logging and on the decompression during WAL replay.
+       </para>
+      </listitem>
+     </varlistentry>
+
      <varlistentry id="guc-wal-buffers" xreflabel="wal_buffers">
       <term><varname>wal_buffers</varname> (<type>integer</type>)
       <indexterm>
@@ -6416,7 +6440,7 @@ SET XML OPTION { DOCUMENT | CONTENT };
       <listitem>
        <para>
         This variable specifies one or more shared libraries to be preloaded at
-        server start.  with commas.  This parameter can only be set at server
+        server start.  This parameter can only be set at server
         start.  If a specified library is not found, the server will fail to
         start.
        </para>
@@ -6788,6 +6812,29 @@ dynamic_library_path = 'C:\tools\postgresql;H:\my_project\lib;$libdir'
         For example, <literal>lo_import()</literal> and
         <literal>lo_export()</literal> need superuser privileges regardless
         of this setting.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-operator-precedence-warning" xreflabel="operator_precedence_warning">
+      <term><varname>operator_precedence_warning</varname> (<type>boolean</type>)
+      <indexterm>
+       <primary><varname>operator_precedence_warning</> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        When on, the parser will emit a warning for any construct that might
+        have changed meanings since <productname>PostgreSQL</> 9.4 as a result
+        of changes in operator precedence.  This is useful for auditing
+        applications to see if precedence changes have broken anything; but it
+        is not meant to be kept turned on in production, since it will warn
+        about some perfectly valid, standard-compliant SQL code.
+        The default is <literal>off</>.
+       </para>
+
+       <para>
+        See <xref linkend="sql-precedence"> for more information.
        </para>
       </listitem>
      </varlistentry>

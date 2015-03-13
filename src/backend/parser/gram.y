@@ -58,6 +58,7 @@
 #include "nodes/nodeFuncs.h"
 #include "parser/gramparse.h"
 #include "parser/parser.h"
+#include "parser/parse_expr.h"
 #include "storage/lmgr.h"
 #include "utils/date.h"
 #include "utils/datetime.h"
@@ -143,6 +144,7 @@ static Node *makeBitStringConst(char *str, int location);
 static Node *makeNullAConst(int location);
 static Node *makeAConst(Value *v, int location);
 static Node *makeBoolAConst(bool state, int location);
+static Node *makeRoleSpec(RoleSpecType type, int location);
 static void check_qualified_name(List *names, core_yyscan_t yyscanner);
 static List *check_func_name(List *names, core_yyscan_t yyscanner);
 static List *check_indirection(List *indirection, core_yyscan_t yyscanner);
@@ -291,7 +293,6 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 %type <str>		opt_type
 %type <str>		foreign_server_version opt_foreign_server_version
-%type <str>		auth_ident
 %type <str>		opt_in_database
 
 %type <str>		OptSchemaName
@@ -478,12 +479,13 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 %type <ival>	Iconst SignedIconst
 %type <str>		Sconst comment_text notify_payload
-%type <str>		RoleId opt_granted_by opt_boolean_or_string
+%type <str>		RoleId opt_boolean_or_string
 %type <list>	var_list
 %type <str>		ColId ColLabel var_name type_function_name param_name
 %type <str>		NonReservedWord NonReservedWord_or_Sconst
 %type <str>		createdb_opt_name
 %type <node>	var_value zone_value
+%type <node>	auth_ident RoleSpec opt_granted_by
 
 %type <keyword> unreserved_keyword type_func_name_keyword
 %type <keyword> col_name_keyword reserved_keyword
@@ -498,7 +500,8 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 %type <list>	constraints_set_list
 %type <boolean> constraints_set_mode
-%type <str>		OptTableSpace OptConsTableSpace OptTableSpaceOwner
+%type <str>		OptTableSpace OptConsTableSpace
+%type <node>	OptTableSpaceOwner
 %type <ival>	opt_check_option
 
 %type <str>		opt_provider security_label
@@ -535,7 +538,8 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
  */
 %token <str>	IDENT FCONST SCONST BCONST XCONST Op
 %token <ival>	ICONST PARAM
-%token			TYPECAST DOT_DOT COLON_EQUALS
+%token			TYPECAST DOT_DOT COLON_EQUALS EQUALS_GREATER
+%token			LESS_EQUALS GREATER_EQUALS NOT_EQUALS
 
 /*
  * If you want to make any keyword changes, update the keyword table in
@@ -638,8 +642,13 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
  * The grammar thinks these are keywords, but they are not in the kwlist.h
  * list and so can never be entered directly.  The filter in parser.c
  * creates these tokens when required (based on looking one token ahead).
+ *
+ * NOT_LA exists so that productions such as NOT LIKE can be given the same
+ * precedence as LIKE; otherwise they'd effectively have the same precedence
+ * as NOT, at least with respect to their left-hand subexpression.
+ * NULLS_LA and WITH_LA are needed to make the grammar LALR(1).
  */
-%token			NULLS_LA WITH_LA
+%token		NOT_LA NULLS_LA WITH_LA
 
 
 /* Precedence: lowest to highest */
@@ -649,13 +658,11 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %left		OR
 %left		AND
 %right		NOT
-%right		'='
-%nonassoc	'<' '>'
-%nonassoc	LIKE ILIKE SIMILAR
-%nonassoc	ESCAPE
+%nonassoc	IS ISNULL NOTNULL	/* IS sets precedence for IS NULL, etc */
+%nonassoc	'<' '>' '=' LESS_EQUALS GREATER_EQUALS NOT_EQUALS
+%nonassoc	BETWEEN IN_P LIKE ILIKE SIMILAR NOT_LA
+%nonassoc	ESCAPE			/* ESCAPE must be just above LIKE/ILIKE/SIMILAR */
 %nonassoc	OVERLAPS
-%nonassoc	BETWEEN
-%nonassoc	IN_P
 %left		POSTFIXOP		/* dummy for postfix Op rules */
 /*
  * To support target_el without AS, we must give IDENT an explicit priority
@@ -685,9 +692,6 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %nonassoc	UNBOUNDED		/* ideally should have same precedence as IDENT */
 %nonassoc	IDENT NULL_P PARTITION RANGE ROWS PRECEDING FOLLOWING CUBE ROLLUP
 %left		Op OPERATOR		/* multi-character ops and user-defined operators */
-%nonassoc	NOTNULL
-%nonassoc	ISNULL
-%nonassoc	IS				/* sets precedence for IS NULL, etc */
 %left		'+' '-'
 %left		'*' '/' '%'
 %left		'^'
@@ -1046,7 +1050,7 @@ CreateUserStmt:
  *****************************************************************************/
 
 AlterRoleStmt:
-			ALTER ROLE RoleId opt_with AlterOptRoleList
+			ALTER ROLE RoleSpec opt_with AlterOptRoleList
 				 {
 					AlterRoleStmt *n = makeNode(AlterRoleStmt);
 					n->role = $3;
@@ -1062,7 +1066,7 @@ opt_in_database:
 		;
 
 AlterRoleSetStmt:
-			ALTER ROLE RoleId opt_in_database SetResetClause
+			ALTER ROLE RoleSpec opt_in_database SetResetClause
 				{
 					AlterRoleSetStmt *n = makeNode(AlterRoleSetStmt);
 					n->role = $3;
@@ -1088,7 +1092,7 @@ AlterRoleSetStmt:
  *****************************************************************************/
 
 AlterUserStmt:
-			ALTER USER RoleId opt_with AlterOptRoleList
+			ALTER USER RoleSpec opt_with AlterOptRoleList
 				 {
 					AlterRoleStmt *n = makeNode(AlterRoleStmt);
 					n->role = $3;
@@ -1100,7 +1104,7 @@ AlterUserStmt:
 
 
 AlterUserSetStmt:
-			ALTER USER RoleId SetResetClause
+			ALTER USER RoleSpec SetResetClause
 				{
 					AlterRoleSetStmt *n = makeNode(AlterRoleSetStmt);
 					n->role = $3;
@@ -1189,7 +1193,7 @@ CreateGroupStmt:
  *****************************************************************************/
 
 AlterGroupStmt:
-			ALTER GROUP_P RoleId add_drop USER role_list
+			ALTER GROUP_P RoleSpec add_drop USER role_list
 				{
 					AlterRoleStmt *n = makeNode(AlterRoleStmt);
 					n->role = $3;
@@ -1237,15 +1241,12 @@ DropGroupStmt:
  *****************************************************************************/
 
 CreateSchemaStmt:
-			CREATE SCHEMA OptSchemaName AUTHORIZATION RoleId OptSchemaEltList
+			CREATE SCHEMA OptSchemaName AUTHORIZATION RoleSpec OptSchemaEltList
 				{
 					CreateSchemaStmt *n = makeNode(CreateSchemaStmt);
 					/* One can omit the schema name or the authorization id. */
-					if ($3 != NULL)
-						n->schemaname = $3;
-					else
-						n->schemaname = $5;
-					n->authid = $5;
+					n->schemaname = $3;
+					n->authrole = $5;
 					n->schemaElts = $6;
 					n->if_not_exists = false;
 					$$ = (Node *)n;
@@ -1255,20 +1256,17 @@ CreateSchemaStmt:
 					CreateSchemaStmt *n = makeNode(CreateSchemaStmt);
 					/* ...but not both */
 					n->schemaname = $3;
-					n->authid = NULL;
+					n->authrole = NULL;
 					n->schemaElts = $4;
 					n->if_not_exists = false;
 					$$ = (Node *)n;
 				}
-			| CREATE SCHEMA IF_P NOT EXISTS OptSchemaName AUTHORIZATION RoleId OptSchemaEltList
+			| CREATE SCHEMA IF_P NOT EXISTS OptSchemaName AUTHORIZATION RoleSpec OptSchemaEltList
 				{
 					CreateSchemaStmt *n = makeNode(CreateSchemaStmt);
-					/* One can omit the schema name or the authorization id. */
-					if ($6 != NULL)
-						n->schemaname = $6;
-					else
-						n->schemaname = $8;
-					n->authid = $8;
+					/* schema name can be omitted here, too */
+					n->schemaname = $6;
+					n->authrole = $8;
 					if ($9 != NIL)
 						ereport(ERROR,
 								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1281,9 +1279,9 @@ CreateSchemaStmt:
 			| CREATE SCHEMA IF_P NOT EXISTS ColId OptSchemaEltList
 				{
 					CreateSchemaStmt *n = makeNode(CreateSchemaStmt);
-					/* ...but not both */
+					/* ...but not here */
 					n->schemaname = $6;
-					n->authid = NULL;
+					n->authrole = NULL;
 					if ($7 != NIL)
 						ereport(ERROR,
 								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -2268,12 +2266,12 @@ alter_table_cmd:
 					n->subtype = AT_DropOf;
 					$$ = (Node *)n;
 				}
-			/* ALTER TABLE <name> OWNER TO RoleId */
-			| OWNER TO RoleId
+			/* ALTER TABLE <name> OWNER TO RoleSpec */
+			| OWNER TO RoleSpec
 				{
 					AlterTableCmd *n = makeNode(AlterTableCmd);
 					n->subtype = AT_ChangeOwner;
-					n->name = $3;
+					n->newowner = $3;
 					$$ = (Node *)n;
 				}
 			/* ALTER TABLE <name> SET TABLESPACE <tablespacename> */
@@ -3765,7 +3763,7 @@ CreateTableSpaceStmt: CREATE TABLESPACE name OptTableSpaceOwner LOCATION Sconst 
 				}
 		;
 
-OptTableSpaceOwner: OWNER name			{ $$ = $2; }
+OptTableSpaceOwner: OWNER RoleSpec		{ $$ = $2; }
 			| /*EMPTY */				{ $$ = NULL; }
 		;
 
@@ -4487,7 +4485,7 @@ import_qualification:
 CreateUserMappingStmt: CREATE USER MAPPING FOR auth_ident SERVER name create_generic_options
 				{
 					CreateUserMappingStmt *n = makeNode(CreateUserMappingStmt);
-					n->username = $5;
+					n->user = $5;
 					n->servername = $7;
 					n->options = $8;
 					$$ = (Node *) n;
@@ -4495,10 +4493,8 @@ CreateUserMappingStmt: CREATE USER MAPPING FOR auth_ident SERVER name create_gen
 		;
 
 /* User mapping authorization identifier */
-auth_ident:
-			CURRENT_USER	{ $$ = "current_user"; }
-		|	USER			{ $$ = "current_user"; }
-		|	RoleId			{ $$ = (strcmp($1, "public") == 0) ? NULL : $1; }
+auth_ident: RoleSpec			{ $$ = $1; }
+			| USER				{ $$ = makeRoleSpec(ROLESPEC_CURRENT_USER, @1); }
 		;
 
 /*****************************************************************************
@@ -4511,7 +4507,7 @@ auth_ident:
 DropUserMappingStmt: DROP USER MAPPING FOR auth_ident SERVER name
 				{
 					DropUserMappingStmt *n = makeNode(DropUserMappingStmt);
-					n->username = $5;
+					n->user = $5;
 					n->servername = $7;
 					n->missing_ok = false;
 					$$ = (Node *) n;
@@ -4519,7 +4515,7 @@ DropUserMappingStmt: DROP USER MAPPING FOR auth_ident SERVER name
 				|  DROP USER MAPPING IF_P EXISTS FOR auth_ident SERVER name
 				{
 					DropUserMappingStmt *n = makeNode(DropUserMappingStmt);
-					n->username = $7;
+					n->user = $7;
 					n->servername = $9;
 					n->missing_ok = true;
 					$$ = (Node *) n;
@@ -4536,7 +4532,7 @@ DropUserMappingStmt: DROP USER MAPPING FOR auth_ident SERVER name
 AlterUserMappingStmt: ALTER USER MAPPING FOR auth_ident SERVER name alter_generic_options
 				{
 					AlterUserMappingStmt *n = makeNode(AlterUserMappingStmt);
-					n->username = $5;
+					n->user = $5;
 					n->servername = $7;
 					n->options = $8;
 					$$ = (Node *) n;
@@ -4621,7 +4617,7 @@ RowSecurityOptionalWithCheck:
 
 RowSecurityDefaultToRole:
 			TO role_list			{ $$ = $2; }
-			| /* EMPTY */			{ $$ = list_make1(makeString("public")); }
+			| /* EMPTY */			{ $$ = list_make1(makeRoleSpec(ROLESPEC_PUBLIC, -1)); }
 		;
 
 RowSecurityOptionalToRole:
@@ -5441,7 +5437,7 @@ DropOwnedStmt:
 		;
 
 ReassignOwnedStmt:
-			REASSIGN OWNED BY role_list TO name
+			REASSIGN OWNED BY role_list TO RoleSpec
 				{
 					ReassignOwnedStmt *n = makeNode(ReassignOwnedStmt);
 					n->roles = $4;
@@ -6357,26 +6353,9 @@ grantee_list:
 			| grantee_list ',' grantee				{ $$ = lappend($1, $3); }
 		;
 
-grantee:	RoleId
-				{
-					PrivGrantee *n = makeNode(PrivGrantee);
-					/* This hack lets us avoid reserving PUBLIC as a keyword*/
-					if (strcmp($1, "public") == 0)
-						n->rolname = NULL;
-					else
-						n->rolname = $1;
-					$$ = (Node *)n;
-				}
-			| GROUP_P RoleId
-				{
-					PrivGrantee *n = makeNode(PrivGrantee);
-					/* Treat GROUP PUBLIC as a synonym for PUBLIC */
-					if (strcmp($2, "public") == 0)
-						n->rolname = NULL;
-					else
-						n->rolname = $2;
-					$$ = (Node *)n;
-				}
+grantee:
+			RoleSpec								{ $$ = $1; }
+			| GROUP_P RoleSpec						{ $$ = $2; }
 		;
 
 
@@ -6447,7 +6426,7 @@ opt_grant_admin_option: WITH ADMIN OPTION				{ $$ = TRUE; }
 			| /*EMPTY*/									{ $$ = FALSE; }
 		;
 
-opt_granted_by: GRANTED BY RoleId						{ $$ = $3; }
+opt_granted_by: GRANTED BY RoleSpec						{ $$ = $3; }
 			| /*EMPTY*/									{ $$ = NULL; }
 		;
 
@@ -8113,7 +8092,7 @@ AlterObjectSchemaStmt:
  *
  *****************************************************************************/
 
-AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
+AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_AGGREGATE;
@@ -8122,7 +8101,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $7;
 					$$ = (Node *)n;
 				}
-			| ALTER COLLATION any_name OWNER TO RoleId
+			| ALTER COLLATION any_name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_COLLATION;
@@ -8130,7 +8109,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $6;
 					$$ = (Node *)n;
 				}
-			| ALTER CONVERSION_P any_name OWNER TO RoleId
+			| ALTER CONVERSION_P any_name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_CONVERSION;
@@ -8138,7 +8117,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $6;
 					$$ = (Node *)n;
 				}
-			| ALTER DATABASE database_name OWNER TO RoleId
+			| ALTER DATABASE database_name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_DATABASE;
@@ -8146,7 +8125,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $6;
 					$$ = (Node *)n;
 				}
-			| ALTER DOMAIN_P any_name OWNER TO RoleId
+			| ALTER DOMAIN_P any_name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_DOMAIN;
@@ -8154,7 +8133,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $6;
 					$$ = (Node *)n;
 				}
-			| ALTER FUNCTION function_with_argtypes OWNER TO RoleId
+			| ALTER FUNCTION function_with_argtypes OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_FUNCTION;
@@ -8163,7 +8142,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $6;
 					$$ = (Node *)n;
 				}
-			| ALTER opt_procedural LANGUAGE name OWNER TO RoleId
+			| ALTER opt_procedural LANGUAGE name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_LANGUAGE;
@@ -8171,7 +8150,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $7;
 					$$ = (Node *)n;
 				}
-			| ALTER LARGE_P OBJECT_P NumericOnly OWNER TO RoleId
+			| ALTER LARGE_P OBJECT_P NumericOnly OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_LARGEOBJECT;
@@ -8179,7 +8158,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $7;
 					$$ = (Node *)n;
 				}
-			| ALTER OPERATOR any_operator oper_argtypes OWNER TO RoleId
+			| ALTER OPERATOR any_operator oper_argtypes OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_OPERATOR;
@@ -8188,7 +8167,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $7;
 					$$ = (Node *)n;
 				}
-			| ALTER OPERATOR CLASS any_name USING access_method OWNER TO RoleId
+			| ALTER OPERATOR CLASS any_name USING access_method OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_OPCLASS;
@@ -8197,7 +8176,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $9;
 					$$ = (Node *)n;
 				}
-			| ALTER OPERATOR FAMILY any_name USING access_method OWNER TO RoleId
+			| ALTER OPERATOR FAMILY any_name USING access_method OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_OPFAMILY;
@@ -8206,7 +8185,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $9;
 					$$ = (Node *)n;
 				}
-			| ALTER SCHEMA name OWNER TO RoleId
+			| ALTER SCHEMA name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_SCHEMA;
@@ -8214,7 +8193,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $6;
 					$$ = (Node *)n;
 				}
-			| ALTER TYPE_P any_name OWNER TO RoleId
+			| ALTER TYPE_P any_name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_TYPE;
@@ -8222,7 +8201,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $6;
 					$$ = (Node *)n;
 				}
-			| ALTER TABLESPACE name OWNER TO RoleId
+			| ALTER TABLESPACE name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_TABLESPACE;
@@ -8230,7 +8209,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $6;
 					$$ = (Node *)n;
 				}
-			| ALTER TEXT_P SEARCH DICTIONARY any_name OWNER TO RoleId
+			| ALTER TEXT_P SEARCH DICTIONARY any_name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_TSDICTIONARY;
@@ -8238,7 +8217,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $8;
 					$$ = (Node *)n;
 				}
-			| ALTER TEXT_P SEARCH CONFIGURATION any_name OWNER TO RoleId
+			| ALTER TEXT_P SEARCH CONFIGURATION any_name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_TSCONFIGURATION;
@@ -8246,7 +8225,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $8;
 					$$ = (Node *)n;
 				}
-			| ALTER FOREIGN DATA_P WRAPPER name OWNER TO RoleId
+			| ALTER FOREIGN DATA_P WRAPPER name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_FDW;
@@ -8254,7 +8233,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $8;
 					$$ = (Node *)n;
 				}
-			| ALTER SERVER name OWNER TO RoleId
+			| ALTER SERVER name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_FOREIGN_SERVER;
@@ -8262,7 +8241,7 @@ AlterOwnerStmt: ALTER AGGREGATE func_name aggr_args OWNER TO RoleId
 					n->newowner = $6;
 					$$ = (Node *)n;
 				}
-			| ALTER EVENT TRIGGER name OWNER TO RoleId
+			| ALTER EVENT TRIGGER name OWNER TO RoleSpec
 				{
 					AlterOwnerStmt *n = makeNode(AlterOwnerStmt);
 					n->objectType = OBJECT_EVENT_TRIGGER;
@@ -11247,6 +11226,12 @@ interval_second:
  *
  * c_expr is all the productions that are common to a_expr and b_expr;
  * it's factored out just to eliminate redundant coding.
+ *
+ * Be careful of productions involving more than one terminal token.
+ * By default, bison will assign such productions the precedence of their
+ * last terminal, but in nearly all cases you want it to be the precedence
+ * of the first terminal instead; otherwise you will not get the behavior
+ * you expect!  So we use %prec annotations freely to set precedences.
  */
 a_expr:		c_expr									{ $$ = $1; }
 			| a_expr TYPECAST Typename
@@ -11296,6 +11281,12 @@ a_expr:		c_expr									{ $$ = $1; }
 				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, ">", $1, $3, @2); }
 			| a_expr '=' a_expr
 				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "=", $1, $3, @2); }
+			| a_expr LESS_EQUALS a_expr
+				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "<=", $1, $3, @2); }
+			| a_expr GREATER_EQUALS a_expr
+				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, ">=", $1, $3, @2); }
+			| a_expr NOT_EQUALS a_expr
+				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "<>", $1, $3, @2); }
 
 			| a_expr qual_Op a_expr				%prec Op
 				{ $$ = (Node *) makeA_Expr(AEXPR_OP, $2, $1, $3, @2); }
@@ -11310,13 +11301,15 @@ a_expr:		c_expr									{ $$ = $1; }
 				{ $$ = makeOrExpr($1, $3, @2); }
 			| NOT a_expr
 				{ $$ = makeNotExpr($2, @1); }
+			| NOT_LA a_expr						%prec NOT
+				{ $$ = makeNotExpr($2, @1); }
 
 			| a_expr LIKE a_expr
 				{
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_LIKE, "~~",
 												   $1, $3, @2);
 				}
-			| a_expr LIKE a_expr ESCAPE a_expr
+			| a_expr LIKE a_expr ESCAPE a_expr					%prec LIKE
 				{
 					FuncCall *n = makeFuncCall(SystemFuncName("like_escape"),
 											   list_make2($3, $5),
@@ -11324,12 +11317,12 @@ a_expr:		c_expr									{ $$ = $1; }
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_LIKE, "~~",
 												   $1, (Node *) n, @2);
 				}
-			| a_expr NOT LIKE a_expr
+			| a_expr NOT_LA LIKE a_expr							%prec NOT_LA
 				{
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_LIKE, "!~~",
 												   $1, $4, @2);
 				}
-			| a_expr NOT LIKE a_expr ESCAPE a_expr
+			| a_expr NOT_LA LIKE a_expr ESCAPE a_expr			%prec NOT_LA
 				{
 					FuncCall *n = makeFuncCall(SystemFuncName("like_escape"),
 											   list_make2($4, $6),
@@ -11342,7 +11335,7 @@ a_expr:		c_expr									{ $$ = $1; }
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_ILIKE, "~~*",
 												   $1, $3, @2);
 				}
-			| a_expr ILIKE a_expr ESCAPE a_expr
+			| a_expr ILIKE a_expr ESCAPE a_expr					%prec ILIKE
 				{
 					FuncCall *n = makeFuncCall(SystemFuncName("like_escape"),
 											   list_make2($3, $5),
@@ -11350,12 +11343,12 @@ a_expr:		c_expr									{ $$ = $1; }
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_ILIKE, "~~*",
 												   $1, (Node *) n, @2);
 				}
-			| a_expr NOT ILIKE a_expr
+			| a_expr NOT_LA ILIKE a_expr						%prec NOT_LA
 				{
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_ILIKE, "!~~*",
 												   $1, $4, @2);
 				}
-			| a_expr NOT ILIKE a_expr ESCAPE a_expr
+			| a_expr NOT_LA ILIKE a_expr ESCAPE a_expr			%prec NOT_LA
 				{
 					FuncCall *n = makeFuncCall(SystemFuncName("like_escape"),
 											   list_make2($4, $6),
@@ -11364,7 +11357,7 @@ a_expr:		c_expr									{ $$ = $1; }
 												   $1, (Node *) n, @2);
 				}
 
-			| a_expr SIMILAR TO a_expr				%prec SIMILAR
+			| a_expr SIMILAR TO a_expr							%prec SIMILAR
 				{
 					FuncCall *n = makeFuncCall(SystemFuncName("similar_escape"),
 											   list_make2($4, makeNullAConst(-1)),
@@ -11372,7 +11365,7 @@ a_expr:		c_expr									{ $$ = $1; }
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_SIMILAR, "~",
 												   $1, (Node *) n, @2);
 				}
-			| a_expr SIMILAR TO a_expr ESCAPE a_expr
+			| a_expr SIMILAR TO a_expr ESCAPE a_expr			%prec SIMILAR
 				{
 					FuncCall *n = makeFuncCall(SystemFuncName("similar_escape"),
 											   list_make2($4, $6),
@@ -11380,7 +11373,7 @@ a_expr:		c_expr									{ $$ = $1; }
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_SIMILAR, "~",
 												   $1, (Node *) n, @2);
 				}
-			| a_expr NOT SIMILAR TO a_expr			%prec SIMILAR
+			| a_expr NOT_LA SIMILAR TO a_expr					%prec NOT_LA
 				{
 					FuncCall *n = makeFuncCall(SystemFuncName("similar_escape"),
 											   list_make2($5, makeNullAConst(-1)),
@@ -11388,7 +11381,7 @@ a_expr:		c_expr									{ $$ = $1; }
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_SIMILAR, "!~",
 												   $1, (Node *) n, @2);
 				}
-			| a_expr NOT SIMILAR TO a_expr ESCAPE a_expr
+			| a_expr NOT_LA SIMILAR TO a_expr ESCAPE a_expr		%prec NOT_LA
 				{
 					FuncCall *n = makeFuncCall(SystemFuncName("similar_escape"),
 											   list_make2($5, $7),
@@ -11520,7 +11513,7 @@ a_expr:		c_expr									{ $$ = $1; }
 				{
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_OF, "<>", $1, (Node *) $6, @2);
 				}
-			| a_expr BETWEEN opt_asymmetric b_expr AND b_expr		%prec BETWEEN
+			| a_expr BETWEEN opt_asymmetric b_expr AND a_expr		%prec BETWEEN
 				{
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_BETWEEN,
 												   "BETWEEN",
@@ -11528,7 +11521,7 @@ a_expr:		c_expr									{ $$ = $1; }
 												   (Node *) list_make2($4, $6),
 												   @2);
 				}
-			| a_expr NOT BETWEEN opt_asymmetric b_expr AND b_expr	%prec BETWEEN
+			| a_expr NOT_LA BETWEEN opt_asymmetric b_expr AND a_expr %prec NOT_LA
 				{
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_NOT_BETWEEN,
 												   "NOT BETWEEN",
@@ -11536,7 +11529,7 @@ a_expr:		c_expr									{ $$ = $1; }
 												   (Node *) list_make2($5, $7),
 												   @2);
 				}
-			| a_expr BETWEEN SYMMETRIC b_expr AND b_expr			%prec BETWEEN
+			| a_expr BETWEEN SYMMETRIC b_expr AND a_expr			%prec BETWEEN
 				{
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_BETWEEN_SYM,
 												   "BETWEEN SYMMETRIC",
@@ -11544,7 +11537,7 @@ a_expr:		c_expr									{ $$ = $1; }
 												   (Node *) list_make2($4, $6),
 												   @2);
 				}
-			| a_expr NOT BETWEEN SYMMETRIC b_expr AND b_expr		%prec BETWEEN
+			| a_expr NOT_LA BETWEEN SYMMETRIC b_expr AND a_expr		%prec NOT_LA
 				{
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_NOT_BETWEEN_SYM,
 												   "NOT BETWEEN SYMMETRIC",
@@ -11572,7 +11565,7 @@ a_expr:		c_expr									{ $$ = $1; }
 						$$ = (Node *) makeSimpleA_Expr(AEXPR_IN, "=", $1, $3, @2);
 					}
 				}
-			| a_expr NOT IN_P in_expr
+			| a_expr NOT_LA IN_P in_expr						%prec NOT_LA
 				{
 					/* in_expr returns a SubLink or a list of a_exprs */
 					if (IsA($4, SubLink))
@@ -11676,6 +11669,12 @@ b_expr:		c_expr
 				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, ">", $1, $3, @2); }
 			| b_expr '=' b_expr
 				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "=", $1, $3, @2); }
+			| b_expr LESS_EQUALS b_expr
+				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "<=", $1, $3, @2); }
+			| b_expr GREATER_EQUALS b_expr
+				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, ">=", $1, $3, @2); }
+			| b_expr NOT_EQUALS b_expr
+				{ $$ = (Node *) makeSimpleA_Expr(AEXPR_OP, "<>", $1, $3, @2); }
 			| b_expr qual_Op b_expr				%prec Op
 				{ $$ = (Node *) makeA_Expr(AEXPR_OP, $2, $1, $3, @2); }
 			| qual_Op b_expr					%prec Op
@@ -11746,6 +11745,24 @@ c_expr:		columnref								{ $$ = $1; }
 						n->arg = $2;
 						n->indirection = check_indirection($4, yyscanner);
 						$$ = (Node *)n;
+					}
+					else if (operator_precedence_warning)
+					{
+						/*
+						 * If precedence warnings are enabled, insert
+						 * AEXPR_PAREN nodes wrapping all explicitly
+						 * parenthesized subexpressions; this prevents bogus
+						 * warnings from being issued when the ordering has
+						 * been forced by parentheses.
+						 *
+						 * In principle we should not be relying on a GUC to
+						 * decide whether to insert AEXPR_PAREN nodes.
+						 * However, since they have no effect except to
+						 * suppress warnings, it's probably safe enough; and
+						 * we'd just as soon not waste cycles on dummy parse
+						 * nodes if we don't have to.
+						 */
+						$$ = (Node *) makeA_Expr(AEXPR_PAREN, NIL, $2, NULL, @1);
 					}
 					else
 						$$ = $2;
@@ -12620,6 +12637,9 @@ MathOp:		 '+'									{ $$ = "+"; }
 			| '<'									{ $$ = "<"; }
 			| '>'									{ $$ = ">"; }
 			| '='									{ $$ = "="; }
+			| LESS_EQUALS							{ $$ = "<="; }
+			| GREATER_EQUALS						{ $$ = ">="; }
+			| NOT_EQUALS							{ $$ = "<>"; }
 		;
 
 qual_Op:	Op
@@ -12642,11 +12662,11 @@ subquery_Op:
 					{ $$ = $3; }
 			| LIKE
 					{ $$ = list_make1(makeString("~~")); }
-			| NOT LIKE
+			| NOT_LA LIKE
 					{ $$ = list_make1(makeString("!~~")); }
 			| ILIKE
 					{ $$ = list_make1(makeString("~~*")); }
-			| NOT ILIKE
+			| NOT_LA ILIKE
 					{ $$ = list_make1(makeString("!~~*")); }
 /* cannot put SIMILAR TO here, because SIMILAR TO is a hack.
  * the regular expression is preprocessed by a function (similar_escape),
@@ -12684,6 +12704,15 @@ func_arg_expr:  a_expr
 					$$ = $1;
 				}
 			| param_name COLON_EQUALS a_expr
+				{
+					NamedArgExpr *na = makeNode(NamedArgExpr);
+					na->name = $1;
+					na->arg = (Expr *) $3;
+					na->argnumber = -1;		/* until determined */
+					na->location = @1;
+					$$ = (Node *) na;
+				}
+			| param_name EQUALS_GREATER a_expr
 				{
 					NamedArgExpr *na = makeNode(NamedArgExpr);
 					na->name = $1;
@@ -13215,17 +13244,84 @@ AexprConst: Iconst
 
 Iconst:		ICONST									{ $$ = $1; };
 Sconst:		SCONST									{ $$ = $1; };
-RoleId:		NonReservedWord							{ $$ = $1; };
-
-role_list:	RoleId
-					{ $$ = list_make1(makeString($1)); }
-			| role_list ',' RoleId
-					{ $$ = lappend($1, makeString($3)); }
-		;
 
 SignedIconst: Iconst								{ $$ = $1; }
 			| '+' Iconst							{ $$ = + $2; }
 			| '-' Iconst							{ $$ = - $2; }
+		;
+
+/* Role specifications */
+RoleId:		RoleSpec
+				{
+					RoleSpec *spc = (RoleSpec *) $1;
+					switch (spc->roletype)
+					{
+						case ROLESPEC_CSTRING:
+							$$ = spc->rolename;
+							break;
+						case ROLESPEC_PUBLIC:
+							ereport(ERROR,
+									(errcode(ERRCODE_RESERVED_NAME),
+									 errmsg("role name \"%s\" is reserved",
+											"public"),
+									 parser_errposition(@1)));
+						case ROLESPEC_SESSION_USER:
+							ereport(ERROR,
+									(errcode(ERRCODE_RESERVED_NAME),
+									 errmsg("%s cannot be used as a role name",
+											"SESSION_USER"),
+									 parser_errposition(@1)));
+						case ROLESPEC_CURRENT_USER:
+							ereport(ERROR,
+									(errcode(ERRCODE_RESERVED_NAME),
+									 errmsg("%s cannot be used as a role name",
+											"CURRENT_USER"),
+									 parser_errposition(@1)));
+					}
+				}
+			;
+
+RoleSpec:	NonReservedWord
+					{
+						/*
+						 * "public" and "none" are not keywords, but they must
+						 * be treated specially here.
+						 */
+						RoleSpec *n;
+						if (strcmp($1, "public") == 0)
+						{
+							n = (RoleSpec *) makeRoleSpec(ROLESPEC_PUBLIC, @1);
+							n->roletype = ROLESPEC_PUBLIC;
+						}
+						else if (strcmp($1, "none") == 0)
+						{
+							ereport(ERROR,
+									(errcode(ERRCODE_RESERVED_NAME),
+									 errmsg("role name \"%s\" is reserved",
+											"none"),
+									 parser_errposition(@1)));
+						}
+						else
+						{
+							n = (RoleSpec *) makeRoleSpec(ROLESPEC_CSTRING, @1);
+							n->rolename = pstrdup($1);
+						}
+						$$ = (Node *) n;
+					}
+			| CURRENT_USER
+					{
+						$$ = makeRoleSpec(ROLESPEC_CURRENT_USER, @1);
+					}
+			| SESSION_USER
+					{
+						$$ = makeRoleSpec(ROLESPEC_SESSION_USER, @1);
+					}
+		;
+
+role_list:	RoleSpec
+					{ $$ = list_make1($1); }
+			| role_list ',' RoleSpec
+					{ $$ = lappend($1, $3); }
 		;
 
 /*
@@ -13916,6 +14012,20 @@ makeBoolAConst(bool state, int location)
 	n->location = location;
 
 	return makeTypeCast((Node *)n, SystemTypeName("bool"), -1);
+}
+
+/* makeRoleSpec
+ * Create a RoleSpec with the given type
+ */
+static Node *
+makeRoleSpec(RoleSpecType type, int location)
+{
+	RoleSpec *spec = makeNode(RoleSpec);
+
+	spec->roletype = type;
+	spec->location = location;
+
+	return (Node *) spec;
 }
 
 /* check_qualified_name --- check the result of qualified_name production

@@ -241,7 +241,8 @@ typedef enum A_Expr_Kind
 	AEXPR_BETWEEN,				/* name must be "BETWEEN" */
 	AEXPR_NOT_BETWEEN,			/* name must be "NOT BETWEEN" */
 	AEXPR_BETWEEN_SYM,			/* name must be "BETWEEN SYMMETRIC" */
-	AEXPR_NOT_BETWEEN_SYM		/* name must be "NOT BETWEEN SYMMETRIC" */
+	AEXPR_NOT_BETWEEN_SYM,		/* name must be "NOT BETWEEN SYMMETRIC" */
+	AEXPR_PAREN					/* nameless dummy node for parentheses */
 } A_Expr_Kind;
 
 typedef struct A_Expr
@@ -285,6 +286,25 @@ typedef struct CollateClause
 	List	   *collname;		/* possibly-qualified collation name */
 	int			location;		/* token location, or -1 if unknown */
 } CollateClause;
+
+/*
+ * RoleSpec - a role name or one of a few special values.
+ */
+typedef enum RoleSpecType
+{
+	ROLESPEC_CSTRING,		/* role name is stored as a C string */
+	ROLESPEC_CURRENT_USER,	/* role spec is CURRENT_USER */
+	ROLESPEC_SESSION_USER,	/* role spec is SESSION_USER */
+	ROLESPEC_PUBLIC			/* role name is "public" */
+} RoleSpecType;
+
+typedef struct RoleSpec
+{
+	NodeTag		type;
+	RoleSpecType roletype;	/* Type of this rolespec */
+	char	   *rolename;	/* filled only for ROLESPEC_CSTRING */
+	int			location;	/* token location, or -1 if unknown */
+} RoleSpec;
 
 /*
  * FuncCall - a function or aggregate invocation
@@ -1288,6 +1308,7 @@ typedef enum ObjectType
 	OBJECT_CONVERSION,
 	OBJECT_DATABASE,
 	OBJECT_DEFAULT,
+	OBJECT_DEFACL,
 	OBJECT_DOMAIN,
 	OBJECT_DOMCONSTRAINT,
 	OBJECT_EVENT_TRIGGER,
@@ -1317,6 +1338,7 @@ typedef enum ObjectType
 	OBJECT_TSPARSER,
 	OBJECT_TSTEMPLATE,
 	OBJECT_TYPE,
+	OBJECT_USER_MAPPING,
 	OBJECT_VIEW
 } ObjectType;
 
@@ -1332,7 +1354,7 @@ typedef struct CreateSchemaStmt
 {
 	NodeTag		type;
 	char	   *schemaname;		/* the name of the schema to create */
-	char	   *authid;			/* the owner of the created schema */
+	Node	   *authrole;		/* the owner of the created schema */
 	List	   *schemaElts;		/* schema components (list of parsenodes) */
 	bool		if_not_exists;	/* just do nothing if schema already exists? */
 } CreateSchemaStmt;
@@ -1431,7 +1453,8 @@ typedef struct AlterTableCmd	/* one subcommand of an ALTER TABLE */
 	NodeTag		type;
 	AlterTableType subtype;		/* Type of table alteration to apply */
 	char	   *name;			/* column, constraint, or trigger to act on,
-								 * or new owner or tablespace */
+								 * or tablespace */
+	Node	   *newowner;		/* RoleSpec */
 	Node	   *def;			/* definition of new column, index,
 								 * constraint, or parent table */
 	DropBehavior behavior;		/* RESTRICT or CASCADE for DROP cases */
@@ -1503,16 +1526,10 @@ typedef struct GrantStmt
 								 * or plain names (as Value strings) */
 	List	   *privileges;		/* list of AccessPriv nodes */
 	/* privileges == NIL denotes ALL PRIVILEGES */
-	List	   *grantees;		/* list of PrivGrantee nodes */
+	List	   *grantees;		/* list of RoleSpec nodes */
 	bool		grant_option;	/* grant or revoke grant option */
 	DropBehavior behavior;		/* drop behavior (for REVOKE) */
 } GrantStmt;
-
-typedef struct PrivGrantee
-{
-	NodeTag		type;
-	char	   *rolname;		/* if NULL then PUBLIC */
-} PrivGrantee;
 
 /*
  * Note: FuncWithArgs carries only the types of the input parameters of the
@@ -1556,7 +1573,7 @@ typedef struct GrantRoleStmt
 	List	   *grantee_roles;	/* list of member roles to add/delete */
 	bool		is_grant;		/* true = GRANT, false = REVOKE */
 	bool		admin_opt;		/* with admin option */
-	char	   *grantor;		/* set grantor to other than current role */
+	Node	   *grantor;		/* set grantor to other than current role */
 	DropBehavior behavior;		/* drop behavior (for REVOKE) */
 } GrantRoleStmt;
 
@@ -1768,7 +1785,7 @@ typedef struct CreateTableSpaceStmt
 {
 	NodeTag		type;
 	char	   *tablespacename;
-	char	   *owner;
+	Node	   *owner;
 	char	   *location;
 	List	   *options;
 } CreateTableSpaceStmt;
@@ -1894,7 +1911,7 @@ typedef struct CreateForeignTableStmt
 typedef struct CreateUserMappingStmt
 {
 	NodeTag		type;
-	char	   *username;		/* username or PUBLIC/CURRENT_USER */
+	Node	   *user;			/* user role */
 	char	   *servername;		/* server name */
 	List	   *options;		/* generic options to server */
 } CreateUserMappingStmt;
@@ -1902,7 +1919,7 @@ typedef struct CreateUserMappingStmt
 typedef struct AlterUserMappingStmt
 {
 	NodeTag		type;
-	char	   *username;		/* username or PUBLIC/CURRENT_USER */
+	Node	   *user;			/* user role */
 	char	   *servername;		/* server name */
 	List	   *options;		/* generic options to server */
 } AlterUserMappingStmt;
@@ -1910,7 +1927,7 @@ typedef struct AlterUserMappingStmt
 typedef struct DropUserMappingStmt
 {
 	NodeTag		type;
-	char	   *username;		/* username or PUBLIC/CURRENT_USER */
+	Node	   *user;			/* user role */
 	char	   *servername;		/* server name */
 	bool		missing_ok;		/* ignore missing mappings */
 } DropUserMappingStmt;
@@ -2060,7 +2077,7 @@ typedef struct CreateRoleStmt
 typedef struct AlterRoleStmt
 {
 	NodeTag		type;
-	char	   *role;			/* role name */
+	Node	   *role;			/* role */
 	List	   *options;		/* List of DefElem nodes */
 	int			action;			/* +1 = add members, -1 = drop members */
 } AlterRoleStmt;
@@ -2068,7 +2085,7 @@ typedef struct AlterRoleStmt
 typedef struct AlterRoleSetStmt
 {
 	NodeTag		type;
-	char	   *role;			/* role name */
+	Node	   *role;			/* role */
 	char	   *database;		/* database name, or NULL */
 	VariableSetStmt *setstmt;	/* SET or RESET subcommand */
 } AlterRoleSetStmt;
@@ -2444,7 +2461,7 @@ typedef struct AlterOwnerStmt
 	RangeVar   *relation;		/* in case it's a table */
 	List	   *object;			/* in case it's some other object */
 	List	   *objarg;			/* argument types, if applicable */
-	char	   *newowner;		/* the new owner */
+	Node	   *newowner;		/* the new owner */
 } AlterOwnerStmt;
 
 
@@ -2900,7 +2917,7 @@ typedef struct ReassignOwnedStmt
 {
 	NodeTag		type;
 	List	   *roles;
-	char	   *newrole;
+	Node	   *newrole;
 } ReassignOwnedStmt;
 
 /*
