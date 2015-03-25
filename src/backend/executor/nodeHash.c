@@ -106,6 +106,7 @@ MultiExecHash(HashState *node)
 			break;
 		/* We have to compute the hash value */
 		econtext->ecxt_innertuple = slot;
+		ResetExprContext(econtext);
 		if (ExecHashGetHashValue(hashtable, econtext, hashkeys,
 								 false, hashtable->keepNulls,
 								 &hashvalue))
@@ -912,6 +913,8 @@ ExecHashTableInsert(HashJoinTable hashtable,
  * and stored at *hashvalue.  A FALSE result means the tuple cannot match
  * because it contains a null attribute, and hence it should be discarded
  * immediately.  (If keep_nulls is true then FALSE is never returned.)
+ * Please note that caller of function has to reset econtext before calling
+ * function.
  */
 bool
 ExecHashGetHashValue(HashJoinTable hashtable,
@@ -926,12 +929,6 @@ ExecHashGetHashValue(HashJoinTable hashtable,
 	ListCell   *hk;
 	int			i = 0;
 	MemoryContext oldContext;
-
-	/*
-	 * We reset the eval context each time to reclaim any memory leaked in the
-	 * hashkey expressions.
-	 */
-	ResetExprContext(econtext);
 
 	oldContext = MemoryContextSwitchTo(econtext->ecxt_per_tuple_memory);
 
@@ -1039,6 +1036,8 @@ ExecHashGetBucketAndBatch(HashJoinTable hashtable,
 	}
 }
 
+
+
 /*
  * ExecScanHashBucket
  *		scan a hash bucket for matches to the current outer tuple
@@ -1103,6 +1102,37 @@ ExecScanHashBucket(HashJoinState *hjstate,
 	return false;
 }
 
+bool
+ExecHashIsPresentInHTable(HashJoinState *hjstate, uint32 hashvalue)
+{
+	HashJoinTable hashtable = hjstate->hj_HashTable;
+	HashJoinTuple hashTuple;
+	int curBucketNo;
+	int curBatchNo;
+
+	ExecHashGetBucketAndBatch(hashtable,
+							  hashvalue,
+							  &curBucketNo,
+							  &curBatchNo);
+
+
+	hashTuple = hashtable->buckets[curBucketNo];
+
+	while (hashTuple != NULL)
+	{
+		if (hashTuple->hashvalue == hashvalue)
+		{
+				return true;
+		}
+
+		hashTuple = hashTuple->next;
+	}
+
+	/*
+	 * no match
+	 */
+	return false;
+}
 /*
  * ExecPrepHashTableForUnmatched
  *		set up for a series of ExecScanHashTableForUnmatched calls

@@ -464,7 +464,23 @@ ExecProcNode(PlanState *node)
 			break;
 
 		case T_HashJoinState:
+		{
+			HashJoinState *current_hjstate = (HashJoinState *) node;
+			HashJoin *current_hj = (HashJoin *) (current_hjstate->js.ps.plan);
+			ParamExecData *prmdata;
+			int param_value = -1;
+
+			if (current_hj->params)
+			  param_value = linitial_int(current_hj->params);
+
 			result = ExecHashJoin((HashJoinState *) node);
+
+			if (param_value != -1)
+			{
+				prmdata = &(node->state->es_param_exec_vals[param_value]);
+				prmdata->value = PointerGetDatum(node);
+			}
+		}
 			break;
 
 			/*

@@ -34,6 +34,7 @@ extern bool ExecHashGetHashValue(HashJoinTable hashtable,
 					 bool outer_tuple,
 					 bool keep_nulls,
 					 uint32 *hashvalue);
+extern bool ExecHashIsPresentInHTable(HashJoinState *hjstate, uint32 hashvalue);
 extern void ExecHashGetBucketAndBatch(HashJoinTable hashtable,
 						  uint32 hashvalue,
 						  int *bucketno,

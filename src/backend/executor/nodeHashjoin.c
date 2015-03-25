@@ -672,6 +672,7 @@ ExecHashJoinOuterGetTuple(PlanState *outerNode,
 			ExprContext *econtext = hjstate->js.ps.ps_ExprContext;
 
 			econtext->ecxt_outertuple = slot;
+			ResetExprContext(econtext);
 			if (ExecHashGetHashValue(hashtable, econtext,
 									 hjstate->hj_OuterHashKeys,
 									 true,		/* outer tuple */

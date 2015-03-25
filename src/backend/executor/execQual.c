@@ -2464,6 +2464,17 @@ ExecEvalStarJoinExpr(FuncExprState *fcache,
 {
 	/* This is called only the first time through */
 	StarJoinExpr	   *str_expr = (StarJoinExpr *) fcache->xprstate.expr;
+	ParamExecData *prmdata;
+	HashJoinState *hj_state = NULL;
+	int param_value = -1;
+
+	param_value = linitial_int(str_expr->params);
+
+	if (param_value != -1)
+	{
+		 prmdata = &(econtext->ecxt_param_exec_vals[param_value]);
+		 hj_state = (HashJoinState *) prmdata->value;
+	}
 
 	/* Initialize function lookup info */
 	/*init_fcache(op->opfuncid, op->inputcollid, fcache,
