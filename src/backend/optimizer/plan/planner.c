@@ -799,6 +799,7 @@ inheritance_planner(PlannerInfo *root)
 {
 	Query	   *parse = root->parse;
 	int			parentRTindex = parse->resultRelation;
+	Bitmapset  *resultRTindexes = NULL;
 	int			nominalRelation = -1;
 	List	   *final_rtable = NIL;
 	int			save_rel_array_size = 0;
@@ -824,7 +825,21 @@ inheritance_planner(PlannerInfo *root)
 	 * (1) would result in a rangetable of length O(N^2) for N targets, with
 	 * at least O(N^3) work expended here; and (2) would greatly complicate
 	 * management of the rowMarks list.
+	 *
+	 * Note that any RTEs with security barrier quals will be turned into
+	 * subqueries during planning, and so we must create copies of them too,
+	 * except where they are target relations, which will each only be used
+	 * in a single plan.
 	 */
+	resultRTindexes = bms_add_member(resultRTindexes, parentRTindex);
+	foreach(lc, root->append_rel_list)
+	{
+		AppendRelInfo *appinfo = (AppendRelInfo *) lfirst(lc);
+		if (appinfo->parent_relid == parentRTindex)
+			resultRTindexes = bms_add_member(resultRTindexes,
+											 appinfo->child_relid);
+	}
+
 	foreach(lc, root->append_rel_list)
 	{
 		AppendRelInfo *appinfo = (AppendRelInfo *) lfirst(lc);
@@ -895,21 +910,29 @@ inheritance_planner(PlannerInfo *root)
 			{
 				RangeTblEntry *rte = (RangeTblEntry *) lfirst(lr);
 
-				if (rte->rtekind == RTE_SUBQUERY)
+				/*
+				 * Copy subquery RTEs and RTEs with security barrier quals
+				 * that will be turned into subqueries, except those that are
+				 * target relations.
+				 */
+				if (rte->rtekind == RTE_SUBQUERY ||
+					(rte->securityQuals != NIL &&
+					 !bms_is_member(rti, resultRTindexes)))
 				{
 					Index		newrti;
 
 					/*
 					 * The RTE can't contain any references to its own RT
-					 * index, so we can save a few cycles by applying
-					 * ChangeVarNodes before we append the RTE to the
-					 * rangetable.
+					 * index, except in the security barrier quals, so we can
+					 * save a few cycles by applying ChangeVarNodes before we
+					 * append the RTE to the rangetable.
 					 */
 					newrti = list_length(subroot.parse->rtable) + 1;
 					ChangeVarNodes((Node *) subroot.parse, rti, newrti, 0);
 					ChangeVarNodes((Node *) subroot.rowMarks, rti, newrti, 0);
 					ChangeVarNodes((Node *) subroot.append_rel_list, rti, newrti, 0);
 					rte = copyObject(rte);
+					ChangeVarNodes((Node *) rte->securityQuals, rti, newrti, 0);
 					subroot.parse->rtable = lappend(subroot.parse->rtable,
 													rte);
 				}
@@ -2455,35 +2478,14 @@ preprocess_rowmarks(PlannerInfo *root)
 		if (rte->rtekind != RTE_RELATION)
 			continue;
 
-		/*
-		 * Similarly, ignore RowMarkClauses for foreign tables; foreign tables
-		 * will instead get ROW_MARK_COPY items in the next loop.  (FDWs might
-		 * choose to do something special while fetching their rows, but that
-		 * is of no concern here.)
-		 */
-		if (rte->relkind == RELKIND_FOREIGN_TABLE)
-			continue;
-
 		rels = bms_del_member(rels, rc->rti);
 
 		newrc = makeNode(PlanRowMark);
 		newrc->rti = newrc->prti = rc->rti;
 		newrc->rowmarkId = ++(root->glob->lastRowMarkId);
-		switch (rc->strength)
-		{
-			case LCS_FORUPDATE:
-				newrc->markType = ROW_MARK_EXCLUSIVE;
-				break;
-			case LCS_FORNOKEYUPDATE:
-				newrc->markType = ROW_MARK_NOKEYEXCLUSIVE;
-				break;
-			case LCS_FORSHARE:
-				newrc->markType = ROW_MARK_SHARE;
-				break;
-			case LCS_FORKEYSHARE:
-				newrc->markType = ROW_MARK_KEYSHARE;
-				break;
-		}
+		newrc->markType = select_rowmark_type(rte, rc->strength);
+		newrc->allMarkTypes = (1 << newrc->markType);
+		newrc->strength = rc->strength;
 		newrc->waitPolicy = rc->waitPolicy;
 		newrc->isParent = false;
 
@@ -2506,12 +2508,9 @@ preprocess_rowmarks(PlannerInfo *root)
 		newrc = makeNode(PlanRowMark);
 		newrc->rti = newrc->prti = i;
 		newrc->rowmarkId = ++(root->glob->lastRowMarkId);
-		/* real tables support REFERENCE, anything else needs COPY */
-		if (rte->rtekind == RTE_RELATION &&
-			rte->relkind != RELKIND_FOREIGN_TABLE)
-			newrc->markType = ROW_MARK_REFERENCE;
-		else
-			newrc->markType = ROW_MARK_COPY;
+		newrc->markType = select_rowmark_type(rte, LCS_NONE);
+		newrc->allMarkTypes = (1 << newrc->markType);
+		newrc->strength = LCS_NONE;
 		newrc->waitPolicy = LockWaitBlock;		/* doesn't matter */
 		newrc->isParent = false;
 
@@ -2519,6 +2518,61 @@ preprocess_rowmarks(PlannerInfo *root)
 	}
 
 	root->rowMarks = prowmarks;
+}
+
+/*
+ * Select RowMarkType to use for a given table
+ */
+RowMarkType
+select_rowmark_type(RangeTblEntry *rte, LockClauseStrength strength)
+{
+	if (rte->rtekind != RTE_RELATION)
+	{
+		/* If it's not a table at all, use ROW_MARK_COPY */
+		return ROW_MARK_COPY;
+	}
+	else if (rte->relkind == RELKIND_FOREIGN_TABLE)
+	{
+		/* For now, we force all foreign tables to use ROW_MARK_COPY */
+		return ROW_MARK_COPY;
+	}
+	else
+	{
+		/* Regular table, apply the appropriate lock type */
+		switch (strength)
+		{
+			case LCS_NONE:
+				/*
+				 * We don't need a tuple lock, only the ability to re-fetch
+				 * the row.  Regular tables support ROW_MARK_REFERENCE, but if
+				 * this RTE has security barrier quals, it will be turned into
+				 * a subquery during planning, so use ROW_MARK_COPY.
+				 *
+				 * This is only necessary for LCS_NONE, since real tuple locks
+				 * on an RTE with security barrier quals are supported by
+				 * pushing the lock down into the subquery --- see
+				 * expand_security_qual.
+				 */
+				if (rte->securityQuals != NIL)
+					return ROW_MARK_COPY;
+				return ROW_MARK_REFERENCE;
+				break;
+			case LCS_FORKEYSHARE:
+				return ROW_MARK_KEYSHARE;
+				break;
+			case LCS_FORSHARE:
+				return ROW_MARK_SHARE;
+				break;
+			case LCS_FORNOKEYUPDATE:
+				return ROW_MARK_NOKEYEXCLUSIVE;
+				break;
+			case LCS_FORUPDATE:
+				return ROW_MARK_EXCLUSIVE;
+				break;
+		}
+		elog(ERROR, "unrecognized LockClauseStrength %d", (int) strength);
+		return ROW_MARK_EXCLUSIVE;		/* keep compiler quiet */
+	}
 }
 
 /*

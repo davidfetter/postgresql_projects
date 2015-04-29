@@ -855,7 +855,9 @@ _outPlanRowMark(StringInfo str, const PlanRowMark *node)
 	WRITE_UINT_FIELD(prti);
 	WRITE_UINT_FIELD(rowmarkId);
 	WRITE_ENUM_FIELD(markType, RowMarkType);
-	WRITE_BOOL_FIELD(waitPolicy);
+	WRITE_INT_FIELD(allMarkTypes);
+	WRITE_ENUM_FIELD(strength, LockClauseStrength);
+	WRITE_ENUM_FIELD(waitPolicy, LockWaitPolicy);
 	WRITE_BOOL_FIELD(isParent);
 }
 
@@ -2362,7 +2364,8 @@ _outWithCheckOption(StringInfo str, const WithCheckOption *node)
 {
 	WRITE_NODE_TYPE("WITHCHECKOPTION");
 
-	WRITE_STRING_FIELD(viewname);
+	WRITE_ENUM_FIELD(kind, WCOKind);
+	WRITE_STRING_FIELD(relname);
 	WRITE_NODE_FIELD(qual);
 	WRITE_BOOL_FIELD(cascaded);
 }

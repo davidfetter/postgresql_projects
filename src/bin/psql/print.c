@@ -692,7 +692,7 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 	if (opt_border == 0)
 		width_total = col_count;
 	else if (opt_border == 1)
-		width_total = col_count * 3 - 1;
+		width_total = col_count * 3 - ((col_count > 0) ? 1 : 0);
 	else
 		width_total = col_count * 3 + 1;
 	total_header_width = width_total;
@@ -811,7 +811,7 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 	if (!is_pager && fout == stdout && output_columns > 0 &&
 		(output_columns < total_header_width || output_columns < width_total))
 	{
-		fout = PageOutput(INT_MAX, cont->opt->pager);	/* force pager */
+		fout = PageOutput(INT_MAX, cont->opt);	/* force pager */
 		is_pager = true;
 	}
 
@@ -928,7 +928,7 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 						fputs(!header_done[i] ? format->header_nl_right : " ",
 							  fout);
 
-					if (opt_border != 0 && i < col_count - 1)
+					if (opt_border != 0 && col_count > 0 && i < col_count - 1)
 						fputs(dformat->midvrule, fout);
 				}
 				curr_nl_line++;
@@ -983,7 +983,8 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 				struct lineptr *this_line = &col_lineptrs[j][curr_nl_line[j]];
 				int			bytes_to_output;
 				int			chars_to_output = width_wrap[j];
-				bool		finalspaces = (opt_border == 2 || j < col_count - 1);
+				bool		finalspaces = (opt_border == 2 ||
+								(col_count > 0 && j < col_count - 1));
 
 				/* Print left-hand wrap or newline mark */
 				if (opt_border != 0)
@@ -1077,11 +1078,11 @@ print_aligned_text(const printTableContent *cont, FILE *fout)
 					fputs(format->wrap_right, fout);
 				else if (wrap[j] == PRINT_LINE_WRAP_NEWLINE)
 					fputs(format->nl_right, fout);
-				else if (opt_border == 2 || j < col_count - 1)
+				else if (opt_border == 2 || (col_count > 0 && j < col_count - 1))
 					fputc(' ', fout);
 
 				/* Print column divider, if not the last column */
-				if (opt_border != 0 && j < col_count - 1)
+				if (opt_border != 0 && (col_count > 0 && j < col_count - 1))
 				{
 					if (wrap[j + 1] == PRINT_LINE_WRAP_WRAP)
 						fputs(format->midvrule_wrap, fout);
@@ -1236,8 +1237,18 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 	if (cont->cells[0] == NULL && cont->opt->start_table &&
 		cont->opt->stop_table)
 	{
-		if (!opt_tuples_only && cont->opt->default_footer)
-			fprintf(fout, _("(No rows)\n"));
+		printTableFooter *footers = footers_with_default(cont);
+
+		if (!opt_tuples_only && !cancel_pressed && footers)
+		{
+			printTableFooter *f;
+
+			for (f = footers; f; f = f->next)
+				fprintf(fout, "%s\n", f->data);
+		}
+
+		fputc('\n', fout);
+
 		return;
 	}
 
@@ -1868,6 +1879,227 @@ print_html_vertical(const printTableContent *cont, FILE *fout)
 
 
 /*************************/
+/* ASCIIDOC		 */
+/*************************/
+
+static void
+asciidoc_escaped_print(const char *in, FILE *fout)
+{
+	const char *p;
+	for (p = in; *p; p++)
+	{
+		switch(*p)
+		{
+			case '|':
+				fputs("\\|", fout);
+				break;
+			default:
+				fputc(*p, fout);
+		}
+	}
+}
+
+static void
+print_asciidoc_text(const printTableContent *cont, FILE *fout)
+{
+	bool		opt_tuples_only = cont->opt->tuples_only;
+	unsigned short opt_border = cont->opt->border;
+	unsigned int i;
+	const char *const * ptr;
+
+	if (cancel_pressed)
+		return;
+
+	if (cont->opt->start_table)
+	{
+		/* print table in new paragraph - enforce preliminary new line */
+		fputs("\n", fout);
+
+		/* print title */
+		if (!opt_tuples_only && cont->title)
+		{
+			fputs(".", fout);
+			fputs(cont->title, fout);
+			fputs("\n", fout);
+		}
+
+		/* print table [] header definition */
+		fprintf(fout, "[%scols=\"", !opt_tuples_only ? "options=\"header\"," : "");
+		for(i = 0; i < cont->ncolumns; i++)
+		{
+			if (i != 0)
+				fputs(",", fout);
+			fprintf(fout, "%s", cont->aligns[(i) % cont->ncolumns] == 'r' ? ">l" : "<l");
+		}
+		fputs("\"", fout);
+		switch (opt_border)
+		{
+			case 0:
+				fputs(",frame=\"none\",grid=\"none\"", fout);
+				break;
+			case 1:
+				fputs(",frame=\"none\"", fout);
+				break;
+			case 2:
+				fputs(",frame=\"all\",grid=\"all\"", fout);
+				break;
+		}
+		fputs("]\n", fout);
+		fputs("|====\n", fout);
+
+		/* print headers */
+		if (!opt_tuples_only)
+		{
+			for (ptr = cont->headers; *ptr; ptr++)
+			{
+				if (ptr != cont->headers)
+					fputs(" ", fout);
+				fputs("^l|", fout);
+				asciidoc_escaped_print(*ptr, fout);
+			}
+			fputs("\n", fout);
+		}
+	}
+
+	/* print cells */
+	for (i = 0, ptr = cont->cells; *ptr; i++, ptr++)
+	{
+		if (i % cont->ncolumns == 0)
+		{
+			if (cancel_pressed)
+				break;
+		}
+
+		if (i % cont->ncolumns != 0)
+			fputs(" ", fout);
+		fputs("|", fout);
+
+		/* protect against needless spaces */
+		if ((*ptr)[strspn(*ptr, " \t")] == '\0')
+		{
+			if ((i + 1) % cont->ncolumns != 0)
+				fputs(" ", fout);
+		}
+		else
+			asciidoc_escaped_print(*ptr, fout);
+
+		if ((i + 1) % cont->ncolumns == 0)
+			fputs("\n", fout);
+	}
+
+	fputs("|====\n", fout);
+
+	if (cont->opt->stop_table)
+	{
+		printTableFooter *footers = footers_with_default(cont);
+
+		/* print footers */
+		if (!opt_tuples_only && footers != NULL && !cancel_pressed)
+		{
+			printTableFooter *f;
+
+			fputs("\n....\n", fout);
+			for (f = footers; f; f = f->next)
+			{
+				fputs(f->data, fout);
+				fputs("\n", fout);
+			}
+			fputs("....\n", fout);
+		}
+	}
+}
+
+static void
+print_asciidoc_vertical(const printTableContent *cont, FILE *fout)
+{
+	bool		opt_tuples_only = cont->opt->tuples_only;
+	unsigned short opt_border = cont->opt->border;
+	unsigned long record = cont->opt->prior_records + 1;
+	unsigned int i;
+	const char *const * ptr;
+
+	if (cancel_pressed)
+		return;
+
+	if (cont->opt->start_table)
+	{
+		/* print table in new paragraph - enforce preliminary new line */
+		fputs("\n", fout);
+
+		/* print title */
+		if (!opt_tuples_only && cont->title)
+		{
+			fputs(".", fout);
+			fputs(cont->title, fout);
+			fputs("\n", fout);
+		}
+
+		/* print table [] header definition */
+		fputs("[cols=\"h,l\"", fout);
+		switch (opt_border)
+		{
+			case 0:
+				fputs(",frame=\"none\",grid=\"none\"", fout);
+				break;
+			case 1:
+				fputs(",frame=\"none\"", fout);
+				break;
+			case 2:
+				fputs(",frame=\"all\",grid=\"all\"", fout);
+			break;
+		}
+		fputs("]\n", fout);
+		fputs("|====\n", fout);
+	}
+
+	/* print records */
+	for (i = 0, ptr = cont->cells; *ptr; i++, ptr++)
+	{
+		if (i % cont->ncolumns == 0)
+		{
+			if (cancel_pressed)
+				break;
+			if (!opt_tuples_only)
+				fprintf(fout,
+						"2+^|Record %lu\n",
+						record++);
+			else
+				fputs("2+|\n", fout);
+		}
+
+		fputs("<l|", fout);
+		asciidoc_escaped_print(cont->headers[i % cont->ncolumns], fout);
+
+		fprintf(fout, " %s|", cont->aligns[i % cont->ncolumns] == 'r' ? ">l" : "<l");
+		/* is string only whitespace? */
+		if ((*ptr)[strspn(*ptr, " \t")] == '\0')
+			fputs(" ", fout);
+		else
+			asciidoc_escaped_print(*ptr, fout);
+		fputs("\n", fout);
+	}
+
+	fputs("|====\n", fout);
+
+	if (cont->opt->stop_table)
+	{
+		/* print footers */
+		if (!opt_tuples_only && cont->footers != NULL && !cancel_pressed)
+		{
+			printTableFooter *f;
+
+			fputs("\n....\n", fout);
+			for (f = cont->footers; f; f = f->next)
+			{
+				fputs(f->data, fout);
+				fputs("\n", fout);
+			}
+			fputs("....\n", fout);
+		}
+	}
+}
+
+/*************************/
 /* LaTeX				 */
 /*************************/
 
@@ -2486,15 +2718,19 @@ print_troff_ms_vertical(const printTableContent *cont, FILE *fout)
  * PageOutput
  *
  * Tests if pager is needed and returns appropriate FILE pointer.
+ *
+ * If the topt argument is NULL no pager is used.
  */
 FILE *
-PageOutput(int lines, unsigned short int pager)
+PageOutput(int lines, const printTableOpt *topt)
 {
 	/* check whether we need / can / are supposed to use pager */
-	if (pager && isatty(fileno(stdin)) && isatty(fileno(stdout)))
+	if (topt && topt->pager && isatty(fileno(stdin)) && isatty(fileno(stdout)))
 	{
 		const char *pagerprog;
 		FILE	   *pagerpipe;
+		unsigned short int  pager =  topt->pager;
+		int         min_lines = topt->pager_min_lines;
 
 #ifdef TIOCGWINSZ
 		int			result;
@@ -2503,7 +2739,9 @@ PageOutput(int lines, unsigned short int pager)
 		result = ioctl(fileno(stdout), TIOCGWINSZ, &screen_size);
 
 		/* >= accounts for a one-line prompt */
-		if (result == -1 || lines >= screen_size.ws_row || pager > 1)
+		if (result == -1
+			|| (lines >= screen_size.ws_row && lines >= min_lines)
+			|| pager > 1)
 		{
 #endif
 			pagerprog = getenv("PAGER");
@@ -2803,7 +3041,7 @@ IsPagerNeeded(const printTableContent *cont, const int extra_lines, bool expande
 				lines++;
 		}
 
-		*fout = PageOutput(lines + extra_lines, cont->opt->pager);
+		*fout = PageOutput(lines + extra_lines, cont->opt);
 		*is_pager = (*fout != stdout);
 	}
 	else
@@ -2854,6 +3092,12 @@ printTable(const printTableContent *cont, FILE *fout, FILE *flog)
 				print_html_vertical(cont, fout);
 			else
 				print_html_text(cont, fout);
+			break;
+		case PRINT_ASCIIDOC:
+			if (cont->opt->expanded == 1)
+				print_asciidoc_vertical(cont, fout);
+			else
+				print_asciidoc_text(cont, fout);
 			break;
 		case PRINT_LATEX:
 			if (cont->opt->expanded == 1)

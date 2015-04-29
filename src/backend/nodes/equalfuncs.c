@@ -1535,10 +1535,6 @@ static bool
 _equalVacuumStmt(const VacuumStmt *a, const VacuumStmt *b)
 {
 	COMPARE_SCALAR_FIELD(options);
-	COMPARE_SCALAR_FIELD(freeze_min_age);
-	COMPARE_SCALAR_FIELD(freeze_table_age);
-	COMPARE_SCALAR_FIELD(multixact_freeze_min_age);
-	COMPARE_SCALAR_FIELD(multixact_freeze_table_age);
 	COMPARE_NODE_FIELD(relation);
 	COMPARE_NODE_FIELD(va_cols);
 
@@ -1811,6 +1807,18 @@ _equalImportForeignSchemaStmt(const ImportForeignSchemaStmt *a, const ImportFore
 	COMPARE_SCALAR_FIELD(list_type);
 	COMPARE_NODE_FIELD(table_list);
 	COMPARE_NODE_FIELD(options);
+
+	return true;
+}
+
+static bool
+_equalCreateTransformStmt(const CreateTransformStmt *a, const CreateTransformStmt *b)
+{
+	COMPARE_SCALAR_FIELD(replace);
+	COMPARE_NODE_FIELD(type_name);
+	COMPARE_STRING_FIELD(lang);
+	COMPARE_NODE_FIELD(fromsql);
+	COMPARE_NODE_FIELD(tosql);
 
 	return true;
 }
@@ -2399,7 +2407,8 @@ _equalRangeTblFunction(const RangeTblFunction *a, const RangeTblFunction *b)
 static bool
 _equalWithCheckOption(const WithCheckOption *a, const WithCheckOption *b)
 {
-	COMPARE_STRING_FIELD(viewname);
+	COMPARE_SCALAR_FIELD(kind);
+	COMPARE_STRING_FIELD(relname);
 	COMPARE_NODE_FIELD(qual);
 	COMPARE_SCALAR_FIELD(cascaded);
 
@@ -3041,6 +3050,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_ImportForeignSchemaStmt:
 			retval = _equalImportForeignSchemaStmt(a, b);
+			break;
+		case T_CreateTransformStmt:
+			retval = _equalCreateTransformStmt(a, b);
 			break;
 		case T_CreateTrigStmt:
 			retval = _equalCreateTrigStmt(a, b);

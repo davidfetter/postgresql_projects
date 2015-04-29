@@ -199,6 +199,9 @@ tablespace_list_append(const char *arg)
 		exit(1);
 	}
 
+	canonicalize_path(cell->old_dir);
+	canonicalize_path(cell->new_dir);
+
 	if (tablespace_dirs.tail)
 		tablespace_dirs.tail->next = cell;
 	else
@@ -433,7 +436,7 @@ StartLogStreamer(char *startpos, uint32 timeline, char *sysidentifier)
 	snprintf(param->xlogdir, sizeof(param->xlogdir), "%s/pg_xlog", basedir);
 
 	/*
-	 * Create pg_xlog/archive_status (and thus pg_xlog) so we can can write to
+	 * Create pg_xlog/archive_status (and thus pg_xlog) so we can write to
 	 * basedir/pg_xlog as the directory entry in the tar file may arrive
 	 * later.
 	 */

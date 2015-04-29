@@ -16,7 +16,6 @@
 
 #include "executor/execdesc.h"
 #include "nodes/parsenodes.h"
-#include "utils/lockwaitpolicy.h"
 
 
 /*
@@ -194,7 +193,7 @@ extern ResultRelInfo *ExecGetTriggerResultRel(EState *estate, Oid relid);
 extern bool ExecContextForcesOids(PlanState *planstate, bool *hasoids);
 extern void ExecConstraints(ResultRelInfo *resultRelInfo,
 				TupleTableSlot *slot, EState *estate);
-extern void ExecWithCheckOptions(ResultRelInfo *resultRelInfo,
+extern void ExecWithCheckOptions(WCOKind kind, ResultRelInfo *resultRelInfo,
 					 TupleTableSlot *slot, EState *estate);
 extern ExecRowMark *ExecFindRowMark(EState *estate, Index rti);
 extern ExecAuxRowMark *ExecBuildAuxRowMark(ExecRowMark *erm, List *targetlist);
@@ -352,6 +351,16 @@ extern bool ExecRelationIsTargetRelation(EState *estate, Index scanrelid);
 extern Relation ExecOpenScanRelation(EState *estate, Index scanrelid, int eflags);
 extern void ExecCloseScanRelation(Relation scanrel);
 
+extern void RegisterExprContextCallback(ExprContext *econtext,
+							ExprContextCallbackFunction function,
+							Datum arg);
+extern void UnregisterExprContextCallback(ExprContext *econtext,
+							  ExprContextCallbackFunction function,
+							  Datum arg);
+
+/*
+ * prototypes from functions in execIndexing.c
+ */
 extern void ExecOpenIndices(ResultRelInfo *resultRelInfo);
 extern void ExecCloseIndices(ResultRelInfo *resultRelInfo);
 extern List *ExecInsertIndexTuples(TupleTableSlot *slot, ItemPointer tupleid,
@@ -363,11 +372,5 @@ extern bool check_exclusion_constraint(Relation heap, Relation index,
 						   EState *estate,
 						   bool newIndex, bool errorOK);
 
-extern void RegisterExprContextCallback(ExprContext *econtext,
-							ExprContextCallbackFunction function,
-							Datum arg);
-extern void UnregisterExprContextCallback(ExprContext *econtext,
-							  ExprContextCallbackFunction function,
-							  Datum arg);
 
 #endif   /* EXECUTOR_H  */

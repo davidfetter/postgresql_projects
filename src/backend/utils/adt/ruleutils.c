@@ -15,6 +15,7 @@
  */
 #include "postgres.h"
 
+#include <ctype.h>
 #include <unistd.h>
 #include <fcntl.h>
 
@@ -308,6 +309,7 @@ static text *pg_get_expr_worker(text *expr, Oid relid, const char *relname,
 static int print_function_arguments(StringInfo buf, HeapTuple proctup,
 						 bool print_table_args, bool print_defaults);
 static void print_function_rettype(StringInfo buf, HeapTuple proctup);
+static void print_function_trftypes(StringInfo buf, HeapTuple proctup);
 static void set_rtable_names(deparse_namespace *dpns, List *parent_namespaces,
 				 Bitmapset *rels_used);
 static bool refname_is_unique(char *refname, deparse_namespace *dpns,
@@ -1918,9 +1920,7 @@ pg_get_functiondef(PG_FUNCTION_ARGS)
 	StringInfoData buf;
 	StringInfoData dq;
 	HeapTuple	proctup;
-	HeapTuple	langtup;
 	Form_pg_proc proc;
-	Form_pg_language lang;
 	Datum		tmp;
 	bool		isnull;
 	const char *prosrc;
@@ -1943,12 +1943,6 @@ pg_get_functiondef(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 				 errmsg("\"%s\" is an aggregate function", name)));
 
-	/* Need its pg_language tuple for the language name */
-	langtup = SearchSysCache1(LANGOID, ObjectIdGetDatum(proc->prolang));
-	if (!HeapTupleIsValid(langtup))
-		elog(ERROR, "cache lookup failed for language %u", proc->prolang);
-	lang = (Form_pg_language) GETSTRUCT(langtup);
-
 	/*
 	 * We always qualify the function name, to ensure the right function gets
 	 * replaced.
@@ -1959,8 +1953,11 @@ pg_get_functiondef(PG_FUNCTION_ARGS)
 	(void) print_function_arguments(&buf, proctup, false, true);
 	appendStringInfoString(&buf, ")\n RETURNS ");
 	print_function_rettype(&buf, proctup);
+
+	print_function_trftypes(&buf, proctup);
+
 	appendStringInfo(&buf, "\n LANGUAGE %s\n",
-					 quote_identifier(NameStr(lang->lanname)));
+					 quote_identifier(get_language_name(proc->prolang, false)));
 
 	/* Emit some miscellaneous options on one line */
 	oldlen = buf.len;
@@ -2080,7 +2077,6 @@ pg_get_functiondef(PG_FUNCTION_ARGS)
 
 	appendStringInfoChar(&buf, '\n');
 
-	ReleaseSysCache(langtup);
 	ReleaseSysCache(proctup);
 
 	PG_RETURN_TEXT_P(string_to_text(buf.data));
@@ -2354,6 +2350,30 @@ is_input_argument(int nth, const char *argmodes)
 			|| argmodes[nth] == PROARGMODE_IN
 			|| argmodes[nth] == PROARGMODE_INOUT
 			|| argmodes[nth] == PROARGMODE_VARIADIC);
+}
+
+/*
+ * Append used transformated types to specified buffer
+ */
+static void
+print_function_trftypes(StringInfo buf, HeapTuple proctup)
+{
+	Oid	*trftypes;
+	int	ntypes;
+
+	ntypes = get_func_trftypes(proctup, &trftypes);
+	if (ntypes > 0)
+	{
+		int	i;
+
+		appendStringInfoString(buf, "\n TRANSFORM ");
+		for (i = 0; i < ntypes; i++)
+		{
+			if (i != 0)
+				appendStringInfoString(buf, ", ");
+				appendStringInfo(buf, "FOR TYPE %s", format_type_be(trftypes[i]));
+		}
+	}
 }
 
 /*
@@ -4463,6 +4483,11 @@ get_select_query_def(Query *query, deparse_context *context,
 
 			switch (rc->strength)
 			{
+				case LCS_NONE:
+					/* we intentionally throw an error for LCS_NONE */
+					elog(ERROR, "unrecognized LockClauseStrength %d",
+						 (int) rc->strength);
+					break;
 				case LCS_FORKEYSHARE:
 					appendContextKeyword(context, " FOR KEY SHARE",
 									 -PRETTYINDENT_STD, PRETTYINDENT_STD, 0);
@@ -8102,6 +8127,13 @@ get_coercion_expr(Node *arg, deparse_context *context,
 	 * right above it.  Avoid generating redundant output. However, beware of
 	 * suppressing casts when the user actually wrote something like
 	 * 'foo'::text::char(3).
+	 *
+	 * Note: it might seem that we are missing the possibility of needing to
+	 * print a COLLATE clause for such a Const.  However, a Const could only
+	 * have nondefault collation in a post-constant-folding tree, in which the
+	 * length coercion would have been folded too.  See also the special
+	 * handling of CollateExpr in coerce_to_target_type(): any collation
+	 * marking will be above the coercion node, not below it.
 	 */
 	if (arg && IsA(arg, Const) &&
 		((Const *) arg)->consttype == resulttype &&
@@ -8132,8 +8164,9 @@ get_coercion_expr(Node *arg, deparse_context *context,
  * the right type by default.
  *
  * If the Const's collation isn't default for its type, show that too.
- * This can only happen in trees that have been through constant-folding.
- * We assume we don't need to do this when showtype is -1.
+ * We mustn't do this when showtype is -1 (since that means the caller will
+ * print "::typename", and we can't put a COLLATE clause in between).  It's
+ * caller's responsibility that collation isn't missed in such cases.
  * ----------
  */
 static void
@@ -8143,8 +8176,7 @@ get_const_expr(Const *constval, deparse_context *context, int showtype)
 	Oid			typoutput;
 	bool		typIsVarlena;
 	char	   *extval;
-	bool		isfloat = false;
-	bool		needlabel;
+	bool		needlabel = false;
 
 	if (constval->constisnull)
 	{
@@ -8170,40 +8202,42 @@ get_const_expr(Const *constval, deparse_context *context, int showtype)
 
 	switch (constval->consttype)
 	{
-		case INT2OID:
 		case INT4OID:
-		case INT8OID:
-		case OIDOID:
-		case FLOAT4OID:
-		case FLOAT8OID:
-		case NUMERICOID:
+
+			/*
+			 * INT4 can be printed without any decoration, unless it is
+			 * negative; in that case print it as '-nnn'::integer to ensure
+			 * that the output will re-parse as a constant, not as a constant
+			 * plus operator.  In most cases we could get away with printing
+			 * (-nnn) instead, because of the way that gram.y handles negative
+			 * literals; but that doesn't work for INT_MIN, and it doesn't
+			 * seem that much prettier anyway.
+			 */
+			if (extval[0] != '-')
+				appendStringInfoString(buf, extval);
+			else
 			{
-				/*
-				 * These types are printed without quotes unless they contain
-				 * values that aren't accepted by the scanner unquoted (e.g.,
-				 * 'NaN').  Note that strtod() and friends might accept NaN,
-				 * so we can't use that to test.
-				 *
-				 * In reality we only need to defend against infinity and NaN,
-				 * so we need not get too crazy about pattern matching here.
-				 *
-				 * There is a special-case gotcha: if the constant is signed,
-				 * we need to parenthesize it, else the parser might see a
-				 * leading plus/minus as binding less tightly than adjacent
-				 * operators --- particularly, the cast that we might attach
-				 * below.
-				 */
-				if (strspn(extval, "0123456789+-eE.") == strlen(extval))
-				{
-					if (extval[0] == '+' || extval[0] == '-')
-						appendStringInfo(buf, "(%s)", extval);
-					else
-						appendStringInfoString(buf, extval);
-					if (strcspn(extval, "eE.") != strlen(extval))
-						isfloat = true; /* it looks like a float */
-				}
-				else
-					appendStringInfo(buf, "'%s'", extval);
+				appendStringInfo(buf, "'%s'", extval);
+				needlabel = true;		/* we must attach a cast */
+			}
+			break;
+
+		case NUMERICOID:
+
+			/*
+			 * NUMERIC can be printed without quotes if it looks like a float
+			 * constant (not an integer, and not Infinity or NaN) and doesn't
+			 * have a leading sign (for the same reason as for INT4).
+			 */
+			if (isdigit((unsigned char) extval[0]) &&
+				strcspn(extval, "eE.") != strlen(extval))
+			{
+				appendStringInfoString(buf, extval);
+			}
+			else
+			{
+				appendStringInfo(buf, "'%s'", extval);
+				needlabel = true;		/* we must attach a cast */
 			}
 			break;
 
@@ -8239,18 +8273,21 @@ get_const_expr(Const *constval, deparse_context *context, int showtype)
 	switch (constval->consttype)
 	{
 		case BOOLOID:
-		case INT4OID:
 		case UNKNOWNOID:
 			/* These types can be left unlabeled */
 			needlabel = false;
 			break;
+		case INT4OID:
+			/* We determined above whether a label is needed */
+			break;
 		case NUMERICOID:
 
 			/*
-			 * Float-looking constants will be typed as numeric, but if
-			 * there's a specific typmod we need to show it.
+			 * Float-looking constants will be typed as numeric, which we
+			 * checked above; but if there's a nondefault typmod we need to
+			 * show it.
 			 */
-			needlabel = !isfloat || (constval->consttypmod >= 0);
+			needlabel |= (constval->consttypmod >= 0);
 			break;
 		default:
 			needlabel = true;

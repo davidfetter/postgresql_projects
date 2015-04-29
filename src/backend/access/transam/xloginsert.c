@@ -26,6 +26,7 @@
 #include "catalog/pg_control.h"
 #include "common/pg_lzcompress.h"
 #include "miscadmin.h"
+#include "replication/origin.h"
 #include "storage/bufmgr.h"
 #include "storage/proc.h"
 #include "utils/memutils.h"
@@ -72,6 +73,9 @@ static XLogRecData *mainrdata_head;
 static XLogRecData *mainrdata_last = (XLogRecData *) &mainrdata_head;
 static uint32 mainrdata_len;	/* total # of bytes in chain */
 
+/* Should te in-progress insertion log the origin */
+static bool include_origin = false;
+
 /*
  * These are used to hold the record header while constructing a record.
  * 'hdr_scratch' is not a plain variable, but is palloc'd at initialization,
@@ -83,10 +87,12 @@ static uint32 mainrdata_len;	/* total # of bytes in chain */
 static XLogRecData hdr_rdt;
 static char *hdr_scratch = NULL;
 
+#define SizeOfXlogOrigin	(sizeof(RepOriginId) + sizeof(char))
+
 #define HEADER_SCRATCH_SIZE \
 	(SizeOfXLogRecord + \
 	 MaxSizeOfXLogRecordBlockHeader * (XLR_MAX_BLOCK_ID + 1) + \
-	 SizeOfXLogRecordDataHeaderLong)
+	 SizeOfXLogRecordDataHeaderLong + SizeOfXlogOrigin)
 
 /*
  * An array of XLogRecData structs, to hold registered data.
@@ -193,6 +199,7 @@ XLogResetInsertion(void)
 	max_registered_block_id = 0;
 	mainrdata_len = 0;
 	mainrdata_last = (XLogRecData *) &mainrdata_head;
+	include_origin = false;
 	begininsert_called = false;
 }
 
@@ -375,6 +382,16 @@ XLogRegisterBufData(uint8 block_id, char *data, int len)
 }
 
 /*
+ * Should this record include the replication origin if one is set up?
+ */
+void
+XLogIncludeOrigin(void)
+{
+	Assert(begininsert_called);
+	include_origin = true;
+}
+
+/*
  * Insert an XLOG record having the specified RMID and info bytes, with the
  * body of the record being the data and buffer references registered earlier
  * with XLogRegister* calls.
@@ -459,7 +476,7 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
 	XLogRecData *rdt;
 	uint32		total_len = 0;
 	int			block_id;
-	pg_crc32	rdata_crc;
+	pg_crc32c	rdata_crc;
 	registered_buffer *prev_regbuf = NULL;
 	XLogRecData *rdt_datas_last;
 	XLogRecord *rechdr;
@@ -491,11 +508,9 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
 		bool		needs_data;
 		XLogRecordBlockHeader bkpb;
 		XLogRecordBlockImageHeader bimg;
-		XLogRecordBlockCompressHeader cbimg;
+		XLogRecordBlockCompressHeader cbimg = {0};
 		bool		samerel;
 		bool		is_compressed = false;
-		uint16	hole_length;
-		uint16	hole_offset;
 
 		if (!regbuf->in_use)
 			continue;
@@ -558,21 +573,21 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
 					upper > lower &&
 					upper <= BLCKSZ)
 				{
-					hole_offset = lower;
-					hole_length = upper - lower;
+					bimg.hole_offset = lower;
+					cbimg.hole_length = upper - lower;
 				}
 				else
 				{
 					/* No "hole" to compress out */
-					hole_offset = 0;
-					hole_length = 0;
+					bimg.hole_offset = 0;
+					cbimg.hole_length = 0;
 				}
 			}
 			else
 			{
 				/* Not a standard page header, don't try to eliminate "hole" */
-				hole_offset = 0;
-				hole_length = 0;
+				bimg.hole_offset = 0;
+				cbimg.hole_length = 0;
 			}
 
 			/*
@@ -581,7 +596,8 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
 			if (wal_compression)
 			{
 				is_compressed =
-					XLogCompressBackupBlock(page, hole_offset, hole_length,
+					XLogCompressBackupBlock(page, bimg.hole_offset,
+											cbimg.hole_length,
 											regbuf->compressed_page,
 											&compressed_len);
 			}
@@ -595,25 +611,21 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
 			rdt_datas_last->next = &regbuf->bkp_rdatas[0];
 			rdt_datas_last = rdt_datas_last->next;
 
-			bimg.bimg_info = (hole_length == 0) ? 0 : BKPIMAGE_HAS_HOLE;
+			bimg.bimg_info = (cbimg.hole_length == 0) ? 0 : BKPIMAGE_HAS_HOLE;
 
 			if (is_compressed)
 			{
 				bimg.length = compressed_len;
-				bimg.hole_offset = hole_offset;
 				bimg.bimg_info |= BKPIMAGE_IS_COMPRESSED;
-				if (hole_length != 0)
-					cbimg.hole_length = hole_length;
 
 				rdt_datas_last->data = regbuf->compressed_page;
 				rdt_datas_last->len = compressed_len;
 			}
 			else
 			{
-				bimg.length = BLCKSZ - hole_length;
-				bimg.hole_offset = hole_offset;
+				bimg.length = BLCKSZ - cbimg.hole_length;
 
-				if (hole_length == 0)
+				if (cbimg.hole_length == 0)
 				{
 					rdt_datas_last->data = page;
 					rdt_datas_last->len = BLCKSZ;
@@ -622,13 +634,15 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
 				{
 					/* must skip the hole */
 					rdt_datas_last->data = page;
-					rdt_datas_last->len = hole_offset;
+					rdt_datas_last->len = bimg.hole_offset;
 
 					rdt_datas_last->next = &regbuf->bkp_rdatas[1];
 					rdt_datas_last = rdt_datas_last->next;
 
-					rdt_datas_last->data = page + (hole_offset + hole_length);
-					rdt_datas_last->len = BLCKSZ - (hole_offset + hole_length);
+					rdt_datas_last->data =
+						page + (bimg.hole_offset + cbimg.hole_length);
+					rdt_datas_last->len =
+						BLCKSZ - (bimg.hole_offset + cbimg.hole_length);
 				}
 			}
 
@@ -665,7 +679,7 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
 		{
 			memcpy(scratch, &bimg, SizeOfXLogRecordBlockImageHeader);
 			scratch += SizeOfXLogRecordBlockImageHeader;
-			if (hole_length != 0 && is_compressed)
+			if (cbimg.hole_length != 0 && is_compressed)
 			{
 				memcpy(scratch, &cbimg,
 					   SizeOfXLogRecordBlockCompressHeader);
@@ -679,6 +693,14 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
 		}
 		memcpy(scratch, &regbuf->block, sizeof(BlockNumber));
 		scratch += sizeof(BlockNumber);
+	}
+
+	/* followed by the record's origin, if any */
+	if (include_origin && replorigin_sesssion_origin != InvalidRepOriginId)
+	{
+		*(scratch++) = XLR_BLOCK_ID_ORIGIN;
+		memcpy(scratch, &replorigin_sesssion_origin, sizeof(replorigin_sesssion_origin));
+		scratch += sizeof(replorigin_sesssion_origin);
 	}
 
 	/* followed by main data, if any */

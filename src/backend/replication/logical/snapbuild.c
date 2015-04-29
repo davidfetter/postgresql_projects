@@ -348,7 +348,7 @@ SnapBuildFreeSnapshot(Snapshot snap)
 	Assert(snap->curcid == FirstCommandId);
 	Assert(!snap->suboverflowed);
 	Assert(!snap->takenDuringRecovery);
-	Assert(snap->regd_count == 1);
+	Assert(snap->regd_count == 0);
 
 	/* slightly more likely, so it's checked even without c-asserts */
 	if (snap->copied)
@@ -407,16 +407,16 @@ SnapBuildSnapDecRefcount(Snapshot snap)
 	Assert(!snap->suboverflowed);
 	Assert(!snap->takenDuringRecovery);
 
-	Assert(snap->regd_count == 1);
+	Assert(snap->regd_count == 0);
 
-	Assert(snap->active_count);
+	Assert(snap->active_count > 0);
 
 	/* slightly more likely, so it's checked even without casserts */
 	if (snap->copied)
 		elog(ERROR, "cannot free a copied snapshot");
 
 	snap->active_count--;
-	if (!snap->active_count)
+	if (snap->active_count == 0)
 		SnapBuildFreeSnapshot(snap);
 }
 
@@ -495,7 +495,7 @@ SnapBuildBuildSnapshot(SnapBuild *builder, TransactionId xid)
 	snapshot->copied = false;
 	snapshot->curcid = FirstCommandId;
 	snapshot->active_count = 0;
-	snapshot->regd_count = 1;	/* mark as registered so nobody frees it */
+	snapshot->regd_count = 0;
 
 	return snapshot;
 }
@@ -1391,7 +1391,7 @@ typedef struct SnapBuildOnDisk
 
 	/* data not covered by checksum */
 	uint32		magic;
-	pg_crc32	checksum;
+	pg_crc32c	checksum;
 
 	/* data covered by checksum */
 
@@ -1597,7 +1597,7 @@ SnapBuildSerialize(SnapBuild *builder, XLogRecPtr lsn)
 
 	/*
 	 * We may overwrite the work from some other backend, but that's ok, our
-	 * snapshot is valid as well, we'll just have done some superflous work.
+	 * snapshot is valid as well, we'll just have done some superfluous work.
 	 */
 	if (rename(tmppath, path) != 0)
 	{
@@ -1634,7 +1634,7 @@ SnapBuildRestore(SnapBuild *builder, XLogRecPtr lsn)
 	char		path[MAXPGPATH];
 	Size		sz;
 	int			readBytes;
-	pg_crc32	checksum;
+	pg_crc32c	checksum;
 
 	/* no point in loading a snapshot if we're already there */
 	if (builder->state == SNAPBUILD_CONSISTENT)

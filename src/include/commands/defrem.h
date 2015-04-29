@@ -50,10 +50,13 @@ extern void SetFunctionArgType(Oid funcOid, int argIndex, Oid newArgType);
 extern ObjectAddress AlterFunction(AlterFunctionStmt *stmt);
 extern ObjectAddress CreateCast(CreateCastStmt *stmt);
 extern void DropCastById(Oid castOid);
+extern Oid CreateTransform(CreateTransformStmt *stmt);
+extern void DropTransformById(Oid transformOid);
 extern void IsThereFunctionInNamespace(const char *proname, int pronargs,
 						   oidvector *proargtypes, Oid nspOid);
 extern void ExecuteDoStmt(DoStmt *stmt);
 extern Oid	get_cast_oid(Oid sourcetypeid, Oid targettypeid, bool missing_ok);
+extern Oid get_transform_oid(Oid type_id, Oid lang_id, bool missing_ok);
 extern void interpret_function_parameter_list(List *parameters,
 								  Oid languageOid,
 								  bool is_aggregate,
@@ -101,7 +104,8 @@ extern ObjectAddress AlterTSDictionary(AlterTSDictionaryStmt *stmt);
 extern ObjectAddress DefineTSTemplate(List *names, List *parameters);
 extern void RemoveTSTemplateById(Oid tmplId);
 
-extern ObjectAddress DefineTSConfiguration(List *names, List *parameters);
+extern ObjectAddress DefineTSConfiguration(List *names, List *parameters,
+					  ObjectAddress *copied);
 extern void RemoveTSConfigurationById(Oid cfgId);
 extern ObjectAddress AlterTSConfiguration(AlterTSConfigurationStmt *stmt);
 

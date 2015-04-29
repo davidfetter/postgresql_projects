@@ -112,9 +112,6 @@ extern char *temp_tablespaces;
 extern bool ignore_checksum_failure;
 extern bool synchronize_seqscans;
 
-#ifdef TRACE_SORT
-extern bool trace_sort;
-#endif
 #ifdef TRACE_SYNCSCAN
 extern bool trace_syncscan;
 #endif
@@ -129,10 +126,7 @@ char	   *GUC_check_errmsg_string;
 char	   *GUC_check_errdetail_string;
 char	   *GUC_check_errhint_string;
 
-static void
-do_serialize(char **destptr, Size *maxbytes, const char *fmt,...)
-/* This lets gcc check the format string for consistency. */
-pg_attribute_printf(3, 4);
+static void do_serialize(char **destptr, Size *maxbytes, const char *fmt,...) pg_attribute_printf(3, 4);
 
 static void set_config_sourcefile(const char *name, char *sourcefile,
 					  int sourceline);
@@ -2191,7 +2185,7 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_UNIT_XSEGS
 		},
 		&max_wal_size,
-		8, 2, INT_MAX,
+		64, 2, INT_MAX,
 		NULL, assign_max_wal_size, NULL
 	},
 
@@ -8476,7 +8470,7 @@ read_nondefault_variables(void)
  * particular postmaster.  Most PGC_INTERNAL variables are compile-time
  * constants; a few, like server_encoding and lc_ctype, are handled specially
  * outside the serialize/restore procedure.  Therefore, SerializeGUCState()
- * never sends these, and and RestoreGUCState() never changes them.
+ * never sends these, and RestoreGUCState() never changes them.
  */
 static bool
 can_skip_gucvar(struct config_generic * gconf)

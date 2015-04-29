@@ -53,8 +53,11 @@
 #include "catalog/catversion.h"
 #include "catalog/pg_control.h"
 #include "common/fe_memutils.h"
+#include "common/restricted_token.h"
 #include "storage/large_object.h"
 #include "pg_getopt.h"
+#include "replication/logical.h"
+#include "replication/origin.h"
 
 
 static ControlFileData ControlFile;		/* pg_control values */
@@ -310,6 +313,8 @@ main(int argc, char *argv[])
 	}
 #endif
 
+	get_restricted_token(progname);
+
 	if (chdir(DataDir) < 0)
 	{
 		fprintf(stderr, _("%s: could not change directory to \"%s\": %s\n"),
@@ -462,7 +467,7 @@ ReadControlFile(void)
 	int			fd;
 	int			len;
 	char	   *buffer;
-	pg_crc32	crc;
+	pg_crc32c	crc;
 
 	if ((fd = open(XLOG_CONTROL_FILE, O_RDONLY | PG_BINARY, 0)) < 0)
 	{
@@ -1059,7 +1064,7 @@ WriteEmptyXLOG(void)
 	XLogPageHeader page;
 	XLogLongPageHeader longpage;
 	XLogRecord *record;
-	pg_crc32	crc;
+	pg_crc32c	crc;
 	char		path[MAXPGPATH];
 	int			fd;
 	int			nbytes;
@@ -1088,6 +1093,7 @@ WriteEmptyXLOG(void)
 	record->xl_tot_len = SizeOfXLogRecord + SizeOfXLogRecordDataHeaderShort + sizeof(CheckPoint);
 	record->xl_info = XLOG_CHECKPOINT_SHUTDOWN;
 	record->xl_rmid = RM_XLOG_ID;
+
 	recptr += SizeOfXLogRecord;
 	*(recptr++) = XLR_BLOCK_ID_DATA_SHORT;
 	*(recptr++) = sizeof(CheckPoint);

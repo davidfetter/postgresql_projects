@@ -4061,6 +4061,16 @@ parseServiceFile(const char *serviceFile,
 				}
 				*val++ = '\0';
 
+				if (strcmp(key, "service") == 0)
+				{
+					printfPQExpBuffer(errorMessage,
+									  libpq_gettext("nested service specifications not supported in service file \"%s\", line %d\n"),
+									  serviceFile,
+									  linenr);
+					fclose(f);
+					return 3;
+				}
+
 				/*
 				 * Set the parameter --- but don't override any previous
 				 * explicit setting.
@@ -4197,6 +4207,8 @@ parse_connection_string(const char *connstr, PQExpBuffer errorMessage,
  * designators.
  *
  * Returns the URI prefix length, 0 if the string doesn't contain a URI prefix.
+ *
+ * XXX this is duplicated in psql/common.c.
  */
 static int
 uri_prefix_length(const char *connstr)
@@ -4218,6 +4230,8 @@ uri_prefix_length(const char *connstr)
  *
  * Must be consistent with parse_connection_string: anything for which this
  * returns true should at least look like it's parseable by that routine.
+ *
+ * XXX this is duplicated in psql/common.c
  */
 static bool
 recognized_connection_string(const char *connstr)

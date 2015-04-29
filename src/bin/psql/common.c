@@ -1337,7 +1337,7 @@ ExecQueryUsingCursor(const char *query, double *elapsed_msec)
 			 * If query requires multiple result sets, hack to ensure that
 			 * only one pager instance is used for the whole mess
 			 */
-			pset.queryFout = PageOutput(100000, my_popt.topt.pager);
+			pset.queryFout = PageOutput(100000, &(my_popt.topt));
 			did_pager = true;
 		}
 
@@ -1643,6 +1643,24 @@ command_no_begin(const char *query)
 			return true;
 		if (wordlen == 10 && pg_strncasecmp(query, "tablespace", 10) == 0)
 			return true;
+
+		/* DROP INDEX CONCURRENTLY isn't allowed in xacts */
+		if (wordlen == 5 && pg_strncasecmp(query, "index", 5) == 0)
+		{
+			query += wordlen;
+
+			query = skip_white_space(query);
+
+			wordlen = 0;
+			while (isalpha((unsigned char) query[wordlen]))
+				wordlen += PQmblen(&query[wordlen], pset.encoding);
+
+			if (wordlen == 12 && pg_strncasecmp(query, "concurrently", 12) == 0)
+				return true;
+
+			return false;
+		}
+
 		return false;
 	}
 
@@ -1827,4 +1845,45 @@ expand_tilde(char **filename)
 #endif
 
 	return;
+}
+
+/*
+ * Checks if connection string starts with either of the valid URI prefix
+ * designators.
+ *
+ * Returns the URI prefix length, 0 if the string doesn't contain a URI prefix.
+ *
+ * XXX This is a duplicate of the eponymous libpq function.
+ */
+static int
+uri_prefix_length(const char *connstr)
+{
+	/* The connection URI must start with either of the following designators: */
+	static const char uri_designator[] = "postgresql://";
+	static const char short_uri_designator[] = "postgres://";
+
+	if (strncmp(connstr, uri_designator,
+				sizeof(uri_designator) - 1) == 0)
+		return sizeof(uri_designator) - 1;
+
+	if (strncmp(connstr, short_uri_designator,
+				sizeof(short_uri_designator) - 1) == 0)
+		return sizeof(short_uri_designator) - 1;
+
+	return 0;
+}
+
+/*
+ * Recognized connection string either starts with a valid URI prefix or
+ * contains a "=" in it.
+ *
+ * Must be consistent with parse_connection_string: anything for which this
+ * returns true should at least look like it's parseable by that routine.
+ *
+ * XXX This is a duplicate of the eponymous libpq function.
+ */
+bool
+recognized_connection_string(const char *connstr)
+{
+	return uri_prefix_length(connstr) != 0 || strchr(connstr, '=') != NULL;
 }

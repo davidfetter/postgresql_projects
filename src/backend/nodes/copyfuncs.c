@@ -993,6 +993,8 @@ _copyPlanRowMark(const PlanRowMark *from)
 	COPY_SCALAR_FIELD(prti);
 	COPY_SCALAR_FIELD(rowmarkId);
 	COPY_SCALAR_FIELD(markType);
+	COPY_SCALAR_FIELD(allMarkTypes);
+	COPY_SCALAR_FIELD(strength);
 	COPY_SCALAR_FIELD(waitPolicy);
 	COPY_SCALAR_FIELD(isParent);
 
@@ -2102,7 +2104,8 @@ _copyWithCheckOption(const WithCheckOption *from)
 {
 	WithCheckOption *newnode = makeNode(WithCheckOption);
 
-	COPY_STRING_FIELD(viewname);
+	COPY_SCALAR_FIELD(kind);
+	COPY_STRING_FIELD(relname);
 	COPY_NODE_FIELD(qual);
 	COPY_SCALAR_FIELD(cascaded);
 
@@ -2562,7 +2565,7 @@ _copyXmlSerialize(const XmlSerialize *from)
 static RoleSpec *
 _copyRoleSpec(const RoleSpec *from)
 {
-	RoleSpec *newnode = makeNode(RoleSpec);
+	RoleSpec   *newnode = makeNode(RoleSpec);
 
 	COPY_SCALAR_FIELD(roletype);
 	COPY_STRING_FIELD(rolename);
@@ -3351,10 +3354,6 @@ _copyVacuumStmt(const VacuumStmt *from)
 	VacuumStmt *newnode = makeNode(VacuumStmt);
 
 	COPY_SCALAR_FIELD(options);
-	COPY_SCALAR_FIELD(freeze_min_age);
-	COPY_SCALAR_FIELD(freeze_table_age);
-	COPY_SCALAR_FIELD(multixact_freeze_min_age);
-	COPY_SCALAR_FIELD(multixact_freeze_table_age);
 	COPY_NODE_FIELD(relation);
 	COPY_NODE_FIELD(va_cols);
 
@@ -3675,6 +3674,20 @@ _copyImportForeignSchemaStmt(const ImportForeignSchemaStmt *from)
 	COPY_SCALAR_FIELD(list_type);
 	COPY_NODE_FIELD(table_list);
 	COPY_NODE_FIELD(options);
+
+	return newnode;
+}
+
+static CreateTransformStmt *
+_copyCreateTransformStmt(const CreateTransformStmt *from)
+{
+	CreateTransformStmt *newnode = makeNode(CreateTransformStmt);
+
+	COPY_SCALAR_FIELD(replace);
+	COPY_NODE_FIELD(type_name);
+	COPY_STRING_FIELD(lang);
+	COPY_NODE_FIELD(fromsql);
+	COPY_NODE_FIELD(tosql);
 
 	return newnode;
 }
@@ -4627,6 +4640,9 @@ copyObject(const void *from)
 			break;
 		case T_ImportForeignSchemaStmt:
 			retval = _copyImportForeignSchemaStmt(from);
+			break;
+		case T_CreateTransformStmt:
+			retval = _copyCreateTransformStmt(from);
 			break;
 		case T_CreateTrigStmt:
 			retval = _copyCreateTrigStmt(from);

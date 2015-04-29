@@ -1128,7 +1128,9 @@ psql_completion(const char *text, int start, int end)
 			 pg_strcasecmp(prev2_wd, "TABLE") == 0)
 	{
 		static const char *const list_ALTER_FOREIGN_TABLE[] =
-		{"ALTER", "DROP", "RENAME", "OWNER TO", "SET SCHEMA", NULL};
+		{"ADD", "ALTER", "DISABLE TRIGGER", "DROP", "ENABLE", "INHERIT",
+		"NO INHERIT", "OPTIONS", "OWNER TO", "RENAME", "SET",
+		"VALIDATE CONSTRAINT", NULL};
 
 		COMPLETE_WITH_LIST(list_ALTER_FOREIGN_TABLE);
 	}
@@ -1788,6 +1790,7 @@ psql_completion(const char *text, int start, int end)
 			"autovacuum_vacuum_scale_factor",
 			"autovacuum_vacuum_threshold",
 			"fillfactor",
+			"log_autovacuum_min_duration",
 			"toast.autovacuum_enabled",
 			"toast.autovacuum_freeze_max_age",
 			"toast.autovacuum_freeze_min_age",
@@ -1799,6 +1802,7 @@ psql_completion(const char *text, int start, int end)
 			"toast.autovacuum_vacuum_cost_limit",
 			"toast.autovacuum_vacuum_scale_factor",
 			"toast.autovacuum_vacuum_threshold",
+			"toast.log_autovacuum_min_duration",
 			"user_catalog_table",
 			NULL
 		};
@@ -3707,10 +3711,15 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH_LIST_CS(my_list);
 	}
 	else if (strcmp(prev_wd, "\\connect") == 0 || strcmp(prev_wd, "\\c") == 0)
-		COMPLETE_WITH_QUERY(Query_for_list_of_databases);
+	{
+		if (!recognized_connection_string(text))
+			COMPLETE_WITH_QUERY(Query_for_list_of_databases);
+	}
 	else if (strcmp(prev2_wd, "\\connect") == 0 || strcmp(prev2_wd, "\\c") == 0)
-		COMPLETE_WITH_QUERY(Query_for_list_of_roles);
-
+	{
+		if (!recognized_connection_string(prev_wd))
+			COMPLETE_WITH_QUERY(Query_for_list_of_roles);
+	}
 	else if (strncmp(prev_wd, "\\da", strlen("\\da")) == 0)
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_aggregates, NULL);
 	else if (strncmp(prev_wd, "\\db", strlen("\\db")) == 0)
@@ -3790,8 +3799,8 @@ psql_completion(const char *text, int start, int end)
 		if (strcmp(prev_wd, "format") == 0)
 		{
 			static const char *const my_list[] =
-			{"unaligned", "aligned", "wrapped", "html", "latex",
-			"troff-ms", NULL};
+			{"unaligned", "aligned", "wrapped", "html", "asciidoc",
+			"latex", "latex-longtable", "troff-ms", NULL};
 
 			COMPLETE_WITH_LIST_CS(my_list);
 		}

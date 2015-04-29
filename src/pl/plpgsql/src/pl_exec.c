@@ -153,6 +153,8 @@ static int exec_stmt_return_query(PLpgSQL_execstate *estate,
 					   PLpgSQL_stmt_return_query *stmt);
 static int exec_stmt_raise(PLpgSQL_execstate *estate,
 				PLpgSQL_stmt_raise *stmt);
+static int exec_stmt_assert(PLpgSQL_execstate *estate,
+				 PLpgSQL_stmt_assert *stmt);
 static int exec_stmt_execsql(PLpgSQL_execstate *estate,
 				  PLpgSQL_stmt_execsql *stmt);
 static int exec_stmt_dynexecute(PLpgSQL_execstate *estate,
@@ -363,8 +365,8 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 		estate.err_text = NULL;
 
 		/*
-		 * Provide a more helpful message if a CONTINUE or RAISE has been used
-		 * outside the context it can work in.
+		 * Provide a more helpful message if a CONTINUE has been used outside
+		 * the context it can work in.
 		 */
 		if (rc == PLPGSQL_RC_CONTINUE)
 			ereport(ERROR,
@@ -730,8 +732,8 @@ plpgsql_exec_trigger(PLpgSQL_function *func,
 		estate.err_text = NULL;
 
 		/*
-		 * Provide a more helpful message if a CONTINUE or RAISE has been used
-		 * outside the context it can work in.
+		 * Provide a more helpful message if a CONTINUE has been used outside
+		 * the context it can work in.
 		 */
 		if (rc == PLPGSQL_RC_CONTINUE)
 			ereport(ERROR,
@@ -862,8 +864,8 @@ plpgsql_exec_event_trigger(PLpgSQL_function *func, EventTriggerData *trigdata)
 		estate.err_text = NULL;
 
 		/*
-		 * Provide a more helpful message if a CONTINUE or RAISE has been used
-		 * outside the context it can work in.
+		 * Provide a more helpful message if a CONTINUE has been used outside
+		 * the context it can work in.
 		 */
 		if (rc == PLPGSQL_RC_CONTINUE)
 			ereport(ERROR,
@@ -1027,12 +1029,14 @@ exception_matches_conditions(ErrorData *edata, PLpgSQL_condition *cond)
 		int			sqlerrstate = cond->sqlerrstate;
 
 		/*
-		 * OTHERS matches everything *except* query-canceled; if you're
-		 * foolish enough, you can match that explicitly.
+		 * OTHERS matches everything *except* query-canceled and
+		 * assert-failure.  If you're foolish enough, you can match those
+		 * explicitly.
 		 */
 		if (sqlerrstate == 0)
 		{
-			if (edata->sqlerrcode != ERRCODE_QUERY_CANCELED)
+			if (edata->sqlerrcode != ERRCODE_QUERY_CANCELED &&
+				edata->sqlerrcode != ERRCODE_ASSERT_FAILURE)
 				return true;
 		}
 		/* Exact match? */
@@ -1469,6 +1473,10 @@ exec_stmt(PLpgSQL_execstate *estate, PLpgSQL_stmt *stmt)
 
 		case PLPGSQL_STMT_RAISE:
 			rc = exec_stmt_raise(estate, (PLpgSQL_stmt_raise *) stmt);
+			break;
+
+		case PLPGSQL_STMT_ASSERT:
+			rc = exec_stmt_assert(estate, (PLpgSQL_stmt_assert *) stmt);
 			break;
 
 		case PLPGSQL_STMT_EXECSQL:
@@ -2315,7 +2323,7 @@ exec_stmt_foreach_a(PLpgSQL_execstate *estate, PLpgSQL_stmt_foreach_a *stmt)
 			  errmsg("FOREACH loop variable must not be of an array type")));
 
 	/* Create an iterator to step through the array */
-	array_iterator = array_create_iterator(arr, stmt->slice);
+	array_iterator = array_create_iterator(arr, stmt->slice, NULL);
 
 	/* Identify iterator result type */
 	if (stmt->slice > 0)
@@ -3117,6 +3125,48 @@ exec_stmt_raise(PLpgSQL_execstate *estate, PLpgSQL_stmt_raise *stmt)
 	return PLPGSQL_RC_OK;
 }
 
+/* ----------
+ * exec_stmt_assert			Assert statement
+ * ----------
+ */
+static int
+exec_stmt_assert(PLpgSQL_execstate *estate, PLpgSQL_stmt_assert *stmt)
+{
+	bool		value;
+	bool		isnull;
+
+	/* do nothing when asserts are not enabled */
+	if (!plpgsql_check_asserts)
+		return PLPGSQL_RC_OK;
+
+	value = exec_eval_boolean(estate, stmt->cond, &isnull);
+	exec_eval_cleanup(estate);
+
+	if (isnull || !value)
+	{
+		char	   *message = NULL;
+
+		if (stmt->message != NULL)
+		{
+			Datum		val;
+			Oid			typeid;
+			int32		typmod;
+
+			val = exec_eval_expr(estate, stmt->message,
+								 &isnull, &typeid, &typmod);
+			if (!isnull)
+				message = convert_value_to_string(estate, val, typeid);
+			/* we mustn't do exec_eval_cleanup here */
+		}
+
+		ereport(ERROR,
+				(errcode(ERRCODE_ASSERT_FAILURE),
+				 message ? errmsg_internal("%s", message) :
+				 errmsg("assertion failed")));
+	}
+
+	return PLPGSQL_RC_OK;
+}
 
 /* ----------
  * Initialize a mostly empty execution state
@@ -3219,7 +3269,7 @@ plpgsql_estate_setup(PLpgSQL_execstate *estate,
  * unless it is a pass-by-value datatype.
  *
  * NB: if you change this code, see also the hacks in exec_assign_value's
- * PLPGSQL_DTYPE_ARRAYELEM case.
+ * PLPGSQL_DTYPE_ARRAYELEM case for partial cleanup after subscript evals.
  * ----------
  */
 static void
@@ -4749,8 +4799,7 @@ exec_get_datum_type_info(PLpgSQL_execstate *estate,
  * Note we do not do exec_eval_cleanup here; the caller must do it at
  * some later point.  (We do this because the caller may be holding the
  * results of other, pass-by-reference, expression evaluations, such as
- * an array value to be subscripted.  Also see notes in exec_eval_simple_expr
- * about allocation of the parameter array.)
+ * an array value to be subscripted.)
  * ----------
  */
 static int

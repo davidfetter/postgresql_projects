@@ -1390,16 +1390,22 @@ pg_prepared_xacts| SELECT p.transaction,
    FROM ((pg_prepared_xact() p(transaction, gid, prepared, ownerid, dbid)
      LEFT JOIN pg_authid u ON ((p.ownerid = u.oid)))
      LEFT JOIN pg_database d ON ((p.dbid = d.oid)));
+pg_replication_origin_status| SELECT pg_show_replication_origin_status.local_id,
+    pg_show_replication_origin_status.external_id,
+    pg_show_replication_origin_status.remote_lsn,
+    pg_show_replication_origin_status.local_lsn
+   FROM pg_show_replication_origin_status() pg_show_replication_origin_status(local_id, external_id, remote_lsn, local_lsn);
 pg_replication_slots| SELECT l.slot_name,
     l.plugin,
     l.slot_type,
     l.datoid,
     d.datname AS database,
     l.active,
+    l.active_pid,
     l.xmin,
     l.catalog_xmin,
     l.restart_lsn
-   FROM (pg_get_replication_slots() l(slot_name, plugin, slot_type, datoid, active, xmin, catalog_xmin, restart_lsn)
+   FROM (pg_get_replication_slots() l(slot_name, plugin, slot_type, datoid, active, active_pid, xmin, catalog_xmin, restart_lsn)
      LEFT JOIN pg_database d ON ((l.datoid = d.oid)));
 pg_roles| SELECT pg_authid.rolname,
     pg_authid.rolsuper,
@@ -1633,7 +1639,7 @@ pg_stat_activity| SELECT s.datid,
     s.backend_xmin,
     s.query
    FROM pg_database d,
-    pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, waiting, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin),
+    pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, waiting, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, ssl, sslversion, sslcipher, sslbits, sslcompression, sslclientdn),
     pg_authid u
   WHERE ((s.datid = d.oid) AND (s.usesysid = u.oid));
 pg_stat_all_indexes| SELECT c.oid AS relid,
@@ -1739,10 +1745,18 @@ pg_stat_replication| SELECT s.pid,
     w.replay_location,
     w.sync_priority,
     w.sync_state
-   FROM pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, waiting, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin),
+   FROM pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, waiting, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, ssl, sslversion, sslcipher, sslbits, sslcompression, sslclientdn),
     pg_authid u,
     pg_stat_get_wal_senders() w(pid, state, sent_location, write_location, flush_location, replay_location, sync_priority, sync_state)
   WHERE ((s.usesysid = u.oid) AND (s.pid = w.pid));
+pg_stat_ssl| SELECT s.pid,
+    s.ssl,
+    s.sslversion AS version,
+    s.sslcipher AS cipher,
+    s.sslbits AS bits,
+    s.sslcompression AS compression,
+    s.sslclientdn AS clientdn
+   FROM pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, waiting, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, ssl, sslversion, sslcipher, sslbits, sslcompression, sslclientdn);
 pg_stat_sys_indexes| SELECT pg_stat_all_indexes.relid,
     pg_stat_all_indexes.indexrelid,
     pg_stat_all_indexes.schemaname,

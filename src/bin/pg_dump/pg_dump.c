@@ -165,6 +165,7 @@ static void dumpShellType(Archive *fout, DumpOptions *dopt, ShellTypeInfo *stinf
 static void dumpProcLang(Archive *fout, DumpOptions *dopt, ProcLangInfo *plang);
 static void dumpFunc(Archive *fout, DumpOptions *dopt, FuncInfo *finfo);
 static void dumpCast(Archive *fout, DumpOptions *dopt, CastInfo *cast);
+static void dumpTransform(Archive *fout, DumpOptions *dopt, TransformInfo *transform);
 static void dumpOpr(Archive *fout, DumpOptions *dopt, OprInfo *oprinfo);
 static void dumpOpclass(Archive *fout, DumpOptions *dopt, OpclassInfo *opcinfo);
 static void dumpOpfamily(Archive *fout, DumpOptions *dopt, OpfamilyInfo *opfinfo);
@@ -3045,7 +3046,7 @@ binary_upgrade_set_type_oids_by_type_oid(Archive *fout,
 
 	appendPQExpBufferStr(upgrade_buffer, "\n-- For binary upgrade, must preserve pg_type oid\n");
 	appendPQExpBuffer(upgrade_buffer,
-	 "SELECT binary_upgrade.set_next_pg_type_oid('%u'::pg_catalog.oid);\n\n",
+	 "SELECT pg_catalog.binary_upgrade_set_next_pg_type_oid('%u'::pg_catalog.oid);\n\n",
 					  pg_type_oid);
 
 	/* we only support old >= 8.3 for binary upgrades */
@@ -3064,7 +3065,7 @@ binary_upgrade_set_type_oids_by_type_oid(Archive *fout,
 		appendPQExpBufferStr(upgrade_buffer,
 			   "\n-- For binary upgrade, must preserve pg_type array oid\n");
 		appendPQExpBuffer(upgrade_buffer,
-						  "SELECT binary_upgrade.set_next_array_pg_type_oid('%u'::pg_catalog.oid);\n\n",
+						  "SELECT pg_catalog.binary_upgrade_set_next_array_pg_type_oid('%u'::pg_catalog.oid);\n\n",
 						  pg_type_array_oid);
 	}
 
@@ -3106,7 +3107,7 @@ binary_upgrade_set_type_oids_by_rel_oid(Archive *fout,
 
 		appendPQExpBufferStr(upgrade_buffer, "\n-- For binary upgrade, must preserve pg_type toast oid\n");
 		appendPQExpBuffer(upgrade_buffer,
-						  "SELECT binary_upgrade.set_next_toast_pg_type_oid('%u'::pg_catalog.oid);\n\n",
+						  "SELECT pg_catalog.binary_upgrade_set_next_toast_pg_type_oid('%u'::pg_catalog.oid);\n\n",
 						  pg_type_toast_oid);
 
 		toast_set = true;
@@ -3146,7 +3147,7 @@ binary_upgrade_set_pg_class_oids(Archive *fout,
 	if (!is_index)
 	{
 		appendPQExpBuffer(upgrade_buffer,
-						  "SELECT binary_upgrade.set_next_heap_pg_class_oid('%u'::pg_catalog.oid);\n",
+						  "SELECT pg_catalog.binary_upgrade_set_next_heap_pg_class_oid('%u'::pg_catalog.oid);\n",
 						  pg_class_oid);
 		/* only tables have toast tables, not indexes */
 		if (OidIsValid(pg_class_reltoastrelid))
@@ -3161,18 +3162,18 @@ binary_upgrade_set_pg_class_oids(Archive *fout,
 			 */
 
 			appendPQExpBuffer(upgrade_buffer,
-							  "SELECT binary_upgrade.set_next_toast_pg_class_oid('%u'::pg_catalog.oid);\n",
+							  "SELECT pg_catalog.binary_upgrade_set_next_toast_pg_class_oid('%u'::pg_catalog.oid);\n",
 							  pg_class_reltoastrelid);
 
 			/* every toast table has an index */
 			appendPQExpBuffer(upgrade_buffer,
-							  "SELECT binary_upgrade.set_next_index_pg_class_oid('%u'::pg_catalog.oid);\n",
+							  "SELECT pg_catalog.binary_upgrade_set_next_index_pg_class_oid('%u'::pg_catalog.oid);\n",
 							  pg_index_indexrelid);
 		}
 	}
 	else
 		appendPQExpBuffer(upgrade_buffer,
-						  "SELECT binary_upgrade.set_next_index_pg_class_oid('%u'::pg_catalog.oid);\n",
+						  "SELECT pg_catalog.binary_upgrade_set_next_index_pg_class_oid('%u'::pg_catalog.oid);\n",
 						  pg_class_oid);
 
 	appendPQExpBufferChar(upgrade_buffer, '\n');
@@ -6566,6 +6567,110 @@ getCasts(Archive *fout, DumpOptions *dopt, int *numCasts)
 	return castinfo;
 }
 
+static char *
+get_language_name(Archive *fout, Oid langid)
+{
+	PQExpBuffer query;
+	PGresult   *res;
+	char	   *lanname;
+
+	query = createPQExpBuffer();
+	appendPQExpBuffer(query, "SELECT lanname FROM pg_language WHERE oid = %u", langid);
+	res = ExecuteSqlQueryForSingleRow(fout, query->data);
+	lanname = pg_strdup(fmtId(PQgetvalue(res, 0, 0)));
+	destroyPQExpBuffer(query);
+	PQclear(res);
+
+	return lanname;
+}
+
+/*
+ * getTransforms
+ *	  get basic information about every transform in the system
+ *
+ * numTransforms is set to the number of transforms read in
+ */
+TransformInfo *
+getTransforms(Archive *fout, int *numTransforms)
+{
+	PGresult   *res;
+	int			ntups;
+	int			i;
+	PQExpBuffer query = createPQExpBuffer();
+	TransformInfo   *transforminfo;
+	int			i_tableoid;
+	int			i_oid;
+	int			i_trftype;
+	int			i_trflang;
+	int			i_trffromsql;
+	int			i_trftosql;
+
+	/* Transforms didn't exist pre-9.5 */
+	if (fout->remoteVersion < 90500)
+	{
+		*numTransforms = 0;
+		return NULL;
+	}
+
+	/* Make sure we are in proper schema */
+	selectSourceSchema(fout, "pg_catalog");
+
+	appendPQExpBuffer(query, "SELECT tableoid, oid, "
+					  "trftype, trflang, trffromsql::oid, trftosql::oid "
+					  "FROM pg_transform "
+					  "ORDER BY 3,4");
+
+	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
+
+	ntups = PQntuples(res);
+
+	*numTransforms = ntups;
+
+	transforminfo = (TransformInfo *) pg_malloc(ntups * sizeof(TransformInfo));
+
+	i_tableoid = PQfnumber(res, "tableoid");
+	i_oid = PQfnumber(res, "oid");
+	i_trftype = PQfnumber(res, "trftype");
+	i_trflang = PQfnumber(res, "trflang");
+	i_trffromsql = PQfnumber(res, "trffromsql");
+	i_trftosql = PQfnumber(res, "trftosql");
+
+	for (i = 0; i < ntups; i++)
+	{
+		PQExpBufferData namebuf;
+		TypeInfo   *typeInfo;
+		char	   *lanname;
+
+		transforminfo[i].dobj.objType = DO_TRANSFORM;
+		transforminfo[i].dobj.catId.tableoid = atooid(PQgetvalue(res, i, i_tableoid));
+		transforminfo[i].dobj.catId.oid = atooid(PQgetvalue(res, i, i_oid));
+		AssignDumpId(&transforminfo[i].dobj);
+		transforminfo[i].trftype = atooid(PQgetvalue(res, i, i_trftype));
+		transforminfo[i].trflang = atooid(PQgetvalue(res, i, i_trflang));
+		transforminfo[i].trffromsql = atooid(PQgetvalue(res, i, i_trffromsql));
+		transforminfo[i].trftosql = atooid(PQgetvalue(res, i, i_trftosql));
+
+		/*
+		 * Try to name transform as concatenation of type and language name.
+		 * This is only used for purposes of sorting.  If we fail to find
+		 * either, the name will be an empty string.
+		 */
+		initPQExpBuffer(&namebuf);
+		typeInfo = findTypeByOid(transforminfo[i].trftype);
+		lanname = get_language_name(fout, transforminfo[i].trflang);
+		if (typeInfo && lanname)
+			appendPQExpBuffer(&namebuf, "%s %s",
+							  typeInfo->dobj.name, lanname);
+		transforminfo[i].dobj.name = namebuf.data;
+	}
+
+	PQclear(res);
+
+	destroyPQExpBuffer(query);
+
+	return transforminfo;
+}
+
 /*
  * getTableAttrs -
  *	  for each interesting table, read info about its attributes
@@ -8182,6 +8287,9 @@ dumpDumpableObject(Archive *fout, DumpOptions *dopt, DumpableObject *dobj)
 		case DO_CAST:
 			dumpCast(fout, dopt, (CastInfo *) dobj);
 			break;
+		case DO_TRANSFORM:
+			dumpTransform(fout, dopt, (TransformInfo *) dobj);
+			break;
 		case DO_TABLE_DATA:
 			if (((TableDataInfo *) dobj)->tdtable->relkind == RELKIND_SEQUENCE)
 				dumpSequenceData(fout, (TableDataInfo *) dobj);
@@ -8352,7 +8460,7 @@ dumpExtension(Archive *fout, DumpOptions *dopt, ExtensionInfo *extinfo)
 		appendPQExpBuffer(q, "DROP EXTENSION IF EXISTS %s;\n", qextname);
 
 		appendPQExpBufferStr(q,
-							 "SELECT binary_upgrade.create_empty_extension(");
+							 "SELECT pg_catalog.binary_upgrade_create_empty_extension(");
 		appendStringLiteralAH(q, extinfo->dobj.name, fout);
 		appendPQExpBufferStr(q, ", ");
 		appendStringLiteralAH(q, extinfo->namespace, fout);
@@ -8530,7 +8638,7 @@ dumpEnumType(Archive *fout, DumpOptions *dopt, TypeInfo *tyinfo)
 			if (i == 0)
 				appendPQExpBufferStr(q, "\n-- For binary upgrade, must preserve pg_enum oids\n");
 			appendPQExpBuffer(q,
-							  "SELECT binary_upgrade.set_next_pg_enum_oid('%u'::pg_catalog.oid);\n",
+							  "SELECT pg_catalog.binary_upgrade_set_next_pg_enum_oid('%u'::pg_catalog.oid);\n",
 							  enum_oid);
 			appendPQExpBuffer(q, "ALTER TYPE %s.",
 							  fmtId(tyinfo->dobj.namespace->dobj.name));
@@ -9989,6 +10097,7 @@ dumpFunc(Archive *fout, DumpOptions *dopt, FuncInfo *finfo)
 	char	   *proallargtypes;
 	char	   *proargmodes;
 	char	   *proargnames;
+	char	   *protrftypes;
 	char	   *proiswindow;
 	char	   *provolatile;
 	char	   *proisstrict;
@@ -10021,10 +10130,28 @@ dumpFunc(Archive *fout, DumpOptions *dopt, FuncInfo *finfo)
 	selectSourceSchema(fout, finfo->dobj.namespace->dobj.name);
 
 	/* Fetch function-specific details */
-	if (fout->remoteVersion >= 90200)
+	if (fout->remoteVersion >= 90500)
 	{
 		/*
-		 * proleakproof was added at v9.2
+		 * protrftypes was added in 9.5
+		 */
+		appendPQExpBuffer(query,
+						  "SELECT proretset, prosrc, probin, "
+					"pg_catalog.pg_get_function_arguments(oid) AS funcargs, "
+		  "pg_catalog.pg_get_function_identity_arguments(oid) AS funciargs, "
+					 "pg_catalog.pg_get_function_result(oid) AS funcresult, "
+						  "array_to_string(protrftypes, ' ') AS protrftypes, "
+						  "proiswindow, provolatile, proisstrict, prosecdef, "
+						  "proleakproof, proconfig, procost, prorows, "
+						  "(SELECT lanname FROM pg_catalog.pg_language WHERE oid = prolang) AS lanname "
+						  "FROM pg_catalog.pg_proc "
+						  "WHERE oid = '%u'::pg_catalog.oid",
+						  finfo->dobj.catId.oid);
+	}
+	else if (fout->remoteVersion >= 90200)
+	{
+		/*
+		 * proleakproof was added in 9.2
 		 */
 		appendPQExpBuffer(query,
 						  "SELECT proretset, prosrc, probin, "
@@ -10173,6 +10300,10 @@ dumpFunc(Archive *fout, DumpOptions *dopt, FuncInfo *finfo)
 		proargnames = PQgetvalue(res, 0, PQfnumber(res, "proargnames"));
 		funcargs = funciargs = funcresult = NULL;
 	}
+	if (PQfnumber(res, "protrftypes") != -1)
+		protrftypes = PQgetvalue(res, 0, PQfnumber(res, "protrftypes"));
+	else
+		protrftypes = NULL;
 	proiswindow = PQgetvalue(res, 0, PQfnumber(res, "proiswindow"));
 	provolatile = PQgetvalue(res, 0, PQfnumber(res, "provolatile"));
 	proisstrict = PQgetvalue(res, 0, PQfnumber(res, "proisstrict"));
@@ -10315,6 +10446,22 @@ dumpFunc(Archive *fout, DumpOptions *dopt, FuncInfo *finfo)
 	}
 
 	appendPQExpBuffer(q, "\n    LANGUAGE %s", fmtId(lanname));
+
+	if (protrftypes != NULL && strcmp(protrftypes, "") != 0)
+	{
+		Oid *typeids = palloc(FUNC_MAX_ARGS * sizeof(Oid));
+		int i;
+
+		appendPQExpBufferStr(q, " TRANSFORM ");
+		parseOidArray(protrftypes, typeids, FUNC_MAX_ARGS);
+		for (i = 0; typeids[i]; i++)
+		{
+			if (i != 0)
+				appendPQExpBufferStr(q, ", ");
+			appendPQExpBuffer(q, "FOR TYPE %s",
+							  getFormattedTypeName(fout, typeids[i], zeroAsNone));
+		}
+	}
 
 	if (proiswindow[0] == 't')
 		appendPQExpBufferStr(q, " WINDOW");
@@ -10538,6 +10685,127 @@ dumpCast(Archive *fout, DumpOptions *dopt, CastInfo *cast)
 	destroyPQExpBuffer(delqry);
 	destroyPQExpBuffer(labelq);
 }
+
+/*
+ * Dump a transform
+ */
+static void
+dumpTransform(Archive *fout, DumpOptions *dopt, TransformInfo *transform)
+{
+	PQExpBuffer defqry;
+	PQExpBuffer delqry;
+	PQExpBuffer labelq;
+	FuncInfo   *fromsqlFuncInfo = NULL;
+	FuncInfo   *tosqlFuncInfo = NULL;
+	char	   *lanname;
+
+	/* Skip if not to be dumped */
+	if (!transform->dobj.dump || dopt->dataOnly)
+		return;
+
+	/* Cannot dump if we don't have the transform functions' info */
+	if (OidIsValid(transform->trffromsql))
+	{
+		fromsqlFuncInfo = findFuncByOid(transform->trffromsql);
+		if (fromsqlFuncInfo == NULL)
+			return;
+	}
+	if (OidIsValid(transform->trftosql))
+	{
+		tosqlFuncInfo = findFuncByOid(transform->trftosql);
+		if (tosqlFuncInfo == NULL)
+			return;
+	}
+
+	/* Make sure we are in proper schema (needed for getFormattedTypeName) */
+	selectSourceSchema(fout, "pg_catalog");
+
+	defqry = createPQExpBuffer();
+	delqry = createPQExpBuffer();
+	labelq = createPQExpBuffer();
+
+	lanname = get_language_name(fout, transform->trflang);
+
+	appendPQExpBuffer(delqry, "DROP TRANSFORM FOR %s LANGUAGE %s;\n",
+					  getFormattedTypeName(fout, transform->trftype, zeroAsNone),
+					  lanname);
+
+	appendPQExpBuffer(defqry, "CREATE TRANSFORM FOR %s LANGUAGE %s (",
+					  getFormattedTypeName(fout, transform->trftype, zeroAsNone),
+					  lanname);
+
+	if (!transform->trffromsql && !transform->trftosql)
+		write_msg(NULL, "WARNING: bogus transform definition, at least one of trffromsql and trftosql should be nonzero\n");
+
+	if (transform->trffromsql)
+	{
+		if (fromsqlFuncInfo)
+		{
+			char	   *fsig = format_function_signature(fout, fromsqlFuncInfo, true);
+
+			/*
+			 * Always qualify the function name, in case it is not in
+			 * pg_catalog schema (format_function_signature won't qualify
+			 * it).
+			 */
+			appendPQExpBuffer(defqry, "FROM SQL WITH FUNCTION %s.%s",
+							  fmtId(fromsqlFuncInfo->dobj.namespace->dobj.name), fsig);
+			free(fsig);
+		}
+		else
+			write_msg(NULL, "WARNING: bogus value in pg_transform.trffromsql field\n");
+	}
+
+	if (transform->trftosql)
+	{
+		if (transform->trffromsql)
+			appendPQExpBuffer(defqry, ", ");
+
+		if (tosqlFuncInfo)
+		{
+			char	   *fsig = format_function_signature(fout, tosqlFuncInfo, true);
+
+			/*
+			 * Always qualify the function name, in case it is not in
+			 * pg_catalog schema (format_function_signature won't qualify
+			 * it).
+			 */
+			appendPQExpBuffer(defqry, "TO SQL WITH FUNCTION %s.%s",
+							  fmtId(tosqlFuncInfo->dobj.namespace->dobj.name), fsig);
+			free(fsig);
+		}
+		else
+			write_msg(NULL, "WARNING: bogus value in pg_transform.trftosql field\n");
+	}
+
+	appendPQExpBuffer(defqry, ");\n");
+
+	appendPQExpBuffer(labelq, "TRANSFORM FOR %s LANGUAGE %s",
+					  getFormattedTypeName(fout, transform->trftype, zeroAsNone),
+					  lanname);
+
+	if (dopt->binary_upgrade)
+		binary_upgrade_extension_member(defqry, &transform->dobj, labelq->data);
+
+	ArchiveEntry(fout, transform->dobj.catId, transform->dobj.dumpId,
+				 labelq->data,
+				 "pg_catalog", NULL, "",
+				 false, "TRANSFORM", SECTION_PRE_DATA,
+				 defqry->data, delqry->data, NULL,
+				 transform->dobj.dependencies, transform->dobj.nDeps,
+				 NULL, NULL);
+
+	/* Dump Transform Comments */
+	dumpComment(fout, dopt, labelq->data,
+				NULL, "",
+				transform->dobj.catId, 0, transform->dobj.dumpId);
+
+	free(lanname);
+	destroyPQExpBuffer(defqry);
+	destroyPQExpBuffer(delqry);
+	destroyPQExpBuffer(labelq);
+}
+
 
 /*
  * dumpOpr
@@ -13742,14 +14010,15 @@ dumpTableSchema(Archive *fout, DumpOptions *dopt, TableInfo *tbinfo)
 		 * here, also updating their attlen/attalign values so that the
 		 * dropped column can be skipped properly.  (We do not bother with
 		 * restoring the original attbyval setting.)  Also, inheritance
-		 * relationships are set up by doing ALTER INHERIT rather than using
+		 * relationships are set up by doing ALTER TABLE INHERIT rather than using
 		 * an INHERITS clause --- the latter would possibly mess up the column
 		 * order.  That also means we have to take care about setting
 		 * attislocal correctly, plus fix up any inherited CHECK constraints.
 		 * Analogously, we set up typed tables using ALTER TABLE / OF here.
 		 */
-		if (dopt->binary_upgrade && (tbinfo->relkind == RELKIND_RELATION ||
-								   tbinfo->relkind == RELKIND_FOREIGN_TABLE))
+		if (dopt->binary_upgrade &&
+			(tbinfo->relkind == RELKIND_RELATION ||
+			 tbinfo->relkind == RELKIND_FOREIGN_TABLE))
 		{
 			for (j = 0; j < tbinfo->numatts; j++)
 			{
@@ -13771,15 +14040,13 @@ dumpTableSchema(Archive *fout, DumpOptions *dopt, TableInfo *tbinfo)
 						appendPQExpBuffer(q, "ALTER TABLE ONLY %s ",
 										  fmtId(tbinfo->dobj.name));
 					else
-						appendPQExpBuffer(q, "ALTER FOREIGN TABLE %s ",
+						appendPQExpBuffer(q, "ALTER FOREIGN TABLE ONLY %s ",
 										  fmtId(tbinfo->dobj.name));
-
 					appendPQExpBuffer(q, "DROP COLUMN %s;\n",
 									  fmtId(tbinfo->attnames[j]));
 				}
 				else if (!tbinfo->attislocal[j])
 				{
-					Assert(tbinfo->relkind != RELKIND_FOREIGN_TABLE);
 					appendPQExpBufferStr(q, "\n-- For binary upgrade, recreate inherited column.\n");
 					appendPQExpBufferStr(q, "UPDATE pg_catalog.pg_attribute\n"
 										 "SET attislocal = false\n"
@@ -13985,7 +14252,8 @@ dumpTableSchema(Archive *fout, DumpOptions *dopt, TableInfo *tbinfo)
 	/*
 	 * dump properties we only have ALTER TABLE syntax for
 	 */
-	if ((tbinfo->relkind == RELKIND_RELATION || tbinfo->relkind == RELKIND_MATVIEW) &&
+	if ((tbinfo->relkind == RELKIND_RELATION ||
+		 tbinfo->relkind == RELKIND_MATVIEW) &&
 		tbinfo->relreplident != REPLICA_IDENTITY_DEFAULT)
 	{
 		if (tbinfo->relreplident == REPLICA_IDENTITY_INDEX)
@@ -14003,6 +14271,10 @@ dumpTableSchema(Archive *fout, DumpOptions *dopt, TableInfo *tbinfo)
 							  fmtId(tbinfo->dobj.name));
 		}
 	}
+
+	if (tbinfo->relkind == RELKIND_FOREIGN_TABLE && tbinfo->hasoids)
+		appendPQExpBuffer(q, "\nALTER TABLE ONLY %s SET WITH OIDS;\n",
+						  fmtId(tbinfo->dobj.name));
 
 	if (dopt->binary_upgrade)
 		binary_upgrade_extension_member(q, &tbinfo->dobj, labelq->data);
@@ -15654,6 +15926,7 @@ addBoundaryDependencies(DumpableObject **dobjs, int numObjs,
 			case DO_TSCONFIG:
 			case DO_FDW:
 			case DO_FOREIGN_SERVER:
+			case DO_TRANSFORM:
 			case DO_BLOB:
 				/* Pre-data objects: must come before the pre-data boundary */
 				addObjectDependency(preDataBound, dobj->dumpId);

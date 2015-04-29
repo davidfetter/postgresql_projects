@@ -125,6 +125,43 @@ undefine([Ac_cachevar])dnl
 ])# PGAC_TYPE_64BIT_INT
 
 
+# PGAC_TYPE_128BIT_INT
+# ---------------------
+# Check if __int128 is a working 128 bit integer type, and if so
+# define PG_INT128_TYPE to that typename.  This currently only detects
+# a GCC/clang extension, but support for different environments may be
+# added in the future.
+#
+# For the moment we only test for support for 128bit math; support for
+# 128bit literals and snprintf is not required.
+AC_DEFUN([PGAC_TYPE_128BIT_INT],
+[AC_CACHE_CHECK([for __int128], [pgac_cv__128bit_int],
+[AC_LINK_IFELSE([AC_LANG_PROGRAM([
+/*
+ * These are globals to discourage the compiler from folding all the
+ * arithmetic tests down to compile-time constants.  We do not have
+ * convenient support for 64bit literals at this point...
+ */
+__int128 a = 48828125;
+__int128 b = 97656255;
+],[
+__int128 c,d;
+a = (a << 12) + 1; /* 200000000001 */
+b = (b << 12) + 5; /* 400000000005 */
+/* use the most relevant arithmetic ops */
+c = a * b;
+d = (c + b) / b;
+/* return different values, to prevent optimizations */
+if (d != a+1)
+  return 0;
+return 1;
+])],
+[pgac_cv__128bit_int=yes],
+[pgac_cv__128bit_int=no])])
+if test x"$pgac_cv__128bit_int" = xyes ; then
+  AC_DEFINE(PG_INT128_TYPE, __int128, [Define to the name of a signed 128-bit integer type.])
+fi])# PGAC_TYPE_128BIT_INT
+
 
 # PGAC_C_FUNCNAME_SUPPORT
 # -----------------------
@@ -436,3 +473,34 @@ AC_DEFUN([PGAC_HAVE_GCC__ATOMIC_INT64_CAS],
 if test x"$pgac_cv_gcc_atomic_int64_cas" = x"yes"; then
   AC_DEFINE(HAVE_GCC__ATOMIC_INT64_CAS, 1, [Define to 1 if you have __atomic_compare_exchange_n(int64 *, int *, int64).])
 fi])# PGAC_HAVE_GCC__ATOMIC_INT64_CAS
+
+# PGAC_SSE42_CRC32_INTRINSICS
+# -----------------------
+# Check if the compiler supports the x86 CRC instructions added in SSE 4.2,
+# using the _mm_crc32_u8 and _mm_crc32_u32 intrinsic functions. (We don't
+# test the 8-byte variant, _mm_crc32_u64, but it is assumed to be present if
+# the other ones are, on x86-64 platforms)
+#
+# An optional compiler flag can be passed as argument (e.g. -msse4.2). If the
+# intrinsics are supported, sets pgac_sse42_crc32_intrinsics, and CFLAGS_SSE42.
+AC_DEFUN([PGAC_SSE42_CRC32_INTRINSICS],
+[define([Ac_cachevar], [AS_TR_SH([pgac_cv_sse42_crc32_intrinsics_$1])])dnl
+AC_CACHE_CHECK([for _mm_crc32_u8 and _mm_crc32_u32 with CFLAGS=$1], [Ac_cachevar],
+[pgac_save_CFLAGS=$CFLAGS
+CFLAGS="$pgac_save_CFLAGS $1"
+ac_save_c_werror_flag=$ac_c_werror_flag
+ac_c_werror_flag=yes
+AC_TRY_LINK([#include <nmmintrin.h>],
+  [unsigned int crc = 0;
+   crc = _mm_crc32_u8(crc, 0);
+   crc = _mm_crc32_u32(crc, 0);],
+  [Ac_cachevar=yes],
+  [Ac_cachevar=no])
+ac_c_werror_flag=$ac_save_c_werror_flag
+CFLAGS="$pgac_save_CFLAGS"])
+if test x"$Ac_cachevar" = x"yes"; then
+  CFLAGS_SSE42="$1"
+  pgac_sse42_crc32_intrinsics=yes
+fi
+undefine([Ac_cachevar])dnl
+])# PGAC_SSE42_CRC32_INTRINSICS

@@ -34,9 +34,6 @@
 #include "utils/pg_locale.h"
 #include "utils/sortsupport.h"
 
-#ifdef DEBUG_ABBREV_KEYS
-#define DEBUG_elog_output	DEBUG1
-#endif
 
 /* GUC variable */
 int			bytea_output = BYTEA_OUTPUT_HEX;
@@ -66,6 +63,7 @@ typedef struct
 	bool				collate_c;
 	hyperLogLogState	abbr_card;	/* Abbreviated key cardinality state */
 	hyperLogLogState	full_card;	/* Full key cardinality state */
+	double				prop_card;	/* Required cardinality proportion */
 #ifdef HAVE_LOCALE_T
 	pg_locale_t locale;
 #endif
@@ -1845,6 +1843,7 @@ btsortsupport_worker(SortSupport ssup, Oid collid)
 		 */
 		if (abbreviate)
 		{
+			tss->prop_card = 0.20;
 			initHyperLogLog(&tss->abbr_card, 10);
 			initHyperLogLog(&tss->full_card, 10);
 			ssup->abbrev_full_comparator = ssup->comparator;
@@ -2084,8 +2083,8 @@ bttext_abbrev_convert(Datum original, SortSupport ssup)
 	 * in order to compensate for cases where differences are past
 	 * PG_CACHE_LINE_SIZE bytes, so as to limit the overhead of hashing.
 	 */
-	hash = hash_any((unsigned char *) authoritative_data,
-					Min(len, PG_CACHE_LINE_SIZE));
+	hash = DatumGetUInt32(hash_any((unsigned char *) authoritative_data,
+								   Min(len, PG_CACHE_LINE_SIZE)));
 
 	if (len > PG_CACHE_LINE_SIZE)
 		hash ^= DatumGetUInt32(hash_uint32((uint32) len));
@@ -2100,10 +2099,10 @@ bttext_abbrev_convert(Datum original, SortSupport ssup)
 
 		lohalf = (uint32) res;
 		hihalf = (uint32) (res >> 32);
-		hash = hash_uint32(lohalf ^ hihalf);
+		hash = DatumGetUInt32(hash_uint32(lohalf ^ hihalf));
 	}
 #else							/* SIZEOF_DATUM != 8 */
-	hash = hash_uint32((uint32) res);
+	hash = DatumGetUInt32(hash_uint32((uint32) res));
 #endif
 
 	addHyperLogLog(&tss->abbr_card, hash);
@@ -2125,7 +2124,7 @@ bttext_abbrev_abort(int memtupcount, SortSupport ssup)
 	Assert(ssup->abbreviate);
 
 	/* Have a little patience */
-	if (memtupcount < 20)
+	if (memtupcount < 100)
 		return false;
 
 	abbrev_distinct = estimateHyperLogLog(&tss->abbr_card);
@@ -2147,12 +2146,15 @@ bttext_abbrev_abort(int memtupcount, SortSupport ssup)
 	 * time there are differences within full key strings not captured in
 	 * abbreviations.
 	 */
-#ifdef DEBUG_ABBREV_KEYS
+#ifdef TRACE_SORT
+	if (trace_sort)
 	{
 		double norm_abbrev_card = abbrev_distinct / (double) memtupcount;
 
-		elog(DEBUG_elog_output, "abbrev_distinct after %d: %f (key_distinct: %f, norm_abbrev_card: %f)",
-			 memtupcount, abbrev_distinct, key_distinct, norm_abbrev_card);
+		elog(LOG, "bttext_abbrev: abbrev_distinct after %d: %f "
+			 "(key_distinct: %f, norm_abbrev_card: %f, prop_card: %f)",
+			 memtupcount, abbrev_distinct, key_distinct, norm_abbrev_card,
+			 tss->prop_card);
 	}
 #endif
 
@@ -2172,8 +2174,38 @@ bttext_abbrev_abort(int memtupcount, SortSupport ssup)
 	 * abbreviated comparison with a cheap memcmp()-based authoritative
 	 * resolution are equivalent.
 	 */
-	if (abbrev_distinct > key_distinct * 0.05)
+	if (abbrev_distinct > key_distinct * tss->prop_card)
+	{
+		/*
+		 * When we have exceeded 10,000 tuples, decay required cardinality
+		 * aggressively for next call.
+		 *
+		 * This is useful because the number of comparisons required on average
+		 * increases at a linearithmic rate, and at roughly 10,000 tuples that
+		 * factor will start to dominate over the linear costs of string
+		 * transformation (this is a conservative estimate).  The decay rate is
+		 * chosen to be a little less aggressive than halving -- which (since
+		 * we're called at points at which memtupcount has doubled) would never
+		 * see the cost model actually abort past the first call following a
+		 * decay.  This decay rate is mostly a precaution against a sudden,
+		 * violent swing in how well abbreviated cardinality tracks full key
+		 * cardinality.  The decay also serves to prevent a marginal case from
+		 * being aborted too late, when too much has already been invested in
+		 * string transformation.
+		 *
+		 * It's possible for sets of several million distinct strings with mere
+		 * tens of thousands of distinct abbreviated keys to still benefit very
+		 * significantly.  This will generally occur provided each abbreviated
+		 * key is a proxy for a roughly uniform number of the set's full keys.
+		 * If it isn't so, we hope to catch that early and abort.  If it isn't
+		 * caught early, by the time the problem is apparent it's probably not
+		 * worth aborting.
+		 */
+		if (memtupcount > 10000)
+			tss->prop_card *= 0.65;
+
 		return false;
+	}
 
 	/*
 	 * Abort abbreviation strategy.
@@ -2186,11 +2218,11 @@ bttext_abbrev_abort(int memtupcount, SortSupport ssup)
 	 * of moderately high to high abbreviated cardinality.  There is little to
 	 * lose but much to gain, which our strategy reflects.
 	 */
-#ifdef DEBUG_ABBREV_KEYS
-	elog(DEBUG_elog_output, "would have aborted abbreviation due to worst-case at %d. abbrev_distinct: %f, key_distinct: %f",
-		 memtupcount, abbrev_distinct, key_distinct);
-	/* Actually abort only when debugging is disabled */
-	return false;
+#ifdef TRACE_SORT
+	if (trace_sort)
+		elog(LOG, "bttext_abbrev: aborted abbreviation at %d "
+			 "(abbrev_distinct: %f, key_distinct: %f, prop_card: %f)",
+			 memtupcount, abbrev_distinct, key_distinct, tss->prop_card);
 #endif
 
 	return true;

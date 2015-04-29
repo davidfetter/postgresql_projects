@@ -366,6 +366,14 @@ does_not_exist_skipping(ObjectType objtype, List *objname, List *objargs)
 				}
 			}
 			break;
+		case OBJECT_TRANSFORM:
+			if (!type_in_list_does_not_exist_skipping(objname, &msg, &name))
+			{
+				msg = gettext_noop("transform for type %s language %s does not exist, skipping");
+				name = TypeNameToString((TypeName *) linitial(objname));
+				args = (char *) linitial(objargs);
+			}
+			break;
 		case OBJECT_TRIGGER:
 			if (!owningrel_does_not_exist_skipping(objname, &msg, &name))
 			{
@@ -406,19 +414,27 @@ does_not_exist_skipping(ObjectType objtype, List *objname, List *objargs)
 			name = NameListToString(objname);
 			break;
 		case OBJECT_OPCLASS:
-			if (!schema_does_not_exist_skipping(objname, &msg, &name))
 			{
-				msg = gettext_noop("operator class \"%s\" does not exist for access method \"%s\", skipping");
-				name = NameListToString(objname);
-				args = strVal(linitial(objargs));
+				List *opcname = list_copy_tail(objname, 1);
+
+				if (!schema_does_not_exist_skipping(opcname, &msg, &name))
+				{
+					msg = gettext_noop("operator class \"%s\" does not exist for access method \"%s\", skipping");
+					name = NameListToString(opcname);
+					args = strVal(linitial(objname));
+				}
 			}
 			break;
 		case OBJECT_OPFAMILY:
-			if (!schema_does_not_exist_skipping(objname, &msg, &name))
 			{
-				msg = gettext_noop("operator family \"%s\" does not exist for access method \"%s\", skipping");
-				name = NameListToString(objname);
-				args = strVal(linitial(objargs));
+				List *opfname = list_copy_tail(objname, 1);
+
+				if (!schema_does_not_exist_skipping(opfname, &msg, &name))
+				{
+					msg = gettext_noop("operator family \"%s\" does not exist for access method \"%s\", skipping");
+					name = NameListToString(opfname);
+					args = strVal(linitial(objname));
+				}
 			}
 			break;
 		default:

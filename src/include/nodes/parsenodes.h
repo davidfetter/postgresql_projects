@@ -21,9 +21,9 @@
 #define PARSENODES_H
 
 #include "nodes/bitmapset.h"
+#include "nodes/lockoptions.h"
 #include "nodes/primnodes.h"
 #include "nodes/value.h"
-#include "utils/lockwaitpolicy.h"
 
 /* Possible sources of a Query */
 typedef enum QuerySource
@@ -589,7 +589,7 @@ typedef enum TableLikeOption
 	CREATE_TABLE_LIKE_INDEXES = 1 << 2,
 	CREATE_TABLE_LIKE_STORAGE = 1 << 3,
 	CREATE_TABLE_LIKE_COMMENTS = 1 << 4,
-	CREATE_TABLE_LIKE_ALL = 0x7FFFFFFF
+	CREATE_TABLE_LIKE_ALL = PG_INT32_MAX
 } TableLikeOption;
 
 /*
@@ -647,15 +647,6 @@ typedef struct DefElem
  * a location field --- currently, parse analysis insists on unqualified
  * names in LockingClause.)
  */
-typedef enum LockClauseStrength
-{
-	/* order is important -- see applyLockingClause */
-	LCS_FORKEYSHARE,
-	LCS_FORSHARE,
-	LCS_FORNOKEYUPDATE,
-	LCS_FORUPDATE
-} LockClauseStrength;
-
 typedef struct LockingClause
 {
 	NodeTag		type;
@@ -883,14 +874,23 @@ typedef struct RangeTblFunction
 /*
  * WithCheckOption -
  *		representation of WITH CHECK OPTION checks to be applied to new tuples
- *		when inserting/updating an auto-updatable view.
+ *		when inserting/updating an auto-updatable view, or RLS WITH CHECK
+ *		policies to be applied when inserting/updating a relation with RLS.
  */
+typedef enum WCOKind
+{
+	WCO_VIEW_CHECK,				/* WCO on an auto-updatable view */
+	WCO_RLS_INSERT_CHECK,		/* RLS INSERT WITH CHECK policy */
+	WCO_RLS_UPDATE_CHECK		/* RLS UPDATE WITH CHECK policy */
+} WCOKind;
+
 typedef struct WithCheckOption
 {
 	NodeTag		type;
-	char	   *viewname;		/* name of view that specified the WCO */
+	WCOKind		kind;			/* kind of WCO */
+	char	   *relname;		/* name of relation that specified the WCO */
 	Node	   *qual;			/* constraint qual to check */
-	bool		cascaded;		/* true = WITH CASCADED CHECK OPTION */
+	bool		cascaded;		/* true for a cascaded WCO on a view */
 } WithCheckOption;
 
 /*
@@ -1301,6 +1301,8 @@ typedef struct SetOperationStmt
 typedef enum ObjectType
 {
 	OBJECT_AGGREGATE,
+	OBJECT_AMOP,
+	OBJECT_AMPROC,
 	OBJECT_ATTRIBUTE,			/* type's attribute, when distinct from column */
 	OBJECT_CAST,
 	OBJECT_COLUMN,
@@ -1332,6 +1334,7 @@ typedef enum ObjectType
 	OBJECT_TABCONSTRAINT,
 	OBJECT_TABLE,
 	OBJECT_TABLESPACE,
+	OBJECT_TRANSFORM,
 	OBJECT_TRIGGER,
 	OBJECT_TSCONFIGURATION,
 	OBJECT_TSDICTIONARY,
@@ -2684,9 +2687,7 @@ typedef struct ClusterStmt
  *
  * Even though these are nominally two statements, it's convenient to use
  * just one node type for both.  Note that at least one of VACOPT_VACUUM
- * and VACOPT_ANALYZE must be set in options.  VACOPT_FREEZE is an internal
- * convenience for the grammar and is not examined at runtime --- the
- * freeze_min_age and freeze_table_age fields are what matter.
+ * and VACOPT_ANALYZE must be set in options.
  * ----------------------
  */
 typedef enum VacuumOption
@@ -2696,19 +2697,14 @@ typedef enum VacuumOption
 	VACOPT_VERBOSE = 1 << 2,	/* print progress info */
 	VACOPT_FREEZE = 1 << 3,		/* FREEZE option */
 	VACOPT_FULL = 1 << 4,		/* FULL (non-concurrent) vacuum */
-	VACOPT_NOWAIT = 1 << 5		/* don't wait to get lock (autovacuum only) */
+	VACOPT_NOWAIT = 1 << 5,		/* don't wait to get lock (autovacuum only) */
+	VACOPT_SKIPTOAST = 1 << 6	/* don't process the TOAST table, if any */
 } VacuumOption;
 
 typedef struct VacuumStmt
 {
 	NodeTag		type;
 	int			options;		/* OR of VacuumOption flags */
-	int			freeze_min_age; /* min freeze age, or -1 to use default */
-	int			freeze_table_age;		/* age at which to scan whole table */
-	int			multixact_freeze_min_age;		/* min multixact freeze age,
-												 * or -1 to use default */
-	int			multixact_freeze_table_age;		/* multixact age at which to
-												 * scan whole table */
 	RangeVar   *relation;		/* single table to process, or NULL */
 	List	   *va_cols;		/* list of column names, or NIL for all */
 } VacuumStmt;
@@ -2862,6 +2858,20 @@ typedef struct CreateCastStmt
 	CoercionContext context;
 	bool		inout;
 } CreateCastStmt;
+
+/* ----------------------
+ *	CREATE TRANSFORM Statement
+ * ----------------------
+ */
+typedef struct CreateTransformStmt
+{
+	NodeTag		type;
+	bool		replace;
+	TypeName   *type_name;
+	char	   *lang;
+	FuncWithArgs *fromsql;
+	FuncWithArgs *tosql;
+} CreateTransformStmt;
 
 /* ----------------------
  *		PREPARE Statement

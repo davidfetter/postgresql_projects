@@ -79,8 +79,8 @@ static bool do_wait = false;
 static bool wait_set = false;
 static int	wait_seconds = DEFAULT_WAIT;
 static bool silent_mode = false;
-static ShutdownMode shutdown_mode = SMART_MODE;
-static int	sig = SIGTERM;		/* default */
+static ShutdownMode shutdown_mode = FAST_MODE;
+static int	sig = SIGINT;		/* default */
 static CtlCommand ctl_command = NO_COMMAND;
 static char *pg_data = NULL;
 static char *pg_config = NULL;
@@ -116,11 +116,7 @@ static pid_t postmasterPID = -1;
 #endif
 
 
-static void
-write_stderr(const char *fmt,...)
-/* This extension allows gcc to check the format string for consistency with
-   the supplied arguments. */
-pg_attribute_printf(1, 2);
+static void write_stderr(const char *fmt,...) pg_attribute_printf(1, 2);
 static void do_advice(void);
 static void do_help(void);
 static void set_mode(char *modeopt);

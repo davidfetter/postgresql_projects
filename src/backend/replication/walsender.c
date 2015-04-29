@@ -193,7 +193,7 @@ typedef void (*WalSndSendDataCallback) (void);
 static void WalSndLoop(WalSndSendDataCallback send_data);
 static void InitWalSenderSlot(void);
 static void WalSndKill(int code, Datum arg);
-static void WalSndShutdown(void) pg_attribute_noreturn;
+static void WalSndShutdown(void) pg_attribute_noreturn();
 static void XLogSendPhysical(void);
 static void XLogSendLogical(void);
 static void WalSndDone(WalSndSendDataCallback send_data);
@@ -2183,9 +2183,9 @@ XLogSendPhysical(void)
 	if (sendTimeLineIsHistoric)
 	{
 		/*
-		 * Streaming an old timeline timeline that's in this server's history,
-		 * but is not the one we're currently inserting or replaying. It can
-		 * be streamed up to the point where we switched off that timeline.
+		 * Streaming an old timeline that's in this server's history, but is
+		 * not the one we're currently inserting or replaying. It can be
+		 * streamed up to the point where we switched off that timeline.
 		 */
 		SendRqstPtr = sendTimeLineValidUpto;
 	}

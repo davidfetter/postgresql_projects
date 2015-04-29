@@ -118,6 +118,7 @@ DATA(insert (	1984   829 829 1 836 ));
 DATA(insert (	1986   19 19 1 359 ));
 DATA(insert (	1986   19 19 2 3135 ));
 DATA(insert (	1988   1700 1700 1 1769 ));
+DATA(insert (	1988   1700 1700 2 3283 ));
 DATA(insert (	1989   26 26 1 356 ));
 DATA(insert (	1989   26 26 2 3134 ));
 DATA(insert (	1991   30 30 1 404 ));
@@ -191,6 +192,7 @@ DATA(insert (	1029   600 600 5 2581 ));
 DATA(insert (	1029   600 600 6 2582 ));
 DATA(insert (	1029   600 600 7 2584 ));
 DATA(insert (	1029   600 600 8 3064 ));
+DATA(insert (	1029   600 600 9 3282 ));
 DATA(insert (	2593   603 603 1 2578 ));
 DATA(insert (	2593   603 603 2 2583 ));
 DATA(insert (	2593   603 603 3 2579 ));
@@ -198,6 +200,7 @@ DATA(insert (	2593   603 603 4 2580 ));
 DATA(insert (	2593   603 603 5 2581 ));
 DATA(insert (	2593   603 603 6 2582 ));
 DATA(insert (	2593   603 603 7 2584 ));
+DATA(insert (	2593   603 603 9 3281 ));
 DATA(insert (	2594   604 604 1 2585 ));
 DATA(insert (	2594   604 604 2 2583 ));
 DATA(insert (	2594   604 604 3 2586 ));
@@ -233,6 +236,15 @@ DATA(insert (	3919   3831 3831 4 3878 ));
 DATA(insert (	3919   3831 3831 5 3879 ));
 DATA(insert (	3919   3831 3831 6 3880 ));
 DATA(insert (	3919   3831 3831 7 3881 ));
+DATA(insert (	3919   3831 3831 9 3996 ));
+DATA(insert (	3550   869 869 1 3553 ));
+DATA(insert (	3550   869 869 2 3554 ));
+DATA(insert (	3550   869 869 3 3555 ));
+DATA(insert (	3550   869 869 4 3556 ));
+DATA(insert (	3550   869 869 5 3557 ));
+DATA(insert (	3550   869 869 6 3558 ));
+DATA(insert (	3550   869 869 7 3559 ));
+DATA(insert (	3550   869 869 9 3573 ));
 
 
 /* gin */
@@ -402,13 +414,6 @@ DATA(insert (	4037   3802 3802 2 3485 ));
 DATA(insert (	4037   3802 3802 3 3486 ));
 DATA(insert (	4037   3802 3802 4 3487 ));
 DATA(insert (	4037   3802 3802 6 3489 ));
-DATA(insert (	3550   869	869  1 3553 ));
-DATA(insert (	3550   869	869  2 3554 ));
-DATA(insert (	3550   869	869  3 3555 ));
-DATA(insert (	3550   869	869  4 3556 ));
-DATA(insert (	3550   869	869  5 3557 ));
-DATA(insert (	3550   869	869  6 3558 ));
-DATA(insert (	3550   869	869  7 3559 ));
 
 /* sp-gist */
 DATA(insert (	3474   3831 3831 1 3469 ));

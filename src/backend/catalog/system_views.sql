@@ -646,6 +646,17 @@ CREATE VIEW pg_stat_replication AS
     WHERE S.usesysid = U.oid AND
             S.pid = W.pid;
 
+CREATE VIEW pg_stat_ssl AS
+    SELECT
+            S.pid,
+            S.ssl,
+            S.sslversion AS version,
+            S.sslcipher AS cipher,
+            S.sslbits AS bits,
+            S.sslcompression AS compression,
+            S.sslclientdn AS clientdn
+    FROM pg_stat_get_activity(NULL) AS S;
+
 CREATE VIEW pg_replication_slots AS
     SELECT
             L.slot_name,
@@ -654,6 +665,7 @@ CREATE VIEW pg_replication_slots AS
             L.datoid,
             D.datname AS database,
             L.active,
+            L.active_pid,
             L.xmin,
             L.catalog_xmin,
             L.restart_lsn
@@ -765,6 +777,13 @@ CREATE VIEW pg_user_mappings AS
         pg_foreign_server S ON (U.umserver = S.oid);
 
 REVOKE ALL on pg_user_mapping FROM public;
+
+
+CREATE VIEW pg_replication_origin_status AS
+    SELECT *
+    FROM pg_show_replication_origin_status();
+
+REVOKE ALL ON pg_replication_origin_status FROM public;
 
 --
 -- We have a few function definitions in here, too.

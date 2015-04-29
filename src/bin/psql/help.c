@@ -65,7 +65,7 @@ usage(unsigned short int pager)
 		}
 	}
 
-	output = PageOutput(59, pager);
+	output = PageOutput(59, pager ? &(pset.popt.topt) : NULL);
 
 	fprintf(output, _("psql is the PostgreSQL interactive terminal.\n\n"));
 	fprintf(output, _("Usage:\n"));
@@ -158,7 +158,7 @@ slashUsage(unsigned short int pager)
 
 	currdb = PQdb(pset.db);
 
-	output = PageOutput(103, pager);
+	output = PageOutput(103, pager ? &(pset.popt.topt) : NULL);
 
 	/* if you add/remove a line here, change the row count above */
 
@@ -260,11 +260,11 @@ slashUsage(unsigned short int pager)
 
 	fprintf(output, _("Connection\n"));
 	if (currdb)
-		fprintf(output, _("  \\c[onnect] [DBNAME|- USER|- HOST|- PORT|-]\n"
+		fprintf(output, _("  \\c[onnect] {[DBNAME|- USER|- HOST|- PORT|-] | conninfo}\n"
 						  "                         connect to new database (currently \"%s\")\n"),
 				currdb);
 	else
-		fprintf(output, _("  \\c[onnect] [DBNAME|- USER|- HOST|- PORT|-]\n"
+		fprintf(output, _("  \\c[onnect] {[DBNAME|- USER|- HOST|- PORT|-] | conninfo}\n"
 						  "                         connect to new database (currently no connection)\n"));
 	fprintf(output, _("  \\encoding [ENCODING]   show or set client encoding\n"));
 	fprintf(output, _("  \\password [USERNAME]   securely change the password for a user\n"));
@@ -305,7 +305,7 @@ helpVariables(unsigned short int pager)
 {
 	FILE	   *output;
 
-	output = PageOutput(85, pager);
+	output = PageOutput(85, pager ? &(pset.popt.topt) : NULL);
 
 	fprintf(output, _("List of specially treated variables.\n"));
 
@@ -351,7 +351,7 @@ helpVariables(unsigned short int pager)
 	fprintf(output, _("  expanded (or x)    toggle expanded output\n"));
 	fprintf(output, _("  fieldsep           field separator for unaligned output (default '|')\n"));
 	fprintf(output, _("  fieldsep_zero      set field separator in unaligned mode to zero\n"));
-	fprintf(output, _("  format             set output format [unaligned, aligned, wrapped, html, latex, ..]\n"));
+	fprintf(output, _("  format             set output format [unaligned, aligned, wrapped, html, asciidoc, ...]\n"));
 	fprintf(output, _("  footer             enable or disable display of the table footer [on, off]\n"));
 	fprintf(output, _("  linestyle          set the border line drawing style [ascii, old-ascii, unicode]\n"));
 	fprintf(output, _("  null               set the string to be printed in place of a null value\n"));
@@ -435,7 +435,7 @@ helpSQL(const char *topic, unsigned short int pager)
 		ncolumns = Max(ncolumns, 1);
 		nrows = (QL_HELP_COUNT + (ncolumns - 1)) / ncolumns;
 
-		output = PageOutput(nrows + 1, pager);
+		output = PageOutput(nrows + 1, pager ? &(pset.popt.topt) : NULL);
 
 		fputs(_("Available help:\n"), output);
 
@@ -488,7 +488,7 @@ helpSQL(const char *topic, unsigned short int pager)
 				if (wordlen >= len)		/* Don't try again if the same word */
 				{
 					if (!output)
-						output = PageOutput(nl_count, pager);
+						output = PageOutput(nl_count, pager ? &(pset.popt.topt) : NULL);
 					break;
 				}
 				len = wordlen;
@@ -509,7 +509,7 @@ helpSQL(const char *topic, unsigned short int pager)
 			}
 
 			if (!output)
-				output = PageOutput(nl_count, pager);
+				output = PageOutput(nl_count, pager ? &(pset.popt.topt) : NULL);
 
 			for (i = 0; QL_HELP[i].cmd; i++)
 			{

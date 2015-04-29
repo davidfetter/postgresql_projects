@@ -69,8 +69,6 @@ ifeq ($(shell $(PERL) -V:usemultiplicity), usemultiplicity='define';)
 	REGRESS += plperl_plperlu
 endif
 endif
-# where to find psql for running the tests
-PSQLDIR = $(bindir)
 
 # where to find xsubpp for building XS.
 XSUBPPDIR = $(shell $(PERL) -e 'use List::Util qw(first); print first { -r "$$_/ExtUtils/xsubpp" } @INC')
@@ -101,15 +99,17 @@ Util.c: Util.xs plperl_helpers.h
 install: all install-lib install-data
 
 installdirs: installdirs-lib
-	$(MKDIR_P) '$(DESTDIR)$(datadir)/extension'
+	$(MKDIR_P) '$(DESTDIR)$(datadir)/extension' '$(DESTDIR)$(includedir_server)'
 
 uninstall: uninstall-lib uninstall-data
 
 install-data: installdirs
 	$(INSTALL_DATA) $(addprefix $(srcdir)/, $(DATA)) '$(DESTDIR)$(datadir)/extension/'
+	$(INSTALL_DATA) $(srcdir)/plperl.h $(srcdir)/ppport.h '$(DESTDIR)$(includedir_server)'
 
 uninstall-data:
 	rm -f $(addprefix '$(DESTDIR)$(datadir)/extension'/, $(notdir $(DATA)))
+	rm -f $(addprefix '$(DESTDIR)$(includedir_server)'/, plperl.h ppport.h)
 
 .PHONY: install-data uninstall-data
 

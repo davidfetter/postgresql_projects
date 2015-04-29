@@ -69,7 +69,7 @@
 #include "utils/tqual.h"
 
 
-/* Potentially set by contrib/pg_upgrade_support functions */
+/* Potentially set by pg_upgrade_support functions */
 Oid			binary_upgrade_next_index_pg_class_oid = InvalidOid;
 
 /* state info for validate_index bulkdelete callback */
@@ -675,7 +675,7 @@ UpdateIndexRelation(Oid indexoid,
  *		to fix it up.
  * is_internal: if true, post creation hook for new index
  * if_not_exists: if true, do not throw an error if a relation with
- * 	the same name already exists.
+ *		the same name already exists.
  *
  * Returns the OID of the created index.
  */
@@ -1111,7 +1111,8 @@ index_create(Relation heapRelation,
 /*
  * index_constraint_create
  *
- * Set up a constraint associated with an index
+ * Set up a constraint associated with an index.  Return the new constraint's
+ * address.
  *
  * heapRelation: table owning the index (must be suitably locked by caller)
  * indexRelationId: OID of the index
@@ -1128,7 +1129,7 @@ index_create(Relation heapRelation,
  * allow_system_table_mods: allow table to be a system catalog
  * is_internal: index is constructed due to internal process
  */
-void
+ObjectAddress
 index_constraint_create(Relation heapRelation,
 						Oid indexRelationId,
 						IndexInfo *indexInfo,
@@ -1316,6 +1317,8 @@ index_constraint_create(Relation heapRelation,
 		heap_freetuple(indexTuple);
 		heap_close(pg_index, RowExclusiveLock);
 	}
+
+	return referenced;
 }
 
 /*
@@ -3313,7 +3316,7 @@ reindex_index(Oid indexId, bool skip_constraint_checks, char persistence)
  * REINDEX_REL_FORCE_INDEXES_UNLOGGED: if true, set the persistence of the
  * rebuilt indexes to unlogged.
  *
- * REINDEX_REL_FORCE_INDEXES_LOGGED: if true, set the persistence of the
+ * REINDEX_REL_FORCE_INDEXES_PERMANENT: if true, set the persistence of the
  * rebuilt indexes to permanent.
  *
  * Returns true if any indexes were rebuilt (including toast table's index

@@ -271,6 +271,7 @@ static TupleDesc GetPgClassDescriptor(void);
 static TupleDesc GetPgIndexDescriptor(void);
 static void AttrDefaultFetch(Relation relation);
 static void CheckConstraintFetch(Relation relation);
+static int	CheckConstraintCmp(const void *a, const void *b);
 static List *insert_ordered_oid(List *list, Oid datum);
 static void IndexSupportInitialize(oidvector *indclass,
 					   RegProcedure *indexSupport,
@@ -886,7 +887,7 @@ equalPolicy(RowSecurityPolicy *policy1, RowSecurityPolicy *policy2)
 				return false;
 		}
 
-		if (!equal(policy1->qual, policy1->qual))
+		if (!equal(policy1->qual, policy2->qual))
 			return false;
 		if (!equal(policy1->with_check_qual, policy2->with_check_qual))
 			return false;
@@ -3734,6 +3735,22 @@ CheckConstraintFetch(Relation relation)
 	if (found != ncheck)
 		elog(ERROR, "%d constraint record(s) missing for rel %s",
 			 ncheck - found, RelationGetRelationName(relation));
+
+	/* Sort the records so that CHECKs are applied in a deterministic order */
+	if (ncheck > 1)
+		qsort(check, ncheck, sizeof(ConstrCheck), CheckConstraintCmp);
+}
+
+/*
+ * qsort comparator to sort ConstrCheck entries by name
+ */
+static int
+CheckConstraintCmp(const void *a, const void *b)
+{
+	const ConstrCheck *ca = (const ConstrCheck *) a;
+	const ConstrCheck *cb = (const ConstrCheck *) b;
+
+	return strcmp(ca->ccname, cb->ccname);
 }
 
 /*

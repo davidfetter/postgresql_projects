@@ -31,7 +31,7 @@
 /*
  * Each page of XLOG file has a header like this:
  */
-#define XLOG_PAGE_MAGIC 0xD082	/* can be used as WAL version indicator */
+#define XLOG_PAGE_MAGIC 0xD085	/* can be used as WAL version indicator */
 
 typedef struct XLogPageHeaderData
 {
@@ -281,6 +281,7 @@ extern void XLogArchiveNotifySeg(XLogSegNo segno);
 extern void XLogArchiveForceDone(const char *xlog);
 extern bool XLogArchiveCheckDone(const char *xlog);
 extern bool XLogArchiveIsBusy(const char *xlog);
+extern bool XLogArchiveIsReady(const char *xlog);
 extern void XLogArchiveCleanup(const char *xlog);
 
 #endif   /* XLOG_INTERNAL_H */

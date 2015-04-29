@@ -454,9 +454,9 @@ dsm_set_control_handle(dsm_handle h)
  * Create a new dynamic shared memory segment.
  */
 dsm_segment *
-dsm_create(Size size)
+dsm_create(Size size, int flags)
 {
-	dsm_segment *seg = dsm_create_descriptor();
+	dsm_segment *seg;
 	uint32		i;
 	uint32		nitems;
 
@@ -465,6 +465,9 @@ dsm_create(Size size)
 
 	if (!dsm_init_done)
 		dsm_backend_startup();
+
+	/* Create a new segment descriptor. */
+	seg = dsm_create_descriptor();
 
 	/* Loop until we find an unused segment identifier. */
 	for (;;)
@@ -496,9 +499,22 @@ dsm_create(Size size)
 
 	/* Verify that we can support an additional mapping. */
 	if (nitems >= dsm_control->maxitems)
+	{
+		if ((flags & DSM_CREATE_NULL_IF_MAXSEGMENTS) != 0)
+		{
+			LWLockRelease(DynamicSharedMemoryControlLock);
+			dsm_impl_op(DSM_OP_DESTROY, seg->handle, 0, &seg->impl_private,
+						&seg->mapped_address, &seg->mapped_size, WARNING);
+			if (seg->resowner != NULL)
+				ResourceOwnerForgetDSM(seg->resowner, seg);
+			dlist_delete(&seg->node);
+			pfree(seg);
+			return NULL;
+		}
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
 				 errmsg("too many dynamic shared memory segments")));
+	}
 
 	/* Enter the handle into a new array slot. */
 	dsm_control->item[nitems].handle = seg->handle;

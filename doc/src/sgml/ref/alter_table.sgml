@@ -122,16 +122,6 @@ ALTER TABLE ALL IN TABLESPACE <replaceable class="PARAMETER">name</replaceable> 
    </varlistentry>
 
    <varlistentry>
-    <term><literal>IF EXISTS</literal></term>
-    <listitem>
-     <para>
-      Do not throw an error if the table does not exist. A notice is issued
-      in this case.
-     </para>
-    </listitem>
-   </varlistentry>
-
-   <varlistentry>
     <term><literal>SET DATA TYPE</literal></term>
     <listitem>
      <para>
@@ -405,6 +395,9 @@ ALTER TABLE ALL IN TABLESPACE <replaceable class="PARAMETER">name</replaceable> 
       REPLICA</literal> will only fire if the session is in <quote>replica</>
       mode, and triggers configured as <literal>ENABLE ALWAYS</literal> will
       fire regardless of the current replication mode.
+     </para>
+     <para>
+      This command acquires a <literal>SHARE ROW EXCLUSIVE</literal> lock.
      </para>
     </listitem>
    </varlistentry>
@@ -722,6 +715,16 @@ ALTER TABLE ALL IN TABLESPACE <replaceable class="PARAMETER">name</replaceable> 
   <title>Parameters</title>
 
     <variablelist>
+
+     <varlistentry>
+      <term><literal>IF EXISTS</literal></term>
+      <listitem>
+       <para>
+        Do not throw an error if the table does not exist. A notice is issued
+        in this case.
+       </para>
+      </listitem>
+     </varlistentry>
 
      <varlistentry>
       <term><replaceable class="PARAMETER">name</replaceable></term>

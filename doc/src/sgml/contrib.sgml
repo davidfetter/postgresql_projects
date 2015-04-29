@@ -187,7 +187,6 @@ pages.
   </para>
 
  &oid2name;
- &pgbench;
  &vacuumlo;
  </sect1>
 
@@ -202,11 +201,6 @@ pages.
    part of the core <productname>PostgreSQL</productname> distribution.
   </para>
 
- &pgarchivecleanup;
  &pgstandby;
- &pgtestfsync;
- &pgtesttiming;
- &pgupgrade;
- &pgxlogdump;
  </sect1>
 </appendix>

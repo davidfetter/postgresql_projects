@@ -207,7 +207,8 @@ LOG_LWDEBUG(const char *where, LWLock *lock, const char *msg)
 		ereport(LOG,
 				(errhidestmt(true),
 				 errhidecontext(true),
-				 errmsg("%s(%s %d): %s", where, T_NAME(lock), T_ID(lock), msg)));
+				 errmsg("%s(%s %d): %s", where,
+						T_NAME(lock), T_ID(lock), msg)));
 	}
 }
 
@@ -847,7 +848,7 @@ LWLockDequeueSelf(LWLock *lock)
 
 		/*
 		 * Somebody else dequeued us and has or will wake us up. Deal with the
-		 * superflous absorption of a wakeup.
+		 * superfluous absorption of a wakeup.
 		 */
 
 		/*
@@ -879,7 +880,7 @@ LWLockDequeueSelf(LWLock *lock)
 #ifdef LOCK_DEBUG
 	{
 		/* not waiting anymore */
-		uint32 nwaiters = pg_atomic_fetch_sub_u32(&lock->nwaiters, 1);
+		uint32 nwaiters PG_USED_FOR_ASSERTS_ONLY = pg_atomic_fetch_sub_u32(&lock->nwaiters, 1);
 		Assert(nwaiters < MAX_BACKENDS);
 	}
 #endif
@@ -1045,7 +1046,7 @@ LWLockAcquireCommon(LWLock *lock, LWLockMode mode, uint64 *valptr, uint64 val)
 #ifdef LOCK_DEBUG
 		{
 			/* not waiting anymore */
-			uint32 nwaiters = pg_atomic_fetch_sub_u32(&lock->nwaiters, 1);
+			uint32 nwaiters PG_USED_FOR_ASSERTS_ONLY = pg_atomic_fetch_sub_u32(&lock->nwaiters, 1);
 			Assert(nwaiters < MAX_BACKENDS);
 		}
 #endif
@@ -1182,7 +1183,7 @@ LWLockAcquireOrWait(LWLock *lock, LWLockMode mode)
 		{
 			/*
 			 * Wait until awakened.  Like in LWLockAcquire, be prepared for bogus
-			 * wakups, because we share the semaphore with ProcWaitForSignal.
+			 * wakeups, because we share the semaphore with ProcWaitForSignal.
 			 */
 			LOG_LWDEBUG("LWLockAcquireOrWait", lock, "waiting");
 
@@ -1202,7 +1203,7 @@ LWLockAcquireOrWait(LWLock *lock, LWLockMode mode)
 #ifdef LOCK_DEBUG
 			{
 				/* not waiting anymore */
-				uint32 nwaiters = pg_atomic_fetch_sub_u32(&lock->nwaiters, 1);
+				uint32 nwaiters PG_USED_FOR_ASSERTS_ONLY = pg_atomic_fetch_sub_u32(&lock->nwaiters, 1);
 				Assert(nwaiters < MAX_BACKENDS);
 			}
 #endif
@@ -1403,7 +1404,7 @@ LWLockWaitForVar(LWLock *lock, uint64 *valptr, uint64 oldval, uint64 *newval)
 #ifdef LOCK_DEBUG
 		{
 			/* not waiting anymore */
-			uint32 nwaiters = pg_atomic_fetch_sub_u32(&lock->nwaiters, 1);
+			uint32 nwaiters PG_USED_FOR_ASSERTS_ONLY = pg_atomic_fetch_sub_u32(&lock->nwaiters, 1);
 			Assert(nwaiters < MAX_BACKENDS);
 		}
 #endif
