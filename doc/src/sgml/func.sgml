@@ -13257,7 +13257,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
     <xref linkend="queries-grouping-sets">) to distinguish result rows.  The
     arguments to the <literal>GROUPING</> operation are not actually evaluated,
     but they must match exactly expressions given in the <literal>GROUP BY</>
-    clause of the current query level.  Bits are assigned with the rightmost
+    clause of the associated query level.  Bits are assigned with the rightmost
     argument being the least-significant bit; each bit is 0 if the corresponding
     expression is included in the grouping criteria of the grouping set generating
     the result row, and 1 if it is not.  For example:
