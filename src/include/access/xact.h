@@ -78,9 +78,12 @@ extern bool MyXactAccessedTempRel;
 typedef enum
 {
 	XACT_EVENT_COMMIT,
+	XACT_EVENT_PARALLEL_COMMIT,
 	XACT_EVENT_ABORT,
+	XACT_EVENT_PARALLEL_ABORT,
 	XACT_EVENT_PREPARE,
 	XACT_EVENT_PRE_COMMIT,
+	XACT_EVENT_PARALLEL_PRE_COMMIT,
 	XACT_EVENT_PRE_PREPARE
 } XactEvent;
 
@@ -170,7 +173,8 @@ typedef struct xl_xact_assignment
  * by a set XLOG_XACT_HAS_INFO bit in the xl_info field.
  *
  * NB: All the individual data chunks should be sized to multiples of
- * sizeof(int) and only require int32 alignment.
+ * sizeof(int) and only require int32 alignment. If they require bigger
+ * alignment, they need to be copied upon reading.
  */
 
 /* sub-records for commit/abort */
@@ -234,7 +238,7 @@ typedef struct xl_xact_commit
 	/* xl_xact_relfilenodes follows if XINFO_HAS_RELFILENODES */
 	/* xl_xact_invals follows if XINFO_HAS_INVALS */
 	/* xl_xact_twophase follows if XINFO_HAS_TWOPHASE */
-	/* xl_xact_origin follows if XINFO_HAS_ORIGIN */
+	/* xl_xact_origin follows if XINFO_HAS_ORIGIN, stored unaligned! */
 } xl_xact_commit;
 #define MinSizeOfXactCommit (offsetof(xl_xact_commit, xact_time) + sizeof(TimestampTz))
 
@@ -332,6 +336,10 @@ extern void BeginInternalSubTransaction(char *name);
 extern void ReleaseCurrentSubTransaction(void);
 extern void RollbackAndReleaseCurrentSubTransaction(void);
 extern bool IsSubTransaction(void);
+extern Size EstimateTransactionStateSpace(void);
+extern void SerializeTransactionState(Size maxsize, char *start_address);
+extern void StartParallelWorkerTransaction(char *tstatespace);
+extern void EndParallelWorkerTransaction(void);
 extern bool IsTransactionBlock(void);
 extern bool IsTransactionOrTransactionBlock(void);
 extern char TransactionBlockStatusCode(void);
@@ -367,5 +375,9 @@ extern const char *xact_identify(uint8 info);
 /* also in xactdesc.c, so they can be shared between front/backend code */
 extern void ParseCommitRecord(uint8 info, xl_xact_commit *xlrec, xl_xact_parsed_commit *parsed);
 extern void ParseAbortRecord(uint8 info, xl_xact_abort *xlrec, xl_xact_parsed_abort *parsed);
+
+extern void EnterParallelMode(void);
+extern void ExitParallelMode(void);
+extern bool IsInParallelMode(void);
 
 #endif   /* XACT_H */

@@ -5,21 +5,11 @@ subdir = src/pl/plperl
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-ifeq ($(perl_useshrplib),true)
-shared_libperl = yes
-endif
-ifeq ($(perl_useshrplib),yes)
-shared_libperl = yes
-endif
-
-# If we don't have a shared library, we have to skip it.
-ifeq ($(shared_libperl),yes)
-
 ifeq ($(PORTNAME), win32)
 override CPPFLAGS += -DPLPERL_HAVE_UID_GID
 # Perl on win32 contains /* within comment all over the header file,
 # so disable this warning.
-override CFLAGS += -Wno-comment
+override CPPFLAGS += -Wno-comment
 endif
 
 override CPPFLAGS := -I. -I$(srcdir) $(CPPFLAGS) -I$(perl_archlibexp)/CORE
@@ -114,7 +104,7 @@ uninstall-data:
 .PHONY: install-data uninstall-data
 
 
-check: all submake
+check: submake
 	$(pg_regress_check) $(REGRESS_OPTS) $(REGRESS)
 
 installcheck: submake
@@ -130,14 +120,3 @@ clean distclean maintainer-clean: clean-lib
 ifeq ($(PORTNAME), win32)
 	rm -f $(perlwithver).def
 endif
-
-else # can't build
-
-all:
-	@echo ""; \
-	 echo "*** Cannot build PL/Perl because libperl is not a shared library."; \
-	 echo "*** You might have to rebuild your Perl installation.  Refer to"; \
-	 echo "*** the documentation for details."; \
-	 echo ""
-
-endif # can't build

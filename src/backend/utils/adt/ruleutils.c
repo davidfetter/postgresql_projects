@@ -3870,6 +3870,10 @@ set_deparse_planstate(deparse_namespace *dpns, PlanState *ps)
 	/* index_tlist is set only if it's an IndexOnlyScan */
 	if (IsA(ps->plan, IndexOnlyScan))
 		dpns->index_tlist = ((IndexOnlyScan *) ps->plan)->indextlist;
+	else if (IsA(ps->plan, ForeignScan))
+		dpns->index_tlist = ((ForeignScan *) ps->plan)->fdw_ps_tlist;
+	else if (IsA(ps->plan, CustomScan))
+		dpns->index_tlist = ((CustomScan *) ps->plan)->custom_ps_tlist;
 	else
 		dpns->index_tlist = NIL;
 }
@@ -6979,7 +6983,7 @@ get_rule_expr(Node *node, deparse_context *context,
 			{
 				NamedArgExpr *na = (NamedArgExpr *) node;
 
-				appendStringInfo(buf, "%s := ", quote_identifier(na->name));
+				appendStringInfo(buf, "%s => ", quote_identifier(na->name));
 				get_rule_expr((Node *) na->arg, context, showimplicit);
 			}
 			break;
