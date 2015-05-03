@@ -94,10 +94,11 @@
  *	  clause (e.g. (a,b,c), (a,b), (a)) can be processed in a single pass over
  *	  ordered data.  We do this by keeping a separate set of transition values
  *	  for each grouping set being concurrently processed; for each input tuple
- *	  we update them all, and on group boundaries we reset some initial subset
- *	  of the states (the list of grouping sets is ordered from most specific to
- *	  least specific).  One AGG_SORTED node thus handles any number of grouping
- *	  sets as long as they share a sort order.
+ *	  we update them all, and on group boundaries we reset those states
+ *	  (starting at the front of the list) whose grouping values have changed
+ *	  (the list of grouping sets is ordered from most specific to least
+ *	  specific).  One AGG_SORTED node thus handles any number of grouping sets
+ *	  as long as they share a sort order.
  *
  *	  To handle multiple grouping sets that _don't_ share a sort order, we use
  *	  a different strategy.  An AGG_CHAINED node receives rows in sorted order

@@ -2926,14 +2926,15 @@ preprocess_groupclause(PlannerInfo *root, List *force)
 /*
  * We want to produce the absolute minimum possible number of lists here to
  * avoid excess sorts. Fortunately, there is an algorithm for this; the problem
- * of finding the minimal partition of a poset into chains (which is what we
- * need, taking the list of grouping sets as a poset ordered by set inclusion)
- * can be mapped to the problem of finding the maximum cardinality matching on
- * a bipartite graph, which is solvable in polynomial time with a worst case of
- * no worse than O(n^2.5) and usually much better. Since our N is at most 4096,
- * we don't need to consider fallbacks to heuristic or approximate methods.
- * (Planning time for a 12-d cube is under half a second on my modest system
- * even with optimization off and assertions on.)
+ * of finding the minimal partition of a partially-ordered set into chains
+ * (which is what we need, taking the list of grouping sets as a poset ordered
+ * by set inclusion) can be mapped to the problem of finding the maximum
+ * cardinality matching on a bipartite graph, which is solvable in polynomial
+ * time with a worst case of no worse than O(n^2.5) and usually much
+ * better. Since our N is at most 4096, we don't need to consider fallbacks to
+ * heuristic or approximate methods.  (Planning time for a 12-d cube is under
+ * half a second on my modest system even with optimization off and assertions
+ * on.)
  *
  * We use the Hopcroft-Karp algorithm for the graph matching; it seems to work
  * well enough for our purposes.  This implementation is based on pseudocode
