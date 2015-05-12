@@ -1058,8 +1058,8 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 		{
 			have_non_var_grouping = true;
 		}
-		else if (!qry->groupingSets
-				 || list_member_int(gset_common, tle->ressortgroupref))
+		else if (!qry->groupingSets ||
+				 list_member_int(gset_common, tle->ressortgroupref))
 		{
 			groupClauseCommonVars = lappend(groupClauseCommonVars, tle->expr);
 		}
@@ -1246,7 +1246,7 @@ check_ungrouped_columns_walker(Node *node,
 		{
 			foreach(gl, context->groupClauses)
 			{
-				Var		   *gvar = (Var *) ((TargetEntry *)lfirst(gl))->expr;
+				Var		   *gvar = (Var *) ((TargetEntry *) lfirst(gl))->expr;
 
 				if (IsA(gvar, Var) &&
 					gvar->varno == var->varno &&

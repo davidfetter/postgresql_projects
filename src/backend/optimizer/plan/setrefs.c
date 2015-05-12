@@ -1456,9 +1456,9 @@ fix_scan_expr_walker(Node *node, fix_scan_expr_context *context)
 
 /*
  * set_group_vars
- *    Modify any Var references in the target list of a non-trivial
- *    (i.e. contains grouping sets) Agg node to use GroupedVar instead,
- *    which will conditionally replace them with nulls at runtime.
+ *    Modify any Var references in the target list of a grouping sets
+ *    containing Agg node to use GroupedVar instead, which will conditionally
+ *    replace them with nulls at runtime.
  */
 static void
 set_group_vars(PlannerInfo *root, Agg *agg)
@@ -1466,7 +1466,7 @@ set_group_vars(PlannerInfo *root, Agg *agg)
 	set_group_vars_context context;
 	AttrNumber *groupColIdx = root->groupColIdx;
 	int			numCols = list_length(root->parse->groupClause);
-	int 		i;
+	int			i;
 	Bitmapset  *cols = NULL;
 
 	if (!agg->groupingSets)
@@ -1485,10 +1485,12 @@ set_group_vars(PlannerInfo *root, Agg *agg)
 
 	context.groupedcols = cols;
 
-	agg->plan.targetlist = (List *) set_group_vars_mutator((Node *) agg->plan.targetlist,
-														   &context);
-	agg->plan.qual = (List *) set_group_vars_mutator((Node *) agg->plan.qual,
-													 &context);
+	agg->plan.targetlist = (List *)
+		set_group_vars_mutator((Node *) agg->plan.targetlist,
+							   &context);
+	agg->plan.qual = (List *)
+		set_group_vars_mutator((Node *) agg->plan.qual,
+							   &context);
 }
 
 static Node *
@@ -1500,8 +1502,8 @@ set_group_vars_mutator(Node *node, set_group_vars_context *context)
 	{
 		Var *var = (Var *) node;
 
-		if (var->varno == OUTER_VAR
-			&& bms_is_member(var->varattno, context->groupedcols))
+		if (var->varno == OUTER_VAR &&
+			bms_is_member(var->varattno, context->groupedcols))
 		{
 			var = copyVar(var);
 			var->xpr.type = T_GroupedVar;

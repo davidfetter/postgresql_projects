@@ -1670,7 +1670,6 @@ findTargetlistEntrySQL99(ParseState *pstate, Node *node, List **tlist,
 	return target_result;
 }
 
-
 /*
  * Flatten out parenthesized sublists in grouping lists, and some cases
  * of nested grouping sets.

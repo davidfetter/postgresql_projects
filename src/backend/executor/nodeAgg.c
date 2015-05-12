@@ -1257,9 +1257,9 @@ agg_retrieve_direct(AggState *aggstate)
 	int			aggno;
 	bool		hasGroupingSets = aggstate->numsets > 0;
 	int			numGroupingSets = Max(aggstate->numsets, 1);
-	int			currentSet = 0;
-	int			nextSetSize = 0;
-	int			numReset = 1;
+	int			currentSet;
+	int			nextSetSize;
+	int			numReset;
 	int			i;
 
 	/*
@@ -1304,7 +1304,8 @@ agg_retrieve_direct(AggState *aggstate)
 		/*
 		 * Determine how many grouping sets need to be reset at this boundary.
 		 */
-		if (aggstate->projected_set >= 0 && aggstate->projected_set < numGroupingSets)
+		if (aggstate->projected_set >= 0 &&
+			aggstate->projected_set < numGroupingSets)
 			numReset = aggstate->projected_set + 1;
 		else
 			numReset = numGroupingSets;
@@ -1314,9 +1315,11 @@ agg_retrieve_direct(AggState *aggstate)
 			ReScanExprContext(aggstate->aggcontexts[i]);
 		}
 
-		/* Check if input is complete and there are no more groups to project. */
-		if (aggstate->input_done == true
-			&& aggstate->projected_set >= (numGroupingSets - 1))
+		/*
+		 * Check if input is complete and there are no more groups to project.
+		 */
+		if (aggstate->input_done == true &&
+			aggstate->projected_set >= (numGroupingSets - 1))
 		{
 			aggstate->agg_done = true;
 			break;
@@ -1327,7 +1330,8 @@ agg_retrieve_direct(AggState *aggstate)
 		 * projected one (if any). This is the number of columns to compare to
 		 * see if we reached the boundary of that set too.
 		 */
-		if (aggstate->projected_set >= 0 && aggstate->projected_set < (numGroupingSets - 1))
+		if (aggstate->projected_set >= 0 &&
+			aggstate->projected_set < (numGroupingSets - 1))
 			nextSetSize = aggstate->gset_lengths[aggstate->projected_set + 1];
 		else
 			nextSetSize = 0;
@@ -1348,17 +1352,17 @@ agg_retrieve_direct(AggState *aggstate)
 		 *    - the previous and pending rows differ on the grouping columns
 		 *      of the next grouping set
 		 */
-		if (aggstate->input_done
-			|| (node->aggstrategy == AGG_SORTED
-				&& aggstate->projected_set != -1
-				&& aggstate->projected_set < (numGroupingSets - 1)
-				&& nextSetSize > 0
-				&& !execTuplesMatch(econtext->ecxt_outertuple,
-									tmpcontext->ecxt_outertuple,
-									nextSetSize,
-									node->grpColIdx,
-									aggstate->eqfunctions,
-									tmpcontext->ecxt_per_tuple_memory)))
+		if (aggstate->input_done ||
+			(node->aggstrategy == AGG_SORTED &&
+			 aggstate->projected_set != -1 &&
+			 aggstate->projected_set < (numGroupingSets - 1) &&
+			 nextSetSize > 0 &&
+			 !execTuplesMatch(econtext->ecxt_outertuple,
+							  tmpcontext->ecxt_outertuple,
+							  nextSetSize,
+							  node->grpColIdx,
+							  aggstate->eqfunctions,
+							  tmpcontext->ecxt_per_tuple_memory)))
 		{
 			aggstate->projected_set += 1;
 
@@ -1375,8 +1379,8 @@ agg_retrieve_direct(AggState *aggstate)
 			aggstate->projected_set = 0;
 
 			/*
-			 * If we don't already have the first tuple of the new group, fetch
-			 * it from the outer plan.
+			 * If we don't already have the first tuple of the new group,
+			 * fetch it from the outer plan.
 			 */
 			if (aggstate->grp_firstTuple == NULL)
 			{
@@ -1384,8 +1388,8 @@ agg_retrieve_direct(AggState *aggstate)
 				if (!TupIsNull(outerslot))
 				{
 					/*
-					 * Make a copy of the first input tuple; we will use this for
-					 * comparisons (in group mode) and for projection.
+					 * Make a copy of the first input tuple; we will use this
+					 * for comparisons (in group mode) and for projection.
 					 */
 					aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
 				}
@@ -1614,14 +1618,14 @@ agg_retrieve_chained(AggState *aggstate)
 
 	econtext->ecxt_outertuple = firstSlot;
 
-	while (!TupIsNull(firstSlot)
-		   && (TupIsNull(outerslot)
-			   || !execTuplesMatch(firstSlot,
-								   outerslot,
-								   aggstate->gset_lengths[currentSet],
-								   node->grpColIdx,
-								   aggstate->eqfunctions,
-								   tmpcontext->ecxt_per_tuple_memory)))
+	while (!TupIsNull(firstSlot) &&
+		   (TupIsNull(outerslot) ||
+			!execTuplesMatch(firstSlot,
+							 outerslot,
+							 aggstate->gset_lengths[currentSet],
+							 node->grpColIdx,
+							 aggstate->eqfunctions,
+							 tmpcontext->ecxt_per_tuple_memory)))
 	{
 		aggstate->current_set = aggstate->projected_set = currentSet;
 
