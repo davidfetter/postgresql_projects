@@ -388,6 +388,90 @@ static Datum GetAggInitVal(Datum textInitVal, Oid transtype);
 
 
 /*
+ * (Re)Initialize an individual aggregate.
+ *
+ * This function handles only one grouping set (already set in
+ * aggstate->current_set).
+ *
+ * When called, CurrentMemoryContext should be the per-query context.
+ */
+static void
+initialize_aggregate(AggState *aggstate, AggStatePerAgg peraggstate,
+					 AggStatePerGroup pergroupstate)
+{
+	/*
+	 * Start a fresh sort operation for each DISTINCT/ORDER BY aggregate.
+	 */
+	if (peraggstate->numSortCols > 0)
+	{
+		/*
+		 * In case of rescan, maybe there could be an uncompleted sort
+		 * operation?  Clean it up if so.
+		 */
+		if (peraggstate->sortstates[aggstate->current_set])
+			tuplesort_end(peraggstate->sortstates[aggstate->current_set]);
+
+
+		/*
+		 * We use a plain Datum sorter when there's a single input column;
+		 * otherwise sort the full tuple.  (See comments for
+		 * process_ordered_aggregate_single.)
+		 *
+		 * In the future, we should consider forcing the
+		 * tuplesort_begin_heap() case when the abbreviated key optimization
+		 * can thereby be used, even when numInputs is 1.
+		 */
+		if (peraggstate->numInputs == 1)
+			peraggstate->sortstates[aggstate->current_set] =
+				tuplesort_begin_datum(peraggstate->evaldesc->attrs[0]->atttypid,
+									  peraggstate->sortOperators[0],
+									  peraggstate->sortCollations[0],
+									  peraggstate->sortNullsFirst[0],
+									  work_mem, false);
+		else
+			peraggstate->sortstates[aggstate->current_set] =
+				tuplesort_begin_heap(peraggstate->evaldesc,
+									 peraggstate->numSortCols,
+									 peraggstate->sortColIdx,
+									 peraggstate->sortOperators,
+									 peraggstate->sortCollations,
+									 peraggstate->sortNullsFirst,
+									 work_mem, false);
+	}
+
+	/*
+	 * (Re)set transValue to the initial value.
+	 *
+	 * Note that when the initial value is pass-by-ref, we must copy
+	 * it (into the aggcontext) since we will pfree the transValue
+	 * later.
+	 */
+	if (peraggstate->initValueIsNull)
+		pergroupstate->transValue = peraggstate->initValue;
+	else
+	{
+		MemoryContext oldContext;
+
+		oldContext = MemoryContextSwitchTo(
+			aggstate->aggcontexts[aggstate->current_set]->ecxt_per_tuple_memory);
+		pergroupstate->transValue = datumCopy(peraggstate->initValue,
+											  peraggstate->transtypeByVal,
+											  peraggstate->transtypeLen);
+		MemoryContextSwitchTo(oldContext);
+	}
+	pergroupstate->transValueIsNull = peraggstate->initValueIsNull;
+
+	/*
+	 * If the initial value for the transition state doesn't exist in
+	 * the pg_aggregate table then we will let the first non-NULL
+	 * value returned from the outer procNode become the initial
+	 * value. (This is useful for aggregates like max() and min().)
+	 * The noTransValue flag signals that we still need to do this.
+	 */
+	pergroupstate->noTransValue = peraggstate->initValueIsNull;
+}
+
+/*
  * Initialize all aggregates for a new group of input values.
  *
  * If there are multiple grouping sets, we initialize only the first numReset
@@ -414,78 +498,15 @@ initialize_aggregates(AggState *aggstate,
 	{
 		AggStatePerAgg peraggstate = &peragg[aggno];
 
-		/*
-		 * Start a fresh sort operation for each DISTINCT/ORDER BY aggregate.
-		 */
-		if (peraggstate->numSortCols > 0)
-		{
-			for (setno = 0; setno < numReset; setno++)
-			{
-				/*
-				 * In case of rescan, maybe there could be an uncompleted sort
-				 * operation?  Clean it up if so.
-				 */
-				if (peraggstate->sortstates[setno])
-					tuplesort_end(peraggstate->sortstates[setno]);
-
-				/*
-				 * We use a plain Datum sorter when there's a single input column;
-				 * otherwise sort the full tuple.  (See comments for
-				 * process_ordered_aggregate_single.)
-				 *
-				 * In the future, we should consider forcing the
-				 * tuplesort_begin_heap() case when the abbreviated key
-				 * optimization can thereby be used, even when numInputs is 1.
-				 */
-				peraggstate->sortstates[setno] =
-					(peraggstate->numInputs == 1) ?
-					tuplesort_begin_datum(peraggstate->evaldesc->attrs[0]->atttypid,
-										  peraggstate->sortOperators[0],
-										  peraggstate->sortCollations[0],
-										  peraggstate->sortNullsFirst[0],
-										  work_mem, false) :
-					tuplesort_begin_heap(peraggstate->evaldesc,
-										 peraggstate->numSortCols,
-										 peraggstate->sortColIdx,
-										 peraggstate->sortOperators,
-										 peraggstate->sortCollations,
-										 peraggstate->sortNullsFirst,
-										 work_mem, false);
-			}
-		}
-
 		for (setno = 0; setno < numReset; setno++)
 		{
-			AggStatePerGroup pergroupstate = &pergroup[aggno + (setno * (aggstate->numaggs))];
+			AggStatePerGroup pergroupstate;
 
-			/*
-			 * (Re)set transValue to the initial value.
-			 *
-			 * Note that when the initial value is pass-by-ref, we must copy it
-			 * (into the aggcontext) since we will pfree the transValue later.
-			 */
-			if (peraggstate->initValueIsNull)
-				pergroupstate->transValue = peraggstate->initValue;
-			else
-			{
-				MemoryContext oldContext;
+			pergroupstate = &pergroup[aggno + (setno * (aggstate->numaggs))];
 
-				oldContext = MemoryContextSwitchTo(aggstate->aggcontexts[setno]->ecxt_per_tuple_memory);
-				pergroupstate->transValue = datumCopy(peraggstate->initValue,
-													  peraggstate->transtypeByVal,
-													  peraggstate->transtypeLen);
-				MemoryContextSwitchTo(oldContext);
-			}
-			pergroupstate->transValueIsNull = peraggstate->initValueIsNull;
+			aggstate->current_set = setno;
 
-			/*
-			 * If the initial value for the transition state doesn't exist in the
-			 * pg_aggregate table then we will let the first non-NULL value
-			 * returned from the outer procNode become the initial value. (This is
-			 * useful for aggregates like max() and min().) The noTransValue flag
-			 * signals that we still need to do this.
-			 */
-			pergroupstate->noTransValue = peraggstate->initValueIsNull;
+			initialize_aggregate(aggstate, peraggstate, pergroupstate);
 		}
 	}
 }
