@@ -132,6 +132,8 @@ typedef struct Query
 
 	List	   *withCheckOptions;		/* a list of WithCheckOption's */
 
+	OnConflictExpr *onConflict;	/* ON CONFLICT DO [NOTHING | UPDATE] */
+
 	List	   *returningList;	/* return-values list (of TargetEntry) */
 
 	List	   *groupClause;	/* a list of SortGroupClause's */
@@ -593,7 +595,7 @@ typedef enum TableLikeOption
 } TableLikeOption;
 
 /*
- * IndexElem - index parameters (used in CREATE INDEX)
+ * IndexElem - index parameters (used in CREATE INDEX, and in ON CONFLICT)
  *
  * For a plain index attribute, 'name' is the name of the table column to
  * index, and 'expr' is NULL.  For an index expression, 'name' is NULL and
@@ -737,11 +739,12 @@ typedef struct XmlSerialize
  *	  For SELECT/INSERT/UPDATE permissions, if the user doesn't have
  *	  table-wide permissions then it is sufficient to have the permissions
  *	  on all columns identified in selectedCols (for SELECT) and/or
- *	  modifiedCols (for INSERT/UPDATE; we can tell which from the query type).
- *	  selectedCols and modifiedCols are bitmapsets, which cannot have negative
- *	  integer members, so we subtract FirstLowInvalidHeapAttributeNumber from
- *	  column numbers before storing them in these fields.  A whole-row Var
- *	  reference is represented by setting the bit for InvalidAttrNumber.
+ *	  insertedCols and/or updatedCols (INSERT with ON CONFLICT DO UPDATE may
+ *	  have all 3).  selectedCols, insertedCols and updatedCols are bitmapsets,
+ *	  which cannot have negative integer members, so we subtract
+ *	  FirstLowInvalidHeapAttributeNumber from column numbers before storing
+ *	  them in these fields.  A whole-row Var reference is represented by
+ *	  setting the bit for InvalidAttrNumber.
  *--------------------
  */
 typedef enum RTEKind
@@ -836,7 +839,8 @@ typedef struct RangeTblEntry
 	AclMode		requiredPerms;	/* bitmask of required access permissions */
 	Oid			checkAsUser;	/* if valid, check access as this role */
 	Bitmapset  *selectedCols;	/* columns needing SELECT permission */
-	Bitmapset  *modifiedCols;	/* columns needing INSERT/UPDATE permission */
+	Bitmapset  *insertedCols;	/* columns needing INSERT permission */
+	Bitmapset  *updatedCols;	/* columns needing UPDATE permission */
 	List	   *securityQuals;	/* any security barrier quals to apply */
 } RangeTblEntry;
 
@@ -881,7 +885,8 @@ typedef enum WCOKind
 {
 	WCO_VIEW_CHECK,				/* WCO on an auto-updatable view */
 	WCO_RLS_INSERT_CHECK,		/* RLS INSERT WITH CHECK policy */
-	WCO_RLS_UPDATE_CHECK		/* RLS UPDATE WITH CHECK policy */
+	WCO_RLS_UPDATE_CHECK,		/* RLS UPDATE WITH CHECK policy */
+	WCO_RLS_CONFLICT_CHECK		/* RLS ON CONFLICT DO UPDATE USING policy */
 } WCOKind;
 
 typedef struct WithCheckOption
@@ -1093,6 +1098,37 @@ typedef struct WithClause
 } WithClause;
 
 /*
+ * InferClause -
+ *		ON CONFLICT unique index inference clause
+ *
+ * Note: InferClause does not propagate into the Query representation.
+ */
+typedef struct InferClause
+{
+	NodeTag		type;
+	List	   *indexElems;		/* IndexElems to infer unique index */
+	Node	   *whereClause;	/* qualification (partial-index predicate) */
+	char	   *conname;		/* Constraint name, or NULL if unnamed */
+	int			location;		/* token location, or -1 if unknown */
+} InferClause;
+
+/*
+ * OnConflictClause -
+ *		representation of ON CONFLICT clause
+ *
+ * Note: OnConflictClause does not propagate into the Query representation.
+ */
+typedef struct OnConflictClause
+{
+	NodeTag			type;
+	OnConflictAction action;		/* DO NOTHING or UPDATE? */
+	InferClause	   *infer;			/* Optional index inference clause */
+	List		   *targetList;		/* the target list (of ResTarget) */
+	Node		   *whereClause;	/* qualifications */
+	int				location;		/* token location, or -1 if unknown */
+} OnConflictClause;
+
+/*
  * CommonTableExpr -
  *	   representation of WITH list element
  *
@@ -1142,6 +1178,7 @@ typedef struct InsertStmt
 	RangeVar   *relation;		/* relation to insert into */
 	List	   *cols;			/* optional: names of the target columns */
 	Node	   *selectStmt;		/* the source SELECT/VALUES, or NULL */
+	OnConflictClause *onConflictClause;	/* ON CONFLICT clause */
 	List	   *returningList;	/* list of expressions to return */
 	WithClause *withClause;		/* WITH clause */
 } InsertStmt;
@@ -2943,9 +2980,19 @@ typedef struct AlterTSDictionaryStmt
 /*
  * TS Configuration stmts: DefineStmt, RenameStmt and DropStmt are default
  */
+typedef enum AlterTSConfigType
+{
+	ALTER_TSCONFIG_ADD_MAPPING,
+	ALTER_TSCONFIG_ALTER_MAPPING_FOR_TOKEN,
+	ALTER_TSCONFIG_REPLACE_DICT,
+	ALTER_TSCONFIG_REPLACE_DICT_FOR_TOKEN,
+	ALTER_TSCONFIG_DROP_MAPPING
+} AlterTSConfigType;
+
 typedef struct AlterTSConfigurationStmt
 {
 	NodeTag		type;
+	AlterTSConfigType	kind;	/* ALTER_TSCONFIG_ADD_MAPPING, etc */
 	List	   *cfgname;		/* qualified name (list of Value strings) */
 
 	/*

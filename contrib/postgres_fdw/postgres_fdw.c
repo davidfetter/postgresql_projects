@@ -872,7 +872,8 @@ postgresGetForeignPlan(PlannerInfo *root,
 							local_exprs,
 							scan_relid,
 							params_list,
-							fdw_private);
+							fdw_private,
+							NIL /* no custom tlist */ );
 }
 
 /*
@@ -1171,6 +1172,7 @@ postgresPlanForeignModify(PlannerInfo *root,
 	List	   *targetAttrs = NIL;
 	List	   *returningList = NIL;
 	List	   *retrieved_attrs = NIL;
+	bool		doNothing = false;
 
 	initStringInfo(&sql);
 
@@ -1205,7 +1207,7 @@ postgresPlanForeignModify(PlannerInfo *root,
 		int			col;
 
 		col = -1;
-		while ((col = bms_next_member(rte->modifiedCols, col)) >= 0)
+		while ((col = bms_next_member(rte->updatedCols, col)) >= 0)
 		{
 			/* bit numbers are offset by FirstLowInvalidHeapAttributeNumber */
 			AttrNumber	attno = col + FirstLowInvalidHeapAttributeNumber;
@@ -1223,13 +1225,25 @@ postgresPlanForeignModify(PlannerInfo *root,
 		returningList = (List *) list_nth(plan->returningLists, subplan_index);
 
 	/*
+	 * ON CONFLICT DO UPDATE and DO NOTHING case with inference specification
+	 * should have already been rejected in the optimizer, as presently there
+	 * is no way to recognize an arbiter index on a foreign table.  Only DO
+	 * NOTHING is supported without an inference specification.
+	 */
+	if (plan->onConflictAction == ONCONFLICT_NOTHING)
+		doNothing = true;
+	else if (plan->onConflictAction != ONCONFLICT_NONE)
+		elog(ERROR, "unexpected ON CONFLICT specification: %d",
+			 (int) plan->onConflictAction);
+
+	/*
 	 * Construct the SQL command string.
 	 */
 	switch (operation)
 	{
 		case CMD_INSERT:
 			deparseInsertSql(&sql, root, resultRelation, rel,
-							 targetAttrs, returningList,
+							 targetAttrs, doNothing, returningList,
 							 &retrieved_attrs);
 			break;
 		case CMD_UPDATE:
@@ -2720,7 +2734,7 @@ postgresImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 					appendStringInfoString(&buf, ", ");
 				deparseStringLiteral(&buf, rv->relname);
 			}
-			appendStringInfoString(&buf, ")");
+			appendStringInfoChar(&buf, ')');
 		}
 
 		/* Append ORDER BY at the end of query to ensure output ordering */
@@ -2784,7 +2798,7 @@ postgresImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 				 */
 				appendStringInfoString(&buf, " OPTIONS (column_name ");
 				deparseStringLiteral(&buf, attname);
-				appendStringInfoString(&buf, ")");
+				appendStringInfoChar(&buf, ')');
 
 				/* Add COLLATE if needed */
 				if (import_collate && collname != NULL && collnamespace != NULL)

@@ -82,6 +82,9 @@ static void ExecutePlan(EState *estate, PlanState *planstate,
 			ScanDirection direction,
 			DestReceiver *dest);
 static bool ExecCheckRTEPerms(RangeTblEntry *rte);
+static bool ExecCheckRTEPermsModified(Oid relOid, Oid userid,
+						  Bitmapset *modifiedCols,
+						  AclMode requiredPerms);
 static void ExecCheckXactReadOnly(PlannedStmt *plannedstmt);
 static char *ExecBuildSlotValueDescription(Oid reloid,
 							  TupleTableSlot *slot,
@@ -92,13 +95,15 @@ static void EvalPlanQualStart(EPQState *epqstate, EState *parentestate,
 				  Plan *planTree);
 
 /*
- * Note that this macro also exists in commands/trigger.c.  There does not
- * appear to be any good header to put it into, given the structures that
+ * Note that GetUpdatedColumns() also exists in commands/trigger.c.  There does
+ * not appear to be any good header to put it into, given the structures that
  * it uses, so we let them be duplicated.  Be sure to update both if one needs
  * to be changed, however.
  */
-#define GetModifiedColumns(relinfo, estate) \
-	(rt_fetch((relinfo)->ri_RangeTableIndex, (estate)->es_range_table)->modifiedCols)
+#define GetInsertedColumns(relinfo, estate) \
+	(rt_fetch((relinfo)->ri_RangeTableIndex, (estate)->es_range_table)->insertedCols)
+#define GetUpdatedColumns(relinfo, estate) \
+	(rt_fetch((relinfo)->ri_RangeTableIndex, (estate)->es_range_table)->updatedCols)
 
 /* end of local decls */
 
@@ -571,7 +576,6 @@ ExecCheckRTEPerms(RangeTblEntry *rte)
 	AclMode		remainingPerms;
 	Oid			relOid;
 	Oid			userid;
-	int			col;
 
 	/*
 	 * Only plain-relation RTEs need to be checked here.  Function RTEs are
@@ -609,6 +613,8 @@ ExecCheckRTEPerms(RangeTblEntry *rte)
 	remainingPerms = requiredPerms & ~relPerms;
 	if (remainingPerms != 0)
 	{
+		int			col = -1;
+
 		/*
 		 * If we lack any permissions that exist only as relation permissions,
 		 * we can fail straight away.
@@ -637,7 +643,6 @@ ExecCheckRTEPerms(RangeTblEntry *rte)
 					return false;
 			}
 
-			col = -1;
 			while ((col = bms_next_member(rte->selectedCols, col)) >= 0)
 			{
 				/* bit #s are offset by FirstLowInvalidHeapAttributeNumber */
@@ -660,43 +665,63 @@ ExecCheckRTEPerms(RangeTblEntry *rte)
 		}
 
 		/*
-		 * Basically the same for the mod columns, with either INSERT or
-		 * UPDATE privilege as specified by remainingPerms.
+		 * Basically the same for the mod columns, for both INSERT and UPDATE
+		 * privilege as specified by remainingPerms.
 		 */
-		remainingPerms &= ~ACL_SELECT;
-		if (remainingPerms != 0)
+		if (remainingPerms & ACL_INSERT && !ExecCheckRTEPermsModified(relOid,
+																	  userid,
+																	  rte->insertedCols,
+																	  ACL_INSERT))
+			return false;
+
+		if (remainingPerms & ACL_UPDATE && !ExecCheckRTEPermsModified(relOid,
+																	  userid,
+																	  rte->updatedCols,
+																	  ACL_UPDATE))
+			return false;
+	}
+	return true;
+}
+
+/*
+ * ExecCheckRTEPermsModified
+ *		Check INSERT or UPDATE access permissions for a single RTE (these
+ *		are processed uniformly).
+ */
+static bool
+ExecCheckRTEPermsModified(Oid relOid, Oid userid, Bitmapset *modifiedCols,
+						  AclMode requiredPerms)
+{
+	int			col = -1;
+
+	/*
+	 * When the query doesn't explicitly update any columns, allow the
+	 * query if we have permission on any column of the rel.  This is
+	 * to handle SELECT FOR UPDATE as well as possible corner cases in
+	 * UPDATE.
+	 */
+	if (bms_is_empty(modifiedCols))
+	{
+		if (pg_attribute_aclcheck_all(relOid, userid, requiredPerms,
+									  ACLMASK_ANY) != ACLCHECK_OK)
+			return false;
+	}
+
+	while ((col = bms_next_member(modifiedCols, col)) >= 0)
+	{
+		/* bit #s are offset by FirstLowInvalidHeapAttributeNumber */
+		AttrNumber	attno = col + FirstLowInvalidHeapAttributeNumber;
+
+		if (attno == InvalidAttrNumber)
 		{
-			/*
-			 * When the query doesn't explicitly change any columns, allow the
-			 * query if we have permission on any column of the rel.  This is
-			 * to handle SELECT FOR UPDATE as well as possible corner cases in
-			 * INSERT and UPDATE.
-			 */
-			if (bms_is_empty(rte->modifiedCols))
-			{
-				if (pg_attribute_aclcheck_all(relOid, userid, remainingPerms,
-											  ACLMASK_ANY) != ACLCHECK_OK)
-					return false;
-			}
-
-			col = -1;
-			while ((col = bms_next_member(rte->modifiedCols, col)) >= 0)
-			{
-				/* bit #s are offset by FirstLowInvalidHeapAttributeNumber */
-				AttrNumber	attno = col + FirstLowInvalidHeapAttributeNumber;
-
-				if (attno == InvalidAttrNumber)
-				{
-					/* whole-row reference can't happen here */
-					elog(ERROR, "whole-row update is not implemented");
-				}
-				else
-				{
-					if (pg_attribute_aclcheck(relOid, attno, userid,
-											  remainingPerms) != ACLCHECK_OK)
-						return false;
-				}
-			}
+			/* whole-row reference can't happen here */
+			elog(ERROR, "whole-row update is not implemented");
+		}
+		else
+		{
+			if (pg_attribute_aclcheck(relOid, attno, userid,
+									  requiredPerms) != ACLCHECK_OK)
+				return false;
 		}
 	}
 	return true;
@@ -873,8 +898,11 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 		erm->prti = rc->prti;
 		erm->rowmarkId = rc->rowmarkId;
 		erm->markType = rc->markType;
+		erm->strength = rc->strength;
 		erm->waitPolicy = rc->waitPolicy;
+		erm->ermActive = false;
 		ItemPointerSetInvalid(&(erm->curCtid));
+		erm->ermExtra = NULL;
 		estate->es_rowMarks = lappend(estate->es_rowMarks, erm);
 	}
 
@@ -1118,6 +1146,8 @@ CheckValidResultRel(Relation resultRel, CmdType operation)
 static void
 CheckValidRowMarkRel(Relation rel, RowMarkType markType)
 {
+	FdwRoutine *fdwroutine;
+
 	switch (rel->rd_rel->relkind)
 	{
 		case RELKIND_RELATION:
@@ -1153,11 +1183,13 @@ CheckValidRowMarkRel(Relation rel, RowMarkType markType)
 							  RelationGetRelationName(rel))));
 			break;
 		case RELKIND_FOREIGN_TABLE:
-			/* Should not get here; planner should have used ROW_MARK_COPY */
-			ereport(ERROR,
-					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("cannot lock rows in foreign table \"%s\"",
-							RelationGetRelationName(rel))));
+			/* Okay only if the FDW supports it */
+			fdwroutine = GetFdwRoutineForRelation(rel, false);
+			if (fdwroutine->RefetchForeignRow == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot lock rows in foreign table \"%s\"",
+								RelationGetRelationName(rel))));
 			break;
 		default:
 			ereport(ERROR,
@@ -1633,6 +1665,9 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 	Relation	rel = resultRelInfo->ri_RelationDesc;
 	TupleDesc	tupdesc = RelationGetDescr(rel);
 	TupleConstr *constr = tupdesc->constr;
+	Bitmapset   *modifiedCols;
+	Bitmapset   *insertedCols;
+	Bitmapset   *updatedCols;
 
 	Assert(constr);
 
@@ -1647,9 +1682,10 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 				slot_attisnull(slot, attrChk))
 			{
 				char	   *val_desc;
-				Bitmapset  *modifiedCols;
 
-				modifiedCols = GetModifiedColumns(resultRelInfo, estate);
+				insertedCols = GetInsertedColumns(resultRelInfo, estate);
+				updatedCols = GetUpdatedColumns(resultRelInfo, estate);
+				modifiedCols = bms_union(insertedCols, updatedCols);
 				val_desc = ExecBuildSlotValueDescription(RelationGetRelid(rel),
 														 slot,
 														 tupdesc,
@@ -1673,9 +1709,10 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 		if ((failed = ExecRelCheck(resultRelInfo, slot, estate)) != NULL)
 		{
 			char	   *val_desc;
-			Bitmapset  *modifiedCols;
 
-			modifiedCols = GetModifiedColumns(resultRelInfo, estate);
+			insertedCols = GetInsertedColumns(resultRelInfo, estate);
+			updatedCols = GetUpdatedColumns(resultRelInfo, estate);
+			modifiedCols = bms_union(insertedCols, updatedCols);
 			val_desc = ExecBuildSlotValueDescription(RelationGetRelid(rel),
 													 slot,
 													 tupdesc,
@@ -1746,6 +1783,8 @@ ExecWithCheckOptions(WCOKind kind, ResultRelInfo *resultRelInfo,
 		{
 			char	   *val_desc;
 			Bitmapset  *modifiedCols;
+			Bitmapset  *insertedCols;
+			Bitmapset  *updatedCols;
 
 			switch (wco->kind)
 			{
@@ -1758,7 +1797,9 @@ ExecWithCheckOptions(WCOKind kind, ResultRelInfo *resultRelInfo,
 				 * as that depends on the USING policy.
 				 */
 				case WCO_VIEW_CHECK:
-					modifiedCols = GetModifiedColumns(resultRelInfo, estate);
+					insertedCols = GetInsertedColumns(resultRelInfo, estate);
+					updatedCols = GetUpdatedColumns(resultRelInfo, estate);
+					modifiedCols = bms_union(insertedCols, updatedCols);
 					val_desc = ExecBuildSlotValueDescription(RelationGetRelid(rel),
 															 slot,
 															 tupdesc,
@@ -1777,6 +1818,12 @@ ExecWithCheckOptions(WCOKind kind, ResultRelInfo *resultRelInfo,
 					ereport(ERROR,
 							(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 						 errmsg("new row violates row level security policy for \"%s\"",
+								wco->relname)));
+					break;
+				case WCO_RLS_CONFLICT_CHECK:
+					ereport(ERROR,
+							(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+						 errmsg("new row violates row level security policy (USING expression) for \"%s\"",
 								wco->relname)));
 					break;
 				default:
@@ -1939,10 +1986,37 @@ ExecBuildSlotValueDescription(Oid reloid,
 
 
 /*
+ * ExecUpdateLockMode -- find the appropriate UPDATE tuple lock mode for a
+ * given ResultRelInfo
+ */
+LockTupleMode
+ExecUpdateLockMode(EState *estate, ResultRelInfo *relinfo)
+{
+	Bitmapset  *keyCols;
+	Bitmapset  *updatedCols;
+
+	/*
+	 * Compute lock mode to use.  If columns that are part of the key have not
+	 * been modified, then we can use a weaker lock, allowing for better
+	 * concurrency.
+	 */
+	updatedCols = GetUpdatedColumns(relinfo, estate);
+	keyCols = RelationGetIndexAttrBitmap(relinfo->ri_RelationDesc,
+										 INDEX_ATTR_BITMAP_KEY);
+
+	if (bms_overlap(keyCols, updatedCols))
+		return LockTupleExclusive;
+
+	return LockTupleNoKeyExclusive;
+}
+
+/*
  * ExecFindRowMark -- find the ExecRowMark struct for given rangetable index
+ *
+ * If no such struct, either return NULL or throw error depending on missing_ok
  */
 ExecRowMark *
-ExecFindRowMark(EState *estate, Index rti)
+ExecFindRowMark(EState *estate, Index rti, bool missing_ok)
 {
 	ListCell   *lc;
 
@@ -1953,8 +2027,9 @@ ExecFindRowMark(EState *estate, Index rti)
 		if (erm->rti == rti)
 			return erm;
 	}
-	elog(ERROR, "failed to find ExecRowMark for rangetable index %u", rti);
-	return NULL;				/* keep compiler quiet */
+	if (!missing_ok)
+		elog(ERROR, "failed to find ExecRowMark for rangetable index %u", rti);
+	return NULL;
 }
 
 /*
@@ -2152,8 +2227,9 @@ EvalPlanQualFetch(EState *estate, Relation relation, int lockmode,
 			 * recycled and reused for an unrelated tuple.  This implies that
 			 * the latest version of the row was deleted, so we need do
 			 * nothing.  (Should be safe to examine xmin without getting
-			 * buffer's content lock, since xmin never changes in an existing
-			 * tuple.)
+			 * buffer's content lock.  We assume reading a TransactionId to be
+			 * atomic, and Xmin never changes in an existing tuple, except to
+			 * invalid or frozen, and neither of those can match priorXmax.)
 			 */
 			if (!TransactionIdEquals(HeapTupleHeaderGetXmin(tuple.t_data),
 									 priorXmax))
@@ -2234,11 +2310,12 @@ EvalPlanQualFetch(EState *estate, Relation relation, int lockmode,
 					 * case, so as to avoid the "Halloween problem" of
 					 * repeated update attempts.  In the latter case it might
 					 * be sensible to fetch the updated tuple instead, but
-					 * doing so would require changing heap_lock_tuple as well
-					 * as heap_update and heap_delete to not complain about
-					 * updating "invisible" tuples, which seems pretty scary.
-					 * So for now, treat the tuple as deleted and do not
-					 * process.
+					 * doing so would require changing heap_update and
+					 * heap_delete to not complain about updating "invisible"
+					 * tuples, which seems pretty scary (heap_lock_tuple will
+					 * not complain, but few callers expect HeapTupleInvisible,
+					 * and we're not one of them).  So for now, treat the tuple
+					 * as deleted and do not process.
 					 */
 					ReleaseBuffer(buffer);
 					return NULL;
@@ -2253,6 +2330,9 @@ EvalPlanQualFetch(EState *estate, Relation relation, int lockmode,
 						ereport(ERROR,
 								(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 								 errmsg("could not serialize access due to concurrent update")));
+
+					/* Should not encounter speculative tuple on recheck */
+					Assert(!HeapTupleHeaderIsSpeculative(tuple.t_data));
 					if (!ItemPointerEquals(&hufd.ctid, &tuple.t_self))
 					{
 						/* it was updated, so look at the updated version */
@@ -2267,6 +2347,9 @@ EvalPlanQualFetch(EState *estate, Relation relation, int lockmode,
 				case HeapTupleWouldBlock:
 					ReleaseBuffer(buffer);
 					return NULL;
+
+				case HeapTupleInvisible:
+					elog(ERROR, "attempted to lock invisible tuple");
 
 				default:
 					ReleaseBuffer(buffer);
@@ -2457,7 +2540,7 @@ EvalPlanQualFetchRowMarks(EPQState *epqstate)
 
 		if (erm->markType == ROW_MARK_REFERENCE)
 		{
-			Buffer		buffer;
+			HeapTuple	copyTuple;
 
 			Assert(erm->relation != NULL);
 
@@ -2468,17 +2551,50 @@ EvalPlanQualFetchRowMarks(EPQState *epqstate)
 			/* non-locked rels could be on the inside of outer joins */
 			if (isNull)
 				continue;
-			tuple.t_self = *((ItemPointer) DatumGetPointer(datum));
 
-			/* okay, fetch the tuple */
-			if (!heap_fetch(erm->relation, SnapshotAny, &tuple, &buffer,
-							false, NULL))
-				elog(ERROR, "failed to fetch tuple for EvalPlanQual recheck");
+			/* fetch requests on foreign tables must be passed to their FDW */
+			if (erm->relation->rd_rel->relkind == RELKIND_FOREIGN_TABLE)
+			{
+				FdwRoutine *fdwroutine;
+				bool		updated = false;
 
-			/* successful, copy and store tuple */
-			EvalPlanQualSetTuple(epqstate, erm->rti,
-								 heap_copytuple(&tuple));
-			ReleaseBuffer(buffer);
+				fdwroutine = GetFdwRoutineForRelation(erm->relation, false);
+				/* this should have been checked already, but let's be safe */
+				if (fdwroutine->RefetchForeignRow == NULL)
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("cannot lock rows in foreign table \"%s\"",
+									RelationGetRelationName(erm->relation))));
+				copyTuple = fdwroutine->RefetchForeignRow(epqstate->estate,
+														  erm,
+														  datum,
+														  &updated);
+				if (copyTuple == NULL)
+					elog(ERROR, "failed to fetch tuple for EvalPlanQual recheck");
+
+				/*
+				 * Ideally we'd insist on updated == false here, but that
+				 * assumes that FDWs can track that exactly, which they might
+				 * not be able to.  So just ignore the flag.
+				 */
+			}
+			else
+			{
+				/* ordinary table, fetch the tuple */
+				Buffer		buffer;
+
+				tuple.t_self = *((ItemPointer) DatumGetPointer(datum));
+				if (!heap_fetch(erm->relation, SnapshotAny, &tuple, &buffer,
+								false, NULL))
+					elog(ERROR, "failed to fetch tuple for EvalPlanQual recheck");
+
+				/* successful, copy tuple */
+				copyTuple = heap_copytuple(&tuple);
+				ReleaseBuffer(buffer);
+			}
+
+			/* store tuple */
+			EvalPlanQualSetTuple(epqstate, erm->rti, copyTuple);
 		}
 		else
 		{

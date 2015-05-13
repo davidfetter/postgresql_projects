@@ -2368,12 +2368,14 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 		case T_ForeignScan:
 			finalize_primnode((Node *) ((ForeignScan *) plan)->fdw_exprs,
 							  &context);
+			/* We assume fdw_scan_tlist cannot contain Params */
 			context.paramids = bms_add_members(context.paramids, scan_params);
 			break;
 
 		case T_CustomScan:
 			finalize_primnode((Node *) ((CustomScan *) plan)->custom_exprs,
 							  &context);
+			/* We assume custom_scan_tlist cannot contain Params */
 			context.paramids = bms_add_members(context.paramids, scan_params);
 			break;
 
@@ -2389,6 +2391,10 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 				scan_params = bms_add_member(bms_copy(scan_params),
 											 locally_added_param);
 				finalize_primnode((Node *) mtplan->returningLists,
+								  &context);
+				finalize_primnode((Node *) mtplan->onConflictSet,
+								  &context);
+				finalize_primnode((Node *) mtplan->onConflictWhere,
 								  &context);
 				foreach(l, mtplan->plans)
 				{

@@ -2596,7 +2596,8 @@ void
 ExecReScanAgg(AggState *node)
 {
 	ExprContext *econtext = node->ss.ps.ps_ExprContext;
-	Agg		   *aggnode = (Agg *) node->ss.ps.plan;
+	Agg			*aggnode = (Agg *) node->ss.ps.plan;
+	PlanState	*outerPlan = outerPlanState(node);
 	int			aggno;
 	int         numGroupingSets = Max(node->numsets, 1);
 	int         setno;
@@ -2621,7 +2622,7 @@ ExecReScanAgg(AggState *node)
 		 * parameter changes, then we can just rescan the existing hash table;
 		 * no need to build it again.
 		 */
-		if (node->ss.ps.lefttree->chgParam == NULL)
+		if (outerPlan->chgParam == NULL)
 		{
 			ResetTupleHashIterator(node->hashtable, &node->hashiter);
 			return;
@@ -2713,13 +2714,13 @@ ExecReScanAgg(AggState *node)
 	 */
 	if (aggnode->chain_depth > 0)
 	{
-		if (node->ss.ps.lefttree->chgParam)
+		if (outerPlan->chgParam)
 			tuplestore_clear(node->chain_tuplestore);
 		else
 		{
 			node->chain_rescan = 0;
 
-			ExecReScan(node->ss.ps.lefttree);
+			ExecReScan(outerPlan);
 
 			if (node->chain_rescan > 0)
 				tuplestore_clear(node->chain_tuplestore);
@@ -2728,9 +2729,9 @@ ExecReScanAgg(AggState *node)
 		}
 		node->chain_done = false;
 	}
-	else if (node->ss.ps.lefttree->chgParam == NULL)
+	else if (outerPlan->chgParam == NULL)
 	{
-		ExecReScan(node->ss.ps.lefttree);
+		ExecReScan(outerPlan);
 	}
 }
 

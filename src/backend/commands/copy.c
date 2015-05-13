@@ -847,7 +847,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString, uint64 *processed)
 			FirstLowInvalidHeapAttributeNumber;
 
 			if (is_from)
-				rte->modifiedCols = bms_add_member(rte->modifiedCols, attno);
+				rte->insertedCols = bms_add_member(rte->insertedCols, attno);
 			else
 				rte->selectedCols = bms_add_member(rte->selectedCols, attno);
 		}
@@ -2284,7 +2284,7 @@ CopyFrom(CopyState cstate)
 					  1,		/* dummy rangetable index */
 					  0);
 
-	ExecOpenIndices(resultRelInfo);
+	ExecOpenIndices(resultRelInfo, false);
 
 	estate->es_result_relations = resultRelInfo;
 	estate->es_num_result_relations = 1;
@@ -2439,7 +2439,8 @@ CopyFrom(CopyState cstate)
 
 				if (resultRelInfo->ri_NumIndices > 0)
 					recheckIndexes = ExecInsertIndexTuples(slot, &(tuple->t_self),
-														   estate);
+														   estate, false, NULL,
+														   NIL);
 
 				/* AFTER ROW INSERT Triggers */
 				ExecARInsertTriggers(estate, resultRelInfo, tuple,
@@ -2553,7 +2554,7 @@ CopyFromInsertBatch(CopyState cstate, EState *estate, CommandId mycid,
 			ExecStoreTuple(bufferedTuples[i], myslot, InvalidBuffer, false);
 			recheckIndexes =
 				ExecInsertIndexTuples(myslot, &(bufferedTuples[i]->t_self),
-									  estate);
+									  estate, false, NULL, NIL);
 			ExecARInsertTriggers(estate, resultRelInfo,
 								 bufferedTuples[i],
 								 recheckIndexes);

@@ -21,6 +21,7 @@
 #include "access/htup_details.h"
 #include "executor/executor.h"
 #include "executor/nodeAgg.h"
+#include "foreign/fdwapi.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -249,6 +250,8 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	result->queryId = parse->queryId;
 	result->hasReturning = (parse->returningList != NIL);
 	result->hasModifyingCTE = parse->hasModifyingCTE;
+	result->isUpsert =
+		(parse->onConflict && parse->onConflict->action == ONCONFLICT_UPDATE);
 	result->canSetTag = parse->canSetTag;
 	result->transientPlan = glob->transientPlan;
 	result->planTree = top_plan;
@@ -470,6 +473,17 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	parse->limitCount = preprocess_expression(root, parse->limitCount,
 											  EXPRKIND_LIMIT);
 
+	if (parse->onConflict)
+	{
+		parse->onConflict->onConflictSet = (List *)
+			preprocess_expression(root, (Node *) parse->onConflict->onConflictSet,
+								  EXPRKIND_TARGET);
+
+		parse->onConflict->onConflictWhere =
+			preprocess_expression(root, (Node *) parse->onConflict->onConflictWhere,
+								  EXPRKIND_QUAL);
+	}
+
 	root->append_rel_list = (List *)
 		preprocess_expression(root, (Node *) root->append_rel_list,
 							  EXPRKIND_APPINFO);
@@ -621,6 +635,7 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 											 withCheckOptionLists,
 											 returningLists,
 											 rowMarks,
+											 parse->onConflict,
 											 SS_assign_special_param(root));
 		}
 	}
@@ -810,6 +825,8 @@ inheritance_planner(PlannerInfo *root)
 	List	   *returningLists = NIL;
 	List	   *rowMarks;
 	ListCell   *lc;
+
+	Assert(parse->commandType != CMD_INSERT);
 
 	/*
 	 * We generate a modified instance of the original Query for each target
@@ -1055,6 +1072,8 @@ inheritance_planner(PlannerInfo *root)
 		if (parse->returningList)
 			returningLists = lappend(returningLists,
 									 subroot.parse->returningList);
+
+		Assert(!parse->onConflict);
 	}
 
 	/* Mark result as unordered (probably unnecessary) */
@@ -1104,6 +1123,7 @@ inheritance_planner(PlannerInfo *root)
 									 withCheckOptionLists,
 									 returningLists,
 									 rowMarks,
+									 NULL,
 									 SS_assign_special_param(root));
 }
 
@@ -1241,6 +1261,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		Path	   *cheapest_path;
 		Path	   *sorted_path;
 		Path	   *best_path;
+		OnConflictExpr *onconfl;
 
 		MemSet(&agg_costs, 0, sizeof(AggClauseCosts));
 
@@ -1320,6 +1341,13 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 		/* Preprocess targetlist */
 		tlist = preprocess_targetlist(root, tlist);
+
+		onconfl = parse->onConflict;
+		if (onconfl)
+			onconfl->onConflictSet =
+				preprocess_onconflict_targetlist(onconfl->onConflictSet,
+												 parse->resultRelation,
+												 parse->rtable);
 
 		/*
 		 * Expand any rangetable entries that have security barrier quals.
@@ -2533,7 +2561,12 @@ select_rowmark_type(RangeTblEntry *rte, LockClauseStrength strength)
 	}
 	else if (rte->relkind == RELKIND_FOREIGN_TABLE)
 	{
-		/* For now, we force all foreign tables to use ROW_MARK_COPY */
+		/* Let the FDW select the rowmark type, if it wants to */
+		FdwRoutine *fdwroutine = GetFdwRoutineByRelId(rte->relid);
+
+		if (fdwroutine->GetForeignRowMarkType != NULL)
+			return fdwroutine->GetForeignRowMarkType(rte, strength);
+		/* Otherwise, use ROW_MARK_COPY by default */
 		return ROW_MARK_COPY;
 	}
 	else

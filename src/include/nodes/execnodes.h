@@ -41,6 +41,9 @@
  *		ExclusionOps		Per-column exclusion operators, or NULL if none
  *		ExclusionProcs		Underlying function OIDs for ExclusionOps
  *		ExclusionStrats		Opclass strategy numbers for ExclusionOps
+ *		UniqueOps			Theses are like Exclusion*, but for unique indexes
+ *		UniqueProcs
+ *		UniqueStrats
  *		Unique				is it a unique index?
  *		ReadyForInserts		is it valid for inserts?
  *		Concurrent			are we doing a concurrent index build?
@@ -62,6 +65,9 @@ typedef struct IndexInfo
 	Oid		   *ii_ExclusionOps;	/* array with one entry per column */
 	Oid		   *ii_ExclusionProcs;		/* array with one entry per column */
 	uint16	   *ii_ExclusionStrats;		/* array with one entry per column */
+	Oid		   *ii_UniqueOps;	/* array with one entry per column */
+	Oid		   *ii_UniqueProcs;		/* array with one entry per column */
+	uint16	   *ii_UniqueStrats;		/* array with one entry per column */
 	bool		ii_Unique;
 	bool		ii_ReadyForInserts;
 	bool		ii_Concurrent;
@@ -310,6 +316,8 @@ typedef struct JunkFilter
  *		ConstraintExprs			array of constraint-checking expr states
  *		junkFilter				for removing junk attributes from tuples
  *		projectReturning		for computing a RETURNING list
+ *		onConflictSetProj		for computing ON CONFLICT DO UPDATE SET
+ *		onConflictSetWhere		list of ON CONFLICT DO UPDATE exprs (qual)
  * ----------------
  */
 typedef struct ResultRelInfo
@@ -331,6 +339,8 @@ typedef struct ResultRelInfo
 	List	  **ri_ConstraintExprs;
 	JunkFilter *ri_junkFilter;
 	ProjectionInfo *ri_projectReturning;
+	ProjectionInfo *ri_onConflictSetProj;
+	List	   *ri_onConflictSetWhere;
 } ResultRelInfo;
 
 /* ----------------
@@ -426,8 +436,11 @@ typedef struct EState
  * parent RTEs, which can be ignored at runtime).  Virtual relations such as
  * subqueries-in-FROM will have an ExecRowMark with relation == NULL.  See
  * PlanRowMark for details about most of the fields.  In addition to fields
- * directly derived from PlanRowMark, we store curCtid, which is used by the
- * WHERE CURRENT OF code.
+ * directly derived from PlanRowMark, we store an activity flag (to denote
+ * inactive children of inheritance trees), curCtid, which is used by the
+ * WHERE CURRENT OF code, and ermExtra, which is available for use by the plan
+ * node that sources the relation (e.g., for a foreign table the FDW can use
+ * ermExtra to hold information).
  *
  * EState->es_rowMarks is a list of these structs.
  */
@@ -439,8 +452,11 @@ typedef struct ExecRowMark
 	Index		prti;			/* parent range table index, if child */
 	Index		rowmarkId;		/* unique identifier for resjunk columns */
 	RowMarkType markType;		/* see enum in nodes/plannodes.h */
+	LockClauseStrength strength;	/* LockingClause's strength, or LCS_NONE */
 	LockWaitPolicy waitPolicy;	/* NOWAIT and SKIP LOCKED */
+	bool		ermActive;		/* is this mark relevant for current tuple? */
 	ItemPointerData curCtid;	/* ctid of currently locked tuple, if any */
+	void	   *ermExtra;		/* available for use by relation source node */
 } ExecRowMark;
 
 /*
@@ -1116,6 +1132,11 @@ typedef struct ModifyTableState
 	List	  **mt_arowmarks;	/* per-subplan ExecAuxRowMark lists */
 	EPQState	mt_epqstate;	/* for evaluating EvalPlanQual rechecks */
 	bool		fireBSTriggers; /* do we need to fire stmt triggers? */
+	OnConflictAction mt_onconflict; /* ON CONFLICT type */
+	List	   *mt_arbiterindexes;	/* unique index OIDs to arbitrate taking alt path */
+	TupleTableSlot *mt_existing; /* slot to store existing target tuple in */
+	List	   *mt_excludedtlist; /* the excluded pseudo relation's tlist  */
+	TupleTableSlot *mt_conflproj; /* CONFLICT ... SET ... projection target */
 } ModifyTableState;
 
 /* ----------------
@@ -1942,6 +1963,8 @@ typedef struct LockRowsState
 	PlanState	ps;				/* its first field is NodeTag */
 	List	   *lr_arowMarks;	/* List of ExecAuxRowMarks */
 	EPQState	lr_epqstate;	/* for evaluating EvalPlanQual rechecks */
+	HeapTuple  *lr_curtuples;	/* locked tuples (one entry per RT entry) */
+	int			lr_ntables;		/* length of lr_curtuples[] array */
 } LockRowsState;
 
 /* ----------------

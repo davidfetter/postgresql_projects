@@ -243,6 +243,7 @@ _outPlannedStmt(StringInfo str, const PlannedStmt *node)
 	WRITE_UINT_FIELD(queryId);
 	WRITE_BOOL_FIELD(hasReturning);
 	WRITE_BOOL_FIELD(hasModifyingCTE);
+	WRITE_BOOL_FIELD(isUpsert);
 	WRITE_BOOL_FIELD(canSetTag);
 	WRITE_BOOL_FIELD(transientPlan);
 	WRITE_NODE_FIELD(planTree);
@@ -337,6 +338,12 @@ _outModifyTable(StringInfo str, const ModifyTable *node)
 	WRITE_NODE_FIELD(fdwPrivLists);
 	WRITE_NODE_FIELD(rowMarks);
 	WRITE_INT_FIELD(epqParam);
+	WRITE_ENUM_FIELD(onConflictAction, OnConflictAction);
+	WRITE_NODE_FIELD(arbiterIndexes);
+	WRITE_NODE_FIELD(onConflictSet);
+	WRITE_NODE_FIELD(onConflictWhere);
+	WRITE_INT_FIELD(exclRelRTI);
+	WRITE_NODE_FIELD(exclRelTlist);
 }
 
 static void
@@ -558,11 +565,11 @@ _outForeignScan(StringInfo str, const ForeignScan *node)
 
 	_outScanInfo(str, (const Scan *) node);
 
-	WRITE_OID_FIELD(fdw_handler);
+	WRITE_OID_FIELD(fs_server);
 	WRITE_NODE_FIELD(fdw_exprs);
-	WRITE_NODE_FIELD(fdw_ps_tlist);
 	WRITE_NODE_FIELD(fdw_private);
-	WRITE_BITMAPSET_FIELD(fdw_relids);
+	WRITE_NODE_FIELD(fdw_scan_tlist);
+	WRITE_BITMAPSET_FIELD(fs_relids);
 	WRITE_BOOL_FIELD(fsSystemCol);
 }
 
@@ -575,8 +582,8 @@ _outCustomScan(StringInfo str, const CustomScan *node)
 
 	WRITE_UINT_FIELD(flags);
 	WRITE_NODE_FIELD(custom_exprs);
-	WRITE_NODE_FIELD(custom_ps_tlist);
 	WRITE_NODE_FIELD(custom_private);
+	WRITE_NODE_FIELD(custom_scan_tlist);
 	WRITE_BITMAPSET_FIELD(custom_relids);
 	appendStringInfoString(str, " :methods ");
 	_outToken(str, node->methods->CustomName);
@@ -1468,6 +1475,17 @@ _outCurrentOfExpr(StringInfo str, const CurrentOfExpr *node)
 }
 
 static void
+_outInferenceElem(StringInfo str, const InferenceElem *node)
+{
+	WRITE_NODE_TYPE("INFERENCEELEM");
+
+	WRITE_NODE_FIELD(expr);
+	WRITE_OID_FIELD(infercollid);
+	WRITE_OID_FIELD(inferopfamily);
+	WRITE_OID_FIELD(inferopcinputtype);
+}
+
+static void
 _outTargetEntry(StringInfo str, const TargetEntry *node)
 {
 	WRITE_NODE_TYPE("TARGETENTRY");
@@ -1511,6 +1529,21 @@ _outFromExpr(StringInfo str, const FromExpr *node)
 
 	WRITE_NODE_FIELD(fromlist);
 	WRITE_NODE_FIELD(quals);
+}
+
+static void
+_outOnConflictExpr(StringInfo str, const OnConflictExpr *node)
+{
+	WRITE_NODE_TYPE("ONCONFLICTEXPR");
+
+	WRITE_ENUM_FIELD(action, OnConflictAction);
+	WRITE_NODE_FIELD(arbiterElems);
+	WRITE_NODE_FIELD(arbiterWhere);
+	WRITE_NODE_FIELD(onConflictSet);
+	WRITE_NODE_FIELD(onConflictWhere);
+	WRITE_OID_FIELD(constraint);
+	WRITE_INT_FIELD(exclRelIndex);
+	WRITE_NODE_FIELD(exclRelTlist);
 }
 
 /*****************************************************************************
@@ -1842,6 +1875,7 @@ _outRelOptInfo(StringInfo str, const RelOptInfo *node)
 	WRITE_NODE_FIELD(subplan);
 	WRITE_NODE_FIELD(subroot);
 	WRITE_NODE_FIELD(subplan_params);
+	WRITE_OID_FIELD(serverid);
 	/* we don't try to print fdwroutine or fdw_private */
 	WRITE_NODE_FIELD(baserestrictinfo);
 	WRITE_NODE_FIELD(joininfo);
@@ -2350,6 +2384,7 @@ _outQuery(StringInfo str, const Query *node)
 	WRITE_NODE_FIELD(jointree);
 	WRITE_NODE_FIELD(targetList);
 	WRITE_NODE_FIELD(withCheckOptions);
+	WRITE_NODE_FIELD(onConflict);
 	WRITE_NODE_FIELD(returningList);
 	WRITE_NODE_FIELD(groupClause);
 	WRITE_NODE_FIELD(groupingSets);
@@ -2517,7 +2552,8 @@ _outRangeTblEntry(StringInfo str, const RangeTblEntry *node)
 	WRITE_UINT_FIELD(requiredPerms);
 	WRITE_OID_FIELD(checkAsUser);
 	WRITE_BITMAPSET_FIELD(selectedCols);
-	WRITE_BITMAPSET_FIELD(modifiedCols);
+	WRITE_BITMAPSET_FIELD(insertedCols);
+	WRITE_BITMAPSET_FIELD(updatedCols);
 	WRITE_NODE_FIELD(securityQuals);
 }
 
@@ -3159,6 +3195,9 @@ _outNode(StringInfo str, const void *obj)
 			case T_CurrentOfExpr:
 				_outCurrentOfExpr(str, obj);
 				break;
+			case T_InferenceElem:
+				_outInferenceElem(str, obj);
+				break;
 			case T_TargetEntry:
 				_outTargetEntry(str, obj);
 				break;
@@ -3171,7 +3210,9 @@ _outNode(StringInfo str, const void *obj)
 			case T_FromExpr:
 				_outFromExpr(str, obj);
 				break;
-
+			case T_OnConflictExpr:
+				_outOnConflictExpr(str, obj);
+				break;
 			case T_Path:
 				_outPath(str, obj);
 				break;
