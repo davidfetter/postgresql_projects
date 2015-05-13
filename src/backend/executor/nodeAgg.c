@@ -369,6 +369,12 @@ static void finalize_aggregate(AggState *aggstate,
 				   AggStatePerAgg peraggstate,
 				   AggStatePerGroup pergroupstate,
 				   Datum *resultVal, bool *resultIsNull);
+static void finalize_aggregates(AggState *aggstate,
+								AggStatePerAgg peragg,
+								AggStatePerGroup pergroup,
+								int currentSet);
+static TupleTableSlot *project_aggregates(AggState *aggstate,
+										  Tuplestorestate *tstore);
 static Bitmapset *find_unaggregated_cols(AggState *aggstate);
 static bool find_unaggregated_cols_walker(Node *node, Bitmapset **colnos);
 static void build_hash_table(AggState *aggstate);
@@ -977,6 +983,119 @@ finalize_aggregate(AggState *aggstate,
 	MemoryContextSwitchTo(oldContext);
 }
 
+
+/*
+ * Compute the final value of all aggregates for one group.
+ *
+ * This function handles only one grouping set at a time.
+ *
+ * Results are stored in the output econtext aggvalues/aggnulls.
+ */
+static void
+finalize_aggregates(AggState *aggstate,
+					AggStatePerAgg peragg,
+					AggStatePerGroup pergroup,
+					int currentSet)
+{
+	ExprContext *econtext = aggstate->ss.ps.ps_ExprContext;
+	Datum	   *aggvalues = econtext->ecxt_aggvalues;
+	bool	   *aggnulls = econtext->ecxt_aggnulls;
+	int			aggno;
+
+	Assert(currentSet == 0
+		   || ((Agg *) aggstate->ss.ps.plan)->aggstrategy != AGG_HASHED);
+
+	aggstate->current_set = currentSet;
+
+	if (aggstate->grouped_cols)
+		econtext->grouped_cols = aggstate->grouped_cols[currentSet];
+
+	for (aggno = 0; aggno < aggstate->numaggs; aggno++)
+	{
+		AggStatePerAgg peraggstate = &peragg[aggno];
+		AggStatePerGroup pergroupstate;
+
+		pergroupstate = &pergroup[aggno + (currentSet * (aggstate->numaggs))];
+
+		if (peraggstate->numSortCols > 0)
+		{
+			Assert(((Agg *) aggstate->ss.ps.plan)->aggstrategy != AGG_HASHED);
+
+			if (peraggstate->numInputs == 1)
+				process_ordered_aggregate_single(aggstate,
+												 peraggstate,
+												 pergroupstate);
+			else
+				process_ordered_aggregate_multi(aggstate,
+												peraggstate,
+												pergroupstate);
+		}
+
+		finalize_aggregate(aggstate, peraggstate, pergroupstate,
+						   &aggvalues[aggno], &aggnulls[aggno]);
+	}
+}
+
+/*
+ * Project the result of a group (whose aggs have already been calculated by
+ * finalize_aggregates).
+ *
+ * If tstore is null, return either the projected tuple or NULL if there is
+ * none; the PlanState flags are set to handle multiple-row projections.
+ *
+ * If tstore is not null, then all projected rows are written to it and the
+ * return value is always NULL.
+ */
+static TupleTableSlot *
+project_aggregates(AggState *aggstate,
+				   Tuplestorestate *tstore)
+{
+	ExprContext *econtext = aggstate->ss.ps.ps_ExprContext;
+
+	/*
+	 * Check the qual (HAVING clause); if the group does not match, ignore
+	 * it.
+	 */
+	if (ExecQual(aggstate->ss.ps.qual, econtext, false))
+	{
+		/*
+		 * Form and return or store a projection tuple using the aggregate
+		 * results and the representative input tuple.
+		 */
+		ExprDoneCond isDone;
+		TupleTableSlot *result;
+
+		if (!tstore)
+		{
+			result = ExecProject(aggstate->ss.ps.ps_ProjInfo, &isDone);
+
+			if (isDone != ExprEndResult)
+			{
+				aggstate->ss.ps.ps_TupFromTlist =
+					(isDone == ExprMultipleResult);
+				return result;
+			}
+		}
+		else
+		{
+			do
+			{
+				result = ExecProject(aggstate->ss.ps.ps_ProjInfo, &isDone);
+
+				if (isDone != ExprEndResult)
+				{
+					tuplestore_puttupleslot(tstore, result);
+				}
+			}
+			while (isDone == ExprMultipleResult);
+		}
+	}
+	else
+		InstrCountFiltered1(aggstate, 1);
+
+	return NULL;
+}
+
 /*
  * find_unaggregated_cols
  *	  Construct a bitmapset of the column numbers of un-aggregated Vars
@@ -1248,13 +1367,11 @@ agg_retrieve_direct(AggState *aggstate)
 	PlanState  *outerPlan;
 	ExprContext *econtext;
 	ExprContext *tmpcontext;
-	Datum	   *aggvalues;
-	bool	   *aggnulls;
 	AggStatePerAgg peragg;
 	AggStatePerGroup pergroup;
 	TupleTableSlot *outerslot;
 	TupleTableSlot *firstSlot;
-	int			aggno;
+	TupleTableSlot *result;
 	bool		hasGroupingSets = aggstate->numsets > 0;
 	int			numGroupingSets = Max(aggstate->numsets, 1);
 	int			currentSet;
@@ -1268,8 +1385,6 @@ agg_retrieve_direct(AggState *aggstate)
 	outerPlan = outerPlanState(aggstate);
 	/* econtext is the per-output-tuple expression context */
 	econtext = aggstate->ss.ps.ps_ExprContext;
-	aggvalues = econtext->ecxt_aggvalues;
-	aggnulls = econtext->ecxt_aggnulls;
 	/* tmpcontext is the per-input-tuple expression context */
 	tmpcontext = aggstate->tmpcontext;
 	peragg = aggstate->peragg;
@@ -1510,58 +1625,17 @@ agg_retrieve_direct(AggState *aggstate)
 
 		Assert(aggstate->projected_set >= 0);
 
-		aggstate->current_set = currentSet = aggstate->projected_set;
+		currentSet = aggstate->projected_set;
 
-		if (hasGroupingSets)
-			econtext->grouped_cols = aggstate->grouped_cols[currentSet];
-
-		for (aggno = 0; aggno < aggstate->numaggs; aggno++)
-		{
-			AggStatePerAgg peraggstate = &peragg[aggno];
-			AggStatePerGroup pergroupstate;
-
-			pergroupstate = &pergroup[aggno + (currentSet * (aggstate->numaggs))];
-
-			if (peraggstate->numSortCols > 0)
-			{
-				if (peraggstate->numInputs == 1)
-					process_ordered_aggregate_single(aggstate,
-													 peraggstate,
-													 pergroupstate);
-				else
-					process_ordered_aggregate_multi(aggstate,
-													peraggstate,
-													pergroupstate);
-			}
-
-			finalize_aggregate(aggstate, peraggstate, pergroupstate,
-							   &aggvalues[aggno], &aggnulls[aggno]);
-		}
+		finalize_aggregates(aggstate, peragg, pergroup, currentSet);
 
 		/*
-		 * Check the qual (HAVING clause); if the group does not match, ignore
-		 * it and loop back to try to process another group.
+		 * If there's no row to project right now, we must continue rather than
+		 * returning a null since there might be more groups.
 		 */
-		if (ExecQual(aggstate->ss.ps.qual, econtext, false))
-		{
-			/*
-			 * Form and return a projection tuple using the aggregate results
-			 * and the representative input tuple.
-			 */
-			TupleTableSlot *result;
-			ExprDoneCond isDone;
-
-			result = ExecProject(aggstate->ss.ps.ps_ProjInfo, &isDone);
-
-			if (isDone != ExprEndResult)
-			{
-				aggstate->ss.ps.ps_TupFromTlist =
-					(isDone == ExprMultipleResult);
-				return result;
-			}
-		}
-		else
-			InstrCountFiltered1(aggstate, 1);
+		result = project_aggregates(aggstate, NULL);
+		if (result)
+			return result;
 	}
 
 	/* No more groups */
@@ -1578,13 +1652,10 @@ agg_retrieve_chained(AggState *aggstate)
 	Agg		   *node = (Agg *) aggstate->ss.ps.plan;
 	ExprContext *econtext = aggstate->ss.ps.ps_ExprContext;
 	ExprContext *tmpcontext = aggstate->tmpcontext;
-	Datum	   *aggvalues = econtext->ecxt_aggvalues;
-	bool	   *aggnulls = econtext->ecxt_aggnulls;
 	AggStatePerAgg peragg = aggstate->peragg;
 	AggStatePerGroup pergroup = aggstate->pergroup;
 	TupleTableSlot *outerslot;
 	TupleTableSlot *firstSlot = aggstate->ss.ss_ScanTupleSlot;
-	int			   aggno;
 	int            numGroupingSets = Max(aggstate->numsets, 1);
 	int            currentSet = 0;
 
@@ -1627,60 +1698,15 @@ agg_retrieve_chained(AggState *aggstate)
 							 aggstate->eqfunctions,
 							 tmpcontext->ecxt_per_tuple_memory)))
 	{
-		aggstate->current_set = aggstate->projected_set = currentSet;
+		aggstate->projected_set = currentSet;
 
-		econtext->grouped_cols = aggstate->grouped_cols[currentSet];
-
-		for (aggno = 0; aggno < aggstate->numaggs; aggno++)
-		{
-			AggStatePerAgg peraggstate = &peragg[aggno];
-			AggStatePerGroup pergroupstate;
-
-			pergroupstate = &pergroup[aggno + (currentSet * (aggstate->numaggs))];
-
-			if (peraggstate->numSortCols > 0)
-			{
-				if (peraggstate->numInputs == 1)
-					process_ordered_aggregate_single(aggstate,
-													 peraggstate,
-													 pergroupstate);
-				else
-					process_ordered_aggregate_multi(aggstate,
-													peraggstate,
-													pergroupstate);
-			}
-
-			finalize_aggregate(aggstate, peraggstate, pergroupstate,
-							   &aggvalues[aggno], &aggnulls[aggno]);
-		}
+		finalize_aggregates(aggstate, peragg, pergroup, currentSet);
 
 		/*
-		 * Check the qual (HAVING clause); if the group does not match, ignore
-		 * it.
+		 * this projects all rows into the tuplestore, so the return value is
+		 * useless
 		 */
-		if (ExecQual(aggstate->ss.ps.qual, econtext, false))
-		{
-			/*
-			 * Form a projection tuple using the aggregate results
-			 * and the representative input tuple.
-			 */
-			TupleTableSlot *result;
-			ExprDoneCond isDone;
-
-			do
-			{
-				result = ExecProject(aggstate->ss.ps.ps_ProjInfo, &isDone);
-
-				if (isDone != ExprEndResult)
-				{
-					tuplestore_puttupleslot(aggstate->chain_tuplestore,
-											result);
-				}
-			}
-			while (isDone == ExprMultipleResult);
-		}
-		else
-			InstrCountFiltered1(aggstate, 1);
+		(void) project_aggregates(aggstate, aggstate->chain_tuplestore);
 
 		ReScanExprContext(tmpcontext);
 		ReScanExprContext(econtext);
@@ -1788,21 +1814,17 @@ static TupleTableSlot *
 agg_retrieve_hash_table(AggState *aggstate)
 {
 	ExprContext *econtext;
-	Datum	   *aggvalues;
-	bool	   *aggnulls;
 	AggStatePerAgg peragg;
 	AggStatePerGroup pergroup;
 	AggHashEntry entry;
 	TupleTableSlot *firstSlot;
-	int			aggno;
+	TupleTableSlot *result;
 
 	/*
 	 * get state info from node
 	 */
 	/* econtext is the per-output-tuple expression context */
 	econtext = aggstate->ss.ps.ps_ExprContext;
-	aggvalues = econtext->ecxt_aggvalues;
-	aggnulls = econtext->ecxt_aggnulls;
 	peragg = aggstate->peragg;
 	firstSlot = aggstate->ss.ss_ScanTupleSlot;
 
@@ -1842,19 +1864,7 @@ agg_retrieve_hash_table(AggState *aggstate)
 
 		pergroup = entry->pergroup;
 
-		/*
-		 * Finalize each aggregate calculation, and stash results in the
-		 * per-output-tuple context.
-		 */
-		for (aggno = 0; aggno < aggstate->numaggs; aggno++)
-		{
-			AggStatePerAgg peraggstate = &peragg[aggno];
-			AggStatePerGroup pergroupstate = &pergroup[aggno];
-
-			Assert(peraggstate->numSortCols == 0);
-			finalize_aggregate(aggstate, peraggstate, pergroupstate,
-							   &aggvalues[aggno], &aggnulls[aggno]);
-		}
+		finalize_aggregates(aggstate, peragg, pergroup, 0);
 
 		/*
 		 * Use the representative input tuple for any references to
@@ -1862,30 +1872,9 @@ agg_retrieve_hash_table(AggState *aggstate)
 		 */
 		econtext->ecxt_outertuple = firstSlot;
 
-		/*
-		 * Check the qual (HAVING clause); if the group does not match, ignore
-		 * it and loop back to try to process another group.
-		 */
-		if (ExecQual(aggstate->ss.ps.qual, econtext, false))
-		{
-			/*
-			 * Form and return a projection tuple using the aggregate results
-			 * and the representative input tuple.
-			 */
-			TupleTableSlot *result;
-			ExprDoneCond isDone;
-
-			result = ExecProject(aggstate->ss.ps.ps_ProjInfo, &isDone);
-
-			if (isDone != ExprEndResult)
-			{
-				aggstate->ss.ps.ps_TupFromTlist =
-					(isDone == ExprMultipleResult);
-				return result;
-			}
-		}
-		else
-			InstrCountFiltered1(aggstate, 1);
+		result = project_aggregates(aggstate, NULL);
+		if (result)
+			return result;
 	}
 
 	/* No more groups */
