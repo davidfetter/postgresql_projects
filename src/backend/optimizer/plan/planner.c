@@ -120,7 +120,17 @@ static void get_column_info_for_window(PlannerInfo *root, WindowClause *wc,
 						   int *ordNumCols,
 						   AttrNumber **ordColIdx,
 						   Oid **ordOperators);
-
+static Plan *build_grouping_chain(PlannerInfo *root,
+						  Query	   *parse,
+						  List	   *tlist,
+						  bool		need_sort_for_grouping,
+						  List	   *rollup_groupclauses,
+						  List	   *rollup_lists,
+						  List	   *refmaps,
+						  AttrNumber *groupColIdx,
+						  AggClauseCosts *agg_costs,
+						  long		numGroups,
+						  Plan	   *result_plan);
 
 /*****************************************************************************
  *
@@ -1799,108 +1809,36 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			}
 			else if (parse->hasAggs || (parse->groupingSets && parse->groupClause))
 			{
-				int			chain_depth = 0;
+				/*
+				 * Output is in sorted order by group_pathkeys if, and only if,
+				 * there is a single rollup operation on a non-empty list of
+				 * grouping expressions.
+				 */
+				if (list_length(rollup_groupclauses) == 1
+					&& list_length(linitial(rollup_groupclauses)) > 0)
+					current_pathkeys = root->group_pathkeys;
+				else
+					current_pathkeys = NIL;
+
+				result_plan = build_grouping_chain(root,
+												   parse,
+												   tlist,
+												   need_sort_for_grouping,
+												   rollup_groupclauses,
+												   rollup_lists,
+												   refmaps,
+												   groupColIdx,
+												   &agg_costs,
+												   numGroups,
+												   result_plan);
 
 				/*
-				 * If we need multiple grouping nodes, start stacking them up;
-				 * all except the last are chained.
+				 * these are destroyed by build_grouping_chain, so make sure we
+				 * don't try and touch them again
 				 */
-
-				do
-				{
-					List	   *groupClause = linitial(rollup_groupclauses);
-					List	   *gsets = rollup_lists ? linitial(rollup_lists) : NIL;
-					int		   *refmap = refmaps ? linitial(refmaps) : NULL;
-					AttrNumber *new_grpColIdx = groupColIdx;
-					ListCell   *lc;
-					int			i;
-					AggStrategy aggstrategy = AGG_CHAINED;
-
-					if (groupClause)
-					{
-						if (gsets)
-						{
-							Assert(refmap);
-
-							/*
-							 * need to remap groupColIdx, which has the column
-							 * indices for every clause in parse->groupClause
-							 * indexed by list position, to a local version for
-							 * this node which lists only the clauses included in
-							 * groupClause by position in that list. The refmap for
-							 * this node (indexed by sortgroupref) contains 0 for
-							 * clauses not present in this node's groupClause.
-							 */
-
-							new_grpColIdx = palloc0(sizeof(AttrNumber) * list_length(linitial(gsets)));
-
-							i = 0;
-							foreach(lc, parse->groupClause)
-							{
-								int j = refmap[((SortGroupClause *)lfirst(lc))->tleSortGroupRef];
-								if (j > 0)
-									new_grpColIdx[j - 1] = groupColIdx[i];
-								++i;
-							}
-						}
-
-						if (need_sort_for_grouping)
-						{
-							result_plan = (Plan *)
-								make_sort_from_groupcols(root,
-														 groupClause,
-														 new_grpColIdx,
-														 result_plan);
-						}
-						else
-							need_sort_for_grouping = true;
-
-						if (list_length(rollup_groupclauses) == 1)
-						{
-							aggstrategy = AGG_SORTED;
-
-							/*
-							 * If there aren't any other chained aggregates, then
-							 * we didn't disturb the originally required input
-							 * sort order.
-							 */
-							if (chain_depth == 0)
-								current_pathkeys = root->group_pathkeys;
-						}
-						else
-							current_pathkeys = NIL;
-					}
-					else
-					{
-						aggstrategy = AGG_PLAIN;
-						current_pathkeys = NIL;
-					}
-
-					result_plan = (Plan *) make_agg(root,
-													tlist,
-													(List *) parse->havingQual,
-													aggstrategy,
-													&agg_costs,
-													gsets ? list_length(linitial(gsets)) : numGroupCols,
-													new_grpColIdx,
-													extract_grouping_ops(groupClause),
-													gsets,
-													(aggstrategy != AGG_CHAINED) ? &chain_depth : NULL,
-													numGroups,
-													result_plan);
-
-					chain_depth += 1;
-
-					if (refmap)
-						pfree(refmap);
-					if (rollup_lists)
-						rollup_lists = list_delete_first(rollup_lists);
-					if (refmaps)
-						refmaps = list_delete_first(refmaps);
-
-					rollup_groupclauses = list_delete_first(rollup_groupclauses);
-				}
-				while (rollup_groupclauses);
+				rollup_groupclauses = NIL;
+				rollup_lists = NIL;
+				refmaps = NIL;
 			}
 			else if (parse->groupClause)
 			{
@@ -2301,6 +2239,126 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 	 * an outer query level.
 	 */
 	root->query_pathkeys = current_pathkeys;
+
+	return result_plan;
+}
+
+/*
+ * Build a chain of Agg and Sort nodes to implement sorted grouping with one or
+ * more grouping sets. (A plain GROUP BY or just the presence of aggregates
+ * counts for this purpose as a single grouping set; the calling code is
+ * responsible for providing a non-empty rollup_groupclauses list for such
+ * cases, though rollup_lists and refmaps may be null.)
+ *
+ * rollup_groupclauses, rollup_lists and refmaps are destroyed by this function.
+ */
+
+static Plan *
+build_grouping_chain(PlannerInfo *root,
+					 Query	   *parse,
+					 List	   *tlist,
+					 bool		need_sort_for_grouping,
+					 List	   *rollup_groupclauses,
+					 List	   *rollup_lists,
+					 List	   *refmaps,
+					 AttrNumber *groupColIdx,
+					 AggClauseCosts *agg_costs,
+					 long		numGroups,
+					 Plan	   *result_plan)
+{
+	int			chain_depth = 0;
+
+	do
+	{
+		List	   *groupClause = linitial(rollup_groupclauses);
+		List	   *gsets = rollup_lists ? linitial(rollup_lists) : NIL;
+		int		   *refmap = refmaps ? linitial(refmaps) : NULL;
+		AttrNumber *new_grpColIdx = groupColIdx;
+		AggStrategy aggstrategy = AGG_CHAINED;
+
+		if (groupClause)
+		{
+			if (gsets)
+			{
+				ListCell   *lc;
+				int			i;
+
+				Assert(refmap);
+
+				/*
+				 * need to remap groupColIdx, which has the column
+				 * indices for every clause in parse->groupClause
+				 * indexed by list position, to a local version for
+				 * this node which lists only the clauses included in
+				 * groupClause by position in that list. The refmap for
+				 * this node (indexed by sortgroupref) contains 0 for
+				 * clauses not present in this node's groupClause.
+				 */
+
+				new_grpColIdx = palloc0(sizeof(AttrNumber) * list_length(linitial(gsets)));
+
+				i = 0;
+				foreach(lc, parse->groupClause)
+				{
+					int j = refmap[((SortGroupClause *)lfirst(lc))->tleSortGroupRef];
+					if (j > 0)
+						new_grpColIdx[j - 1] = groupColIdx[i];
+					++i;
+				}
+			}
+
+			/*
+			 * We need a sort node unless the input is already sorted for us,
+			 * as reported by the caller. However this only works once; we need
+			 * an explicit sort for each node other than the first.
+			 */
+
+			if (need_sort_for_grouping)
+			{
+				result_plan = (Plan *)
+					make_sort_from_groupcols(root,
+											 groupClause,
+											 new_grpColIdx,
+											 result_plan);
+			}
+			else
+				need_sort_for_grouping = true;
+
+			if (list_length(rollup_groupclauses) == 1)
+				aggstrategy = AGG_SORTED;
+		}
+		else
+		{
+			aggstrategy = AGG_PLAIN;
+		}
+
+		result_plan = (Plan *) make_agg(root,
+										tlist,
+										(List *) parse->havingQual,
+										aggstrategy,
+										agg_costs,
+										gsets
+											? list_length(linitial(gsets))
+											: list_length(parse->groupClause),
+										new_grpColIdx,
+										extract_grouping_ops(groupClause),
+										gsets,
+										(aggstrategy != AGG_CHAINED) ? &chain_depth : NULL,
+										numGroups,
+										result_plan);
+
+		chain_depth += 1;
+
+		if (refmap)
+			pfree(refmap);
+		if (rollup_lists)
+			rollup_lists = list_delete_first(rollup_lists);
+		if (refmaps)
+			refmaps = list_delete_first(refmaps);
+
+		rollup_groupclauses = list_delete_first(rollup_groupclauses);
+	}
+	while (rollup_groupclauses);
 
 	return result_plan;
 }
