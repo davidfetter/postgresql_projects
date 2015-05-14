@@ -419,11 +419,6 @@ typedef struct EState
 	HeapTuple  *es_epqTuple;	/* array of EPQ substitute tuples */
 	bool	   *es_epqTupleSet; /* true if EPQ tuple is provided */
 	bool	   *es_epqScanDone; /* true if EPQ tuple has been fetched */
-
-	/*
-	 * This is for linking chained aggregate nodes
-	 */
-	struct AggState	   *agg_chain_head;
 } EState;
 
 
@@ -1805,7 +1800,6 @@ typedef struct AggState
 	AggStatePerAgg curperagg;	/* identifies currently active aggregate */
 	bool        input_done;     /* indicates end of input */
 	bool		agg_done;		/* indicates completion of Agg scan */
-	bool		chain_done;		/* indicates completion of chained fetch */
 	int			projected_set;	/* The last projected grouping set */
 	int			current_set;	/* The current grouping set being evaluated */
 	Bitmapset **grouped_cols;   /* column groupings for rollup */
@@ -1819,12 +1813,6 @@ typedef struct AggState
 	List	   *hash_needed;	/* list of columns needed in hash table */
 	bool		table_filled;	/* hash table filled yet? */
 	TupleHashIterator hashiter; /* for iterating through hash table */
-	int			chain_depth;	/* number of chained child nodes */
-	int			chain_rescan;	/* rescan indicator */
-	int			chain_eflags;	/* saved eflags for rewind optimization */
-	bool		chain_top;		/* true for the "top" node in a chain */
-	struct AggState	*chain_head;
-	Tuplestorestate *chain_tuplestore;
 } AggState;
 
 /* ----------------

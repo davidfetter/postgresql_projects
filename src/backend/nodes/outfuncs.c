@@ -660,7 +660,6 @@ _outAgg(StringInfo str, const Agg *node)
 	_outPlanInfo(str, (const Plan *) node);
 
 	WRITE_ENUM_FIELD(aggstrategy, AggStrategy);
-	WRITE_INT_FIELD(chain_depth);
 	WRITE_INT_FIELD(numCols);
 
 	appendStringInfoString(str, " :grpColIdx");

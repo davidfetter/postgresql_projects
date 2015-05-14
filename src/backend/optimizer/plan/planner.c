@@ -1802,7 +1802,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												groupColIdx,
 												extract_grouping_ops(parse->groupClause),
 												NIL,
-												NULL,
 												numGroups,
 												result_plan);
 				/* Hashed aggregation produces randomly-ordered results */
@@ -2134,7 +2133,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 													result_plan->targetlist),
 								 extract_grouping_ops(parse->distinctClause),
 											NIL,
-											NULL,
 											numDistinctRows,
 											result_plan);
 			/* Hashed aggregation produces randomly-ordered results */
@@ -2275,7 +2273,7 @@ build_grouping_chain(PlannerInfo *root,
 		List	   *gsets = rollup_lists ? linitial(rollup_lists) : NIL;
 		int		   *refmap = refmaps ? linitial(refmaps) : NULL;
 		AttrNumber *new_grpColIdx = groupColIdx;
-		AggStrategy aggstrategy = AGG_CHAINED;
+		AggStrategy aggstrategy = AGG_SORTED;
 
 		if (groupClause)
 		{
@@ -2344,7 +2342,6 @@ build_grouping_chain(PlannerInfo *root,
 										new_grpColIdx,
 										extract_grouping_ops(groupClause),
 										gsets,
-										(aggstrategy != AGG_CHAINED) ? &chain_depth : NULL,
 										numGroups,
 										result_plan);
 

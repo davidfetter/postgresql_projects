@@ -142,7 +142,6 @@ CreateExecutorState(void)
 	estate->es_epqTupleSet = NULL;
 	estate->es_epqScanDone = NULL;
 
-	estate->agg_chain_head = NULL;
 	/*
 	 * Return the executor state structure
 	 */

@@ -60,7 +60,6 @@ extern Agg *make_agg(PlannerInfo *root, List *tlist, List *qual,
 		 AggStrategy aggstrategy, const AggClauseCosts *aggcosts,
 		 int numGroupCols, AttrNumber *grpColIdx, Oid *grpOperators,
 		 List *groupingSets,
-		 int *chain_depth_p,
 		 long numGroups,
 		 Plan *lefttree);
 extern WindowAgg *make_windowagg(PlannerInfo *root, List *tlist,

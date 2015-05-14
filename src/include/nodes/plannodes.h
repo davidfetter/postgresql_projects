@@ -689,7 +689,6 @@ typedef enum AggStrategy
 {
 	AGG_PLAIN,					/* simple agg across all input rows */
 	AGG_SORTED,					/* grouped agg, input must be sorted */
-	AGG_CHAINED,				/* chained agg, input must be sorted */
 	AGG_HASHED					/* grouped agg, use internal hashtable */
 } AggStrategy;
 
@@ -697,7 +696,6 @@ typedef struct Agg
 {
 	Plan		plan;
 	AggStrategy aggstrategy;
-	int			chain_depth;	/* number of associated ChainAggs in tree */
 	int			numCols;		/* number of grouping columns */
 	AttrNumber *grpColIdx;		/* their indexes in the target list */
 	Oid		   *grpOperators;	/* equality operators to compare with */

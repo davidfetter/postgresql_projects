@@ -644,15 +644,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 			}
 			break;
 		case T_Agg:
-			if (((Agg *) plan)->aggstrategy == AGG_CHAINED)
-			{
-				/* chained agg does not evaluate tlist */
-				set_dummy_tlist_references(plan, rtoffset);
-			}
-			else
-			{
-				set_upper_references(root, plan, rtoffset);
-			}
+			set_upper_references(root, plan, rtoffset);
 			break;
 		case T_Group:
 			set_upper_references(root, plan, rtoffset);

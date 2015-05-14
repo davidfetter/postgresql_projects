@@ -816,7 +816,6 @@ _copyAgg(const Agg *from)
 	CopyPlanFields((const Plan *) from, (Plan *) newnode);
 
 	COPY_SCALAR_FIELD(aggstrategy);
-	COPY_SCALAR_FIELD(chain_depth);
 	COPY_SCALAR_FIELD(numCols);
 	if (from->numCols > 0)
 	{
