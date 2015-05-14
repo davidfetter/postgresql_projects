@@ -1439,7 +1439,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		/* Set up data needed by standard_qp_callback */
 		qp_extra.tlist = tlist;
 		qp_extra.activeWindows = activeWindows;
-		qp_extra.groupClause = linitial(rollup_groupclauses);
+		qp_extra.groupClause = llast(rollup_groupclauses);
 
 		/*
 		 * Generate the best unsorted and presorted paths for this Query (but
@@ -2242,12 +2242,54 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 	return result_plan;
 }
 
+
+static AttrNumber *
+remap_groupColIdx(int ncols, int *refmap, List *groupClause, AttrNumber *groupColIdx)
+{
+	AttrNumber *new_grpColIdx;
+	ListCell   *lc;
+	int			i;
+
+	Assert(refmap);
+
+	/*
+	 * need to remap groupColIdx, which has the column
+	 * indices for every clause in parse->groupClause
+	 * indexed by list position, to a local version for
+	 * this node which lists only the clauses included in
+	 * groupClause by position in that list. The refmap for
+	 * this node (indexed by sortgroupref) contains 0 for
+	 * clauses not present in this node's groupClause.
+	 */
+
+	new_grpColIdx = palloc0(sizeof(AttrNumber) * ncols);
+
+	i = 0;
+	foreach(lc, groupClause)
+	{
+		int j = refmap[((SortGroupClause *)lfirst(lc))->tleSortGroupRef];
+		if (j > 0)
+			new_grpColIdx[j - 1] = groupColIdx[i];
+		++i;
+	}
+
+	return new_grpColIdx;
+}
+
 /*
- * Build a chain of Agg and Sort nodes to implement sorted grouping with one or
- * more grouping sets. (A plain GROUP BY or just the presence of aggregates
- * counts for this purpose as a single grouping set; the calling code is
- * responsible for providing a non-empty rollup_groupclauses list for such
- * cases, though rollup_lists and refmaps may be null.)
+ * Build Agg and Sort nodes to implement sorted grouping with one or more
+ * grouping sets. (A plain GROUP BY or just the presence of aggregates counts
+ * for this purpose as a single grouping set; the calling code is responsible
+ * for providing a non-empty rollup_groupclauses list for such cases, though
+ * rollup_lists and refmaps may be null.)
+ *
+ * The last entry in rollup_groupclauses (which is the one the input is sorted
+ * on, if at all) is the one used for the returned Agg node. Any additional
+ * rollups are attached, with corresponding sort info, to subsidiary Agg and
+ * Sort nodes attached to the side of the real Agg node; these nodes don't
+ * participate in the plan directly, but they are both a convenient way to
+ * represent the required data and a convenient way to account for the costs of
+ * execution.
  *
  * rollup_groupclauses, rollup_lists and refmaps are destroyed by this function.
  */
@@ -2265,87 +2307,91 @@ build_grouping_chain(PlannerInfo *root,
 					 long		numGroups,
 					 Plan	   *result_plan)
 {
-	int			chain_depth = 0;
+	AttrNumber *top_grpColIdx = groupColIdx;
+	List	   *chain = NIL;
 
-	do
+	/*
+	 * Prepare the grpColIdx for the real Agg node first, because we may need
+	 * it for sorting
+	 */
+
+	if (list_length(rollup_groupclauses) > 1)
+	{
+		Assert(rollup_lists && llast(rollup_lists));
+		Assert(refmaps && llast(refmaps));
+
+		top_grpColIdx =
+			remap_groupColIdx(list_length(linitial(llast(rollup_lists))),
+							  llast(refmaps),
+							  parse->groupClause,
+							  groupColIdx);
+	}
+
+	/*
+	 * If we need a Sort operation on the input, generate that.
+	 */
+
+	if (need_sort_for_grouping)
+	{
+		result_plan = (Plan *)
+			make_sort_from_groupcols(root,
+									 llast(rollup_groupclauses),
+									 top_grpColIdx,
+									 result_plan);
+	}
+
+	/*
+	 * Generate the side nodes that describe the other sort and group
+	 * operations besides the top one.
+	 */
+
+	while (list_length(rollup_groupclauses) > 1)
 	{
 		List	   *groupClause = linitial(rollup_groupclauses);
-		List	   *gsets = rollup_lists ? linitial(rollup_lists) : NIL;
-		int		   *refmap = refmaps ? linitial(refmaps) : NULL;
-		AttrNumber *new_grpColIdx = groupColIdx;
-		AggStrategy aggstrategy = AGG_SORTED;
+		List	   *gsets = linitial(rollup_lists);
+		int		   *refmap = linitial(refmaps);
+		AttrNumber *new_grpColIdx;
+		Plan	   *sort_plan;
+		Plan	   *agg_plan;
 
-		if (groupClause)
-		{
-			if (gsets)
-			{
-				ListCell   *lc;
-				int			i;
+		Assert(groupClause);
+		Assert(gsets);
 
-				Assert(refmap);
+		new_grpColIdx = remap_groupColIdx(list_length(linitial(gsets)),
+										  refmap,
+										  parse->groupClause,
+										  groupColIdx);
 
-				/*
-				 * need to remap groupColIdx, which has the column
-				 * indices for every clause in parse->groupClause
-				 * indexed by list position, to a local version for
-				 * this node which lists only the clauses included in
-				 * groupClause by position in that list. The refmap for
-				 * this node (indexed by sortgroupref) contains 0 for
-				 * clauses not present in this node's groupClause.
-				 */
+		sort_plan = (Plan *)
+			make_sort_from_groupcols(root,
+									 groupClause,
+									 new_grpColIdx,
+									 result_plan);
 
-				new_grpColIdx = palloc0(sizeof(AttrNumber) * list_length(linitial(gsets)));
+		/*
+		 * sort_plan includes the cost of result_plan over again, which is not
+		 * what we want (since it's not actually running that plan). So correct
+		 * the cost figures.
+		 */
 
-				i = 0;
-				foreach(lc, parse->groupClause)
-				{
-					int j = refmap[((SortGroupClause *)lfirst(lc))->tleSortGroupRef];
-					if (j > 0)
-						new_grpColIdx[j - 1] = groupColIdx[i];
-					++i;
-				}
-			}
+		sort_plan->startup_cost -= result_plan->total_cost;
+		sort_plan->total_cost -= result_plan->total_cost;
 
-			/*
-			 * We need a sort node unless the input is already sorted for us,
-			 * as reported by the caller. However this only works once; we need
-			 * an explicit sort for each node other than the first.
-			 */
+		agg_plan = (Plan *) make_agg(root,
+									 tlist,
+									 (List *) parse->havingQual,
+									 AGG_SORTED,
+									 agg_costs,
+									 list_length(linitial(gsets)),
+									 new_grpColIdx,
+									 extract_grouping_ops(groupClause),
+									 gsets,
+									 numGroups,
+									 sort_plan);
 
-			if (need_sort_for_grouping)
-			{
-				result_plan = (Plan *)
-					make_sort_from_groupcols(root,
-											 groupClause,
-											 new_grpColIdx,
-											 result_plan);
-			}
-			else
-				need_sort_for_grouping = true;
+		sort_plan->lefttree = NULL;
 
-			if (list_length(rollup_groupclauses) == 1)
-				aggstrategy = AGG_SORTED;
-		}
-		else
-		{
-			aggstrategy = AGG_PLAIN;
-		}
-
-		result_plan = (Plan *) make_agg(root,
-										tlist,
-										(List *) parse->havingQual,
-										aggstrategy,
-										agg_costs,
-										gsets
-											? list_length(linitial(gsets))
-											: list_length(parse->groupClause),
-										new_grpColIdx,
-										extract_grouping_ops(groupClause),
-										gsets,
-										numGroups,
-										result_plan);
-
-		chain_depth += 1;
+		chain = lappend(chain, agg_plan);
 
 		if (refmap)
 			pfree(refmap);
@@ -2356,7 +2402,42 @@ build_grouping_chain(PlannerInfo *root,
 
 		rollup_groupclauses = list_delete_first(rollup_groupclauses);
 	}
-	while (rollup_groupclauses);
+
+	/*
+	 * Now make the final Agg node
+	 */
+
+	{
+		List	   *groupClause = linitial(rollup_groupclauses);
+		List	   *gsets = rollup_lists ? linitial(rollup_lists) : NIL;
+		ListCell   *lc;
+
+		result_plan = (Plan *) make_agg(root,
+										tlist,
+										(List *) parse->havingQual,
+										groupClause ? AGG_SORTED : AGG_PLAIN,
+										agg_costs,
+										gsets ? list_length(linitial(gsets)) : list_length(parse->groupClause),
+										top_grpColIdx,
+										extract_grouping_ops(groupClause),
+										gsets,
+										numGroups,
+										result_plan);
+
+		((Agg *) result_plan)->chain = chain;
+
+		/*
+		 * Add the additional costs. But only the total costs count, since the
+		 * additional sorts aren't run on startup.
+		 */
+
+		foreach(lc, chain)
+		{
+			Plan   *subplan = lfirst(lc);
+
+			result_plan->total_cost += subplan->total_cost;
+		}
+	}
 
 	return result_plan;
 }

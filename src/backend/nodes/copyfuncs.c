@@ -824,6 +824,7 @@ _copyAgg(const Agg *from)
 	}
 	COPY_SCALAR_FIELD(numGroups);
 	COPY_NODE_FIELD(groupingSets);
+	COPY_NODE_FIELD(chain);
 
 	return newnode;
 }

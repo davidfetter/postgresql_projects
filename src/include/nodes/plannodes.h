@@ -701,6 +701,7 @@ typedef struct Agg
 	Oid		   *grpOperators;	/* equality operators to compare with */
 	long		numGroups;		/* estimated number of groups in input */
 	List	   *groupingSets;	/* grouping sets to use */
+	List	   *chain;			/* chained Agg/Sort nodes */
 } Agg;
 
 /* ----------------

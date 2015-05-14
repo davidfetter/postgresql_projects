@@ -673,6 +673,7 @@ _outAgg(StringInfo str, const Agg *node)
 	WRITE_LONG_FIELD(numGroups);
 
 	WRITE_NODE_FIELD(groupingSets);
+	WRITE_NODE_FIELD(chain);
 }
 
 static void
