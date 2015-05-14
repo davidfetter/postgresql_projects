@@ -2410,14 +2410,20 @@ build_grouping_chain(PlannerInfo *root,
 	{
 		List	   *groupClause = linitial(rollup_groupclauses);
 		List	   *gsets = rollup_lists ? linitial(rollup_lists) : NIL;
+		int			numGroupCols;
 		ListCell   *lc;
+
+		if (gsets)
+			numGroupCols = list_length(linitial(gsets));
+		else
+			numGroupCols = list_length(parse->groupClause);
 
 		result_plan = (Plan *) make_agg(root,
 										tlist,
 										(List *) parse->havingQual,
-										groupClause ? AGG_SORTED : AGG_PLAIN,
+										(numGroupCols > 0) ? AGG_SORTED : AGG_PLAIN,
 										agg_costs,
-										gsets ? list_length(linitial(gsets)) : list_length(parse->groupClause),
+										numGroupCols,
 										top_grpColIdx,
 										extract_grouping_ops(groupClause),
 										gsets,
@@ -2436,6 +2442,14 @@ build_grouping_chain(PlannerInfo *root,
 			Plan   *subplan = lfirst(lc);
 
 			result_plan->total_cost += subplan->total_cost;
+
+			/*
+			 * Nuke stuff we don't need.
+			 */
+
+			subplan->targetlist = NIL;
+			subplan->qual = NIL;
+			subplan->lefttree->targetlist = NIL;
 		}
 	}
 
