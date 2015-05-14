@@ -131,7 +131,6 @@ typedef enum NodeTag
 	T_RangeVar,
 	T_Expr,
 	T_Var,
-	T_GroupedVar,
 	T_Const,
 	T_Param,
 	T_Aggref,

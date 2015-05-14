@@ -1028,8 +1028,40 @@ finalize_aggregates(AggState *aggstate,
 
 	aggstate->current_set = currentSet;
 
+	/*
+	 * Set all columns that are not in the current grouping set to NULL. It'd
+	 * arguably be cleaner to do this
+	 */
 	if (aggstate->grouped_cols)
+	{
+		TupleTableSlot *slot = econtext->ecxt_outertuple;
+		int attno;
+		TupleDesc tupdesc = slot->tts_tupleDescriptor;
+
 		econtext->grouped_cols = aggstate->grouped_cols[currentSet];
+
+		if (slot->tts_isempty)
+		{
+			/*
+			 * Force all values to be NULL if working on an empty input tuple
+			 * (i.e. an empty grouping set).  Perhaps better do that in
+			 * agg_retrieve_direct()?
+			 */
+			ExecStoreAllNullTuple(slot);
+		}
+		else
+		{
+			/* Force the tuple to be "fully virtual", in a pretty hacky way */
+			slot_getallattrs(slot);
+
+			for (attno = 0; attno < tupdesc->natts; attno++)
+			{
+				int attnum = tupdesc->attrs[attno]->attnum;
+				if (!bms_is_member(attnum, econtext->grouped_cols))
+					slot->tts_isnull[attno] = true;
+			}
+		}
+	}
 
 	for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 	{
@@ -1540,6 +1572,9 @@ agg_retrieve_direct(AggState *aggstate)
 						 * Note that this implies that there can't be any
 						 * references to ungrouped Vars, which would otherwise
 						 * cause issues with the empty output slot.
+						 *
+						 * XXX: This is no longer true, we currently deal with
+						 * this in finalize_aggregates().
 						 */
 						aggstate->input_done = true;
 

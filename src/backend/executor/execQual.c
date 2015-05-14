@@ -74,8 +74,6 @@ static Datum ExecEvalScalarVar(ExprState *exprstate, ExprContext *econtext,
 				  bool *isNull, ExprDoneCond *isDone);
 static Datum ExecEvalScalarVarFast(ExprState *exprstate, ExprContext *econtext,
 					  bool *isNull, ExprDoneCond *isDone);
-static Datum ExecEvalScalarGroupedVarFast(ExprState *exprstate, ExprContext *econtext,
-					  bool *isNull, ExprDoneCond *isDone);
 static Datum ExecEvalWholeRowVar(WholeRowVarExprState *wrvstate,
 					ExprContext *econtext,
 					bool *isNull, ExprDoneCond *isDone);
@@ -563,8 +561,6 @@ ExecEvalWindowFunc(WindowFuncExprState *wfunc, ExprContext *econtext,
  * Note: ExecEvalScalarVar is executed only the first time through in a given
  * plan; it changes the ExprState's function pointer to pass control directly
  * to ExecEvalScalarVarFast after making one-time checks.
- *
- * We share this code with GroupedVar for simplicity.
  * ----------------------------------------------------------------
  */
 static Datum
@@ -642,24 +638,8 @@ ExecEvalScalarVar(ExprState *exprstate, ExprContext *econtext,
 		}
 	}
 
-	if (IsA(variable, GroupedVar))
-	{
-		Assert(variable->varno == OUTER_VAR);
-
-		/* Skip the checking on future executions of node */
-		exprstate->evalfunc = ExecEvalScalarGroupedVarFast;
-
-		if (!bms_is_member(attnum, econtext->grouped_cols))
-		{
-			*isNull = true;
-			return (Datum) 0;
-		}
-	}
-	else
-	{
-		/* Skip the checking on future executions of node */
-		exprstate->evalfunc = ExecEvalScalarVarFast;
-	}
+	/* Skip the checking on future executions of node */
+	exprstate->evalfunc = ExecEvalScalarVarFast;
 
 	/* Fetch the value from the slot */
 	return slot_getattr(slot, attnum, isNull);
@@ -702,31 +682,6 @@ ExecEvalScalarVarFast(ExprState *exprstate, ExprContext *econtext,
 	}
 
 	attnum = variable->varattno;
-
-	/* Fetch the value from the slot */
-	return slot_getattr(slot, attnum, isNull);
-}
-
-static Datum
-ExecEvalScalarGroupedVarFast(ExprState *exprstate, ExprContext *econtext,
-							 bool *isNull, ExprDoneCond *isDone)
-{
-	GroupedVar *variable = (GroupedVar *) exprstate->expr;
-	TupleTableSlot *slot;
-	AttrNumber	attnum;
-
-	if (isDone)
-		*isDone = ExprSingleResult;
-
-	slot = econtext->ecxt_outertuple;
-
-	attnum = variable->varattno;
-
-	if (!bms_is_member(attnum, econtext->grouped_cols))
-	{
-		*isNull = true;
-		return (Datum) 0;
-	}
 
 	/* Fetch the value from the slot */
 	return slot_getattr(slot, attnum, isNull);
@@ -4503,11 +4458,6 @@ ExecInitExpr(Expr *node, PlanState *parent)
 				state = (ExprState *) makeNode(ExprState);
 				state->evalfunc = ExecEvalScalarVar;
 			}
-			break;
-		case T_GroupedVar:
-			Assert(((Var *) node)->varattno != InvalidAttrNumber);
-			state = (ExprState *) makeNode(ExprState);
-			state->evalfunc = ExecEvalScalarVar;
 			break;
 		case T_Const:
 			state = (ExprState *) makeNode(ExprState);

@@ -4768,7 +4768,7 @@ get_target_list(List *targetList, deparse_context *context,
 		 * different from a whole-row Var).  We need to call get_variable
 		 * directly so that we can tell it to do the right thing.
 		 */
-		if (tle->expr && (IsA(tle->expr, Var) || IsA(tle->expr, GroupedVar)))
+		if (tle->expr && (IsA(tle->expr, Var)))
 		{
 			attname = get_variable((Var *) tle->expr, 0, true, context);
 		}
@@ -5808,10 +5808,10 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 		 * Force parentheses because our caller probably assumed a Var is a
 		 * simple expression.
 		 */
-		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
+		if (!IsA(tle->expr, Var))
 			appendStringInfoChar(buf, '(');
 		get_rule_expr((Node *) tle->expr, context, true);
-		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
+		if (!IsA(tle->expr, Var))
 			appendStringInfoChar(buf, ')');
 
 		pop_child_plan(dpns, &save_dpns);
@@ -5833,10 +5833,10 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 		 * Force parentheses because our caller probably assumed a Var is a
 		 * simple expression.
 		 */
-		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
+		if (!IsA(tle->expr, Var))
 			appendStringInfoChar(buf, '(');
 		get_rule_expr((Node *) tle->expr, context, true);
-		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
+		if (!IsA(tle->expr, Var))
 			appendStringInfoChar(buf, ')');
 
 		pop_child_plan(dpns, &save_dpns);
@@ -5856,10 +5856,10 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 		 * Force parentheses because our caller probably assumed a Var is a
 		 * simple expression.
 		 */
-		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
+		if (!IsA(tle->expr, Var))
 			appendStringInfoChar(buf, '(');
 		get_rule_expr((Node *) tle->expr, context, true);
-		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
+		if (!IsA(tle->expr, Var))
 			appendStringInfoChar(buf, ')');
 
 		return NULL;
@@ -5899,10 +5899,10 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 		 * Force parentheses because our caller probably assumed a Var is a
 		 * simple expression.
 		 */
-		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
+		if (!IsA(tle->expr, Var))
 			appendStringInfoChar(buf, '(');
 		get_rule_expr((Node *) tle->expr, context, true);
-		if (!IsA(tle->expr, Var) && !IsA(tle->expr, GroupedVar))
+		if (!IsA(tle->expr, Var))
 			appendStringInfoChar(buf, ')');
 
 		pop_child_plan(dpns, &save_dpns);
@@ -6930,10 +6930,6 @@ get_rule_expr(Node *node, deparse_context *context,
 	switch (nodeTag(node))
 	{
 		case T_Var:
-			(void) get_variable((Var *) node, 0, false, context);
-			break;
-
-		case T_GroupedVar:
 			(void) get_variable((Var *) node, 0, false, context);
 			break;
 

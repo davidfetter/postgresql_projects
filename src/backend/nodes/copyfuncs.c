@@ -1113,27 +1113,6 @@ _copyVar(const Var *from)
 }
 
 /*
- * _copyGroupedVar
- */
-static GroupedVar *
-_copyGroupedVar(const GroupedVar *from)
-{
-	GroupedVar		   *newnode = makeNode(GroupedVar);
-
-	COPY_SCALAR_FIELD(varno);
-	COPY_SCALAR_FIELD(varattno);
-	COPY_SCALAR_FIELD(vartype);
-	COPY_SCALAR_FIELD(vartypmod);
-	COPY_SCALAR_FIELD(varcollid);
-	COPY_SCALAR_FIELD(varlevelsup);
-	COPY_SCALAR_FIELD(varnoold);
-	COPY_SCALAR_FIELD(varoattno);
-	COPY_LOCATION_FIELD(location);
-
-	return newnode;
-}
-
-/*
  * _copyConst
  */
 static Const *
@@ -4297,9 +4276,6 @@ copyObject(const void *from)
 			break;
 		case T_Var:
 			retval = _copyVar(from);
-			break;
-		case T_GroupedVar:
-			retval = _copyGroupedVar(from);
 			break;
 		case T_Const:
 			retval = _copyConst(from);
