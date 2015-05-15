@@ -486,15 +486,20 @@ check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 				 parser_errposition(pstate, location)));
 
 	if (errkind)
+	{
+		if (isAgg)
+			/* translator: %s is name of a SQL construct, eg GROUP BY */
+			err = _("aggregate functions are not allowed in %s");
+		else
+			/* translator: %s is name of a SQL construct, eg GROUP BY */
+			err = _("grouping operations are not allowed in %s");
+
 		ereport(ERROR,
 				(errcode(ERRCODE_GROUPING_ERROR),
-				 /* translator: %s is name of a SQL construct, eg GROUP BY */
-				 /* FIXME: this is probably untranslateable, do like above? */
-				 errmsg(isAgg
-						? "aggregate functions are not allowed in %s"
-						: "grouping operations are not allowed in %s",
-						ParseExprKindName(pstate->p_expr_kind)),
+				 errmsg_internal("%s",
+								 ParseExprKindName(pstate->p_expr_kind)),
 				 parser_errposition(pstate, location)));
+	}
 }
 
 /*
