@@ -1905,6 +1905,8 @@ show_grouping_set_keys(PlanState *planstate,
 							 sortnode->sortOperators, sortnode->collations,
 							 sortnode->nullsFirst,
 							 ancestors, es);
+		if (es->format == EXPLAIN_FORMAT_TEXT)
+			es->indent++;
 	}
 
 	ExplainOpenGroup("Group Keys", "Group Keys", false, es);
@@ -1937,6 +1939,9 @@ show_grouping_set_keys(PlanState *planstate,
 	}
 
 	ExplainCloseGroup("Group Keys", "Group Keys", false, es);
+
+	if (sortnode && es->format == EXPLAIN_FORMAT_TEXT)
+		es->indent--;
 
 	ExplainCloseGroup("Grouping Set", NULL, true, es);
 }
