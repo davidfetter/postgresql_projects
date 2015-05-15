@@ -856,6 +856,8 @@ DATA(insert OID = 727 (  dist_sl		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 70
 DATA(insert OID = 728 (  dist_cpoly		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 701 "718 604" _null_ _null_ _null_ _null_ _null_	dist_cpoly _null_ _null_ _null_ ));
 DATA(insert OID = 729 (  poly_distance	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 701 "604 604" _null_ _null_ _null_ _null_ _null_	poly_distance _null_ _null_ _null_ ));
 DATA(insert OID = 3275 (  dist_ppoly	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 701 "600 604" _null_ _null_ _null_ _null_ _null_	dist_ppoly _null_ _null_ _null_ ));
+DATA(insert OID = 3292 (  dist_polyp	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 701 "604 600" _null_ _null_ _null_ _null_ _null_	dist_polyp _null_ _null_ _null_ ));
+DATA(insert OID = 3290 (  dist_cpoint	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 701 "718 600" _null_ _null_ _null_ _null_ _null_ 	dist_cpoint _null_ _null_ _null_ ));
 
 DATA(insert OID = 740 (  text_lt		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "25 25" _null_ _null_ _null_ _null_ _null_ text_lt _null_ _null_ _null_ ));
 DATA(insert OID = 741 (  text_le		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "25 25" _null_ _null_ _null_ _null_ _null_ text_le _null_ _null_ _null_ ));
@@ -3067,7 +3069,7 @@ DATA(insert OID = 2077 (  current_setting	PGNSP PGUID 12 1 0 0 0 f f f f t f s 1
 DESCR("SHOW X as a function");
 DATA(insert OID = 2078 (  set_config		PGNSP PGUID 12 1 0 0 0 f f f f f f v 3 0 25 "25 25 16" _null_ _null_ _null_ _null_ _null_ set_config_by_name _null_ _null_ _null_ ));
 DESCR("SET X as a function");
-DATA(insert OID = 2084 (  pg_show_all_settings	PGNSP PGUID 12 1 1000 0 0 f f f f t t s 0 0 2249 "" "{25,25,25,25,25,25,25,25,25,25,25,1009,25,25,25,23}" "{o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o}" "{name,setting,unit,category,short_desc,extra_desc,context,vartype,source,min_val,max_val,enumvals,boot_val,reset_val,sourcefile,sourceline}" _null_ _null_ show_all_settings _null_ _null_ _null_ ));
+DATA(insert OID = 2084 (  pg_show_all_settings	PGNSP PGUID 12 1 1000 0 0 f f f f t t s 0 0 2249 "" "{25,25,25,25,25,25,25,25,25,25,25,1009,25,25,25,23,16}" "{o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o,o}" "{name,setting,unit,category,short_desc,extra_desc,context,vartype,source,min_val,max_val,enumvals,boot_val,reset_val,sourcefile,sourceline,pending_restart}" _null_ _null_ show_all_settings _null_ _null_ _null_ ));
 DESCR("SHOW ALL as a function");
 DATA(insert OID = 3329 (  pg_show_all_file_settings	PGNSP PGUID 12 1 1000 0 0 f f f f t t s 0 0 2249 "" "{25,23,23,25,25}" "{o,o,o,o,o}" "{sourcefile,sourceline,seqno,name,setting}" _null_ _null_ show_all_file_settings _null_ _null_ _null_ ));
 DESCR("show config file settings");
@@ -4164,6 +4166,8 @@ DESCR("GiST support");
 DATA(insert OID = 2179 (  gist_point_consistent PGNSP PGUID 12 1 0 0 0 f f f f t f i 5 0 16 "2281 600 23 26 2281" _null_ _null_ _null_ _null_ _null_	gist_point_consistent _null_ _null_ _null_ ));
 DESCR("GiST support");
 DATA(insert OID = 3064 (  gist_point_distance	PGNSP PGUID 12 1 0 0 0 f f f f t f i 4 0 701 "2281 600 23 26" _null_ _null_ _null_ _null_ _null_	gist_point_distance _null_ _null_ _null_ ));
+DESCR("GiST support");
+DATA(insert OID = 3288 (  gist_bbox_distance	PGNSP PGUID 12 1 0 0 0 f f f f t f i 4 0 701 "2281 600 23 26" _null_ _null_ _null_ _null_ _null_	gist_bbox_distance _null_ _null_ _null_ ));
 DESCR("GiST support");
 
 /* GIN */

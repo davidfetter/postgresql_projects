@@ -37,6 +37,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
+#include "utils/sampling.h"
 
 PG_MODULE_MAGIC;
 
@@ -202,7 +203,7 @@ typedef struct PgFdwAnalyzeState
 	/* for random sampling */
 	double		samplerows;		/* # of rows fetched */
 	double		rowstoskip;		/* # of rows to skip before next sample */
-	double		rstate;			/* random state */
+	ReservoirStateData rstate;		/* state for reservoir sampling*/
 
 	/* working memory contexts */
 	MemoryContext anl_cxt;		/* context for per-analyze lifespan data */
@@ -2411,7 +2412,7 @@ postgresAcquireSampleRowsFunc(Relation relation, int elevel,
 	astate.numrows = 0;
 	astate.samplerows = 0;
 	astate.rowstoskip = -1;		/* -1 means not set yet */
-	astate.rstate = anl_init_selection_state(targrows);
+	reservoir_init_selection_state(&astate.rstate, targrows);
 
 	/* Remember ANALYZE context, and create a per-tuple temp context */
 	astate.anl_cxt = CurrentMemoryContext;
@@ -2551,13 +2552,12 @@ analyze_row_processor(PGresult *res, int row, PgFdwAnalyzeState *astate)
 		 * analyze.c; see Jeff Vitter's paper.
 		 */
 		if (astate->rowstoskip < 0)
-			astate->rowstoskip = anl_get_next_S(astate->samplerows, targrows,
-												&astate->rstate);
+			astate->rowstoskip = reservoir_get_next_S(&astate->rstate, astate->samplerows, targrows);
 
 		if (astate->rowstoskip <= 0)
 		{
 			/* Choose a random reservoir element to replace. */
-			pos = (int) (targrows * anl_random_fract());
+			pos = (int) (targrows * sampler_random_fract());
 			Assert(pos >= 0 && pos < targrows);
 			heap_freetuple(astate->rows[pos]);
 		}
@@ -2964,8 +2964,14 @@ make_tuple_from_result_row(PGresult *res,
 
 	tuple = heap_form_tuple(tupdesc, values, nulls);
 
+	/*
+	 * If we have a CTID to return, install it in both t_self and t_ctid.
+	 * t_self is the normal place, but if the tuple is converted to a
+	 * composite Datum, t_self will be lost; setting t_ctid allows CTID to be
+	 * preserved during EvalPlanQual re-evaluations (see ROW_MARK_COPY code).
+	 */
 	if (ctid)
-		tuple->t_self = *ctid;
+		tuple->t_self = tuple->t_data->t_ctid = *ctid;
 
 	/* Clean up */
 	MemoryContextReset(temp_context);
