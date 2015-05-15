@@ -164,22 +164,6 @@ typedef struct Var
 } Var;
 
 /*
- * GroupedVar - expression node representing a variable that might be
- * involved in a grouping set.
- *
- * This is identical to Var node except in execution; when evaluated it
- * is conditionally NULL depending on the active grouping set.  Vars are
- * converted to GroupedVars (if needed) only late in planning.
- *
- * (Because they appear only late in planning, most code that handles Vars
- * doesn't need to know about these, either because they don't exist yet or
- * because optimizations specific to Vars are intentionally not applied to
- * GroupedVars.)
- */
-
-typedef Var GroupedVar;
-
-/*
  * Const
  */
 typedef struct Const
