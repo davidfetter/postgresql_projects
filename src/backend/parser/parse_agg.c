@@ -489,6 +489,7 @@ check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 		ereport(ERROR,
 				(errcode(ERRCODE_GROUPING_ERROR),
 				 /* translator: %s is name of a SQL construct, eg GROUP BY */
+				 /* FIXME: this is probably untranslateable, do like above? */
 				 errmsg(isAgg
 						? "aggregate functions are not allowed in %s"
 						: "grouping operations are not allowed in %s",
@@ -955,7 +956,7 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 		if (!gsets)
 			ereport(ERROR,
 					(errcode(ERRCODE_STATEMENT_TOO_COMPLEX),
-					 errmsg("Too many grouping sets present (max 4096)"),
+					 errmsg("too many grouping sets present (max 4096)"),
 					 parser_errposition(pstate,
 										qry->groupClause
 										? exprLocation((Node *) qry->groupClause)
@@ -1471,7 +1472,7 @@ finalize_grouping_exprs_walker(Node *node,
 				if (ref == 0)
 					ereport(ERROR,
 							(errcode(ERRCODE_GROUPING_ERROR),
-							 errmsg("Arguments to GROUPING must be grouping expressions of the associated query level"),
+							 errmsg("arguments to GROUPING must be grouping expressions of the associated query level"),
 							 parser_errposition(context->pstate,
 												exprLocation(expr))));
 

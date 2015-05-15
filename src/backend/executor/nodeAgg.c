@@ -839,8 +839,8 @@ process_ordered_aggregate_single(AggState *aggstate,
 	 * pfree them when they are no longer needed.
 	 */
 
-	while (tuplesort_getdatum(peraggstate->sortstates[aggstate->current_set], true,
-							  newVal, isNull))
+	while (tuplesort_getdatum(peraggstate->sortstates[aggstate->current_set],
+							  true, newVal, isNull))
 	{
 		/*
 		 * Clear and select the working context for evaluation of the equality
@@ -919,7 +919,8 @@ process_ordered_aggregate_multi(AggState *aggstate,
 	if (slot2)
 		ExecClearTuple(slot2);
 
-	while (tuplesort_gettupleslot(peraggstate->sortstates[aggstate->current_set], true, slot1))
+	while (tuplesort_gettupleslot(peraggstate->sortstates[aggstate->current_set],
+								  true, slot1))
 	{
 		/*
 		 * Extract the first numTransInputs columns as datums to pass to the
@@ -1092,14 +1093,16 @@ finalize_aggregates(AggState *aggstate,
 	bool	   *aggnulls = econtext->ecxt_aggnulls;
 	int			aggno;
 
-	Assert(currentSet == 0
-		   || ((Agg *) aggstate->ss.ps.plan)->aggstrategy != AGG_HASHED);
+	Assert(currentSet == 0 ||
+		   ((Agg *) aggstate->ss.ps.plan)->aggstrategy != AGG_HASHED);
 
 	aggstate->current_set = currentSet;
 
 	/*
 	 * Set all columns that are not in the current grouping set to NULL. It'd
 	 * arguably be cleaner to do this
+	 *
+	 * XXX: incomplete comment.
 	 */
 	if (aggstate->phase->grouped_cols)
 	{

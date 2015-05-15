@@ -4533,9 +4533,8 @@ ExecInitExpr(Expr *node, PlanState *parent)
 				GroupingFuncExprState *grp_state = makeNode(GroupingFuncExprState);
 				Agg		   *agg = NULL;
 
-				if (!parent
-					|| !IsA(parent->plan, Agg))
-					elog(ERROR, "Parent of GROUPING is not Agg node");
+				if (!parent || !IsA(parent->plan, Agg))
+					elog(ERROR, "parent of GROUPING is not Agg node");
 
 				agg = (Agg *) (parent->plan);
 

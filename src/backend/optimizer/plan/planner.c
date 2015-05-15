@@ -337,7 +337,6 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	root->append_rel_list = NIL;
 	root->rowMarks = NIL;
 	root->hasInheritedTarget = false;
-	root->groupColIdx = NULL;
 	root->grouping_map = NULL;
 
 	root->hasRecursion = hasRecursion;
@@ -1925,7 +1924,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				grouping_map[gc->tleSortGroupRef] = groupColIdx[i++];
 			}
 
-			root->groupColIdx = groupColIdx;
 			root->grouping_map = grouping_map;
 		}
 
@@ -2260,6 +2258,8 @@ remap_groupColIdx(int ncols, int *refmap, List *groupClause, AttrNumber *groupCo
 	 * groupClause by position in that list. The refmap for
 	 * this node (indexed by sortgroupref) contains 0 for
 	 * clauses not present in this node's groupClause.
+	 *
+	 * XXX: This needs to be documented better.
 	 */
 
 	new_grpColIdx = palloc0(sizeof(AttrNumber) * ncols);
@@ -2288,12 +2288,11 @@ remap_groupColIdx(int ncols, int *refmap, List *groupClause, AttrNumber *groupCo
  * rollups are attached, with corresponding sort info, to subsidiary Agg and
  * Sort nodes attached to the side of the real Agg node; these nodes don't
  * participate in the plan directly, but they are both a convenient way to
- * represent the required data and a convenient way to account for the costs of
- * execution.
+ * represent the required data and a convenient way to account for the costs
+ * of execution.
  *
  * rollup_groupclauses, rollup_lists and refmaps are destroyed by this function.
  */
-
 static Plan *
 build_grouping_chain(PlannerInfo *root,
 					 Query	   *parse,
@@ -2330,7 +2329,6 @@ build_grouping_chain(PlannerInfo *root,
 	/*
 	 * If we need a Sort operation on the input, generate that.
 	 */
-
 	if (need_sort_for_grouping)
 	{
 		result_plan = (Plan *)
@@ -2344,7 +2342,6 @@ build_grouping_chain(PlannerInfo *root,
 	 * Generate the side nodes that describe the other sort and group
 	 * operations besides the top one.
 	 */
-
 	while (list_length(rollup_groupclauses) > 1)
 	{
 		List	   *groupClause = linitial(rollup_groupclauses);

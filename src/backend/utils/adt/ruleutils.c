@@ -9392,10 +9392,9 @@ generate_function_name(Oid funcid, int nargs, List *argnames, Oid *argtypes,
 	proname = NameStr(procform->proname);
 
 	/*
-	 * Thanks to parser hacks to avoid needing to reserve CUBE, we
-	 * need to force qualification in some special cases.
+	 * Due to parser hacks to avoid needing to reserve CUBE, we need to force
+	 * qualification in some special cases.
 	 */
-
 	if (special_exprkind == EXPR_KIND_GROUP_BY)
 	{
 		if (strcmp(proname, "cube") == 0 || strcmp(proname, "rollup") == 0)

@@ -3158,8 +3158,8 @@ add_unique_group_var(PlannerInfo *root, List *varinfos,
  *	groupExprs - list of expressions being grouped by
  *	input_rows - number of rows estimated to arrive at the group/unique
  *		filter step
- *  pgset - NULL, or a List** pointing to a grouping set to filter the
- *      groupExprs against
+ *	pgset - NULL, or a List** pointing to a grouping set to filter the
+ *		groupExprs against
  *
  * Given the lack of any cross-correlation statistics in the system, it's
  * impossible to do anything really trustworthy with GROUP BY conditions
