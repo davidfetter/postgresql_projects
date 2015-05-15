@@ -10,7 +10,7 @@
  * Copyright (c) 2015, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
- *	  src/backend/lib/hk.c
+ *	  src/backend/lib/bipartite_match.c
  *
  *-------------------------------------------------------------------------
  */
