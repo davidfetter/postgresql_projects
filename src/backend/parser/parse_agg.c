@@ -496,7 +496,7 @@ check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 
 		ereport(ERROR,
 				(errcode(ERRCODE_GROUPING_ERROR),
-				 errmsg_internal("%s",
+				 errmsg_internal(err,
 								 ParseExprKindName(pstate->p_expr_kind)),
 				 parser_errposition(pstate, location)));
 	}

@@ -421,7 +421,7 @@ select a, b, sum(v.x)
 
 -- Agg level check. This query should error out.
 select (select grouping(a,b) from gstest2) from gstest2 group by a,b;
-ERROR:  Arguments to GROUPING must be grouping expressions of the associated query level
+ERROR:  arguments to GROUPING must be grouping expressions of the associated query level
 LINE 1: select (select grouping(a,b) from gstest2) from gstest2 grou...
                                 ^
 --Nested queries
