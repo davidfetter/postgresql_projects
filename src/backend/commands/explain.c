@@ -82,9 +82,12 @@ static void show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 					   ExplainState *es);
 static void show_agg_keys(AggState *astate, List *ancestors,
 			  ExplainState *es);
-static void show_grouping_set_keys(PlanState *planstate, const char *qlabel,
-				int nkeys, AttrNumber *keycols, List *gsets,
-				List *ancestors, ExplainState *es);
+static void show_grouping_sets(PlanState *planstate, Agg *agg,
+							   List *ancestors, ExplainState *es);
+static void show_grouping_set_keys(PlanState *planstate,
+								   Agg *aggnode, Sort *sortnode,
+								   List *context, bool useprefix,
+								   List *ancestors, ExplainState *es);
 static void show_group_keys(GroupState *gstate, List *ancestors,
 				ExplainState *es);
 static void show_sort_group_keys(PlanState *planstate, const char *qlabel,
@@ -1839,10 +1842,7 @@ show_agg_keys(AggState *astate, List *ancestors,
 		ancestors = lcons(astate, ancestors);
 
 		if (plan->groupingSets)
-			show_grouping_set_keys(outerPlanState(astate), "Grouping Sets",
-								   plan->numCols, plan->grpColIdx,
-								   plan->groupingSets,
-								   ancestors, es);
+			show_grouping_sets(outerPlanState(astate), plan, ancestors, es);
 		else
 			show_sort_group_keys(outerPlanState(astate), "Group Key",
 								 plan->numCols, plan->grpColIdx,
@@ -1854,18 +1854,12 @@ show_agg_keys(AggState *astate, List *ancestors,
 }
 
 static void
-show_grouping_set_keys(PlanState *planstate, const char *qlabel,
-					   int nkeys, AttrNumber *keycols, List *gsets,
-					   List *ancestors, ExplainState *es)
+show_grouping_sets(PlanState *planstate, Agg *agg,
+				   List *ancestors, ExplainState *es)
 {
-	Plan	   *plan = planstate->plan;
 	List	   *context;
 	bool		useprefix;
-	char	   *exprstr;
 	ListCell   *lc;
-
-	if (gsets == NIL)
-		return;
 
 	/* Set up deparsing context */
 	context = set_deparse_context_planstate(es->deparse_cxt,
@@ -1874,6 +1868,46 @@ show_grouping_set_keys(PlanState *planstate, const char *qlabel,
 	useprefix = (list_length(es->rtable) > 1 || es->verbose);
 
 	ExplainOpenGroup("Grouping Sets", "Grouping Sets", false, es);
+
+	show_grouping_set_keys(planstate, agg, NULL,
+						   context, useprefix, ancestors, es);
+
+	foreach(lc, agg->chain)
+	{
+		Agg *aggnode = lfirst(lc);
+		Sort *sortnode = (Sort *) aggnode->plan.lefttree;
+
+		show_grouping_set_keys(planstate, aggnode, sortnode,
+							   context, useprefix, ancestors, es);
+	}
+
+	ExplainCloseGroup("Grouping Sets", "Grouping Sets", false, es);
+}
+
+static void
+show_grouping_set_keys(PlanState *planstate,
+					   Agg *aggnode, Sort *sortnode,
+					   List *context, bool useprefix,
+					   List *ancestors, ExplainState *es)
+{
+	Plan	   *plan = planstate->plan;
+	char	   *exprstr;
+	ListCell   *lc;
+	List	   *gsets = aggnode->groupingSets;
+	AttrNumber *keycols = aggnode->grpColIdx;
+
+	ExplainOpenGroup("Grouping Set", NULL, true, es);
+
+	if (sortnode)
+	{
+		show_sort_group_keys(planstate, "Sort Key",
+							 sortnode->numCols, sortnode->sortColIdx,
+							 sortnode->sortOperators, sortnode->collations,
+							 sortnode->nullsFirst,
+							 ancestors, es);
+	}
+
+	ExplainOpenGroup("Group Keys", "Group Keys", false, es);
 
 	foreach(lc, gsets)
 	{
@@ -1902,7 +1936,9 @@ show_grouping_set_keys(PlanState *planstate, const char *qlabel,
 			ExplainPropertyListNested("Group Key", result, es);
 	}
 
-	ExplainCloseGroup("Grouping Sets", "Grouping Sets", false, es);
+	ExplainCloseGroup("Group Keys", "Group Keys", false, es);
+
+	ExplainCloseGroup("Grouping Set", NULL, true, es);
 }
 
 /*
