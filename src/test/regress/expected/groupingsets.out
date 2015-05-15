@@ -10,6 +10,9 @@ create temp view gstest1(a,b,v)
 create temp table gstest2 (a integer, b integer, c integer, d integer,
                            e integer, f integer, g integer, h integer);
 copy gstest2 from stdin;
+create temp table gstest3 (a integer, b integer, c integer, d integer);
+copy gstest3 from stdin;
+alter table gstest3 add primary key (a);
 create temp table gstest_empty (a integer, b integer, v integer);
 create function gstest_data(v integer, out a integer, out b integer)
   returns setof record
@@ -215,6 +218,18 @@ select a, b, grouping(a, b), sum(t1.v), max(t2.c)
  1 | 2 |        0 |  25 |   2
    |   |        3 | 172 |   2
 (3 rows)
+
+-- check that functionally dependent cols are not nulled
+select a, d, grouping(a,b,c)
+  from gstest3
+ group by grouping sets ((a,b), (a,c));
+ a | d | grouping 
+---+---+----------
+ 1 | 1 |        1
+ 2 | 2 |        1
+ 1 | 1 |        2
+ 2 | 2 |        2
+(4 rows)
 
 -- simple rescan tests
 select a, b, sum(v.x)

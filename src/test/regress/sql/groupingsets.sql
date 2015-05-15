@@ -24,6 +24,13 @@ copy gstest2 from stdin;
 2	2	2	2	2	2	2	2
 \.
 
+create temp table gstest3 (a integer, b integer, c integer, d integer);
+copy gstest3 from stdin;
+1	1	1	1
+2	2	2	2
+\.
+alter table gstest3 add primary key (a);
+
 create temp table gstest_empty (a integer, b integer, v integer);
 
 create function gstest_data(v integer, out a integer, out b integer)
@@ -88,6 +95,11 @@ select t1.a, t2.b, grouping(t1.a, t2.b), sum(t1.v), max(t2.a)
 select a, b, grouping(a, b), sum(t1.v), max(t2.c)
   from gstest1 t1 join gstest2 t2 using (a,b)
  group by grouping sets ((a, b), ());
+
+-- check that functionally dependent cols are not nulled
+select a, d, grouping(a,b,c)
+  from gstest3
+ group by grouping sets ((a,b), (a,c));
 
 -- simple rescan tests
 

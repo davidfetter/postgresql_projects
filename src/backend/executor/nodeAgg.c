@@ -378,6 +378,9 @@ static void finalize_aggregate(AggState *aggstate,
 				   AggStatePerAgg peraggstate,
 				   AggStatePerGroup pergroupstate,
 				   Datum *resultVal, bool *resultIsNull);
+static void prepare_projection_slot(AggState *aggstate,
+									TupleTableSlot *slot,
+									int currentSet);
 static void finalize_aggregates(AggState *aggstate,
 								AggStatePerAgg peragg,
 								AggStatePerGroup pergroup,
@@ -1105,6 +1108,66 @@ finalize_aggregate(AggState *aggstate,
 
 
 /*
+ * Prepare to finalize and project based on the specified representative tuple
+ * slot and grouping set.
+ *
+ * In the specified tuple slot, force to null all attributes that should be
+ * read as null in the context of the current grouping set.  Also stash the
+ * current group bitmap where GroupingExpr can get at it.
+ *
+ * This relies on three conditions:
+ *
+ * 1) Nothing is ever going to try and extract the whole tuple from this slot,
+ * only reference it in evaluations, which will only access individual
+ * attributes.
+ *
+ * 2) No system columns are going to need to be nulled. (If a system column is
+ * referenced in a group clause, it is actually projected in the outer plan
+ * tlist.)
+ *
+ * 3) Within a given phase, we never need to recover the value of an attribute
+ * once it has been set to null.
+ *
+ * Poking into the slot this way is a bit ugly, but the consensus is that the
+ * alternative was worse.
+ */
+static void
+prepare_projection_slot(AggState *aggstate, TupleTableSlot *slot, int currentSet)
+{
+	if (aggstate->phase->grouped_cols)
+	{
+		Bitmapset *grouped_cols = aggstate->phase->grouped_cols[currentSet];
+
+		aggstate->grouped_cols = grouped_cols;
+
+		if (slot->tts_isempty)
+		{
+			/*
+			 * Force all values to be NULL if working on an empty input tuple
+			 * (i.e. an empty grouping set for which no input rows were
+			 * supplied).
+			 */
+			ExecStoreAllNullTuple(slot);
+		}
+		else if (aggstate->all_grouped_cols)
+		{
+			ListCell   *lc;
+
+			/* all_grouped_cols is arranged in desc order */
+			slot_getsomeattrs(slot, linitial_int(aggstate->all_grouped_cols));
+
+			foreach(lc, aggstate->all_grouped_cols)
+			{
+				int attnum = lfirst_int(lc);
+
+				if (!bms_is_member(attnum, grouped_cols))
+					slot->tts_isnull[attnum - 1] = true;
+			}
+		}
+	}
+}
+
+/*
  * Compute the final value of all aggregates for one group.
  *
  * This function handles only one grouping set at a time.
@@ -1126,42 +1189,6 @@ finalize_aggregates(AggState *aggstate,
 		   ((Agg *) aggstate->ss.ps.plan)->aggstrategy != AGG_HASHED);
 
 	aggstate->current_set = currentSet;
-
-	/*
-	 * Set all columns that are not in the current grouping set to NULL.
-	 *
-	 * XXX FIXME this is all wrong and broken
-	 */
-	if (aggstate->phase->grouped_cols)
-	{
-		TupleTableSlot *slot = econtext->ecxt_outertuple;
-		int attno;
-		TupleDesc tupdesc = slot->tts_tupleDescriptor;
-
-		aggstate->grouped_cols = aggstate->phase->grouped_cols[currentSet];
-
-		if (slot->tts_isempty)
-		{
-			/*
-			 * Force all values to be NULL if working on an empty input tuple
-			 * (i.e. an empty grouping set).  Perhaps better do that in
-			 * agg_retrieve_direct()?
-			 */
-			ExecStoreAllNullTuple(slot);
-		}
-		else
-		{
-			/* Force the tuple to be "fully virtual", in a pretty hacky way */
-			slot_getallattrs(slot);
-
-			for (attno = 0; attno < tupdesc->natts; attno++)
-			{
-				int attnum = tupdesc->attrs[attno]->attnum;
-				if (!bms_is_member(attnum, aggstate->grouped_cols))
-					slot->tts_isnull[attno] = true;
-			}
-		}
-	}
 
 	for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 	{
@@ -1771,6 +1798,8 @@ agg_retrieve_direct(AggState *aggstate)
 
 		currentSet = aggstate->projected_set;
 
+		prepare_projection_slot(aggstate, econtext->ecxt_outertuple, currentSet);
+
 		finalize_aggregates(aggstate, peragg, pergroup, currentSet);
 
 		/*
@@ -1922,6 +1951,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				aggno;
 	int			phase;
 	ListCell   *l;
+	Bitmapset  *all_grouped_cols = NULL;
 	int			numGroupingSets = 1;
 	int			numPhases;
 	int			currentsortno = 0;
@@ -2071,7 +2101,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	/*
 	 * For each phase, prepare grouping set data and fmgr lookup data for
-	 * compare functions.
+	 * compare functions.  Accumulate all_grouped_cols in passing.
 	 */
 
 	aggstate->phases = palloc0(numPhases * sizeof(AggStatePerPhaseData));
@@ -2116,6 +2146,9 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				phasedata->gset_lengths[i] = current_length;
 				++i;
 			}
+
+			all_grouped_cols = bms_add_members(all_grouped_cols,
+											   phasedata->grouped_cols[0]);
 		}
 		else
 		{
@@ -2140,6 +2173,13 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		phasedata->aggnode = aggnode;
 		phasedata->sortnode = sortnode;
 	}
+
+	/*
+	 * Convert all_grouped_cols to a descending-order list.
+	 */
+	i = -1;
+	while ((i = bms_next_member(all_grouped_cols, i)) >= 0)
+		aggstate->all_grouped_cols = lcons_int(i, aggstate->all_grouped_cols);
 
 	/*
 	 * Hashing can only appear in the initial phase.
