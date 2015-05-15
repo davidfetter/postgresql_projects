@@ -127,7 +127,6 @@ static Plan *build_grouping_chain(PlannerInfo *root,
 						  bool		need_sort_for_grouping,
 						  List	   *rollup_groupclauses,
 						  List	   *rollup_lists,
-						  List	   *refmaps,
 						  AttrNumber *groupColIdx,
 						  AggClauseCosts *agg_costs,
 						  long		numGroups,
@@ -1263,7 +1262,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		WindowFuncLists *wflists = NULL;
 		List	   *activeWindows = NIL;
 		int			maxref = 0;
-		List	   *refmaps = NIL;
+		int		   *tleref_to_colnum_map;
 		List	   *rollup_lists = NIL;
 		List	   *rollup_groupclauses = NIL;
 		standard_qp_extra qp_extra;
@@ -1294,6 +1293,8 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			}
 		}
 
+		tleref_to_colnum_map = palloc((maxref + 1) * sizeof(int));
+
 		if (parse->groupingSets)
 		{
 			ListCell   *lc;
@@ -1309,34 +1310,31 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 													 : NIL));
 				List   *groupclause = preprocess_groupclause(root, linitial(current_sets));
 				int		ref = 0;
-				int	   *refmap;
 
 				/*
-				 * Now that we've pinned down an order for the groupClause for this
-				 * list of grouping sets, remap the entries in the grouping sets
-				 * from sortgrouprefs to plain indices into the groupClause.
+				 * Now that we've pinned down an order for the groupClause for
+				 * this list of grouping sets, we need to remap the entries in
+				 * the grouping sets from sortgrouprefs to plain indices
+				 * (0-based) into the groupClause for this collection of
+				 * grouping sets.
 				 */
-
-				refmap = palloc0(sizeof(int) * (maxref + 1));
 
 				foreach(lc, groupclause)
 				{
 					SortGroupClause *gc = lfirst(lc);
-					refmap[gc->tleSortGroupRef] = ++ref;
+					tleref_to_colnum_map[gc->tleSortGroupRef] = ref++;
 				}
 
 				foreach(lc, current_sets)
 				{
 					foreach(lc2, (List *) lfirst(lc))
 					{
-						Assert(refmap[lfirst_int(lc2)] > 0);
-						lfirst_int(lc2) = refmap[lfirst_int(lc2)] - 1;
+						lfirst_int(lc2) = tleref_to_colnum_map[lfirst_int(lc2)];
 					}
 				}
 
 				rollup_lists = lcons(current_sets, rollup_lists);
 				rollup_groupclauses = lcons(groupclause, rollup_groupclauses);
-				refmaps = lcons(refmap, refmaps);
 			}
 		}
 		else
@@ -1784,6 +1782,27 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			}
 
 			/*
+			 * groupColIdx is now cast in stone, so record a mapping from
+			 * tleSortGroupRef to column index. setrefs.c needs this to
+			 * finalize GROUPING() operations.
+			 */
+
+			if (parse->groupingSets)
+			{
+				AttrNumber *grouping_map = palloc0(sizeof(AttrNumber) * (maxref + 1));
+				ListCell   *lc;
+				int			i = 0;
+
+				foreach(lc, parse->groupClause)
+				{
+					SortGroupClause *gc = lfirst(lc);
+					grouping_map[gc->tleSortGroupRef] = groupColIdx[i++];
+				}
+
+				root->grouping_map = grouping_map;
+			}
+
+			/*
 			 * Insert AGG or GROUP node if needed, plus an explicit sort step
 			 * if necessary.
 			 *
@@ -1825,7 +1844,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												   need_sort_for_grouping,
 												   rollup_groupclauses,
 												   rollup_lists,
-												   refmaps,
 												   groupColIdx,
 												   &agg_costs,
 												   numGroups,
@@ -1837,7 +1855,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				 */
 				rollup_groupclauses = NIL;
 				rollup_lists = NIL;
-				refmaps = NIL;
 			}
 			else if (parse->groupClause)
 			{
@@ -1909,23 +1926,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				}
 			}
 		}						/* end of non-minmax-aggregate case */
-
-		/* Record grouping_map based on final groupColIdx, for setrefs */
-
-		if (parse->groupingSets)
-		{
-			AttrNumber *grouping_map = palloc0(sizeof(AttrNumber) * (maxref + 1));
-			ListCell   *lc;
-			int			i = 0;
-
-			foreach(lc, parse->groupClause)
-			{
-				SortGroupClause *gc = lfirst(lc);
-				grouping_map[gc->tleSortGroupRef] = groupColIdx[i++];
-			}
-
-			root->grouping_map = grouping_map;
-		}
 
 		/*
 		 * Since each window function could require a different sort order, we
@@ -2241,36 +2241,32 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 }
 
 
+/*
+ * Given a groupclause for a collection of grouping sets, produce the
+ * corresponding groupColIdx.
+ *
+ * root->grouping_map maps the tleSortGroupRef to the actual column position in
+ * the input tuple. So we get the ref from the entries in the groupclause and
+ * look them up there.
+ */
+
 static AttrNumber *
-remap_groupColIdx(int ncols, int *refmap, List *groupClause, AttrNumber *groupColIdx)
+remap_groupColIdx(PlannerInfo *root, List *groupClause)
 {
+	AttrNumber *grouping_map = root->grouping_map;
 	AttrNumber *new_grpColIdx;
 	ListCell   *lc;
 	int			i;
 
-	Assert(refmap);
+	Assert(grouping_map);
 
-	/*
-	 * need to remap groupColIdx, which has the column
-	 * indices for every clause in parse->groupClause
-	 * indexed by list position, to a local version for
-	 * this node which lists only the clauses included in
-	 * groupClause by position in that list. The refmap for
-	 * this node (indexed by sortgroupref) contains 0 for
-	 * clauses not present in this node's groupClause.
-	 *
-	 * XXX: This needs to be documented better.
-	 */
-
-	new_grpColIdx = palloc0(sizeof(AttrNumber) * ncols);
+	new_grpColIdx = palloc0(sizeof(AttrNumber) * list_length(groupClause));
 
 	i = 0;
 	foreach(lc, groupClause)
 	{
-		int j = refmap[((SortGroupClause *)lfirst(lc))->tleSortGroupRef];
-		if (j > 0)
-			new_grpColIdx[j - 1] = groupColIdx[i];
-		++i;
+		SortGroupClause *clause = lfirst(lc);
+		new_grpColIdx[i++] = grouping_map[clause->tleSortGroupRef];
 	}
 
 	return new_grpColIdx;
@@ -2281,7 +2277,7 @@ remap_groupColIdx(int ncols, int *refmap, List *groupClause, AttrNumber *groupCo
  * grouping sets. (A plain GROUP BY or just the presence of aggregates counts
  * for this purpose as a single grouping set; the calling code is responsible
  * for providing a non-empty rollup_groupclauses list for such cases, though
- * rollup_lists and refmaps may be null.)
+ * rollup_lists may be null.)
  *
  * The last entry in rollup_groupclauses (which is the one the input is sorted
  * on, if at all) is the one used for the returned Agg node. Any additional
@@ -2291,7 +2287,7 @@ remap_groupColIdx(int ncols, int *refmap, List *groupClause, AttrNumber *groupCo
  * represent the required data and a convenient way to account for the costs
  * of execution.
  *
- * rollup_groupclauses, rollup_lists and refmaps are destroyed by this function.
+ * rollup_groupclauses and rollup_lists are destroyed by this function.
  */
 static Plan *
 build_grouping_chain(PlannerInfo *root,
@@ -2300,7 +2296,6 @@ build_grouping_chain(PlannerInfo *root,
 					 bool		need_sort_for_grouping,
 					 List	   *rollup_groupclauses,
 					 List	   *rollup_lists,
-					 List	   *refmaps,
 					 AttrNumber *groupColIdx,
 					 AggClauseCosts *agg_costs,
 					 long		numGroups,
@@ -2317,13 +2312,9 @@ build_grouping_chain(PlannerInfo *root,
 	if (list_length(rollup_groupclauses) > 1)
 	{
 		Assert(rollup_lists && llast(rollup_lists));
-		Assert(refmaps && llast(refmaps));
 
 		top_grpColIdx =
-			remap_groupColIdx(list_length(linitial(llast(rollup_lists))),
-							  llast(refmaps),
-							  parse->groupClause,
-							  groupColIdx);
+			remap_groupColIdx(root, llast(rollup_groupclauses));
 	}
 
 	/*
@@ -2346,7 +2337,6 @@ build_grouping_chain(PlannerInfo *root,
 	{
 		List	   *groupClause = linitial(rollup_groupclauses);
 		List	   *gsets = linitial(rollup_lists);
-		int		   *refmap = linitial(refmaps);
 		AttrNumber *new_grpColIdx;
 		Plan	   *sort_plan;
 		Plan	   *agg_plan;
@@ -2354,10 +2344,7 @@ build_grouping_chain(PlannerInfo *root,
 		Assert(groupClause);
 		Assert(gsets);
 
-		new_grpColIdx = remap_groupColIdx(list_length(linitial(gsets)),
-										  refmap,
-										  parse->groupClause,
-										  groupColIdx);
+		new_grpColIdx = remap_groupColIdx(root, groupClause);
 
 		sort_plan = (Plan *)
 			make_sort_from_groupcols(root,
@@ -2390,12 +2377,8 @@ build_grouping_chain(PlannerInfo *root,
 
 		chain = lappend(chain, agg_plan);
 
-		if (refmap)
-			pfree(refmap);
 		if (rollup_lists)
 			rollup_lists = list_delete_first(rollup_lists);
-		if (refmaps)
-			refmaps = list_delete_first(refmaps);
 
 		rollup_groupclauses = list_delete_first(rollup_groupclauses);
 	}
@@ -2441,7 +2424,7 @@ build_grouping_chain(PlannerInfo *root,
 			result_plan->total_cost += subplan->total_cost;
 
 			/*
-			 * Nuke stuff we don't need.
+			 * Nuke stuff we don't need to avoid bloating debug output.
 			 */
 
 			subplan->targetlist = NIL;
