@@ -137,8 +137,6 @@ typedef struct ExprContext
 	Datum	   *ecxt_aggvalues; /* precomputed values for aggs/windowfuncs */
 	bool	   *ecxt_aggnulls;	/* null flags for aggs/windowfuncs */
 
-	Bitmapset  *grouped_cols;   /* which columns exist in current grouping set */
-
 	/* Value to substitute for CaseTestExpr nodes in expression */
 	Datum		caseValue_datum;
 	bool		caseValue_isNull;
@@ -628,6 +626,7 @@ typedef struct AggrefExprState
 typedef struct GroupingFuncExprState
 {
 	ExprState	xprstate;
+	struct AggState *aggstate;
 	List	   *clauses;		/* integer list of column numbers */
 } GroupingFuncExprState;
 
@@ -1804,6 +1803,7 @@ typedef struct AggState
 	bool		agg_done;		/* indicates completion of Agg scan */
 	int			projected_set;	/* The last projected grouping set */
 	int			current_set;	/* The current grouping set being evaluated */
+	Bitmapset  *grouped_cols;	/* grouped cols in current projection */
 	/* These fields are for grouping set phase data */
 	int			maxsets;		/* The max number of sets in any phase */
 	AggStatePerPhase phases;	/* array of all phases */

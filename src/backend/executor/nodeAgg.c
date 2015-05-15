@@ -97,10 +97,14 @@
  *	  we update them all, and on group boundaries we reset those states
  *	  (starting at the front of the list) whose grouping values have changed
  *	  (the list of grouping sets is ordered from most specific to least
- *	  specific).  One AGG_SORTED node thus handles any number of grouping sets
- *	  as long as they share a sort order.
+ *	  specific).
  *
- *	  XXX
+ *	  Where more complex grouping sets are used, we break them down into
+ *	  "phases", where each phase has a different sort order.  During each phase
+ *	  but the last, the input tuples are additionally stored in a tuplesort
+ *	  which is keyed to the next phase's sort order; during each phase but the
+ *	  first, the input tuples are drawn from the previously sorted data.  (The
+ *	  sorting of the data for the first phase is handled by the planner.)
  *
  *	  From the perspective of aggregate transition and final functions, the
  *	  only issue regarding grouping sets is this: a single call site (flinfo)
@@ -354,7 +358,8 @@ typedef struct AggHashEntryData
 	AggStatePerGroupData pergroup[FLEXIBLE_ARRAY_MEMBER];
 }	AggHashEntryData;
 
-
+static void initialize_phase(AggState *aggstate, int newphase);
+static TupleTableSlot *fetch_input_tuple(AggState *aggstate);
 static void initialize_aggregates(AggState *aggstate,
 					  AggStatePerAgg peragg,
 					  AggStatePerGroup pergroup,
@@ -389,11 +394,19 @@ static TupleTableSlot *agg_retrieve_hash_table(AggState *aggstate);
 static Datum GetAggInitVal(Datum textInitVal, Oid transtype);
 
 
+/*
+ * Switch to phase "newphase", which must either be 0 (to reset) or
+ * current_phase + 1. Juggle the tuplesorts accordingly.
+ */
 static void
 initialize_phase(AggState *aggstate, int newphase)
 {
 	Assert(newphase == 0 || newphase == aggstate->current_phase + 1);
 
+	/*
+	 * Whatever the previous state, we're now done with whatever input
+	 * tuplesort was in use.
+	 */
 	if (aggstate->sort_in)
 	{
 		tuplesort_end(aggstate->sort_in);
@@ -402,6 +415,9 @@ initialize_phase(AggState *aggstate, int newphase)
 
 	if (newphase == 0)
 	{
+		/*
+		 * Discard any existing output tuplesort.
+		 */
 		if (aggstate->sort_out)
 		{
 			tuplesort_end(aggstate->sort_out);
@@ -410,12 +426,20 @@ initialize_phase(AggState *aggstate, int newphase)
 	}
 	else
 	{
+		/*
+		 * The old output tuplesort becomes the new input one, and this is the
+		 * right time to actually sort it.
+		 */
 		aggstate->sort_in = aggstate->sort_out;
 		aggstate->sort_out = NULL;
 		Assert(aggstate->sort_in);
 		tuplesort_performsort(aggstate->sort_in);
 	}
 
+	/*
+	 * If this isn't the last phase, we need to sort appropriately for the next
+	 * phase in sequence.
+	 */
 	if (newphase < aggstate->numphases - 1)
 	{
 		Sort	   *sortnode = aggstate->phases[newphase+1].sortnode;
@@ -436,6 +460,11 @@ initialize_phase(AggState *aggstate, int newphase)
 	aggstate->phase = &aggstate->phases[newphase];
 }
 
+/*
+ * Fetch a tuple from either the outer plan (for phase 0) or from the sorter
+ * populated by the previous phase.  Copy it to the sorter for the next phase
+ * if any.
+ */
 static TupleTableSlot *
 fetch_input_tuple(AggState *aggstate)
 {
@@ -1099,10 +1128,9 @@ finalize_aggregates(AggState *aggstate,
 	aggstate->current_set = currentSet;
 
 	/*
-	 * Set all columns that are not in the current grouping set to NULL. It'd
-	 * arguably be cleaner to do this
+	 * Set all columns that are not in the current grouping set to NULL.
 	 *
-	 * XXX: incomplete comment.
+	 * XXX FIXME this is all wrong and broken
 	 */
 	if (aggstate->phase->grouped_cols)
 	{
@@ -1110,7 +1138,7 @@ finalize_aggregates(AggState *aggstate,
 		int attno;
 		TupleDesc tupdesc = slot->tts_tupleDescriptor;
 
-		econtext->grouped_cols = aggstate->phase->grouped_cols[currentSet];
+		aggstate->grouped_cols = aggstate->phase->grouped_cols[currentSet];
 
 		if (slot->tts_isempty)
 		{
@@ -1129,7 +1157,7 @@ finalize_aggregates(AggState *aggstate,
 			for (attno = 0; attno < tupdesc->natts; attno++)
 			{
 				int attnum = tupdesc->attrs[attno]->attnum;
-				if (!bms_is_member(attnum, econtext->grouped_cols))
+				if (!bms_is_member(attnum, aggstate->grouped_cols))
 					slot->tts_isnull[attno] = true;
 			}
 		}

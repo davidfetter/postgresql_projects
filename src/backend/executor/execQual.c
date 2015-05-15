@@ -3037,6 +3037,7 @@ ExecEvalGroupingFuncExpr(GroupingFuncExprState *gstate,
 {
 	int result = 0;
 	int attnum = 0;
+	Bitmapset *grouped_cols = gstate->aggstate->grouped_cols;
 	ListCell *lc;
 
 	if (isDone)
@@ -3050,7 +3051,7 @@ ExecEvalGroupingFuncExpr(GroupingFuncExprState *gstate,
 
 		result = result << 1;
 
-		if (!bms_is_member(attnum, econtext->grouped_cols))
+		if (!bms_is_member(attnum, grouped_cols))
 			result = result | 1;
 	}
 
@@ -4533,8 +4534,10 @@ ExecInitExpr(Expr *node, PlanState *parent)
 				GroupingFuncExprState *grp_state = makeNode(GroupingFuncExprState);
 				Agg		   *agg = NULL;
 
-				if (!parent || !IsA(parent->plan, Agg))
+				if (!parent || !IsA(parent, AggState) || !IsA(parent->plan, Agg))
 					elog(ERROR, "parent of GROUPING is not Agg node");
+
+				grp_state->aggstate = (AggState *) parent;
 
 				agg = (Agg *) (parent->plan);
 
