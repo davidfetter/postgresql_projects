@@ -99,6 +99,7 @@
 <!ENTITY protocol   SYSTEM "protocol.sgml">
 <!ENTITY sources    SYSTEM "sources.sgml">
 <!ENTITY storage    SYSTEM "storage.sgml">
+<!ENTITY tablesample-method SYSTEM "tablesample-method.sgml">
 
 <!-- contrib information -->
 <!ENTITY contrib         SYSTEM "contrib.sgml">
@@ -147,6 +148,8 @@
 <!ENTITY test-parser     SYSTEM "test-parser.sgml">
 <!ENTITY test-shm-mq     SYSTEM "test-shm-mq.sgml">
 <!ENTITY tsearch2        SYSTEM "tsearch2.sgml">
+<!ENTITY tsm-system-rows SYSTEM "tsm-system-rows.sgml">
+<!ENTITY tsm-system-time SYSTEM "tsm-system-time.sgml">
 <!ENTITY unaccent      SYSTEM "unaccent.sgml">
 <!ENTITY uuid-ossp       SYSTEM "uuid-ossp.sgml">
 <!ENTITY vacuumlo        SYSTEM "vacuumlo.sgml">
