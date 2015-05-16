@@ -1195,9 +1195,6 @@ SELECT product_id, p.name, (sum(s.units) * (p.price - p.cost)) AS profit
    <indexterm zone="queries-grouping-sets">
     <primary>ROLLUP</primary>
    </indexterm>
-   <indexterm zone="queries-grouping-sets">
-    <primary>grouping sets</primary>
-   </indexterm>
 
    <para>
     More complex grouping operations than those described above are possible

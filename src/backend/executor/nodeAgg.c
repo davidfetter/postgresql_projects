@@ -49,8 +49,8 @@
  *	  once per input tuple, so when the transvalue datatype is
  *	  pass-by-reference, we have to be careful to copy it into a longer-lived
  *	  memory context, and free the prior value to avoid memory leakage.  We
- *	  store transvalues in another set of econtexts, aggstate->aggcontexts (one
- *	  per grouping set, see below), which are also used for the hashtable
+ *	  store transvalues in another set of econtexts, aggstate->aggcontexts
+ *	  (one per grouping set, see below), which are also used for the hashtable
  *	  structures in AGG_HASHED mode.  These econtexts are rescanned, not just
  *	  reset, at group boundaries so that aggregate transition functions can
  *	  register shutdown callbacks via AggRegisterCallback.
@@ -100,11 +100,12 @@
  *	  specific).
  *
  *	  Where more complex grouping sets are used, we break them down into
- *	  "phases", where each phase has a different sort order.  During each phase
- *	  but the last, the input tuples are additionally stored in a tuplesort
- *	  which is keyed to the next phase's sort order; during each phase but the
- *	  first, the input tuples are drawn from the previously sorted data.  (The
- *	  sorting of the data for the first phase is handled by the planner.)
+ *	  "phases", where each phase has a different sort order.  During each
+ *	  phase but the last, the input tuples are additionally stored in a
+ *	  tuplesort which is keyed to the next phase's sort order; during each
+ *	  phase but the first, the input tuples are drawn from the previously
+ *	  sorted data.  (The sorting of the data for the first phase is handled by
+ *	  the planner, as it might be satisfied by underlying nodes.)
  *
  *	  From the perspective of aggregate transition and final functions, the
  *	  only issue regarding grouping sets is this: a single call site (flinfo)
@@ -332,7 +333,6 @@ typedef struct AggStatePerGroupData
  * Accordingly, each phase specifies a list of grouping sets and group clause
  * information, plus each phase after the first also has a sort order.
  */
-
 typedef struct AggStatePerPhaseData
 {
 	int			numsets;		/* number of grouping sets (or 0) */
@@ -357,6 +357,7 @@ typedef struct AggHashEntryData
 	/* per-aggregate transition status array */
 	AggStatePerGroupData pergroup[FLEXIBLE_ARRAY_MEMBER];
 }	AggHashEntryData;
+
 
 static void initialize_phase(AggState *aggstate, int newphase);
 static TupleTableSlot *fetch_input_tuple(AggState *aggstate);
@@ -653,7 +654,8 @@ advance_transition_function(AggState *aggstate,
 			 * We must copy the datum into aggcontext if it is pass-by-ref. We
 			 * do not need to pfree the old transValue, since it's NULL.
 			 */
-			oldContext = MemoryContextSwitchTo(aggstate->aggcontexts[aggstate->current_set]->ecxt_per_tuple_memory);
+			oldContext = MemoryContextSwitchTo(
+				aggstate->aggcontexts[aggstate->current_set]->ecxt_per_tuple_memory);
 			pergroupstate->transValue = datumCopy(fcinfo->arg[1],
 												  peraggstate->transtypeByVal,
 												  peraggstate->transtypeLen);
@@ -1285,8 +1287,10 @@ find_unaggregated_cols_walker(Node *node, Bitmapset **colnos)
 		return false;
 	}
 	if (IsA(node, Aggref) || IsA(node, GroupingFunc))
+	{
 		/* do not descend into aggregate exprs */
 		return false;
+	}
 	return expression_tree_walker(node, find_unaggregated_cols_walker,
 								  (void *) colnos);
 }
@@ -1531,10 +1535,10 @@ agg_retrieve_direct(AggState *aggstate)
 	 * We loop retrieving groups until we find one matching
 	 * aggstate->ss.ps.qual
 	 *
-	 * For grouping sets, we have the invariant that aggstate->projected_set is
-	 * either -1 (initial call) or the index (starting from 0) in gset_lengths
-	 * for the group we just completed (either by projecting a row or by
-	 * discarding it in the qual).
+	 * For grouping sets, we have the invariant that aggstate->projected_set
+	 * is either -1 (initial call) or the index (starting from 0) in
+	 * gset_lengths for the group we just completed (either by projecting a
+	 * row or by discarding it in the qual).
 	 */
 	while (!aggstate->agg_done)
 	{
@@ -1718,8 +1722,8 @@ agg_retrieve_direct(AggState *aggstate)
 			{
 				/*
 				 * Store the copied first input tuple in the tuple table slot
-				 * reserved for it.  The tuple will be deleted when it is cleared
-				 * from the slot.
+				 * reserved for it.  The tuple will be deleted when it is
+				 * cleared from the slot.
 				 */
 				ExecStoreTuple(aggstate->grp_firstTuple,
 							   firstSlot,
@@ -1994,27 +1998,29 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		{
 			Agg	   *agg = lfirst(l);
 
-			numGroupingSets = Max(numGroupingSets, list_length(agg->groupingSets));
+			numGroupingSets = Max(numGroupingSets,
+								  list_length(agg->groupingSets));
 		}
 	}
 
 	aggstate->maxsets = numGroupingSets;
 	aggstate->numphases = numPhases = 1 + list_length(node->chain);
 
-	aggstate->aggcontexts = (ExprContext **) palloc0(sizeof(ExprContext *) * numGroupingSets);
+	aggstate->aggcontexts = (ExprContext **)
+		palloc0(sizeof(ExprContext *) * numGroupingSets);
 
 	/*
 	 * Create expression contexts.  We need three or more, one for
-	 * per-input-tuple processing, one for per-output-tuple processing, and one
-	 * for each grouping set.  The per-tuple memory context of the
+	 * per-input-tuple processing, one for per-output-tuple processing, and
+	 * one for each grouping set.  The per-tuple memory context of the
 	 * per-grouping-set ExprContexts (aggcontexts) replaces the standalone
 	 * memory context formerly used to hold transition values.  We cheat a
 	 * little by using ExecAssignExprContext() to build all of them.
 	 *
-	 * NOTE: the details of what is stored in aggcontexts and what is stored in
-	 * the regular per-query memory context are driven by a simple decision: we
-	 * want to reset the aggcontext at group boundaries (if not hashing) and in
-	 * ExecReScanAgg to recover no-longer-wanted space.
+	 * NOTE: the details of what is stored in aggcontexts and what is stored
+	 * in the regular per-query memory context are driven by a simple
+	 * decision: we want to reset the aggcontext at group boundaries (if not
+	 * hashing) and in ExecReScanAgg to recover no-longer-wanted space.
 	 */
 	ExecAssignExprContext(estate, &aggstate->ss.ps);
 	aggstate->tmpcontext = aggstate->ss.ps.ps_ExprContext;
@@ -2282,7 +2288,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		/* Begin filling in the peraggstate data */
 		peraggstate->aggrefstate = aggrefstate;
 		peraggstate->aggref = aggref;
-		peraggstate->sortstates = (Tuplesortstate**) palloc0(sizeof(Tuplesortstate*) * numGroupingSets);
+		peraggstate->sortstates =(Tuplesortstate**)
+			palloc0(sizeof(Tuplesortstate*) * numGroupingSets);
 
 		for (currentsortno = 0; currentsortno < numGroupingSets; currentsortno++)
 			peraggstate->sortstates[currentsortno] = NULL;
@@ -2636,8 +2643,8 @@ void
 ExecReScanAgg(AggState *node)
 {
 	ExprContext *econtext = node->ss.ps.ps_ExprContext;
-	Agg			*aggnode = (Agg *) node->ss.ps.plan;
 	PlanState	*outerPlan = outerPlanState(node);
+	Agg		   *aggnode = (Agg *) node->ss.ps.plan;
 	int			aggno;
 	int         numGroupingSets = Max(node->maxsets, 1);
 	int         setno;

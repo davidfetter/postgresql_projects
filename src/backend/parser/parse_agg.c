@@ -223,8 +223,9 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 	check_agglevels_and_constraints(pstate, (Node *) agg);
 }
 
-/* transformGroupingFunc
- * Transform a GROUPING expression
+/*
+ * transformGroupingFunc
+ *		Transform a GROUPING expression
  *
  * GROUPING() behaves very like an aggregate.  Processing of levels and nesting
  * is done as for aggregates.  We set p_hasAggs for these expressions too.
@@ -612,7 +613,6 @@ check_agg_arguments(ParseState *pstate,
 									 locate_agg_of_level((Node *) directargs,
 													context.min_agglevel))));
 	}
-
 	return agglevel;
 }
 
@@ -989,7 +989,6 @@ parseCheckAggregates(ParseState *pstate, Query *qry)
 		 * either), then we can ditch the grouping set and pretend we just had
 		 * a normal GROUP BY.
 		 */
-
 		if (list_length(gsets) == 1 && qry->groupClause)
 			qry->groupingSets = NIL;
 	}
@@ -1258,9 +1257,7 @@ check_ungrouped_columns_walker(Node *node,
 					gvar->varno == var->varno &&
 					gvar->varattno == var->varattno &&
 					gvar->varlevelsup == 0)
-				{
 					return false;		/* acceptable, we're okay */
-				}
 			}
 		}
 
@@ -1421,7 +1418,7 @@ finalize_grouping_exprs_walker(Node *node,
 		if ((int) grp->agglevelsup == context->sublevels_up)
 		{
 			ListCell  *lc;
-			List 	  *ref_list = NIL;
+			List	  *ref_list = NIL;
 
 			foreach(lc, grp->args)
 			{
@@ -1446,7 +1443,7 @@ finalize_grouping_exprs_walker(Node *node,
 						foreach(gl, context->groupClauses)
 						{
 							TargetEntry *tle = lfirst(gl);
-							Var	  		*gvar = (Var *) tle->expr;
+							Var		   *gvar = (Var *) tle->expr;
 
 							if (IsA(gvar, Var) &&
 								gvar->varno == var->varno &&
@@ -1459,8 +1456,8 @@ finalize_grouping_exprs_walker(Node *node,
 						}
 					}
 				}
-				else if (context->have_non_var_grouping
-						 && context->sublevels_up == 0)
+				else if (context->have_non_var_grouping &&
+						 context->sublevels_up == 0)
 				{
 					foreach(gl, context->groupClauses)
 					{
@@ -1640,7 +1637,6 @@ cmp_list_len_asc(const void *a, const void *b)
  * This is mainly for the planner, but we use it here too to do
  * some consistency checks.
  */
-
 List *
 expand_grouping_sets(List *groupingSets, int limit)
 {

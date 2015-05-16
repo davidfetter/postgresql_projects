@@ -5,7 +5,6 @@
  *
  * src/include/lib/bipartite_match.h
  */
-
 #ifndef BIPARTITE_MATCH_H
 #define BIPARTITE_MATCH_H
 
@@ -25,7 +24,6 @@
  * the problem of planning a collection of grouping sets with the provably
  * minimal number of sort operations.
  */
-
 typedef struct bipartite_match_state
 {
 	int			u_size;			/* size of U */
@@ -39,17 +37,7 @@ typedef struct bipartite_match_state
 	short	   *queue;			/* queue storage for breadth search */
 } BipartiteMatchState;
 
-/*
- * Given the size of U and V, where each is indexed 1..size, and an adjacency
- * list, perform the matching and return the resulting state.
- */
-
 BipartiteMatchState *BipartiteMatch(int u_size, int v_size, short **adjacency);
-
-/*
- * Free a state returned by BipartiteMatch, except for the original adjacency
- * list, which is owned by the caller. This only frees memory, so it's optional.
- */
 
 void BipartiteMatchFree(BipartiteMatchState *state);
 

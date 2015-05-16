@@ -3028,7 +3028,6 @@ ExecEvalCaseTestExpr(ExprState *exprstate,
  * A bit is set if the corresponding expression is NOT part of the set of
  * grouping expressions in the current grouping set.
  */
-
 static Datum
 ExecEvalGroupingFuncExpr(GroupingFuncExprState *gstate,
 						 ExprContext *econtext,

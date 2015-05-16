@@ -684,8 +684,8 @@ query_is_distinct_for(Query *query, List *colnos, List *opids)
 		 * one, then we're returning only one row and are certainly unique.
 		 * But otherwise, we know we're certainly not unique.
 		 */
-		if (list_length(query->groupingSets) == 1
-			&& ((GroupingSet *)linitial(query->groupingSets))->kind == GROUPING_SET_EMPTY)
+		if (list_length(query->groupingSets) == 1 &&
+			((GroupingSet *)linitial(query->groupingSets))->kind == GROUPING_SET_EMPTY)
 			return true;
 		else
 			return false;

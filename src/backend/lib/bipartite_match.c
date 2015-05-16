@@ -14,7 +14,6 @@
  *
  *-------------------------------------------------------------------------
  */
-
 #include "postgres.h"
 
 #include <math.h>
@@ -28,6 +27,10 @@
 static bool hk_breadth_search(BipartiteMatchState *state);
 static bool hk_depth_search(BipartiteMatchState *state, int u, int depth);
 
+/*
+ * Given the size of U and V, where each is indexed 1..size, and an adjacency
+ * list, perform the matching and return the resulting state.
+ */
 BipartiteMatchState *
 BipartiteMatch(int u_size, int v_size, short **adjacency)
 {
@@ -60,6 +63,10 @@ BipartiteMatch(int u_size, int v_size, short **adjacency)
 	return state;
 }
 
+/*
+ * Free a state returned by BipartiteMatch, except for the original adjacency
+ * list, which is owned by the caller. This only frees memory, so it's optional.
+ */
 void
 BipartiteMatchFree(BipartiteMatchState *state)
 {
@@ -153,4 +160,3 @@ hk_depth_search(BipartiteMatchState *state, int u, int depth)
 	distance[u] = get_float4_infinity();
 	return false;
 }
-

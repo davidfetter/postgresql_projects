@@ -15,6 +15,8 @@
 
 #include "postgres.h"
 
+#include "miscadmin.h"
+
 #include "access/heapam.h"
 #include "catalog/catalog.h"
 #include "access/htup_details.h"
@@ -22,7 +24,6 @@
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
-#include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/tlist.h"
@@ -43,7 +44,6 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
-
 
 /* Convenience macro for the most common makeNamespaceItem() case */
 #define makeDefaultNSItem(rte)	makeNamespaceItem(rte, true, true, false, true)
@@ -1726,7 +1726,7 @@ findTargetlistEntrySQL99(ParseState *pstate, Node *node, List **tlist,
 	return target_result;
 }
 
-/*
+/*-------------------------------------------------------------------------
  * Flatten out parenthesized sublists in grouping lists, and some cases
  * of nested grouping sets.
  *
@@ -1760,8 +1760,8 @@ findTargetlistEntrySQL99(ParseState *pstate, Node *node, List **tlist,
  * GroupingSet nodes.
  *
  * As a side effect, flag whether the list has any GroupingSet nodes.
+ *-------------------------------------------------------------------------
  */
-
 static Node *
 flatten_grouping_sets(Node *expr, bool toplevel, bool *hasGroupingSets)
 {

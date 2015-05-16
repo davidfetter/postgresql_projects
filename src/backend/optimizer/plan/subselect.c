@@ -80,7 +80,6 @@ static Bitmapset *finalize_plan(PlannerInfo *root,
 			  Plan *plan,
 			  Bitmapset *valid_params,
 			  Bitmapset *scan_params);
-
 static bool finalize_primnode(Node *node, finalize_primnode_context *context);
 
 

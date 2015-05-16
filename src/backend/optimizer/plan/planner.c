@@ -1274,6 +1274,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		bool		use_hashed_grouping = false;
 		WindowFuncLists *wflists = NULL;
 		List	   *activeWindows = NIL;
+		OnConflictExpr *onconfl;
 		int			maxref = 0;
 		int		   *tleref_to_colnum_map;
 		List	   *rollup_lists = NIL;
@@ -1283,7 +1284,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		Path	   *cheapest_path;
 		Path	   *sorted_path;
 		Path	   *best_path;
-		OnConflictExpr *onconfl;
 
 		MemSet(&agg_costs, 0, sizeof(AggClauseCosts));
 
@@ -1476,7 +1476,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		 * to describe the fraction of the underlying un-aggregated tuples
 		 * that will be fetched.
 		 */
-
 		dNumGroups = 1;			/* in case not grouping */
 
 		if (parse->groupClause)
@@ -1526,6 +1525,10 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			if (tuple_fraction >= 1.0)
 				tuple_fraction /= dNumGroups;
 
+			/*
+			 * If there's more than one grouping set, we'll have to sort the
+			 * entire input.
+			 */
 			if (list_length(rollup_lists) > 1)
 				tuple_fraction = 0.0;
 
@@ -2262,7 +2265,6 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
  * the input tuple. So we get the ref from the entries in the groupclause and
  * look them up there.
  */
-
 static AttrNumber *
 remap_groupColIdx(PlannerInfo *root, List *groupClause)
 {
@@ -2321,7 +2323,6 @@ build_grouping_chain(PlannerInfo *root,
 	 * Prepare the grpColIdx for the real Agg node first, because we may need
 	 * it for sorting
 	 */
-
 	if (list_length(rollup_groupclauses) > 1)
 	{
 		Assert(rollup_lists && llast(rollup_lists));
@@ -2399,7 +2400,6 @@ build_grouping_chain(PlannerInfo *root,
 	/*
 	 * Now make the final Agg node
 	 */
-
 	{
 		List	   *groupClause = linitial(rollup_groupclauses);
 		List	   *gsets = rollup_lists ? linitial(rollup_lists) : NIL;
@@ -2429,7 +2429,6 @@ build_grouping_chain(PlannerInfo *root,
 		 * Add the additional costs. But only the total costs count, since the
 		 * additional sorts aren't run on startup.
 		 */
-
 		foreach(lc, chain)
 		{
 			Plan   *subplan = lfirst(lc);
@@ -3118,7 +3117,6 @@ preprocess_groupclause(PlannerInfo *root, List *force)
  * half a second on my modest system even with optimization off and assertions
  * on.)
  */
-
 static List *
 extract_rollup_sets(List *groupingSets)
 {
@@ -3145,7 +3143,6 @@ extract_rollup_sets(List *groupingSets)
 	 * but the planner currently needs all empty sets to be returned in the
 	 * first list, so we strip them here and add them back after.
 	 */
-
 	while (lc1 && lfirst(lc1) == NIL)
 	{
 		++num_empty;
@@ -3153,7 +3150,6 @@ extract_rollup_sets(List *groupingSets)
 	}
 
 	/* bail out now if it turns out that all we had were empty sets. */
-
 	if (!lc1)
 		return list_make1(groupingSets);
 
@@ -3174,7 +3170,6 @@ extract_rollup_sets(List *groupingSets)
 	 * We index all of these from 1 rather than 0 because it is convenient
 	 * to leave 0 free for the NIL node in the graph algorithm.
 	 */
-
 	orig_sets = palloc0((num_sets_raw + 1) * sizeof(List*));
 	set_masks = palloc0((num_sets_raw + 1) * sizeof(Bitmapset *));
 	adjacency = palloc0((num_sets_raw + 1) * sizeof(short *));
@@ -3254,7 +3249,6 @@ extract_rollup_sets(List *groupingSets)
 	/*
 	 * Apply the graph matching algorithm to do the work.
 	 */
-
 	state = BipartiteMatch(num_sets, num_sets, adjacency);
 
 	/*
@@ -3263,7 +3257,6 @@ extract_rollup_sets(List *groupingSets)
 	 * pair_vu[v] = u (both will be true, but we check both so that we can do
 	 * it in one pass)
 	 */
-
 	chains = palloc0((num_sets + 1) * sizeof(int));
 
 	for (i = 1; i <= num_sets; ++i)
@@ -3280,7 +3273,6 @@ extract_rollup_sets(List *groupingSets)
 	}
 
 	/* build result lists. */
-
 	results = palloc0((num_chains + 1) * sizeof(List*));
 
 	for (i = 1; i <= num_sets; ++i)
@@ -3293,22 +3285,19 @@ extract_rollup_sets(List *groupingSets)
 	}
 
 	/* push any empty sets back on the first list. */
-
 	while (num_empty-- > 0)
 		results[1] = lcons(NIL, results[1]);
 
 	/* make result list */
-
 	for (i = 1; i <= num_chains; ++i)
 		result = lappend(result, results[i]);
 
 	/*
 	 * Free all the things.
 	 *
-	 * (This is over-fussy for small sets but for large sets we could have tied
-	 * up a nontrivial amount of memory.)
+	 * (This is over-fussy for small sets but for large sets we could have
+	 * tied up a nontrivial amount of memory.)
 	 */
-
 	BipartiteMatchFree(state);
 	pfree(results);
 	pfree(chains);
