@@ -1,15 +1,19 @@
-This directory contains a general purpose data structures, for use anywhere
-in the backend:
+This directory contains general purpose data structures and algorithms, for
+use anywhere in the backend:
 
 binaryheap.c - a binary heap
 
+bipartite_match.c - Hopcroft-Karp bipartite graph maximum cardinality match
+
 hyperloglog.c - a streaming cardinality estimator
+
+ilist.c - single and double-linked lists.
+
+knapsack.c - knapsack problem
 
 pairingheap.c - a pairing heap
 
 rbtree.c - a red-black tree
-
-ilist.c - single and double-linked lists.
 
 stringinfo.c - an extensible string type
 
