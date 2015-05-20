@@ -2,6 +2,8 @@
 -- grouping sets
 --
 
+set enable_hashagg = false;
+
 -- test data sources
 
 create temp view gstest1(a,b,v)

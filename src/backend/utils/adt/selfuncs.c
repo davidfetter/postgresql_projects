@@ -3159,7 +3159,7 @@ add_unique_group_var(PlannerInfo *root, List *varinfos,
  *	input_rows - number of rows estimated to arrive at the group/unique
  *		filter step
  *	pgset - NULL, or a List** pointing to a grouping set to filter the
- *		groupExprs against
+ *		groupExprs against (the groupExprs must be TLEs in this case)
  *
  * Given the lack of any cross-correlation statistics in the system, it's
  * impossible to do anything really trustworthy with GROUP BY conditions
@@ -3213,7 +3213,6 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows,
 	List	   *varinfos = NIL;
 	double		numdistinct;
 	ListCell   *l;
-	int			i;
 
 	/*
 	 * We don't ever want to return an estimate of zero groups, as that tends
@@ -3240,17 +3239,27 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows,
 	 */
 	numdistinct = 1.0;
 
-	i = 0;
 	foreach(l, groupExprs)
 	{
 		Node	   *groupexpr = (Node *) lfirst(l);
 		VariableStatData vardata;
 		List	   *varshere;
 		ListCell   *l2;
+		Index		ref = 0;
+
+		if (IsA(groupexpr,TargetEntry))
+		{
+			ref = ((TargetEntry *) groupexpr)->ressortgroupref;
+			groupexpr = (Node *) ((TargetEntry *) groupexpr)->expr;
+		}
 
 		/* is expression in this grouping set? */
-		if (pgset && !list_member_int(*pgset, i++))
-			continue;
+		if (pgset)
+		{
+			Assert(ref > 0);
+			if (!list_member_int(*pgset, ref))
+				continue;
+		}
 
 		/* Short-circuit for expressions returning boolean */
 		if (exprType(groupexpr) == BOOLOID)

@@ -4522,7 +4522,7 @@ make_agg(PlannerInfo *root, List *tlist, List *qual,
 	node->numCols = numGroupCols;
 	node->grpColIdx = grpColIdx;
 	node->grpOperators = grpOperators;
-	node->numGroups = numGroups;
+	node->numGroups = Max(numGroups, 1);
 
 	copy_plan_costsize(plan, lefttree); /* only care about copying size */
 	cost_agg(&agg_path, root,
