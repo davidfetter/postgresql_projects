@@ -338,7 +338,8 @@ typedef struct AggStatePerPhaseData
 	int			numsets;		/* number of grouping sets (or 0) */
 	int		   *gset_lengths;	/* lengths of grouping sets */
 	Bitmapset **grouped_cols;	/* column groupings for rollup */
-	FmgrInfo   *eqfunctions;	/* per-grouping-field equality fns */
+	FmgrInfo   **eqfunctions;	/* per-grouping-field equality fns */
+	FmgrInfo   *sort_eqfunctions;
 	Agg		   *aggnode;		/* Agg node for phase data */
 	Sort	   *sortnode;		/* Sort node for input ordering for phase */
 }	AggStatePerPhaseData;
@@ -1319,8 +1320,8 @@ build_hash_table(AggState *aggstate)
 	{
 		aggstate->hashtable[i] = BuildTupleHashTable(node->numCols,
 												  node->grpColIdx,
-												  aggstate->phase->eqfunctions,
-												  aggstate->hashfunctions,
+												  aggstate->phase->eqfunctions[i],
+												  aggstate->hashfunctions[i],
 												  node->numGroups,
 												  entrysize,
 												  aggstate->aggcontexts[0]->ecxt_per_tuple_memory,
@@ -1655,7 +1656,7 @@ agg_retrieve_direct(AggState *aggstate)
 							  tmpcontext->ecxt_outertuple,
 							  nextSetSize,
 							  node->grpColIdx,
-							  aggstate->phase->eqfunctions,
+							  aggstate->phase->sort_eqfunctions,
 							  tmpcontext->ecxt_per_tuple_memory)))
 		{
 			aggstate->projected_set += 1;
@@ -1793,7 +1794,7 @@ agg_retrieve_direct(AggState *aggstate)
 											 outerslot,
 											 node->numCols,
 											 node->grpColIdx,
-											 aggstate->phase->eqfunctions,
+											 aggstate->phase->sort_eqfunctions,
 										  tmpcontext->ecxt_per_tuple_memory))
 						{
 							aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
@@ -1858,9 +1859,9 @@ agg_fill_hash_table(AggState *aggstate)
 	 * Process each outer-plan tuple, and then fetch the next one, until we
 	 * exhaust the outer plan.
 	 */
-	for (i = 0;i < maxsets;i++)
+	for (;;)
 	{
-		for (;;)
+		for (i = 0;i < maxsets;i++)
 		{
 			outerslot = fetch_input_tuple(aggstate);
 			if (TupIsNull(outerslot))
@@ -2211,7 +2212,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		{
 			Assert(aggnode->numCols > 0);
 
-			phasedata->eqfunctions =
+			phasedata->sort_eqfunctions =
 				execTuplesMatchPrepare(aggnode->numCols,
 									   aggnode->grpOperators);
 		}
@@ -2232,10 +2233,15 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 */
 
 	if (node->aggstrategy == AGG_HASHED)
-		execTuplesHashPrepare(node->numCols,
-							  node->grpOperators,
-							  &aggstate->phases[0].eqfunctions,
-							  &aggstate->hashfunctions);
+	{
+		int i = 0;
+
+		for (i = 0;i < aggstate->maxsets;i++)
+			execTuplesHashPrepare(node->numCols,
+								  node->grpOperators,
+								  &aggstate->phases[0].eqfunctions[i],
+								  &aggstate->hashfunctions[i]);
+	}
 
 	/*
 	 * Initialize current phase-dependent values to initial phase
@@ -2766,7 +2772,7 @@ ExecReScanAgg(AggState *node)
 
 	if (aggnode->aggstrategy == AGG_HASHED)
 	{
-		/* Rebuild an empty hash table */
+		/* Rebuild all hash tables for current AggState */
 		build_hash_table(node);
 		node->table_filled = false;
 	}

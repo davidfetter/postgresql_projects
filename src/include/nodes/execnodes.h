@@ -1826,7 +1826,7 @@ typedef struct AggState
 	AggStatePerPhase phase;		/* pointer to current phase data */
 	int			numphases;		/* number of phases */
 	int			current_phase;	/* current phase number */
-	FmgrInfo   *hashfunctions;	/* per-grouping-field hash fns */
+	FmgrInfo   **hashfunctions;	/* per-GS-per-grouping-field hash fns */
 	AggStatePerAgg peragg;		/* per-Aggref information */
 	ExprContext **aggcontexts;	/* econtexts for long-lived data (per GS) */
 	ExprContext *tmpcontext;	/* econtext for input expressions */
