@@ -2236,6 +2236,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	{
 		int i = 0;
 
+		aggstate->hashfunctions = (FmgrInfo **) palloc0(sizeof(FmgrInfo*) * (aggstate->maxsets));
 		for (i = 0;i < aggstate->maxsets;i++)
 			execTuplesHashPrepare(node->numCols,
 								  node->grpOperators,
