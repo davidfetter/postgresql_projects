@@ -1859,9 +1859,9 @@ agg_fill_hash_table(AggState *aggstate)
 	 * Process each outer-plan tuple, and then fetch the next one, until we
 	 * exhaust the outer plan.
 	 */
-	for (;;)
+	for (i = 0;i < maxsets;i++)
 	{
-		for (i = 0;i < maxsets;i++)
+		for (;;)
 		{
 			outerslot = fetch_input_tuple(aggstate);
 			if (TupIsNull(outerslot))
@@ -2237,6 +2237,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		int i = 0;
 
 		aggstate->hashfunctions = (FmgrInfo **) palloc0(sizeof(FmgrInfo*) * (aggstate->maxsets));
+		aggstate->phases[0].eqfunctions = (FmgrInfo **) palloc0(sizeof(FmgrInfo*) * (aggstate->maxsets));
+
 		for (i = 0;i < aggstate->maxsets;i++)
 			execTuplesHashPrepare(node->numCols,
 								  node->grpOperators,
