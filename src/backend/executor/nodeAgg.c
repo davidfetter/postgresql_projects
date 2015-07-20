@@ -1882,6 +1882,7 @@ agg_fill_hash_table(AggState *aggstate)
 	TupleTableSlot *outerslot;
 	int maxsets = aggstate->maxsets;
 	int i = 0;
+	bool isNull = false;
 
 	/*
 	 * get state info from node
@@ -1894,13 +1895,16 @@ agg_fill_hash_table(AggState *aggstate)
 	 * Process each outer-plan tuple, and then fetch the next one, until we
 	 * exhaust the outer plan.
 	 */
-	for (i = 0;i < maxsets;i++)
+	for (;;)
 	{
-		for (;;)
+		for (i = 0;i < maxsets;i++)
 		{
 			outerslot = fetch_input_tuple(aggstate);
 			if (TupIsNull(outerslot))
+			{
+				isNull = true;
 				break;
+			}
 			/* set up for advance_aggregates call */
 			tmpcontext->ecxt_outertuple = outerslot;
 
@@ -1913,6 +1917,9 @@ agg_fill_hash_table(AggState *aggstate)
 			/* Reset per-input-tuple context after each tuple */
 			ResetExprContext(tmpcontext);
 		}
+
+		if (isNull)
+			break;
 	}
 
 	aggstate->table_filled = true;
