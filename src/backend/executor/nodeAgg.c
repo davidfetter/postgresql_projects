@@ -1307,6 +1307,16 @@ build_hash_table(AggState *aggstate)
 	Size		entrysize;
 	int         maxsets = aggstate->maxsets;
 	int         i = 0;
+	int         grp_index = 0;
+	int         current_numcols = -1;
+	Oid         *current_grpoperators;
+	AttrNumber *current_grpcolidx;
+	ListCell   *lc;
+
+	if ((list_length(aggstate->all_grouped_cols)) > 0)
+		current_numcols = list_length(aggstate->all_grouped_cols);
+	else
+		current_numcols = node->numCols;
 
 	Assert(node->aggstrategy == AGG_HASHED);
 	Assert(node->numGroups > 0);
@@ -1316,9 +1326,30 @@ build_hash_table(AggState *aggstate)
 
 	aggstate->hashtable = (TupleHashTable *) palloc(sizeof(TupleHashTable) * maxsets);
 
+	if (aggstate->all_grouped_cols)
+	{
+		current_grpoperators = (Oid*) palloc(sizeof(Oid) * current_numcols);
+		current_grpcolidx = (AttrNumber*) palloc(sizeof(AttrNumber) * current_numcols);
+
+		foreach(lc, aggstate->all_grouped_cols)
+		{
+			int current_col = lfirst_int(lc);
+
+			current_grpoperators[grp_index] = node->grpOperators[current_col];
+			current_grpcolidx[grp_index] = node->grpColIdx[current_col];
+			Assert(OidIsValid(current_grpoperators[grp_index]));
+			grp_index++;
+		}
+	}
+	else
+	{
+		current_grpoperators = node->grpOperators;
+		current_grpcolidx = node->grpColIdx;
+	}
+
 	for (i = 0;i < maxsets;i++)
 	{
-		aggstate->hashtable[i] = BuildTupleHashTable(node->numCols,
+		aggstate->hashtable[i] = BuildTupleHashTable(current_numcols,
 												  node->grpColIdx,
 												  aggstate->phase->eqfunctions[i],
 												  aggstate->hashfunctions[i],
@@ -2234,14 +2265,41 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	if (node->aggstrategy == AGG_HASHED)
 	{
+		Oid *current_grpoperators;
 		int i = 0;
+		int grpop_index = 0;
+		int current_numcols = -1;
+		ListCell *lc;
+
+		if ((list_length(aggstate->all_grouped_cols)) > 0)
+			current_numcols = list_length(aggstate->all_grouped_cols);
+		else
+			current_numcols = node->numCols;
+
+		current_grpoperators = (Oid*) palloc(sizeof(Oid) * current_numcols);
+
+		if (aggstate->all_grouped_cols)
+		{
+			foreach(lc, aggstate->all_grouped_cols)
+			{
+				int current_col = lfirst_int(lc);
+
+				current_grpoperators[grpop_index] = node->grpOperators[current_col];
+				Assert(OidIsValid(current_grpoperators[grpop_index]));
+				grpop_index++;
+			}
+		}
+		else
+		{
+			current_grpoperators = node->grpOperators;
+		}
 
 		aggstate->hashfunctions = (FmgrInfo **) palloc0(sizeof(FmgrInfo*) * (aggstate->maxsets));
 		aggstate->phases[0].eqfunctions = (FmgrInfo **) palloc0(sizeof(FmgrInfo*) * (aggstate->maxsets));
 
 		for (i = 0;i < aggstate->maxsets;i++)
-			execTuplesHashPrepare(node->numCols,
-								  node->grpOperators,
+			execTuplesHashPrepare(current_numcols,
+								  current_grpoperators,
 								  &aggstate->phases[0].eqfunctions[i],
 								  &aggstate->hashfunctions[i]);
 	}
