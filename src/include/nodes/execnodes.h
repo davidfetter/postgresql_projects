@@ -1823,7 +1823,7 @@ typedef struct AggState
 	AggStatePerPhase phase;		/* pointer to current phase data */
 	int			numphases;		/* number of phases */
 	int			current_phase;	/* current phase number */
-	FmgrInfo   *hashfunctions;	/* per-grouping-field hash fns */
+	FmgrInfo   **hashfunctions;	/* per-GS-per-grouping-field hash fns */
 	AggStatePerAgg peragg;		/* per-Aggref information */
 	ExprContext **aggcontexts;	/* econtexts for long-lived data (per GS) */
 	ExprContext *tmpcontext;	/* econtext for input expressions */
@@ -1844,7 +1844,7 @@ typedef struct AggState
 	AggStatePerGroup pergroup;	/* per-Aggref-per-group working state */
 	HeapTuple	grp_firstTuple; /* copy of first tuple of current group */
 	/* these fields are used in AGG_HASHED mode: */
-	TupleHashTable hashtable;	/* hash table with one entry per group */
+	TupleHashTable *hashtable;	/* hash table with one entry per group */
 	TupleTableSlot *hashslot;	/* slot for loading hash table */
 	List	   *hash_needed;	/* list of columns needed in hash table */
 	bool		table_filled;	/* hash table filled yet? */

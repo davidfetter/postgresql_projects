@@ -338,7 +338,8 @@ typedef struct AggStatePerPhaseData
 	int			numsets;		/* number of grouping sets (or 0) */
 	int		   *gset_lengths;	/* lengths of grouping sets */
 	Bitmapset **grouped_cols;   /* column groupings for rollup */
-	FmgrInfo   *eqfunctions;	/* per-grouping-field equality fns */
+	FmgrInfo   **eqfunctions;	/* per-grouping-field equality fns */
+	FmgrInfo   *sort_eqfunctions;
 	Agg		   *aggnode;		/* Agg node for phase data */
 	Sort	   *sortnode;		/* Sort node for input ordering for phase */
 } AggStatePerPhaseData;
@@ -391,7 +392,7 @@ static Bitmapset *find_unaggregated_cols(AggState *aggstate);
 static bool find_unaggregated_cols_walker(Node *node, Bitmapset **colnos);
 static void build_hash_table(AggState *aggstate);
 static AggHashEntry lookup_hash_entry(AggState *aggstate,
-				  TupleTableSlot *inputslot);
+									  TupleTableSlot *inputslot, int current_gs);
 static TupleTableSlot *agg_retrieve_direct(AggState *aggstate);
 static void agg_fill_hash_table(AggState *aggstate);
 static TupleTableSlot *agg_retrieve_hash_table(AggState *aggstate);
@@ -1306,6 +1307,7 @@ build_hash_table(AggState *aggstate)
 	Agg		   *node = (Agg *) aggstate->ss.ps.plan;
 	MemoryContext tmpmem = aggstate->tmpcontext->ecxt_per_tuple_memory;
 	Size		entrysize;
+	int         maxsets = aggstate->maxsets;
 
 	Assert(node->aggstrategy == AGG_HASHED);
 	Assert(node->numGroups > 0);
@@ -1313,14 +1315,56 @@ build_hash_table(AggState *aggstate)
 	entrysize = offsetof(AggHashEntryData, pergroup) +
 		aggstate->numaggs * sizeof(AggStatePerGroupData);
 
-	aggstate->hashtable = BuildTupleHashTable(node->numCols,
-											  node->grpColIdx,
-											  aggstate->phase->eqfunctions,
-											  aggstate->hashfunctions,
-											  node->numGroups,
-											  entrysize,
-											  aggstate->aggcontexts[0]->ecxt_per_tuple_memory,
-											  tmpmem);
+	aggstate->hashtable = (TupleHashTable *) palloc(sizeof(TupleHashTable) * maxsets);
+
+	if (node->groupingSets)
+	{
+		int         i = 0;
+		ListCell   *lc_gs;
+
+		foreach(lc_gs, node->groupingSets)
+		{
+			int         current_numcols = -1;
+			AttrNumber *current_grpcolidx;
+			List       *current_gs;
+			int         grp_index = 0;
+			ListCell   *lc;
+
+			current_gs = (List*) lfirst(lc_gs);
+			current_numcols = list_length(current_gs);
+
+			current_grpcolidx = (AttrNumber*) palloc(sizeof(AttrNumber) * current_numcols);
+
+			foreach(lc, current_gs)
+			{
+				int current_col = lfirst_int(lc);
+
+				current_grpcolidx[grp_index] = node->grpColIdx[current_col];
+				grp_index++;
+			}
+
+			aggstate->hashtable[i] = BuildTupleHashTable(current_numcols,
+														 current_grpcolidx,
+														 aggstate->phase->eqfunctions[i],
+														 aggstate->hashfunctions[i],
+														 node->numGroups,
+														 entrysize,
+														 aggstate->aggcontexts[0]->ecxt_per_tuple_memory,
+														 tmpmem);
+			++i;
+		}
+	}
+	else
+	{
+		aggstate->hashtable[0] = BuildTupleHashTable(node->numCols,
+													 node->grpColIdx,
+													 aggstate->phase->eqfunctions[0],
+													 aggstate->hashfunctions[0],
+													 node->numGroups,
+													 entrysize,
+													 aggstate->aggcontexts[0]->ecxt_per_tuple_memory,
+													 tmpmem);
+	}
 }
 
 /*
@@ -1397,10 +1441,11 @@ hash_agg_entry_size(int numAggs)
  * When called, CurrentMemoryContext should be the per-query context.
  */
 static AggHashEntry
-lookup_hash_entry(AggState *aggstate, TupleTableSlot *inputslot)
+lookup_hash_entry(AggState *aggstate, TupleTableSlot *inputslot, int current_gs)
 {
 	TupleTableSlot *hashslot = aggstate->hashslot;
 	ListCell   *l;
+	ListCell   *lc;
 	AggHashEntry entry;
 	bool		isnew;
 
@@ -1422,8 +1467,19 @@ lookup_hash_entry(AggState *aggstate, TupleTableSlot *inputslot)
 		hashslot->tts_isnull[varNumber] = inputslot->tts_isnull[varNumber];
 	}
 
+	/* NULL all columns that are not present in current grouping set but present
+	 * in any of grouping sets
+	 */
+	foreach(lc, aggstate->all_grouped_cols)
+	{
+		int			attnum = lfirst_int(lc);
+
+		if (bms_is_member(attnum, aggstate->grouped_cols))
+			hashslot->tts_isnull[attnum] = true;
+	}
+
 	/* find or create the hashtable entry using the filtered tuple */
-	entry = (AggHashEntry) LookupTupleHashEntry(aggstate->hashtable,
+	entry = (AggHashEntry) LookupTupleHashEntry(aggstate->hashtable[current_gs],
 												hashslot,
 												&isnew);
 
@@ -1636,7 +1692,7 @@ agg_retrieve_direct(AggState *aggstate)
 							  tmpcontext->ecxt_outertuple,
 							  nextSetSize,
 							  node->grpColIdx,
-							  aggstate->phase->eqfunctions,
+							  aggstate->phase->sort_eqfunctions,
 							  tmpcontext->ecxt_per_tuple_memory)))
 		{
 			aggstate->projected_set += 1;
@@ -1773,7 +1829,7 @@ agg_retrieve_direct(AggState *aggstate)
 											 outerslot,
 											 node->numCols,
 											 node->grpColIdx,
-											 aggstate->phase->eqfunctions,
+											 aggstate->phase->sort_eqfunctions,
 											 tmpcontext->ecxt_per_tuple_memory))
 						{
 							aggstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
@@ -1824,6 +1880,9 @@ agg_fill_hash_table(AggState *aggstate)
 	ExprContext *tmpcontext;
 	AggHashEntry entry;
 	TupleTableSlot *outerslot;
+	int maxsets = aggstate->maxsets;
+	int i = 0;
+	bool isNull = false;
 
 	/*
 	 * get state info from node
@@ -1838,25 +1897,34 @@ agg_fill_hash_table(AggState *aggstate)
 	 */
 	for (;;)
 	{
-		outerslot = fetch_input_tuple(aggstate);
-		if (TupIsNull(outerslot))
+		for (i = 0;i < maxsets;i++)
+		{
+			outerslot = fetch_input_tuple(aggstate);
+			if (TupIsNull(outerslot))
+			{
+				isNull = true;
+				break;
+			}
+			/* set up for advance_aggregates call */
+			tmpcontext->ecxt_outertuple = outerslot;
+
+			/* Find or build hashtable entry for this tuple's group */
+			entry = lookup_hash_entry(aggstate, outerslot, i);
+
+			/* Advance the aggregates */
+			advance_aggregates(aggstate, entry->pergroup);
+
+			/* Reset per-input-tuple context after each tuple */
+			ResetExprContext(tmpcontext);
+		}
+
+		if (isNull)
 			break;
-		/* set up for advance_aggregates call */
-		tmpcontext->ecxt_outertuple = outerslot;
-
-		/* Find or build hashtable entry for this tuple's group */
-		entry = lookup_hash_entry(aggstate, outerslot);
-
-		/* Advance the aggregates */
-		advance_aggregates(aggstate, entry->pergroup);
-
-		/* Reset per-input-tuple context after each tuple */
-		ResetExprContext(tmpcontext);
 	}
 
 	aggstate->table_filled = true;
 	/* Initialize to walk the hash table */
-	ResetTupleHashIterator(aggstate->hashtable, &aggstate->hashiter);
+	ResetTupleHashIterator(aggstate->hashtable[0], &aggstate->hashiter);
 }
 
 /*
@@ -1871,6 +1939,8 @@ agg_retrieve_hash_table(AggState *aggstate)
 	AggHashEntry entry;
 	TupleTableSlot *firstSlot;
 	TupleTableSlot *result;
+	int maxsets = aggstate->maxsets;
+	int current_set = 0;
 
 	/*
 	 * get state info from node
@@ -1892,9 +1962,26 @@ agg_retrieve_hash_table(AggState *aggstate)
 		entry = (AggHashEntry) ScanTupleHashTable(&aggstate->hashiter);
 		if (entry == NULL)
 		{
-			/* No more entries in hashtable, so done */
-			aggstate->agg_done = TRUE;
-			return NULL;
+			if (maxsets > 0)
+			{
+				if (current_set == (maxsets - 1))
+				{
+					/* No more entries in hashtable, so done */
+					aggstate->agg_done = TRUE;
+					return NULL;
+				}
+				else
+				{
+					++current_set;
+					ResetTupleHashIterator(aggstate->hashtable[current_set], &aggstate->hashiter);
+				}
+			}
+			else
+			{
+				/* No more entries in hashtable, so done */
+				aggstate->agg_done = TRUE;
+				return NULL;
+			}
 		}
 
 		/*
@@ -1990,7 +2077,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 */
 	if (node->groupingSets)
 	{
-		Assert(node->aggstrategy != AGG_HASHED);
+		//Assert(node->aggstrategy != AGG_HASHED);
 
 		numGroupingSets = list_length(node->groupingSets);
 
@@ -2167,7 +2254,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		{
 			Assert(aggnode->numCols > 0);
 
-			phasedata->eqfunctions =
+			phasedata->sort_eqfunctions =
 				execTuplesMatchPrepare(aggnode->numCols,
 									   aggnode->grpOperators);
 		}
@@ -2188,10 +2275,52 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 */
 
 	if (node->aggstrategy == AGG_HASHED)
-		execTuplesHashPrepare(node->numCols,
-							  node->grpOperators,
-							  &aggstate->phases[0].eqfunctions,
-							  &aggstate->hashfunctions);
+	{
+		aggstate->hashfunctions = (FmgrInfo **) palloc0(sizeof(FmgrInfo*) * (aggstate->maxsets));
+		aggstate->phases[0].eqfunctions = (FmgrInfo **) palloc0(sizeof(FmgrInfo*) * (aggstate->maxsets));
+
+		if (node->groupingSets)
+		{
+			int i = 0;
+			ListCell *lc_gs;
+
+			foreach(lc_gs, node->groupingSets)
+			{
+				List *current_gs;
+				Oid *current_grpoperators;
+				int grpop_index = 0;
+				int current_numcols = -1;
+				ListCell *lc;
+
+				current_gs = (List*) lfirst(lc_gs);
+				current_numcols = list_length(current_gs);
+
+				current_grpoperators = (Oid*) palloc(sizeof(Oid) * current_numcols);
+
+				foreach(lc, current_gs)
+				{
+					int current_col = lfirst_int(lc);
+
+					current_grpoperators[grpop_index] = node->grpOperators[current_col];
+					Assert(OidIsValid(current_grpoperators[grpop_index]));
+					grpop_index++;
+				}
+
+				execTuplesHashPrepare(current_numcols,
+									  current_grpoperators,
+									  &aggstate->phases[0].eqfunctions[i],
+									  &aggstate->hashfunctions[i]);
+				++i;
+			}
+		}
+		else
+		{
+			execTuplesHashPrepare(node->numCols,
+								  node->grpOperators,
+								  &aggstate->phases[0].eqfunctions[0],
+								  &aggstate->hashfunctions[0]);
+		}
+	}
 
 	/*
 	 * Initialize current phase-dependent values to initial phase
@@ -2671,7 +2800,7 @@ ExecReScanAgg(AggState *node)
 		 */
 		if (outerPlan->chgParam == NULL)
 		{
-			ResetTupleHashIterator(node->hashtable, &node->hashiter);
+			ResetTupleHashIterator(node->hashtable[0], &node->hashiter);
 			return;
 		}
 	}
@@ -2722,7 +2851,7 @@ ExecReScanAgg(AggState *node)
 
 	if (aggnode->aggstrategy == AGG_HASHED)
 	{
-		/* Rebuild an empty hash table */
+		/* Rebuild all hash tables for current AggState */
 		build_hash_table(node);
 		node->table_filled = false;
 	}
