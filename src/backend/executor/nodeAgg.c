@@ -1315,7 +1315,8 @@ build_hash_table(AggState *aggstate)
 	entrysize = offsetof(AggHashEntryData, pergroup) +
 		aggstate->numaggs * sizeof(AggStatePerGroupData);
 
-	aggstate->hashtable = (TupleHashTable *) palloc(sizeof(TupleHashTable) * maxsets);
+	aggstate->hashtable = (TupleHashTable *) palloc(sizeof(TupleHashTable) * (list_length(node->groupingSets)));
+	aggstate->hashiter = (TupleHashIterator*) palloc(sizeof(TupleHashIterator) * (list_length(node->groupingSets)));
 
 	if (node->groupingSets)
 	{
@@ -1443,11 +1444,14 @@ hash_agg_entry_size(int numAggs)
 static AggHashEntry
 lookup_hash_entry(AggState *aggstate, TupleTableSlot *inputslot, int current_gs)
 {
+	Agg *node = (Agg *) aggstate->ss.ps.plan;
 	TupleTableSlot *hashslot = aggstate->hashslot;
+	List *current_gsl;
 	ListCell   *l;
-	ListCell   *lc;
 	AggHashEntry entry;
 	bool		isnew;
+
+	current_gsl = (List*) list_nth(node->groupingSets, current_gs);
 
 	/* if first time through, initialize hashslot by cloning input slot */
 	if (hashslot->tts_tupleDescriptor == NULL)
@@ -1464,18 +1468,15 @@ lookup_hash_entry(AggState *aggstate, TupleTableSlot *inputslot, int current_gs)
 		int			varNumber = lfirst_int(l) - 1;
 
 		hashslot->tts_values[varNumber] = inputslot->tts_values[varNumber];
-		hashslot->tts_isnull[varNumber] = inputslot->tts_isnull[varNumber];
-	}
 
-	/* NULL all columns that are not present in current grouping set but present
-	 * in any of grouping sets
-	 */
-	foreach(lc, aggstate->all_grouped_cols)
-	{
-		int			attnum = lfirst_int(lc);
-
-		if (bms_is_member(attnum, aggstate->grouped_cols))
-			hashslot->tts_isnull[attnum] = true;
+		if (!(list_member_int(current_gsl, varNumber)))
+		{
+			hashslot->tts_isnull[varNumber] = true;
+		}
+		else
+		{
+			hashslot->tts_isnull[varNumber] = inputslot->tts_isnull[varNumber];
+		}
 	}
 
 	/* find or create the hashtable entry using the filtered tuple */
@@ -1877,10 +1878,12 @@ agg_retrieve_direct(AggState *aggstate)
 static void
 agg_fill_hash_table(AggState *aggstate)
 {
+	Agg		   *node = (Agg *) aggstate->ss.ps.plan;
 	ExprContext *tmpcontext;
 	AggHashEntry entry;
 	TupleTableSlot *outerslot;
 	int maxsets = aggstate->maxsets;
+	ListCell *lc;
 	int i = 0;
 	bool isNull = false;
 
@@ -1924,7 +1927,7 @@ agg_fill_hash_table(AggState *aggstate)
 
 	aggstate->table_filled = true;
 	/* Initialize to walk the hash table */
-	ResetTupleHashIterator(aggstate->hashtable[0], &aggstate->hashiter);
+	ResetTupleHashIterator(aggstate->hashtable[0], &aggstate->hashiter[0]);
 }
 
 /*
@@ -1959,29 +1962,29 @@ agg_retrieve_hash_table(AggState *aggstate)
 		/*
 		 * Find the next entry in the hash table
 		 */
-		entry = (AggHashEntry) ScanTupleHashTable(&aggstate->hashiter);
+		entry = (AggHashEntry) ScanTupleHashTable(&aggstate->hashiter[0]);
 		if (entry == NULL)
 		{
-			if (maxsets > 0)
+			/*if (maxsets > 0)
 			{
 				if (current_set == (maxsets - 1))
 				{
 					/* No more entries in hashtable, so done */
 					aggstate->agg_done = TRUE;
 					return NULL;
-				}
+					/*}
 				else
 				{
 					++current_set;
 					ResetTupleHashIterator(aggstate->hashtable[current_set], &aggstate->hashiter);
-				}
+					}
 			}
 			else
 			{
-				/* No more entries in hashtable, so done */
+				/* No more entries in hashtable, so done
 				aggstate->agg_done = TRUE;
 				return NULL;
-			}
+				}*/
 		}
 
 		/*
@@ -2800,7 +2803,7 @@ ExecReScanAgg(AggState *node)
 		 */
 		if (outerPlan->chgParam == NULL)
 		{
-			ResetTupleHashIterator(node->hashtable[0], &node->hashiter);
+			ResetTupleHashIterator(node->hashtable[0], &node->hashiter[0]);
 			return;
 		}
 	}
