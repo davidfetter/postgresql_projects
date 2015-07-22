@@ -1315,8 +1315,16 @@ build_hash_table(AggState *aggstate)
 	entrysize = offsetof(AggHashEntryData, pergroup) +
 		aggstate->numaggs * sizeof(AggStatePerGroupData);
 
-	aggstate->hashtable = (TupleHashTable *) palloc(sizeof(TupleHashTable) * (list_length(node->groupingSets)));
-	aggstate->hashiter = (TupleHashIterator*) palloc(sizeof(TupleHashIterator) * (list_length(node->groupingSets)));
+	if (node->groupingSets)
+	{
+		aggstate->hashtable = (TupleHashTable *) palloc(sizeof(TupleHashTable) * (list_length(node->groupingSets)));
+		aggstate->hashiter = (TupleHashIterator*) palloc(sizeof(TupleHashIterator) * (list_length(node->groupingSets)));
+	}
+	else
+	{
+		aggstate->hashtable = (TupleHashTable*) palloc(sizeof(TupleHashTable));
+		aggstate->hashiter = (TupleHashIterator*) palloc(sizeof(TupleHashIterator));
+	}
 
 	if (node->groupingSets)
 	{
@@ -1451,7 +1459,8 @@ lookup_hash_entry(AggState *aggstate, TupleTableSlot *inputslot, int current_gs)
 	AggHashEntry entry;
 	bool		isnew;
 
-	current_gsl = (List*) list_nth(node->groupingSets, current_gs);
+	if (node->groupingSets)
+		current_gsl = (List*) list_nth(node->groupingSets, current_gs);
 
 	/* if first time through, initialize hashslot by cloning input slot */
 	if (hashslot->tts_tupleDescriptor == NULL)
@@ -1469,7 +1478,7 @@ lookup_hash_entry(AggState *aggstate, TupleTableSlot *inputslot, int current_gs)
 
 		hashslot->tts_values[varNumber] = inputslot->tts_values[varNumber];
 
-		if (!(list_member_int(current_gsl, varNumber)))
+		if (node->groupingSets && (!(list_member_int(current_gsl, varNumber))))
 		{
 			hashslot->tts_isnull[varNumber] = true;
 		}
