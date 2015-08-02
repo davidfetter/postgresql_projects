@@ -985,6 +985,56 @@ left join
 using (join_key);
 
 --
+-- test successful handling of nested outer joins with degenerate join quals
+--
+
+explain (verbose, costs off)
+select t1.* from
+  text_tbl t1
+  left join (select *, '***'::text as d1 from int8_tbl i8b1) b1
+    left join int8_tbl i8
+      left join (select *, null::int as d2 from int8_tbl i8b2) b2
+      on (i8.q1 = b2.q1)
+    on (b2.d2 = b1.q2)
+  on (t1.f1 = b1.d1)
+  left join int4_tbl i4
+  on (i8.q2 = i4.f1);
+
+select t1.* from
+  text_tbl t1
+  left join (select *, '***'::text as d1 from int8_tbl i8b1) b1
+    left join int8_tbl i8
+      left join (select *, null::int as d2 from int8_tbl i8b2) b2
+      on (i8.q1 = b2.q1)
+    on (b2.d2 = b1.q2)
+  on (t1.f1 = b1.d1)
+  left join int4_tbl i4
+  on (i8.q2 = i4.f1);
+
+explain (verbose, costs off)
+select t1.* from
+  text_tbl t1
+  left join (select *, '***'::text as d1 from int8_tbl i8b1) b1
+    left join int8_tbl i8
+      left join (select *, null::int as d2 from int8_tbl i8b2, int4_tbl i4b2) b2
+      on (i8.q1 = b2.q1)
+    on (b2.d2 = b1.q2)
+  on (t1.f1 = b1.d1)
+  left join int4_tbl i4
+  on (i8.q2 = i4.f1);
+
+select t1.* from
+  text_tbl t1
+  left join (select *, '***'::text as d1 from int8_tbl i8b1) b1
+    left join int8_tbl i8
+      left join (select *, null::int as d2 from int8_tbl i8b2, int4_tbl i4b2) b2
+      on (i8.q1 = b2.q1)
+    on (b2.d2 = b1.q2)
+  on (t1.f1 = b1.d1)
+  left join int4_tbl i4
+  on (i8.q2 = i4.f1);
+
+--
 -- test ability to push constants through outer join clauses
 --
 
@@ -1364,6 +1414,19 @@ select * from
   left join lateral (
     select * from (select 3 as z offset 0) z where z.z = x.x
   ) zz on zz.z = y.y;
+
+-- check we don't try to do a unique-ified semijoin with LATERAL
+explain (verbose, costs off)
+select * from
+  (values (0,9998), (1,1000)) v(id,x),
+  lateral (select f1 from int4_tbl
+           where f1 = any (select unique1 from tenk1
+                           where unique2 = v.x offset 0)) ss;
+select * from
+  (values (0,9998), (1,1000)) v(id,x),
+  lateral (select f1 from int4_tbl
+           where f1 = any (select unique1 from tenk1
+                           where unique2 = v.x offset 0)) ss;
 
 -- test some error cases where LATERAL should have been used but wasn't
 select f1,g from int4_tbl a, (select f1 as g) ss;
