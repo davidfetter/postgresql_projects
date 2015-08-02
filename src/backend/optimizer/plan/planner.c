@@ -1409,6 +1409,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			else
 			{
 				num_empty_gsets = list_length(parse->groupingSets);
+				parse->groupingSets = NIL;
 			}
 		}
 
@@ -1507,7 +1508,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 				rollups[0].groupClause = parse->groupClause;
 				num_rollups = 1;
 			}
-			else if (parse->hasAggs)
+			else if (parse->hasAggs && num_empty_gsets == 0)
 			{
 				/* aggs with no group by count as an empty grouping set */
 				num_empty_gsets = 1;
@@ -1594,6 +1595,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		 */
 		if (parse->groupClause ||
 			parse->groupingSets ||
+			num_empty_gsets > 0 ||
 			parse->distinctClause ||
 			parse->hasAggs ||
 			parse->hasWindowFuncs ||
@@ -1724,7 +1726,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 									   root->group_pathkeys))
 				tuple_fraction = 0.0;
 		}
-		else if (parse->hasAggs || root->hasHavingQual || parse->groupingSets)
+		else if (parse->hasAggs || root->hasHavingQual || num_empty_gsets > 0)
 		{
 			/*
 			 * Ungrouped aggregate will certainly want to read all the tuples,
@@ -1994,7 +1996,10 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 										   dNumGroups, &agg_costs);
 
 				if (use_hashed_grouping)
+				{
 					num_rollups = 0;
+					hash_groups.dNumGroups = dNumGroups;
+				}
 			}
 
 			/* Also convert # groups to long int --- but 'ware overflow! */
@@ -2150,7 +2155,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 			 *
 			 * HAVING clause, if any, becomes qual of the Agg or Group node.
 			 */
-			if (parse->hasAggs || (parse->groupingSets && parse->groupClause))
+			if (parse->hasAggs || parse->groupingSets)
 			{
 				/*
 				 * Output is in sorted order by group_pathkeys if, and only if,
@@ -2220,7 +2225,7 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 												  result_plan);
 				/* The Group node won't change sort ordering */
 			}
-			else if (root->hasHavingQual || parse->groupingSets)
+			else if (root->hasHavingQual || num_empty_gsets)
 			{
 				/*
 				 * No aggregates, and no GROUP BY, but we have a HAVING qual
