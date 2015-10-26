@@ -2502,6 +2502,12 @@ DESCR("join selectivity of case-insensitive regex non-match");
 /* Aggregate-related functions */
 DATA(insert OID = 1830 (  float8_avg	   PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_avg _null_ _null_ _null_ ));
 DESCR("aggregate final function");
+DATA(insert OID = 3997 (  float8_weighted_avg			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_weighted_avg _null_ _null_ _null_ ));
+DESCR("aggregate final function");
+DATA(insert OID = 4099 (  float8_weighted_stddev_pop			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_weighted_stddev_pop _null_ _null_ _null_ ));
+DESCR("aggregate final function");
+DATA(insert OID = 4100 (  float8_weighted_stddev_samp			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_weighted_stddev_samp _null_ _null_ _null_ ));
+DESCR("aggregate final function");
 DATA(insert OID = 2512 (  float8_var_pop   PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_var_pop _null_ _null_ _null_ ));
 DESCR("aggregate final function");
 DATA(insert OID = 1831 (  float8_var_samp  PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_var_samp _null_ _null_ _null_ ));
@@ -2584,6 +2590,8 @@ DESCR("aggregate final function");
 DATA(insert OID = 2805 (  int8inc_float8_float8		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 3 0 20 "20 701 701" _null_ _null_ _null_ _null_ _null_ int8inc_float8_float8 _null_ _null_ _null_ ));
 DESCR("aggregate transition function");
 DATA(insert OID = 2806 (  float8_regr_accum			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 3 0 1022 "1022 701 701" _null_ _null_ _null_ _null_ _null_ float8_regr_accum _null_ _null_ _null_ ));
+DESCR("aggregate transition function");
+DATA(insert OID = 3999 (  float8_weighted_accum			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 3 0 1022 "1022 701 701" _null_ _null_ _null_ _null_ _null_ float8_weighted_accum _null_ _null_ _null_ ));
 DESCR("aggregate transition function");
 DATA(insert OID = 2807 (  float8_regr_sxx			PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_regr_sxx _null_ _null_ _null_ ));
 DESCR("aggregate final function");
@@ -3229,6 +3237,8 @@ DATA(insert OID = 2104 (  avg				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 701 
 DESCR("the average (arithmetic mean) as float8 of all float4 values");
 DATA(insert OID = 2105 (  avg				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 701 "701" _null_ _null_ _null_ _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
 DESCR("the average (arithmetic mean) as float8 of all float8 values");
+DATA(insert OID = 3998 (  weighted_avg		PGNSP PGUID 12 1 0 0 0 t f f f f f i s 2 0 701 "701 701" _null_ _null_ _null_ _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
+DESCR("the weighted average (arithmetic mean) as float8 of all float8 values");
 DATA(insert OID = 2106 (  avg				PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 1186 "1186" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("the average (arithmetic mean) as interval of all interval values");
 
@@ -3389,6 +3399,8 @@ DATA(insert OID = 2728 (  stddev_pop		PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0
 DESCR("population standard deviation of float8 input values");
 DATA(insert OID = 2729 (  stddev_pop		PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 1700 "1700" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("population standard deviation of numeric input values");
+DATA(insert OID = 4066 (  weighted_stddev_pop		PGNSP PGUID 12 1 0 0 0 t f f f f f i s 2 0 701 "701 701" _null_ _null_ _null_ _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
+DESCR("population weighted standard deviation of float8 input values");
 
 DATA(insert OID = 2712 (  stddev_samp		PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 1700 "20" _null_ _null_ _null_ _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
 DESCR("sample standard deviation of bigint input values");
@@ -3402,6 +3414,8 @@ DATA(insert OID = 2716 (  stddev_samp		PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 
 DESCR("sample standard deviation of float8 input values");
 DATA(insert OID = 2717 (  stddev_samp		PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 1700 "1700" _null_ _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("sample standard deviation of numeric input values");
+DATA(insert OID = 4083 (  weighted_stddev_samp		PGNSP PGUID 12 1 0 0 0 t f f f f f i s 2 0 701 "701 701" _null_ _null_ _null_ _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
+DESCR("sample weighted standard deviation of float8 input values");
 
 DATA(insert OID = 2154 (  stddev			PGNSP PGUID 12 1 0 0 0 t f f f f f i s 1 0 1700 "20" _null_ _null_ _null_ _null_ _null_	aggregate_dummy _null_ _null_ _null_ ));
 DESCR("historical alias for stddev_samp");

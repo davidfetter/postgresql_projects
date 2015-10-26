@@ -1774,6 +1774,7 @@ setseed(PG_FUNCTION_ARGS)
  *		float8_accum		- accumulate for AVG(), variance aggregates, etc.
  *		float4_accum		- same, but input data is float4
  *		float8_avg			- produce final result for float AVG()
+ *		float8_weighted_avg	- produce final result for float WEIGHTED_AVG()
  *		float8_var_samp		- produce final result for float VAR_SAMP()
  *		float8_var_pop		- produce final result for float VAR_POP()
  *		float8_stddev_samp	- produce final result for float STDDEV_SAMP()
@@ -1926,6 +1927,28 @@ float8_avg(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 
 	PG_RETURN_FLOAT8(sumX / N);
+}
+
+Datum
+float8_weighted_avg(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
+	float8	   *transvalues;
+	float8		N,
+				sumWX,
+				sumW;
+
+	transvalues = check_float8_array(transarray, "float8_weighted_avg", 6);
+	N = transvalues[0];
+	sumW = transvalues[1];
+	sumWX = transvalues[5];
+
+	if (N < 1.0)
+		PG_RETURN_NULL();
+
+	CHECKFLOATVAL(N, isinf(1.0/sumW) || isinf(sumWX), true);
+
+	PG_RETURN_FLOAT8(sumWX/sumW);
 }
 
 Datum
@@ -2467,6 +2490,133 @@ float8_regr_intercept(PG_FUNCTION_ARGS)
 	PG_RETURN_FLOAT8(numeratorXXY / numeratorX);
 }
 
+/*
+ *		===================
+ *		WEIGHTED AGGREGATES
+ *		===================
+ *
+ * The transition datatype for these aggregates is a 4-element array
+ * of float8, holding the values N, sum(W), sum(W*X), and sum(W*X*X)
+ * in that order.
+ *
+ * First, an accumulator function for those we can't pirate from the
+ * other accumulators.
+ *
+ */
+Datum
+float8_weighted_accum(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
+	float8		newvalX = PG_GETARG_FLOAT8(1);
+	float8		newvalW = PG_GETARG_FLOAT8(2);
+	float8	   *transvalues;
+	float8		N,
+				sumW,
+				sumWX,
+				sumWX2;
+
+	if (newvalW <= 0) /* We only care about positive weights */
+		PG_RETURN_NULL();
+
+	transvalues = check_float8_array(transarray, "float8_weighted_accum", 4);
+	N = transvalues[0];
+	sumW = transvalues[1];
+	sumWX = transvalues[2];
+	sumWX2 = transvalues[3];
+
+	N += 1.0;
+	sumW += newvalW;
+	CHECKFLOATVAL(sumW, isinf(transvalues[2]) || isinf(newvalW), true);
+	sumWX += newvalW * newvalX;
+	CHECKFLOATVAL(sumWX, isinf(transvalues[1]) || isinf(transvalues[2]) || isinf(newvalX) || isinf(newvalW) , true);
+	sumWX2 += newvalW * newvalX * newvalX;
+	CHECKFLOATVAL(sumWX2, isinf(transvalues[1]) || isinf(transvalues[2]) || isinf(newvalX) || isinf(newvalW) || isinf(newvalW * newvalX), true);
+
+	/*
+	 * If we're invoked as an aggregate, we can cheat and modify our first
+	 * parameter in-place to reduce palloc overhead. Otherwise we construct a
+	 * new array with the updated transition data and return it.
+	 */
+	if (AggCheckCallContext(fcinfo, NULL))
+	{
+		transvalues[0] = N;
+		transvalues[1] = sumW;
+		transvalues[2] = sumWX;
+		transvalues[3] = sumWX2;
+
+		PG_RETURN_ARRAYTYPE_P(transarray);
+	}
+	else
+	{
+		Datum		transdatums[6];
+		ArrayType  *result;
+
+		transdatums[0] = Float8GetDatumFast(N);
+		transdatums[1] = Float8GetDatumFast(sumW);
+		transdatums[2] = Float8GetDatumFast(sumWX);
+		transdatums[3] = Float8GetDatumFast(sumWX2);
+
+		result = construct_array(transdatums, 4,
+								 FLOAT8OID,
+								 sizeof(float8), FLOAT8PASSBYVAL, 'd');
+
+		PG_RETURN_ARRAYTYPE_P(result);
+	}
+}
+
+Datum
+float8_weighted_stddev_samp(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
+	float8	   *transvalues;
+	float8		N,
+				sumW,
+				sumWX,
+				sumWX2;
+
+	transvalues = check_float8_array(transarray, "float8_weighted_stddev_samp", 4);
+	N = transvalues[0];
+	sumW = transvalues[1];
+	sumWX = transvalues[2];
+	sumWX2 = transvalues[3];
+
+	if (N < 2.0)
+		PG_RETURN_NULL();
+
+	PG_RETURN_FLOAT8(
+		sqrt(
+				N * ( sumW * sumWX2 - sumWX * sumWX ) /
+				( (N-1) * sumW * sumW )
+		)
+	);
+}
+
+Datum
+float8_weighted_stddev_pop(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
+	float8	   *transvalues;
+	float8		N,
+				sumW,
+				sumWX,
+				sumWX2;
+
+	transvalues = check_float8_array(transarray, "float8_weighted_stddev_pop", 4);
+	N = transvalues[0];
+	sumW = transvalues[1];
+	sumWX = transvalues[2];
+	sumWX2 = transvalues[3];
+
+	if (N < 2.0)
+		PG_RETURN_NULL();
+
+	PG_RETURN_FLOAT8(
+		sqrt(
+				( sumW * sumWX2 - sumWX * sumWX ) /
+				( sumW * sumW )
+		)
+	);
+}
 
 /*
  *		====================================

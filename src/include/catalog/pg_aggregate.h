@@ -133,6 +133,7 @@ DATA(insert ( 2103	n 0 numeric_avg_accum numeric_avg	numeric_avg_accum numeric_a
 DATA(insert ( 2104	n 0 float4_accum	float8_avg		-				-				-								f f 0	1022	0	0		0	"{0,0,0}" _null_ ));
 DATA(insert ( 2105	n 0 float8_accum	float8_avg		-				-				-								f f 0	1022	0	0		0	"{0,0,0}" _null_ ));
 DATA(insert ( 2106	n 0 interval_accum	interval_avg	interval_accum	interval_accum_inv interval_avg					f f 0	1187	0	1187	0	"{0 second,0 second}" "{0 second,0 second}" ));
+DATA(insert ( 3998	n 0 float8_regr_accum	float8_weighted_avg		-				-				-				f f 0	1022	0	0		0	"{0,0,0,0,0,0}" _null_ ));
 
 /* sum */
 DATA(insert ( 2107	n 0 int8_avg_accum	numeric_poly_sum		int8_avg_accum	int8_avg_accum_inv numeric_poly_sum f f 0	2281	48	2281	48	_null_ _null_ ));
@@ -224,6 +225,7 @@ DATA(insert ( 2725	n 0 int4_accum	numeric_poly_stddev_pop int4_accum	int4_accum_
 DATA(insert ( 2726	n 0 int2_accum	numeric_poly_stddev_pop int2_accum	int2_accum_inv	numeric_poly_stddev_pop f f 0	2281	48	2281	48	_null_ _null_ ));
 DATA(insert ( 2727	n 0 float4_accum	float8_stddev_pop	-				-				-							f f 0	1022	0	0		0	"{0,0,0}" _null_ ));
 DATA(insert ( 2728	n 0 float8_accum	float8_stddev_pop	-				-				-							f f 0	1022	0	0		0	"{0,0,0}" _null_ ));
+DATA(insert ( 4066	n 0 float8_weighted_accum	float8_weighted_stddev_pop	-				-				-							f f 0	1022	0	0		0	"{0,0,0,0}" _null_ ));
 DATA(insert ( 2729	n 0 numeric_accum	numeric_stddev_pop numeric_accum numeric_accum_inv numeric_stddev_pop			f f 0	2281	128 2281	128 _null_ _null_ ));
 
 /* stddev_samp */
@@ -232,6 +234,7 @@ DATA(insert ( 2713	n 0 int4_accum	numeric_poly_stddev_samp	int4_accum	int4_accum
 DATA(insert ( 2714	n 0 int2_accum	numeric_poly_stddev_samp	int2_accum	int2_accum_inv	numeric_poly_stddev_samp	f f 0	2281	48	2281	48	_null_ _null_ ));
 DATA(insert ( 2715	n 0 float4_accum	float8_stddev_samp	-				-				-							f f 0	1022	0	0		0	"{0,0,0}" _null_ ));
 DATA(insert ( 2716	n 0 float8_accum	float8_stddev_samp	-				-				-							f f 0	1022	0	0		0	"{0,0,0}" _null_ ));
+DATA(insert ( 4083	n 0 float8_weighted_accum	float8_weighted_stddev_samp	-				-				-							f f 0	1022	0	0		0	"{0,0,0,0}" _null_ ));
 DATA(insert ( 2717	n 0 numeric_accum	numeric_stddev_samp numeric_accum numeric_accum_inv numeric_stddev_samp			f f 0	2281	128 2281	128 _null_ _null_ ));
 
 /* stddev: historical Postgres syntax for stddev_samp */

@@ -12429,6 +12429,29 @@ NULL baz</literallayout>(3 rows)</entry>
      <row>
       <entry>
        <indexterm>
+        <primary>weighted_average</primary>
+       </indexterm>
+       <indexterm>
+        <primary>weighted_avg</primary>
+       </indexterm>
+       <function>weighted_avg(<replaceable class="parameter">value expression</replaceable>, <replaceable class="parameter">weight expression</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>smallint</type>, <type>int</type>,
+       <type>bigint</type>, <type>real</type>, <type>double
+       precision</type>, <type>numeric</type>, or <type>interval</type>
+      </entry>
+      <entry>
+       <type>numeric</type> for any integer-type argument,
+       <type>double precision</type> for a floating-point argument,
+       otherwise the same as the argument data type
+      </entry>
+      <entry>the average (arithmetic mean) of all input values, weighted by the input weights</entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
         <primary>bit_and</primary>
        </indexterm>
        <function>bit_and(<replaceable class="parameter">expression</replaceable>)</function>
@@ -13072,6 +13095,29 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
      <row>
       <entry>
        <indexterm>
+        <primary>weighted standard deviation</primary>
+        <secondary>population</secondary>
+       </indexterm>
+       <indexterm>
+        <primary>weighted_stddev_pop</primary>
+       </indexterm>
+       <function>weighted_stddev_pop(<replaceable class="parameter">value expression</replaceable>, <replaceable class="parameter">weight expression</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>smallint</type>, <type>int</type>,
+       <type>bigint</type>, <type>real</type>, <type>double
+       precision</type>, or <type>numeric</type>
+      </entry>
+      <entry>
+       <type>double precision</type> for floating-point arguments,
+       otherwise <type>numeric</type>
+      </entry>
+      <entry>weighted population standard deviation of the input values</entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
         <primary>standard deviation</primary>
         <secondary>sample</secondary>
        </indexterm>
@@ -13090,6 +13136,29 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        otherwise <type>numeric</type>
       </entry>
       <entry>sample standard deviation of the input values</entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>weighted standard deviation</primary>
+        <secondary>sample</secondary>
+       </indexterm>
+       <indexterm>
+        <primary>weighted_stddev_samp</primary>
+       </indexterm>
+       <function>weighted_stddev_samp(<replaceable class="parameter">value expression</replaceable>, <replaceable class="parameter">weight expression</replaceable>)</function>
+      </entry>
+      <entry>
+       <type>smallint</type>, <type>int</type>,
+       <type>bigint</type>, <type>real</type>, <type>double
+       precision</type>, or <type>numeric</type>
+      </entry>
+      <entry>
+       <type>double precision</type> for floating-point arguments,
+       otherwise <type>numeric</type>
+      </entry>
+      <entry>weighted sample standard deviation of the input values</entry>
      </row>
 
      <row>
