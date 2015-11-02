@@ -4337,7 +4337,7 @@ ATWrongRelkindError(Relation rel, int allowed_targets)
 			msg = _("\"%s\" is not a table or view");
 			break;
 		case ATT_TABLE | ATT_VIEW | ATT_FOREIGN_TABLE:
-			msg = _("\"%s\" is not a table, view or foreign table");
+			msg = _("\"%s\" is not a table, view, or foreign table");
 			break;
 		case ATT_TABLE | ATT_VIEW | ATT_MATVIEW | ATT_INDEX:
 			msg = _("\"%s\" is not a table, view, materialized view, or index");
@@ -4358,7 +4358,7 @@ ATWrongRelkindError(Relation rel, int allowed_targets)
 			msg = _("\"%s\" is not a table, composite type, or foreign table");
 			break;
 		case ATT_TABLE | ATT_MATVIEW | ATT_INDEX | ATT_FOREIGN_TABLE:
-			msg = _("\"%s\" is not a table, materialized view, composite type, or foreign table");
+			msg = _("\"%s\" is not a table, materialized view, index, or foreign table");
 			break;
 		case ATT_VIEW:
 			msg = _("\"%s\" is not a view");
@@ -9811,7 +9811,7 @@ AlterTableMoveAll(AlterTableMoveAllStmt *stmt)
 			!ConditionalLockRelationOid(relOid, AccessExclusiveLock))
 			ereport(ERROR,
 					(errcode(ERRCODE_OBJECT_IN_USE),
-					 errmsg("aborting because lock on relation \"%s\".\"%s\" is not available",
+					 errmsg("aborting because lock on relation \"%s.%s\" is not available",
 							get_namespace_name(relForm->relnamespace),
 							NameStr(relForm->relname))));
 		else
