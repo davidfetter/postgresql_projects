@@ -2500,7 +2500,16 @@ float8_regr_intercept(PG_FUNCTION_ARGS)
  * in that order.
  *
  * First, an accumulator function for those we can't pirate from the
- * other accumulators.
+ * other accumulators.  This accumulator function takes out some of
+ * the rounding error inherent in the general one.
+ * https://en.wikipedia.org/wiki/Standard_deviation#Rapid_calculation_methods
+ *
+ * It consists of a four-element array which includes:
+ *
+ * N, the number of non-zero-weighted values seen thus far,
+ * W, the running sum of weights,
+ * A, an intermediate value used in the calculation, and
+ * Q, another intermediate value.
  *
  */
 Datum
@@ -2511,57 +2520,41 @@ float8_weighted_accum(PG_FUNCTION_ARGS)
 	float8		newvalW = PG_GETARG_FLOAT8(2);
 	float8	   *transvalues;
 	float8		N,
-				sumW,
-				sumWX,
-				sumWX2;
+				W,
+				A,
+				Q;
 
-	if (newvalW <= 0) /* We only care about positive weights */
+	transvalues = check_float8_array(transarray, "float8_weighted_stddev_accum", 4);
+
+	if (newvalW <= 0.0) /* We only care about positive weights */
 		PG_RETURN_NULL();
 
-	transvalues = check_float8_array(transarray, "float8_weighted_accum", 4);
 	N = transvalues[0];
-	sumW = transvalues[1];
-	sumWX = transvalues[2];
-	sumWX2 = transvalues[3];
+	W = transvalues[1];
+	A = transvalues[2];
+	Q = transvalues[3];
 
 	N += 1.0;
-	sumW += newvalW;
-	CHECKFLOATVAL(sumW, isinf(transvalues[2]) || isinf(newvalW), true);
-	sumWX += newvalW * newvalX;
-	CHECKFLOATVAL(sumWX, isinf(transvalues[1]) || isinf(transvalues[2]) || isinf(newvalX) || isinf(newvalW) , true);
-	sumWX2 += newvalW * newvalX * newvalX;
-	CHECKFLOATVAL(sumWX2, isinf(transvalues[1]) || isinf(transvalues[2]) || isinf(newvalX) || isinf(newvalW) || isinf(newvalW * newvalX), true);
+	CHECKFLOATVAL(N, isinf(transvalues[0]), true);
+	W += newvalW;
+	CHECKFLOATVAL(W, isinf(transvalues[1]) || isinf(newvalW), true);
+	A += newvalW * ( newvalX - transvalues[2] ) / W;
+	CHECKFLOATVAL(A, isinf(newvalW) || isinf(transvalues[2]) || isinf(1.0/W), true);
+	Q += newvalW * (newvalX - transvalues[2]) * (newvalX - A);
+	CHECKFLOATVAL(A, isinf(newvalX -  transvalues[3]) || isinf(newvalX - A) || isinf(1.0/W), true);
 
-	/*
-	 * If we're invoked as an aggregate, we can cheat and modify our first
-	 * parameter in-place to reduce palloc overhead. Otherwise we construct a
-	 * new array with the updated transition data and return it.
-	 */
-	if (AggCheckCallContext(fcinfo, NULL))
+	if (AggCheckCallContext(fcinfo, NULL)) /* Update in place is safe in Agg context */
 	{
 		transvalues[0] = N;
-		transvalues[1] = sumW;
-		transvalues[2] = sumWX;
-		transvalues[3] = sumWX2;
+		transvalues[1] = W;
+		transvalues[2] = A;
+		transvalues[3] = Q;
 
 		PG_RETURN_ARRAYTYPE_P(transarray);
 	}
-	else
-	{
-		Datum		transdatums[6];
-		ArrayType  *result;
-
-		transdatums[0] = Float8GetDatumFast(N);
-		transdatums[1] = Float8GetDatumFast(sumW);
-		transdatums[2] = Float8GetDatumFast(sumWX);
-		transdatums[3] = Float8GetDatumFast(sumWX2);
-
-		result = construct_array(transdatums, 4,
-								 FLOAT8OID,
-								 sizeof(float8), FLOAT8PASSBYVAL, 'd');
-
-		PG_RETURN_ARRAYTYPE_P(result);
-	}
+	else /* You do not need to call this directly. */
+		ereport(ERROR,
+				(errmsg("float8_weighted_accum called outside agg context")));
 }
 
 Datum
@@ -2570,23 +2563,22 @@ float8_weighted_stddev_samp(PG_FUNCTION_ARGS)
 	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
 	float8	   *transvalues;
 	float8		N,
-				sumW,
-				sumWX,
-				sumWX2;
+				W,
+				/* Skip A.  Not used in the calculation */
+				Q;
 
 	transvalues = check_float8_array(transarray, "float8_weighted_stddev_samp", 4);
 	N = transvalues[0];
-	sumW = transvalues[1];
-	sumWX = transvalues[2];
-	sumWX2 = transvalues[3];
+	W = transvalues[1];
+	Q = transvalues[3];
 
-	if (N < 2.0)
+	if (N < 2.0) /* Must have at least two samples to get a stddev */
 		PG_RETURN_NULL();
 
 	PG_RETURN_FLOAT8(
 		sqrt(
-				N * ( sumW * sumWX2 - sumWX * sumWX ) /
-				( (N-1) * sumW * sumW )
+			N * Q /
+			( (N-1) * W )
 		)
 	);
 }
@@ -2597,25 +2589,19 @@ float8_weighted_stddev_pop(PG_FUNCTION_ARGS)
 	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
 	float8	   *transvalues;
 	float8		N,
-				sumW,
-				sumWX,
-				sumWX2;
+				W,
+				/* Skip A.  Not used in the calculation */
+				Q;
 
 	transvalues = check_float8_array(transarray, "float8_weighted_stddev_pop", 4);
 	N = transvalues[0];
-	sumW = transvalues[1];
-	sumWX = transvalues[2];
-	sumWX2 = transvalues[3];
+	W = transvalues[1];
+	Q = transvalues[3];
 
-	if (N < 2.0)
+	if (N < 2.0) /* Must have at least two samples to get a stddev */
 		PG_RETURN_NULL();
 
-	PG_RETURN_FLOAT8(
-		sqrt(
-				( sumW * sumWX2 - sumWX * sumWX ) /
-				( sumW * sumW )
-		)
-	);
+	PG_RETURN_FLOAT8( sqrt( Q / W ) );
 }
 
 /*
