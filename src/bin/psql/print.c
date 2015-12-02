@@ -1265,7 +1265,7 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 	/*
 	 * Deal with the pager here instead of in printTable(), because we could
 	 * get here via print_aligned_text() in expanded auto mode, and so we have
-	 * to recalcuate the pager requirement based on vertical output.
+	 * to recalculate the pager requirement based on vertical output.
 	 */
 	IsPagerNeeded(cont, 0, true, &fout, &is_pager);
 
@@ -1346,88 +1346,130 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 #endif
 	}
 
+	/*
+	 * Calculate available width for data in wrapped mode
+	 */
 	if (cont->opt->format == PRINT_WRAPPED)
 	{
-		/*
-		 * Separators width
-		 */
-		unsigned int width,
-					min_width,
-					swidth,
-					iwidth = 0;
+		unsigned int swidth,
+					rwidth = 0,
+					newdwidth;
 
 		if (opt_border == 0)
 		{
 			/*
-			 * For border = 0, one space in the middle.
+			 * For border = 0, one space in the middle.  (If we discover we
+			 * need to wrap, the spacer column will be replaced by a wrap
+			 * marker, and we'll make room below for another wrap marker at
+			 * the end of the line.  But for now, assume no wrap is needed.)
 			 */
 			swidth = 1;
+
+			/* We might need a column for header newline markers, too */
+			if (hmultiline)
+				swidth++;
 		}
 		else if (opt_border == 1)
 		{
 			/*
-			 * For border = 1, one for the pipe (|) in the middle between the
-			 * two spaces.
+			 * For border = 1, two spaces and a vrule in the middle.  (As
+			 * above, we might need one more column for a wrap marker.)
 			 */
 			swidth = 3;
+
+			/* We might need a column for left header newline markers, too */
+			if (hmultiline && (format == &pg_asciiformat_old))
+				swidth++;
 		}
 		else
-
-			/*
-			 * For border = 2, two more for the pipes (|) at the beginning and
-			 * at the end of the lines.
-			 */
-			swidth = 7;
-
-		if ((opt_border < 2) &&
-			((hmultiline &&
-			  (format == &pg_asciiformat_old)) ||
-			 (dmultiline &&
-			  (format != &pg_asciiformat_old))))
-			iwidth++;			/* for newline indicators */
-
-		min_width = hwidth + iwidth + swidth + 3;
-
-		/*
-		 * Record header width
-		 */
-		if (!opt_tuples_only)
 		{
 			/*
-			 * Record number
+			 * For border = 2, two more for the vrules at the beginning and
+			 * end of the lines, plus spacer columns adjacent to these.  (We
+			 * won't need extra columns for wrap/newline markers, we'll just
+			 * repurpose the spacers.)
 			 */
-			unsigned int rwidth = 1 + log10(cont->nrows);
+			swidth = 7;
+		}
 
+		/* Reserve a column for data newline indicators, too, if needed */
+		if (dmultiline &&
+			opt_border < 2 && format != &pg_asciiformat_old)
+			swidth++;
+
+		/* Determine width required for record header lines */
+		if (!opt_tuples_only)
+		{
+			if (cont->nrows > 0)
+				rwidth = 1 + (int) log10(cont->nrows);
 			if (opt_border == 0)
 				rwidth += 9;	/* "* RECORD " */
 			else if (opt_border == 1)
 				rwidth += 12;	/* "-[ RECORD  ]" */
 			else
 				rwidth += 15;	/* "+-[ RECORD  ]-+" */
-
-			if (rwidth > min_width)
-				min_width = rwidth;
 		}
 
-		/* Wrap to minimum width */
-		width = hwidth + iwidth + swidth + dwidth;
-		if ((width < min_width) || (output_columns < min_width))
-			width = min_width - hwidth - iwidth - swidth;
-		else if (output_columns > 0)
+		/* We might need to do the rest of the calculation twice */
+		for (;;)
+		{
+			unsigned int width;
+
+			/* Total width required to not wrap data */
+			width = hwidth + swidth + dwidth;
+			/* ... and not the header lines, either */
+			if (width < rwidth)
+				width = rwidth;
+
+			if (output_columns > 0)
+			{
+				unsigned int min_width;
+
+				/* Minimum acceptable width: room for just 3 columns of data */
+				min_width = hwidth + swidth + 3;
+				/* ... but not less than what the record header lines need */
+				if (min_width < rwidth)
+					min_width = rwidth;
+
+				if (output_columns >= width)
+				{
+					/* Plenty of room, use native data width */
+					/* (but at least enough for the record header lines) */
+					newdwidth = width - hwidth - swidth;
+				}
+				else if (output_columns < min_width)
+				{
+					/* Set data width to match min_width */
+					newdwidth = min_width - hwidth - swidth;
+				}
+				else
+				{
+					/* Set data width to match output_columns */
+					newdwidth = output_columns - hwidth - swidth;
+				}
+			}
+			else
+			{
+				/* Don't know the wrap limit, so use native data width */
+				/* (but at least enough for the record header lines) */
+				newdwidth = width - hwidth - swidth;
+			}
 
 			/*
-			 * Wrap to maximum width
+			 * If we will need to wrap data and didn't already allocate a data
+			 * newline/wrap marker column, do so and recompute.
 			 */
-			width = output_columns - hwidth - iwidth - swidth;
-
-		if ((width < dwidth) || (dheight > 1))
-		{
-			dmultiline = true;
-			if ((opt_border == 0) &&
-				(format != &pg_asciiformat_old))
-				width--;		/* for wrap indicators */
+			if (newdwidth < dwidth && !dmultiline &&
+				opt_border < 2 && format != &pg_asciiformat_old)
+			{
+				dmultiline = true;
+				swidth++;
+			}
+			else
+				break;
 		}
-		dwidth = width;
+
+		dwidth = newdwidth;
 	}
 
 	/* print records */
@@ -1558,12 +1600,10 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 			{
 				if (offset)
 					fputs(format->midvrule_wrap, fout);
-				else if (!dline)
+				else if (dline == 0)
 					fputs(dformat->midvrule, fout);
-				else if (dline)
-					fputs(format->midvrule_nl, fout);
 				else
-					fputs(format->midvrule_blank, fout);
+					fputs(format->midvrule_nl, fout);
 			}
 
 			/* Data */
@@ -1574,9 +1614,9 @@ print_aligned_vertical(const printTableContent *cont, FILE *fout)
 							swidth = dwidth;
 
 				/*
-				 * Left spacer on wrap indicator
+				 * Left spacer or wrap indicator
 				 */
-				fputs(!dcomplete && !offset ? " " : format->wrap_left, fout);
+				fputs(offset == 0 ? " " : format->wrap_left, fout);
 
 				/*
 				 * Data text

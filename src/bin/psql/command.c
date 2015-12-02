@@ -322,8 +322,6 @@ exec_command(const char *cmd,
 			PQconninfoOption *option;
 
 			host = PQhost(pset.db);
-			if (host == NULL)
-				host = DEFAULT_PGSOCKET_DIR;
 			/* A usable "hostaddr" overrides the basic sense of host. */
 			connOptions = PQconninfo(pset.db);
 			if (connOptions == NULL)
@@ -1752,12 +1750,13 @@ do_connect(char *dbname, char *user, char *host, char *port)
 	 * We also discard it if we're to use a conninfo rather than the
 	 * positional syntax.
 	 */
-	keep_password =
-		(o_conn &&
-		 (strcmp(user, PQuser(o_conn)) == 0) &&
-		 (!host || strcmp(host, PQhost(o_conn)) == 0) &&
-		 (strcmp(port, PQport(o_conn)) == 0) &&
-		 !has_connection_string);
+	if (has_connection_string)
+		keep_password = false;
+	else
+		keep_password =
+			(user && PQuser(o_conn) && strcmp(user, PQuser(o_conn)) == 0) &&
+			(host && PQhost(o_conn) && strcmp(host, PQhost(o_conn)) == 0) &&
+			(port && PQport(o_conn) && strcmp(port, PQport(o_conn)) == 0);
 
 	/*
 	 * Grab dbname from old connection unless supplied by caller.  No password
@@ -1769,8 +1768,8 @@ do_connect(char *dbname, char *user, char *host, char *port)
 	/*
 	 * If the user asked to be prompted for a password, ask for one now. If
 	 * not, use the password from the old connection, provided the username
-	 * has not changed. Otherwise, try to connect without a password first,
-	 * and then ask for a password if needed.
+	 * etc have not changed. Otherwise, try to connect without a password
+	 * first, and then ask for a password if needed.
 	 *
 	 * XXX: this behavior leads to spurious connection attempts recorded in
 	 * the postmaster's log.  But libpq offers no API that would let us obtain
@@ -1887,8 +1886,6 @@ do_connect(char *dbname, char *user, char *host, char *port)
 		{
 			char	   *host = PQhost(pset.db);
 
-			if (host == NULL)
-				host = DEFAULT_PGSOCKET_DIR;
 			/* If the host is an absolute path, the connection is via socket */
 			if (is_absolute_path(host))
 				printf(_("You are now connected to database \"%s\" as user \"%s\" via socket in \"%s\" at port \"%s\".\n"),
