@@ -1826,6 +1826,7 @@ typedef struct GroupState
 /* these structs are private in nodeAgg.c: */
 typedef struct AggStatePerAggData *AggStatePerAgg;
 typedef struct AggStatePerGroupData *AggStatePerGroup;
+typedef struct AggStatePerHashData *AggStatePerHash;
 typedef struct AggStatePerPhaseData *AggStatePerPhase;
 
 typedef struct AggState
@@ -1836,7 +1837,6 @@ typedef struct AggState
 	AggStatePerPhase phase;		/* pointer to current phase data */
 	int			numphases;		/* number of phases */
 	int			current_phase;	/* current phase number */
-	FmgrInfo   *hashfunctions;	/* per-grouping-field hash fns */
 	AggStatePerAgg peragg;		/* per-Aggref information */
 	ExprContext **aggcontexts;	/* econtexts for long-lived data (per GS) */
 	ExprContext *tmpcontext;	/* econtext for input expressions */
@@ -1858,11 +1858,11 @@ typedef struct AggState
 	AggStatePerGroup pergroup;	/* per-Aggref-per-group working state */
 	HeapTuple	grp_firstTuple; /* copy of first tuple of current group */
 	/* these fields are used in AGG_HASHED mode: */
-	TupleHashTable hashtable;	/* hash table with one entry per group */
+	int			numhashsets;
+	ExprContext *hashcontext;
+	AggStatePerHash hashes;
 	TupleTableSlot *hashslot;	/* slot for loading hash table */
-	List	   *hash_needed;	/* list of columns needed in hash table */
-	bool		table_filled;	/* hash table filled yet? */
-	TupleHashIterator hashiter; /* for iterating through hash table */
+	bool		table_filled;	/* hash tables filled yet? */
 } AggState;
 
 /* ----------------

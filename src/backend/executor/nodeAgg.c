@@ -325,7 +325,7 @@ typedef struct AggStatePerGroupData
 /*
  * AggStatePerPhaseData - per-grouping-set-phase state
  *
- * Grouping sets are divided into "phases", where a single phase can be
+ * Sorted grouping sets are divided into "phases", where a single phase can be
  * processed in one pass over the input. If there is more than one phase, then
  * at the end of input from the current phase, state is reset and another pass
  * taken over the data which has been re-sorted in the mean time.
@@ -337,11 +337,25 @@ typedef struct AggStatePerPhaseData
 {
 	int			numsets;		/* number of grouping sets (or 0) */
 	int		   *gset_lengths;	/* lengths of grouping sets */
-	Bitmapset **grouped_cols;	/* column groupings for rollup */
+	Bitmapset **grouped_cols;   /* column groupings for rollup */
 	FmgrInfo   *eqfunctions;	/* per-grouping-field equality fns */
 	Agg		   *aggnode;		/* Agg node for phase data */
 	Sort	   *sortnode;		/* Sort node for input ordering for phase */
 }	AggStatePerPhaseData;
+
+/*
+ * AggStatePerHashData - per-grouping-set hash state
+ *
+ * We have one of these per grouping set implemented with hashing.
+ */
+typedef struct AggStatePerHashData
+{
+	TupleHashTable *hashtable;	/* actual hash table (one entry per group) */
+	List	   *hash_needed;	/* list of columns needed */
+	FmgrInfo   *eqfunctions;	/* per-grouping-field equality fns */
+	FmgrInfo   *hashfunctions;	/* per-grouping-field hash fns */
+	TupleHashIterator *hashiter; /* for iterating through hash table */
+} AggStatePerHashData;
 
 /*
  * To implement hashed aggregation, we need a hashtable that stores a
@@ -1841,15 +1855,21 @@ agg_fill_hash_table(AggState *aggstate)
 	{
 		outerslot = fetch_input_tuple(aggstate);
 		if (TupIsNull(outerslot))
+		{
+			isNull = true;
 			break;
+		}
 		/* set up for advance_aggregates call */
 		tmpcontext->ecxt_outertuple = outerslot;
 
-		/* Find or build hashtable entry for this tuple's group */
-		entry = lookup_hash_entry(aggstate, outerslot);
+		for (i = 0;i < maxsets;i++)
+		{
+			/* Find or build hashtable entry for this tuple's group */
+			entry = lookup_hash_entry(aggstate, outerslot, i);
 
-		/* Advance the aggregates */
-		advance_aggregates(aggstate, entry->pergroup);
+			/* Advance the aggregates */
+			advance_aggregates(aggstate, entry->pergroup);
+		}
 
 		/* Reset per-input-tuple context after each tuple */
 		ResetExprContext(tmpcontext);
