@@ -87,7 +87,7 @@
  * above.  Nonetheless, with large workMem we can have many tapes.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -103,6 +103,7 @@
 #include "access/htup_details.h"
 #include "access/nbtree.h"
 #include "catalog/index.h"
+#include "catalog/pg_am.h"
 #include "commands/tablespace.h"
 #include "executor/executor.h"
 #include "miscadmin.h"
@@ -930,7 +931,14 @@ tuplesort_begin_datum(Oid datumType, Oid sortOperator, Oid sortCollation,
 	state->sortKeys->ssup_collation = sortCollation;
 	state->sortKeys->ssup_nulls_first = nullsFirstFlag;
 
-	/* abbreviation is possible here only for by-reference types */
+	/*
+	 * Abbreviation is possible here only for by-reference types.  In theory,
+	 * a pass-by-value datatype could have an abbreviated form that is cheaper
+	 * to compare.  In a tuple sort, we could support that, because we can
+	 * always extract the original datum from the tuple is needed.  Here, we
+	 * can't, because a datum sort only stores a single copy of the datum;
+	 * the "tuple" field of each sortTuple is NULL.
+	 */
 	state->sortKeys->abbreviate = !typbyval;
 
 	PrepareSortSupportFromOrderingOp(sortOperator, state->sortKeys);
@@ -1271,8 +1279,9 @@ tuplesort_putindextuplevalues(Tuplesortstate *state, Relation rel,
 		 * Store ordinary Datum representation, or NULL value.  If there is a
 		 * converter it won't expect NULL values, and cost model is not
 		 * required to account for NULL, so in that case we avoid calling
-		 * converter and just set datum1 to "void" representation (to be
-		 * consistent).
+		 * converter and just set datum1 to zeroed representation (to be
+		 * consistent, and to support cheap inequality tests for NULL
+		 * abbreviated keys).
 		 */
 		stup.datum1 = original;
 	}
@@ -1341,7 +1350,11 @@ tuplesort_putdatum(Tuplesortstate *state, Datum val, bool isNull)
 
 	if (isNull || state->datumTypeByVal)
 	{
-		stup.datum1 = val;
+		/*
+		 * Set datum1 to zeroed representation for NULLs (to be consistent, and
+		 * to support cheap inequality tests for NULL abbreviated keys).
+		 */
+		stup.datum1 = !isNull ? val : (Datum) 0;
 		stup.isnull1 = isNull;
 		stup.tuple = NULL;		/* no separate storage */
 	}
@@ -1858,10 +1871,17 @@ tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
  * Fetch the next tuple in either forward or back direction.
  * If successful, put tuple in slot and return TRUE; else, clear the slot
  * and return FALSE.
+ *
+ * Caller may optionally be passed back abbreviated value (on TRUE return
+ * value) when abbreviation was used, which can be used to cheaply avoid
+ * equality checks that might otherwise be required.  Caller can safely make a
+ * determination of "non-equal tuple" based on simple binary inequality.  A
+ * NULL value in leading attribute will set abbreviated value to zeroed
+ * representation, which caller may rely on in abbreviated inequality check.
  */
 bool
 tuplesort_gettupleslot(Tuplesortstate *state, bool forward,
-					   TupleTableSlot *slot)
+					   TupleTableSlot *slot, Datum *abbrev)
 {
 	MemoryContext oldcontext = MemoryContextSwitchTo(state->sortcontext);
 	SortTuple	stup;
@@ -1874,6 +1894,10 @@ tuplesort_gettupleslot(Tuplesortstate *state, bool forward,
 
 	if (stup.tuple)
 	{
+		/* Record abbreviated key for caller */
+		if (state->sortKeys->abbrev_converter && abbrev)
+			*abbrev = stup.datum1;
+
 		ExecStoreMinimalTuple((MinimalTuple) stup.tuple, slot, should_free);
 		return true;
 	}
@@ -1929,10 +1953,17 @@ tuplesort_getindextuple(Tuplesortstate *state, bool forward,
  *
  * If the Datum is pass-by-ref type, the returned value is freshly palloc'd
  * and is now owned by the caller.
+ *
+ * Caller may optionally be passed back abbreviated value (on TRUE return
+ * value) when abbreviation was used, which can be used to cheaply avoid
+ * equality checks that might otherwise be required.  Caller can safely make a
+ * determination of "non-equal tuple" based on simple binary inequality.  A
+ * NULL value will have a zeroed abbreviated value representation, which caller
+ * may rely on in abbreviated inequality check.
  */
 bool
 tuplesort_getdatum(Tuplesortstate *state, bool forward,
-				   Datum *val, bool *isNull)
+				   Datum *val, bool *isNull, Datum *abbrev)
 {
 	MemoryContext oldcontext = MemoryContextSwitchTo(state->sortcontext);
 	SortTuple	stup;
@@ -1943,6 +1974,10 @@ tuplesort_getdatum(Tuplesortstate *state, bool forward,
 		MemoryContextSwitchTo(oldcontext);
 		return false;
 	}
+
+	/* Record abbreviated key for caller */
+	if (state->sortKeys->abbrev_converter && abbrev)
+		*abbrev = stup.datum1;
 
 	if (stup.isnull1 || state->datumTypeByVal)
 	{
@@ -2224,21 +2259,6 @@ mergeruns(Tuplesortstate *state)
 	Assert(state->status == TSS_BUILDRUNS);
 	Assert(state->memtupcount == 0);
 
-	/*
-	 * If we produced only one initial run (quite likely if the total data
-	 * volume is between 1X and 2X workMem), we can just use that tape as the
-	 * finished output, rather than doing a useless merge.  (This obvious
-	 * optimization is not in Knuth's algorithm.)
-	 */
-	if (state->currentRun == 1)
-	{
-		state->result_tape = state->tp_tapenum[state->destTape];
-		/* must freeze and rewind the finished output tape */
-		LogicalTapeFreeze(state->tapeset, state->result_tape);
-		state->status = TSS_SORTEDONTAPE;
-		return;
-	}
-
 	if (state->sortKeys != NULL && state->sortKeys->abbrev_converter != NULL)
 	{
 		/*
@@ -2253,6 +2273,21 @@ mergeruns(Tuplesortstate *state)
 		/* Not strictly necessary, but be tidy */
 		state->sortKeys->abbrev_abort = NULL;
 		state->sortKeys->abbrev_full_comparator = NULL;
+	}
+
+	/*
+	 * If we produced only one initial run (quite likely if the total data
+	 * volume is between 1X and 2X workMem), we can just use that tape as the
+	 * finished output, rather than doing a useless merge.  (This obvious
+	 * optimization is not in Knuth's algorithm.)
+	 */
+	if (state->currentRun == 1)
+	{
+		state->result_tape = state->tp_tapenum[state->destTape];
+		/* must freeze and rewind the finished output tape */
+		LogicalTapeFreeze(state->tapeset, state->result_tape);
+		state->status = TSS_SORTEDONTAPE;
+		return;
 	}
 
 	/* End of step D2: rewind all output tapes to prepare for merging */
@@ -3155,8 +3190,9 @@ copytup_heap(Tuplesortstate *state, SortTuple *stup, void *tup)
 		 * Store ordinary Datum representation, or NULL value.  If there is a
 		 * converter it won't expect NULL values, and cost model is not
 		 * required to account for NULL, so in that case we avoid calling
-		 * converter and just set datum1 to "void" representation (to be
-		 * consistent).
+		 * converter and just set datum1 to zeroed representation (to be
+		 * consistent, and to support cheap inequality tests for NULL
+		 * abbreviated keys).
 		 */
 		stup->datum1 = original;
 	}
@@ -3397,8 +3433,9 @@ copytup_cluster(Tuplesortstate *state, SortTuple *stup, void *tup)
 		 * Store ordinary Datum representation, or NULL value.  If there is a
 		 * converter it won't expect NULL values, and cost model is not
 		 * required to account for NULL, so in that case we avoid calling
-		 * converter and just set datum1 to "void" representation (to be
-		 * consistent).
+		 * converter and just set datum1 to zeroed representation (to be
+		 * consistent, and to support cheap inequality tests for NULL
+		 * abbreviated keys).
 		 */
 		stup->datum1 = original;
 	}
@@ -3701,8 +3738,9 @@ copytup_index(Tuplesortstate *state, SortTuple *stup, void *tup)
 		 * Store ordinary Datum representation, or NULL value.  If there is a
 		 * converter it won't expect NULL values, and cost model is not
 		 * required to account for NULL, so in that case we avoid calling
-		 * converter and just set datum1 to "void" representation (to be
-		 * consistent).
+		 * converter and just set datum1 to zeroed representation (to be
+		 * consistent, and to support cheap inequality tests for NULL
+		 * abbreviated keys).
 		 */
 		stup->datum1 = original;
 	}

@@ -3,7 +3,7 @@
  * ts_utils.h
  *	  helper utilities for tsearch
  *
- * Copyright (c) 1998-2015, PostgreSQL Global Development Group
+ * Copyright (c) 1998-2016, PostgreSQL Global Development Group
  *
  * src/include/tsearch/ts_utils.h
  *
@@ -132,6 +132,7 @@ extern Datum gtsvector_union(PG_FUNCTION_ARGS);
 extern Datum gtsvector_same(PG_FUNCTION_ARGS);
 extern Datum gtsvector_penalty(PG_FUNCTION_ARGS);
 extern Datum gtsvector_picksplit(PG_FUNCTION_ARGS);
+extern Datum gtsvector_consistent_oldsig(PG_FUNCTION_ARGS);
 
 /*
  * IO functions for pseudotype gtsvector
@@ -153,6 +154,8 @@ extern Datum gin_tsquery_triconsistent(PG_FUNCTION_ARGS);
 extern Datum gin_extract_tsvector_2args(PG_FUNCTION_ARGS);
 extern Datum gin_extract_tsquery_5args(PG_FUNCTION_ARGS);
 extern Datum gin_tsquery_consistent_6args(PG_FUNCTION_ARGS);
+extern Datum gin_extract_tsquery_oldsig(PG_FUNCTION_ARGS);
+extern Datum gin_tsquery_consistent_oldsig(PG_FUNCTION_ARGS);
 
 /*
  * Possible strategy numbers for indexes
@@ -217,6 +220,7 @@ extern Datum gtsquery_union(PG_FUNCTION_ARGS);
 extern Datum gtsquery_same(PG_FUNCTION_ARGS);
 extern Datum gtsquery_penalty(PG_FUNCTION_ARGS);
 extern Datum gtsquery_picksplit(PG_FUNCTION_ARGS);
+extern Datum gtsquery_consistent_oldsig(PG_FUNCTION_ARGS);
 
 /*
  * Parser interface to SQL

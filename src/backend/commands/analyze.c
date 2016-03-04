@@ -3,7 +3,7 @@
  * analyze.c
  *	  the Postgres statistics generator
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -569,14 +569,20 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 	 * inherited stats.
 	 */
 	if (!inh)
+	{
+		BlockNumber		relallvisible;
+
+		visibilitymap_count(onerel, &relallvisible, NULL);
+
 		vac_update_relstats(onerel,
 							relpages,
 							totalrows,
-							visibilitymap_count(onerel),
+							relallvisible,
 							hasindex,
 							InvalidTransactionId,
 							InvalidMultiXactId,
 							in_outer_xact);
+	}
 
 	/*
 	 * Same for indexes. Vacuum always scans all indexes, so if we're part of

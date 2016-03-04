@@ -3,7 +3,7 @@
  * outfuncs.c
  *	  Output functions for Postgres tree nodes.
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -26,6 +26,7 @@
 #include <ctype.h>
 
 #include "lib/stringinfo.h"
+#include "nodes/extensible.h"
 #include "nodes/plannodes.h"
 #include "nodes/relation.h"
 #include "utils/datum.h"
@@ -124,7 +125,7 @@ _outToken(StringInfo str, const char *s)
 	 */
 	/* These characters only need to be quoted at the start of the string */
 	if (*s == '<' ||
-		*s == '\"' ||
+		*s == '"' ||
 		isdigit((unsigned char) *s) ||
 		((*s == '+' || *s == '-') &&
 		 (isdigit((unsigned char) s[1]) || s[1] == '.')))
@@ -138,6 +139,13 @@ _outToken(StringInfo str, const char *s)
 			appendStringInfoChar(str, '\\');
 		appendStringInfoChar(str, *s++);
 	}
+}
+
+/* for use by extensions which define extensible nodes */
+void
+outToken(StringInfo str, const char *s)
+{
+	_outToken(str, s);
 }
 
 static void
@@ -194,6 +202,13 @@ _outBitmapset(StringInfo str, const Bitmapset *bms)
 	while ((x = bms_next_member(bms, x)) >= 0)
 		appendStringInfo(str, " %d", x);
 	appendStringInfoChar(str, ')');
+}
+
+/* for use by extensions which define extensible nodes */
+void
+outBitmapset(StringInfo str, const Bitmapset *bms)
+{
+	_outBitmapset(str, bms);
 }
 
 /*
@@ -259,6 +274,7 @@ _outPlannedStmt(StringInfo str, const PlannedStmt *node)
 	WRITE_INT_FIELD(nParamExec);
 	WRITE_BOOL_FIELD(hasRowSecurity);
 	WRITE_BOOL_FIELD(parallelModeNeeded);
+	WRITE_BOOL_FIELD(hasForeignJoin);
 }
 
 /*
@@ -442,6 +458,7 @@ _outGather(StringInfo str, const Gather *node)
 
 	WRITE_INT_FIELD(num_workers);
 	WRITE_BOOL_FIELD(single_copy);
+	WRITE_BOOL_FIELD(invisible);
 }
 
 static void
@@ -694,6 +711,9 @@ _outAgg(StringInfo str, const Agg *node)
 	appendStringInfoString(str, " :grpColIdx");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %d", node->grpColIdx[i]);
+
+	WRITE_BOOL_FIELD(combineStates);
+	WRITE_BOOL_FIELD(finalizeAggs);
 
 	appendStringInfoString(str, " :grpOperators");
 	for (i = 0; i < node->numCols; i++)
@@ -1569,6 +1589,7 @@ _outOnConflictExpr(StringInfo str, const OnConflictExpr *node)
  *
  * Note we do NOT print the parent, else we'd be in infinite recursion.
  * We can print the parent's relids for identification purposes, though.
+ * We print the pathtarget only if it's not the default one for the rel.
  * We also do not print the whole of param_info, since it's printed by
  * _outRelOptInfo; it's sufficient and less cluttering to print just the
  * required outer relids.
@@ -1578,16 +1599,22 @@ _outPathInfo(StringInfo str, const Path *node)
 {
 	WRITE_ENUM_FIELD(pathtype, NodeTag);
 	appendStringInfoString(str, " :parent_relids ");
-	if (node->parent)
-		_outBitmapset(str, node->parent->relids);
-	else
-		_outBitmapset(str, NULL);
+	_outBitmapset(str, node->parent->relids);
+	if (node->pathtarget != &(node->parent->reltarget))
+	{
+		WRITE_NODE_FIELD(pathtarget->exprs);
+		WRITE_FLOAT_FIELD(pathtarget->cost.startup, "%.2f");
+		WRITE_FLOAT_FIELD(pathtarget->cost.per_tuple, "%.2f");
+		WRITE_INT_FIELD(pathtarget->width);
+	}
 	appendStringInfoString(str, " :required_outer ");
 	if (node->param_info)
 		_outBitmapset(str, node->param_info->ppi_req_outer);
 	else
 		_outBitmapset(str, NULL);
 	WRITE_BOOL_FIELD(parallel_aware);
+	WRITE_BOOL_FIELD(parallel_safe);
+	WRITE_INT_FIELD(parallel_degree);
 	WRITE_FLOAT_FIELD(rows, "%.0f");
 	WRITE_FLOAT_FIELD(startup_cost, "%.2f");
 	WRITE_FLOAT_FIELD(total_cost, "%.2f");
@@ -1683,6 +1710,7 @@ _outForeignPath(StringInfo str, const ForeignPath *node)
 
 	_outPathInfo(str, (const Path *) node);
 
+	WRITE_NODE_FIELD(fdw_outerpath);
 	WRITE_NODE_FIELD(fdw_private);
 }
 
@@ -1698,8 +1726,6 @@ _outCustomPath(StringInfo str, const CustomPath *node)
 	WRITE_NODE_FIELD(custom_private);
 	appendStringInfoString(str, " :methods ");
 	_outToken(str, node->methods->CustomName);
-	if (node->methods->TextOutCustomPath)
-		node->methods->TextOutCustomPath(str, node);
 }
 
 static void
@@ -1764,7 +1790,6 @@ _outGatherPath(StringInfo str, const GatherPath *node)
 	_outPathInfo(str, (const Path *) node);
 
 	WRITE_NODE_FIELD(subpath);
-	WRITE_INT_FIELD(num_workers);
 	WRITE_BOOL_FIELD(single_copy);
 }
 
@@ -1820,6 +1845,8 @@ _outPlannerGlobal(StringInfo str, const PlannerGlobal *node)
 	WRITE_BOOL_FIELD(hasRowSecurity);
 	WRITE_BOOL_FIELD(parallelModeOK);
 	WRITE_BOOL_FIELD(parallelModeNeeded);
+	WRITE_BOOL_FIELD(wholePlanParallelSafe);
+	WRITE_BOOL_FIELD(hasForeignJoin);
 }
 
 static void
@@ -1846,7 +1873,6 @@ _outPlannerInfo(StringInfo str, const PlannerInfo *node)
 	WRITE_NODE_FIELD(right_join_clauses);
 	WRITE_NODE_FIELD(full_join_clauses);
 	WRITE_NODE_FIELD(join_info_list);
-	WRITE_NODE_FIELD(lateral_info_list);
 	WRITE_NODE_FIELD(append_rel_list);
 	WRITE_NODE_FIELD(rowMarks);
 	WRITE_NODE_FIELD(placeholder_list);
@@ -1880,24 +1906,28 @@ _outRelOptInfo(StringInfo str, const RelOptInfo *node)
 	WRITE_ENUM_FIELD(reloptkind, RelOptKind);
 	WRITE_BITMAPSET_FIELD(relids);
 	WRITE_FLOAT_FIELD(rows, "%.0f");
-	WRITE_INT_FIELD(width);
 	WRITE_BOOL_FIELD(consider_startup);
 	WRITE_BOOL_FIELD(consider_param_startup);
 	WRITE_BOOL_FIELD(consider_parallel);
-	WRITE_NODE_FIELD(reltargetlist);
+	WRITE_NODE_FIELD(reltarget.exprs);
+	WRITE_FLOAT_FIELD(reltarget.cost.startup, "%.2f");
+	WRITE_FLOAT_FIELD(reltarget.cost.per_tuple, "%.2f");
+	WRITE_INT_FIELD(reltarget.width);
 	WRITE_NODE_FIELD(pathlist);
 	WRITE_NODE_FIELD(ppilist);
+	WRITE_NODE_FIELD(partial_pathlist);
 	WRITE_NODE_FIELD(cheapest_startup_path);
 	WRITE_NODE_FIELD(cheapest_total_path);
 	WRITE_NODE_FIELD(cheapest_unique_path);
 	WRITE_NODE_FIELD(cheapest_parameterized_paths);
+	WRITE_BITMAPSET_FIELD(direct_lateral_relids);
+	WRITE_BITMAPSET_FIELD(lateral_relids);
 	WRITE_UINT_FIELD(relid);
 	WRITE_OID_FIELD(reltablespace);
 	WRITE_ENUM_FIELD(rtekind, RTEKind);
 	WRITE_INT_FIELD(min_attr);
 	WRITE_INT_FIELD(max_attr);
 	WRITE_NODE_FIELD(lateral_vars);
-	WRITE_BITMAPSET_FIELD(lateral_relids);
 	WRITE_BITMAPSET_FIELD(lateral_referencers);
 	WRITE_NODE_FIELD(indexlist);
 	WRITE_UINT_FIELD(pages);
@@ -1934,7 +1964,7 @@ _outIndexOptInfo(StringInfo str, const IndexOptInfo *node)
 	WRITE_BOOL_FIELD(unique);
 	WRITE_BOOL_FIELD(immediate);
 	WRITE_BOOL_FIELD(hypothetical);
-	/* we don't bother with fields copied from the pg_am entry */
+	/* we don't bother with fields copied from the index AM's API struct */
 }
 
 static void
@@ -2056,15 +2086,6 @@ _outSpecialJoinInfo(StringInfo str, const SpecialJoinInfo *node)
 }
 
 static void
-_outLateralJoinInfo(StringInfo str, const LateralJoinInfo *node)
-{
-	WRITE_NODE_TYPE("LATERALJOININFO");
-
-	WRITE_BITMAPSET_FIELD(lateral_lhs);
-	WRITE_BITMAPSET_FIELD(lateral_rhs);
-}
-
-static void
 _outAppendRelInfo(StringInfo str, const AppendRelInfo *node)
 {
 	WRITE_NODE_TYPE("APPENDRELINFO");
@@ -2111,6 +2132,27 @@ _outPlannerParamItem(StringInfo str, const PlannerParamItem *node)
 
 	WRITE_NODE_FIELD(item);
 	WRITE_INT_FIELD(paramId);
+}
+
+/*****************************************************************************
+ *
+ *	Stuff from extensible.h
+ *
+ *****************************************************************************/
+
+static void
+_outExtensibleNode(StringInfo str, const ExtensibleNode *node)
+{
+	const ExtensibleNodeMethods  *methods;
+
+	methods = GetExtensibleNodeMethods(node->extnodename, false);
+
+	WRITE_NODE_TYPE("EXTENSIBLENODE");
+
+	WRITE_STRING_FIELD(extnodename);
+
+	/* serialize the private fields */
+	methods->nodeOut(str, node);
 }
 
 /*****************************************************************************
@@ -2771,6 +2813,7 @@ _outA_Indices(StringInfo str, const A_Indices *node)
 {
 	WRITE_NODE_TYPE("A_INDICES");
 
+	WRITE_BOOL_FIELD(is_slice);
 	WRITE_NODE_FIELD(lidx);
 	WRITE_NODE_FIELD(uidx);
 }
@@ -3354,9 +3397,6 @@ _outNode(StringInfo str, const void *obj)
 			case T_SpecialJoinInfo:
 				_outSpecialJoinInfo(str, obj);
 				break;
-			case T_LateralJoinInfo:
-				_outLateralJoinInfo(str, obj);
-				break;
 			case T_AppendRelInfo:
 				_outAppendRelInfo(str, obj);
 				break;
@@ -3368,6 +3408,10 @@ _outNode(StringInfo str, const void *obj)
 				break;
 			case T_PlannerParamItem:
 				_outPlannerParamItem(str, obj);
+				break;
+
+			case T_ExtensibleNode:
+				_outExtensibleNode(str, obj);
 				break;
 
 			case T_CreateStmt:

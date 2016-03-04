@@ -4,7 +4,7 @@
  *		PostgreSQL transaction log manager
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/backend/access/transam/xlog.c
@@ -42,6 +42,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/bgwriter.h"
+#include "postmaster/walwriter.h"
 #include "postmaster/startup.h"
 #include "replication/basebackup.h"
 #include "replication/logical.h"
@@ -321,8 +322,7 @@ static TimeLineID curFileTLI;
  * stored here.  The parallel leader advances its own copy, when necessary,
  * in WaitForParallelWorkersToFinish.
  */
-static XLogRecPtr ProcLastRecPtr = InvalidXLogRecPtr;
-
+XLogRecPtr	ProcLastRecPtr = InvalidXLogRecPtr;
 XLogRecPtr	XactLastRecEnd = InvalidXLogRecPtr;
 XLogRecPtr	XactLastCommitEnd = InvalidXLogRecPtr;
 
@@ -512,7 +512,6 @@ typedef struct XLogCtlInsert
 	 */
 	WALInsertLockPadded *WALInsertLocks;
 	LWLockTranche WALInsertLockTranche;
-	int			WALInsertLockTrancheId;
 } XLogCtlInsert;
 
 /*
@@ -2731,28 +2730,37 @@ XLogFlush(XLogRecPtr record)
 }
 
 /*
- * Flush xlog, but without specifying exactly where to flush to.
+ * Write & flush xlog, but without specifying exactly where to.
  *
- * We normally flush only completed blocks; but if there is nothing to do on
- * that basis, we check for unflushed async commits in the current incomplete
- * block, and flush through the latest one of those.  Thus, if async commits
- * are not being used, we will flush complete blocks only.  We can guarantee
- * that async commits reach disk after at most three cycles; normally only
- * one or two.  (When flushing complete blocks, we allow XLogWrite to write
- * "flexibly", meaning it can stop at the end of the buffer ring; this makes a
- * difference only with very high load or long wal_writer_delay, but imposes
- * one extra cycle for the worst case for async commits.)
+ * We normally write only completed blocks; but if there is nothing to do on
+ * that basis, we check for unwritten async commits in the current incomplete
+ * block, and write through the latest one of those.  Thus, if async commits
+ * are not being used, we will write complete blocks only.
+ *
+ * If, based on the above, there's anything to write we do so immediately. But
+ * to avoid calling fsync, fdatasync et. al. at a rate that'd impact
+ * concurrent IO, we only flush WAL every wal_writer_delay ms, or if there's
+ * more than wal_writer_flush_after unflushed blocks.
+ *
+ * We can guarantee that async commits reach disk after at most three
+ * wal_writer_delay cycles. (When flushing complete blocks, we allow XLogWrite
+ * to write "flexibly", meaning it can stop at the end of the buffer ring;
+ * this makes a difference only with very high load or long wal_writer_delay,
+ * but imposes one extra cycle for the worst case for async commits.)
  *
  * This routine is invoked periodically by the background walwriter process.
  *
- * Returns TRUE if we flushed anything.
+ * Returns TRUE if there was any work to do, even if we skipped flushing due
+ * to wal_writer_delay/wal_flush_after.
  */
 bool
 XLogBackgroundFlush(void)
 {
-	XLogRecPtr	WriteRqstPtr;
+	XLogwrtRqst WriteRqst;
 	bool		flexible = true;
-	bool		wrote_something = false;
+	static TimestampTz lastflush;
+	TimestampTz now;
+	int			flushbytes;
 
 	/* XLOG doesn't need flushing during recovery */
 	if (RecoveryInProgress())
@@ -2761,17 +2769,17 @@ XLogBackgroundFlush(void)
 	/* read LogwrtResult and update local state */
 	SpinLockAcquire(&XLogCtl->info_lck);
 	LogwrtResult = XLogCtl->LogwrtResult;
-	WriteRqstPtr = XLogCtl->LogwrtRqst.Write;
+	WriteRqst = XLogCtl->LogwrtRqst;
 	SpinLockRelease(&XLogCtl->info_lck);
 
 	/* back off to last completed page boundary */
-	WriteRqstPtr -= WriteRqstPtr % XLOG_BLCKSZ;
+	WriteRqst.Write -= WriteRqst.Write % XLOG_BLCKSZ;
 
 	/* if we have already flushed that far, consider async commit records */
-	if (WriteRqstPtr <= LogwrtResult.Flush)
+	if (WriteRqst.Write <= LogwrtResult.Flush)
 	{
 		SpinLockAcquire(&XLogCtl->info_lck);
-		WriteRqstPtr = XLogCtl->asyncXactLSN;
+		WriteRqst.Write = XLogCtl->asyncXactLSN;
 		SpinLockRelease(&XLogCtl->info_lck);
 		flexible = false;		/* ensure it all gets written */
 	}
@@ -2781,7 +2789,7 @@ XLogBackgroundFlush(void)
 	 * holding an open file handle to a logfile that's no longer in use,
 	 * preventing the file from being deleted.
 	 */
-	if (WriteRqstPtr <= LogwrtResult.Flush)
+	if (WriteRqst.Write <= LogwrtResult.Flush)
 	{
 		if (openLogFile >= 0)
 		{
@@ -2793,10 +2801,47 @@ XLogBackgroundFlush(void)
 		return false;
 	}
 
+	/*
+	 * Determine how far to flush WAL, based on the wal_writer_delay and
+	 * wal_writer_flush_after GUCs.
+	 */
+	now = GetCurrentTimestamp();
+	flushbytes =
+		WriteRqst.Write / XLOG_BLCKSZ - LogwrtResult.Flush / XLOG_BLCKSZ;
+
+	if (WalWriterFlushAfter == 0 || lastflush == 0)
+	{
+		/* first call, or block based limits disabled */
+		WriteRqst.Flush = WriteRqst.Write;
+		lastflush = now;
+	}
+	else if (TimestampDifferenceExceeds(lastflush, now, WalWriterDelay))
+	{
+		/*
+		 * Flush the writes at least every WalWriteDelay ms. This is important
+		 * to bound the amount of time it takes for an asynchronous commit to
+		 * hit disk.
+		 */
+		WriteRqst.Flush = WriteRqst.Write;
+		lastflush = now;
+	}
+	else if (flushbytes >= WalWriterFlushAfter)
+	{
+		/* exceeded wal_writer_flush_after blocks, flush */
+		WriteRqst.Flush = WriteRqst.Write;
+		lastflush = now;
+	}
+	else
+	{
+		/* no flushing, this time round */
+		WriteRqst.Flush = 0;
+	}
+
 #ifdef WAL_DEBUG
 	if (XLOG_DEBUG)
-		elog(LOG, "xlog bg flush request %X/%X; write %X/%X; flush %X/%X",
-			 (uint32) (WriteRqstPtr >> 32), (uint32) WriteRqstPtr,
+		elog(LOG, "xlog bg flush request write %X/%X; flush: %X/%X, current is write %X/%X; flush %X/%X",
+			 (uint32) (WriteRqst.Write >> 32), (uint32) WriteRqst.Write,
+			 (uint32) (WriteRqst.Flush >> 32), (uint32) WriteRqst.Flush,
 			 (uint32) (LogwrtResult.Write >> 32), (uint32) LogwrtResult.Write,
 		   (uint32) (LogwrtResult.Flush >> 32), (uint32) LogwrtResult.Flush);
 #endif
@@ -2804,17 +2849,13 @@ XLogBackgroundFlush(void)
 	START_CRIT_SECTION();
 
 	/* now wait for any in-progress insertions to finish and get write lock */
-	WaitXLogInsertionsToFinish(WriteRqstPtr);
+	WaitXLogInsertionsToFinish(WriteRqst.Write);
 	LWLockAcquire(WALWriteLock, LW_EXCLUSIVE);
 	LogwrtResult = XLogCtl->LogwrtResult;
-	if (WriteRqstPtr > LogwrtResult.Flush)
+	if (WriteRqst.Write > LogwrtResult.Write ||
+		WriteRqst.Flush > LogwrtResult.Flush)
 	{
-		XLogwrtRqst WriteRqst;
-
-		WriteRqst.Write = WriteRqstPtr;
-		WriteRqst.Flush = WriteRqstPtr;
 		XLogWrite(WriteRqst, flexible);
-		wrote_something = true;
 	}
 	LWLockRelease(WALWriteLock);
 
@@ -2829,7 +2870,12 @@ XLogBackgroundFlush(void)
 	 */
 	AdvanceXLInsertBuffer(InvalidXLogRecPtr, true);
 
-	return wrote_something;
+	/*
+	 * If we determined that we need to write data, but somebody else
+	 * wrote/flushed already, it should be considered as being active, to
+	 * avoid hibernating too early.
+	 */
+	return true;
 }
 
 /*
@@ -4653,7 +4699,7 @@ XLOGShmemInit(void)
 
 		/* Initialize local copy of WALInsertLocks and register the tranche */
 		WALInsertLocks = XLogCtl->Insert.WALInsertLocks;
-		LWLockRegisterTranche(XLogCtl->Insert.WALInsertLockTrancheId,
+		LWLockRegisterTranche(LWTRANCHE_WAL_INSERT,
 							  &XLogCtl->Insert.WALInsertLockTranche);
 		return;
 	}
@@ -4677,17 +4723,14 @@ XLOGShmemInit(void)
 		(WALInsertLockPadded *) allocptr;
 	allocptr += sizeof(WALInsertLockPadded) * NUM_XLOGINSERT_LOCKS;
 
-	XLogCtl->Insert.WALInsertLockTrancheId = LWLockNewTrancheId();
-
-	XLogCtl->Insert.WALInsertLockTranche.name = "WALInsertLocks";
+	XLogCtl->Insert.WALInsertLockTranche.name = "wal_insert";
 	XLogCtl->Insert.WALInsertLockTranche.array_base = WALInsertLocks;
 	XLogCtl->Insert.WALInsertLockTranche.array_stride = sizeof(WALInsertLockPadded);
 
-	LWLockRegisterTranche(XLogCtl->Insert.WALInsertLockTrancheId, &XLogCtl->Insert.WALInsertLockTranche);
+	LWLockRegisterTranche(LWTRANCHE_WAL_INSERT, &XLogCtl->Insert.WALInsertLockTranche);
 	for (i = 0; i < NUM_XLOGINSERT_LOCKS; i++)
 	{
-		LWLockInitialize(&WALInsertLocks[i].l.lock,
-						 XLogCtl->Insert.WALInsertLockTrancheId);
+		LWLockInitialize(&WALInsertLocks[i].l.lock, LWTRANCHE_WAL_INSERT);
 		WALInsertLocks[i].l.insertingAt = InvalidXLogRecPtr;
 	}
 
@@ -4786,8 +4829,8 @@ BootStrapXLOG(void)
 	checkPoint.oldestXidDB = TemplateDbOid;
 	checkPoint.oldestMulti = FirstMultiXactId;
 	checkPoint.oldestMultiDB = TemplateDbOid;
-	checkPoint.oldestCommitTs = InvalidTransactionId;
-	checkPoint.newestCommitTs = InvalidTransactionId;
+	checkPoint.oldestCommitTsXid = InvalidTransactionId;
+	checkPoint.newestCommitTsXid = InvalidTransactionId;
 	checkPoint.time = (pg_time_t) time(NULL);
 	checkPoint.oldestActiveXid = InvalidTransactionId;
 
@@ -6288,7 +6331,7 @@ StartupXLOG(void)
 				  (uint32) (checkPoint.redo >> 32), (uint32) checkPoint.redo,
 					wasShutdown ? "TRUE" : "FALSE")));
 	ereport(DEBUG1,
-			(errmsg_internal("next transaction ID: %u/%u; next OID: %u",
+			(errmsg_internal("next transaction ID: %u:%u; next OID: %u",
 					checkPoint.nextXidEpoch, checkPoint.nextXid,
 					checkPoint.nextOid)));
 	ereport(DEBUG1,
@@ -6302,8 +6345,8 @@ StartupXLOG(void)
 					checkPoint.oldestMulti, checkPoint.oldestMultiDB)));
 	ereport(DEBUG1,
 			(errmsg_internal("commit timestamp Xid oldest/newest: %u/%u",
-					checkPoint.oldestCommitTs,
-					checkPoint.newestCommitTs)));
+					checkPoint.oldestCommitTsXid,
+					checkPoint.newestCommitTsXid)));
 	if (!TransactionIdIsNormal(checkPoint.nextXid))
 		ereport(PANIC,
 				(errmsg("invalid next transaction ID")));
@@ -6315,8 +6358,8 @@ StartupXLOG(void)
 	MultiXactSetNextMXact(checkPoint.nextMulti, checkPoint.nextMultiOffset);
 	SetTransactionIdLimit(checkPoint.oldestXid, checkPoint.oldestXidDB);
 	SetMultiXactIdLimit(checkPoint.oldestMulti, checkPoint.oldestMultiDB);
-	SetCommitTsLimit(checkPoint.oldestCommitTs,
-					 checkPoint.newestCommitTs);
+	SetCommitTsLimit(checkPoint.oldestCommitTsXid,
+					 checkPoint.newestCommitTsXid);
 	XLogCtl->ckptXidEpoch = checkPoint.nextXidEpoch;
 	XLogCtl->ckptXid = checkPoint.nextXid;
 
@@ -6337,6 +6380,14 @@ StartupXLOG(void)
 	 * truncations.
 	 */
 	StartupMultiXact();
+
+	/*
+	 * Ditto commit timestamps.  In a standby, we do it if setting is enabled
+	 * in ControlFile; in a master we base the decision on the GUC itself.
+	 */
+	if (ArchiveRecoveryRequested ?
+		ControlFile->track_commit_timestamp : track_commit_timestamp)
+		StartupCommitTs();
 
 	/*
 	 * Recover knowledge about replay progress of known replication partners.
@@ -6565,12 +6616,11 @@ StartupXLOG(void)
 			ProcArrayInitRecovery(ShmemVariableCache->nextXid);
 
 			/*
-			 * Startup commit log, commit timestamp and subtrans only.
-			 * MultiXact has already been started up and other SLRUs are not
+			 * Startup commit log and subtrans only.  MultiXact and commit
+			 * timestamp have already been started up and other SLRUs are not
 			 * maintained during recovery and need not be started yet.
 			 */
 			StartupCLOG();
-			StartupCommitTs(ControlFile->track_commit_timestamp);
 			StartupSUBTRANS(oldestActiveXID);
 
 			/*
@@ -7333,13 +7383,12 @@ StartupXLOG(void)
 	LWLockRelease(ProcArrayLock);
 
 	/*
-	 * Start up the commit log, commit timestamp and subtrans, if not already
-	 * done for hot standby.
+	 * Start up the commit log and subtrans, if not already done for hot
+	 * standby.  (commit timestamps are started below, if necessary.)
 	 */
 	if (standbyState == STANDBY_DISABLED)
 	{
 		StartupCLOG();
-		StartupCommitTs(false);
 		StartupSUBTRANS(oldestActiveXID);
 	}
 
@@ -7860,13 +7909,11 @@ GetInsertRecPtr(void)
 XLogRecPtr
 GetFlushRecPtr(void)
 {
-	XLogRecPtr	recptr;
-
 	SpinLockAcquire(&XLogCtl->info_lck);
-	recptr = XLogCtl->LogwrtResult.Flush;
+	LogwrtResult = XLogCtl->LogwrtResult;
 	SpinLockRelease(&XLogCtl->info_lck);
 
-	return recptr;
+	return LogwrtResult.Flush;
 }
 
 /*
@@ -7949,10 +7996,6 @@ ShutdownXLOG(int code, Datum arg)
 	ShutdownCommitTs();
 	ShutdownSUBTRANS();
 	ShutdownMultiXact();
-
-	/* Don't be chatty in standalone mode */
-	ereport(IsPostmasterEnvironment ? LOG : NOTICE,
-			(errmsg("database system is shut down")));
 }
 
 /*
@@ -8328,8 +8371,8 @@ CreateCheckPoint(int flags)
 	LWLockRelease(XidGenLock);
 
 	LWLockAcquire(CommitTsLock, LW_SHARED);
-	checkPoint.oldestCommitTs = ShmemVariableCache->oldestCommitTs;
-	checkPoint.newestCommitTs = ShmemVariableCache->newestCommitTs;
+	checkPoint.oldestCommitTsXid = ShmemVariableCache->oldestCommitTsXid;
+	checkPoint.newestCommitTsXid = ShmemVariableCache->newestCommitTsXid;
 	LWLockRelease(CommitTsLock);
 
 	/* Increase XID epoch if we've wrapped around since last checkpoint */

@@ -4,7 +4,7 @@
  *	  definitions for executor state nodes
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/nodes/execnodes.h
@@ -1029,6 +1029,7 @@ typedef struct PlanState
 								 * top-level plan */
 
 	Instrumentation *instrument;	/* Optional runtime stats for this node */
+	WorkerInstrumentation *worker_instrument; /* per-worker instrumentation */
 
 	/*
 	 * Common structural data for all Plan types.  These links to subsidiary
@@ -1584,6 +1585,7 @@ typedef struct ForeignScanState
 {
 	ScanState	ss;				/* its first field is NodeTag */
 	List	   *fdw_recheck_quals;	/* original quals not in ss.ps.qual */
+	Size		pscan_len;		/* size of parallel coordination information */
 	/* use struct pointer to avoid including fdwapi.h here */
 	struct FdwRoutine *fdwroutine;
 	void	   *fdw_state;		/* foreign-data wrapper can keep state here */
@@ -1602,6 +1604,8 @@ typedef struct ForeignScanState
  * the BeginCustomScan method.
  * ----------------
  */
+struct ParallelContext;			/* avoid including parallel.h here */
+struct shm_toc;					/* avoid including shm_toc.h here */
 struct ExplainState;			/* avoid including explain.h here */
 struct CustomScanState;
 
@@ -1618,7 +1622,15 @@ typedef struct CustomExecMethods
 	void		(*ReScanCustomScan) (struct CustomScanState *node);
 	void		(*MarkPosCustomScan) (struct CustomScanState *node);
 	void		(*RestrPosCustomScan) (struct CustomScanState *node);
-
+	/* Optional: parallel execution support */
+	Size		(*EstimateDSMCustomScan) (struct CustomScanState *node,
+											   struct ParallelContext *pcxt);
+	void		(*InitializeDSMCustomScan) (struct CustomScanState *node,
+												struct ParallelContext *pcxt,
+														void *coordinate);
+	void		(*InitializeWorkerCustomScan) (struct CustomScanState *node,
+														 struct shm_toc *toc,
+														   void *coordinate);
 	/* Optional: print additional information in EXPLAIN */
 	void		(*ExplainCustomScan) (struct CustomScanState *node,
 												  List *ancestors,
@@ -1630,6 +1642,7 @@ typedef struct CustomScanState
 	ScanState	ss;
 	uint32		flags;			/* mask of CUSTOMPATH_* flags, see relation.h */
 	List	   *custom_ps;		/* list of child PlanState nodes, if any */
+	Size		pscan_len;		/* size of parallel coordination information */
 	const CustomExecMethods *methods;
 } CustomScanState;
 
@@ -1850,6 +1863,8 @@ typedef struct AggState
 	AggStatePerTrans curpertrans;	/* currently active trans state */
 	bool		input_done;		/* indicates end of input */
 	bool		agg_done;		/* indicates completion of Agg scan */
+	bool		combineStates;	/* input tuples contain transition states */
+	bool		finalizeAggs;	/* should we call the finalfn on agg states? */
 	int			projected_set;	/* The last projected grouping set */
 	int			current_set;	/* The current grouping set being evaluated */
 	Bitmapset  *grouped_cols;	/* grouped cols in current projection */

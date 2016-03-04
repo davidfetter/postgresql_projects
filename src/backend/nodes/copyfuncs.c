@@ -11,7 +11,7 @@
  * be handled easily in a simple depth-first traversal.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -23,6 +23,7 @@
 #include "postgres.h"
 
 #include "miscadmin.h"
+#include "nodes/extensible.h"
 #include "nodes/plannodes.h"
 #include "nodes/relation.h"
 #include "utils/datum.h"
@@ -95,6 +96,7 @@ _copyPlannedStmt(const PlannedStmt *from)
 	COPY_SCALAR_FIELD(nParamExec);
 	COPY_SCALAR_FIELD(hasRowSecurity);
 	COPY_SCALAR_FIELD(parallelModeNeeded);
+	COPY_SCALAR_FIELD(hasForeignJoin);
 
 	return newnode;
 }
@@ -333,6 +335,7 @@ _copyGather(const Gather *from)
 	 */
 	COPY_SCALAR_FIELD(num_workers);
 	COPY_SCALAR_FIELD(single_copy);
+	COPY_SCALAR_FIELD(invisible);
 
 	return newnode;
 }
@@ -865,6 +868,8 @@ _copyAgg(const Agg *from)
 
 	COPY_SCALAR_FIELD(aggstrategy);
 	COPY_SCALAR_FIELD(numCols);
+	COPY_SCALAR_FIELD(combineStates);
+	COPY_SCALAR_FIELD(finalizeAggs);
 	if (from->numCols > 0)
 	{
 		COPY_POINTER_FIELD(grpColIdx, from->numCols * sizeof(AttrNumber));
@@ -2067,20 +2072,6 @@ _copySpecialJoinInfo(const SpecialJoinInfo *from)
 }
 
 /*
- * _copyLateralJoinInfo
- */
-static LateralJoinInfo *
-_copyLateralJoinInfo(const LateralJoinInfo *from)
-{
-	LateralJoinInfo *newnode = makeNode(LateralJoinInfo);
-
-	COPY_BITMAPSET_FIELD(lateral_lhs);
-	COPY_BITMAPSET_FIELD(lateral_rhs);
-
-	return newnode;
-}
-
-/*
  * _copyAppendRelInfo
  */
 static AppendRelInfo *
@@ -2415,6 +2406,7 @@ _copyAIndices(const A_Indices *from)
 {
 	A_Indices  *newnode = makeNode(A_Indices);
 
+	COPY_SCALAR_FIELD(is_slice);
 	COPY_NODE_FIELD(lidx);
 	COPY_NODE_FIELD(uidx);
 
@@ -4175,6 +4167,27 @@ _copyList(const List *from)
 }
 
 /* ****************************************************************
+ *					extensible.h copy functions
+ * ****************************************************************
+ */
+static ExtensibleNode *
+_copyExtensibleNode(const ExtensibleNode *from)
+{
+	ExtensibleNode	   *newnode;
+	const ExtensibleNodeMethods *methods;
+
+	methods = GetExtensibleNodeMethods(from->extnodename, false);
+	newnode = (ExtensibleNode *) newNode(methods->node_size,
+										 T_ExtensibleNode);
+	COPY_STRING_FIELD(extnodename);
+
+	/* copy the private fields */
+	methods->nodeCopy(newnode, from);
+
+	return newnode;
+}
+
+/* ****************************************************************
  *					value.h copy functions
  * ****************************************************************
  */
@@ -4519,9 +4532,6 @@ copyObject(const void *from)
 		case T_SpecialJoinInfo:
 			retval = _copySpecialJoinInfo(from);
 			break;
-		case T_LateralJoinInfo:
-			retval = _copyLateralJoinInfo(from);
-			break;
 		case T_AppendRelInfo:
 			retval = _copyAppendRelInfo(from);
 			break;
@@ -4554,6 +4564,13 @@ copyObject(const void *from)
 		case T_IntList:
 		case T_OidList:
 			retval = list_copy(from);
+			break;
+
+			/*
+			 * EXTENSIBLE NODES
+			 */
+		case T_ExtensibleNode:
+			retval = _copyExtensibleNode(from);
 			break;
 
 			/*

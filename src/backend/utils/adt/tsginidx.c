@@ -3,7 +3,7 @@
  * tsginidx.c
  *	 GIN support functions for tsvector_ops
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -375,5 +375,25 @@ gin_tsquery_consistent_6args(PG_FUNCTION_ARGS)
 {
 	if (PG_NARGS() < 8)			/* should not happen */
 		elog(ERROR, "gin_tsquery_consistent requires eight arguments");
+	return gin_tsquery_consistent(fcinfo);
+}
+
+/*
+ * Likewise, a stub version of gin_extract_tsquery declared with argument
+ * types that are no longer considered appropriate.
+ */
+Datum
+gin_extract_tsquery_oldsig(PG_FUNCTION_ARGS)
+{
+	return gin_extract_tsquery(fcinfo);
+}
+
+/*
+ * Likewise, a stub version of gin_tsquery_consistent declared with argument
+ * types that are no longer considered appropriate.
+ */
+Datum
+gin_tsquery_consistent_oldsig(PG_FUNCTION_ARGS)
+{
 	return gin_tsquery_consistent(fcinfo);
 }

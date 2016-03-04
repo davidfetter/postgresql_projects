@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2015, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2016, PostgreSQL Global Development Group
  *
  * src/bin/psql/command.c
  */
@@ -916,7 +916,7 @@ exec_command(const char *cmd,
 			include_relative = (strcmp(cmd, "ir") == 0
 								|| strcmp(cmd, "include_relative") == 0);
 			expand_tilde(&fname);
-			success = (process_file(fname, false, include_relative) == EXIT_SUCCESS);
+			success = (process_file(fname, include_relative) == EXIT_SUCCESS);
 			free(fname);
 		}
 	}
@@ -1531,6 +1531,7 @@ exec_command(const char *cmd,
 				if (fname[0] == '|')
 				{
 					is_pipe = true;
+					disable_sigpipe_trap();
 					fd = popen(&fname[1], "w");
 				}
 				else
@@ -1564,6 +1565,9 @@ exec_command(const char *cmd,
 				success = false;
 			}
 		}
+
+		if (is_pipe)
+			restore_sigpipe_trap();
 
 		free(fname);
 	}
@@ -2284,13 +2288,12 @@ do_edit(const char *filename_arg, PQExpBuffer query_buf,
  * the file from where the currently processed file (if any) is located.
  */
 int
-process_file(char *filename, bool single_txn, bool use_relative_path)
+process_file(char *filename, bool use_relative_path)
 {
 	FILE	   *fd;
 	int			result;
 	char	   *oldfilename;
 	char		relpath[MAXPGPATH];
-	PGresult   *res;
 
 	if (!filename)
 	{
@@ -2335,37 +2338,8 @@ process_file(char *filename, bool single_txn, bool use_relative_path)
 	oldfilename = pset.inputfile;
 	pset.inputfile = filename;
 
-	if (single_txn)
-	{
-		if ((res = PSQLexec("BEGIN")) == NULL)
-		{
-			if (pset.on_error_stop)
-			{
-				result = EXIT_USER;
-				goto error;
-			}
-		}
-		else
-			PQclear(res);
-	}
-
 	result = MainLoop(fd);
 
-	if (single_txn)
-	{
-		if ((res = PSQLexec("COMMIT")) == NULL)
-		{
-			if (pset.on_error_stop)
-			{
-				result = EXIT_USER;
-				goto error;
-			}
-		}
-		else
-			PQclear(res);
-	}
-
-error:
 	if (fd != stdin)
 		fclose(fd);
 
@@ -2412,7 +2386,7 @@ _align2string(enum printFormat in)
 }
 
 /*
- * Parse entered unicode linestyle.  If ok, update *linestyle and return
+ * Parse entered Unicode linestyle.  If ok, update *linestyle and return
  * true, else return false.
  */
 static bool
@@ -2515,7 +2489,7 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 			refresh_utf8format(&(popt->topt));
 		else
 		{
-			psql_error("\\pset: allowed unicode border linestyles are single, double\n");
+			psql_error("\\pset: allowed Unicode border line styles are single, double\n");
 			return false;
 		}
 	}
@@ -2530,7 +2504,7 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 			refresh_utf8format(&(popt->topt));
 		else
 		{
-			psql_error("\\pset: allowed unicode column linestyles are single, double\n");
+			psql_error("\\pset: allowed Unicode column line styles are single, double\n");
 			return false;
 		}
 	}
@@ -2545,7 +2519,7 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 			refresh_utf8format(&(popt->topt));
 		else
 		{
-			psql_error("\\pset: allowed unicode header linestyles are single, double\n");
+			psql_error("\\pset: allowed Unicode header line styles are single, double\n");
 			return false;
 		}
 	}
@@ -2855,22 +2829,22 @@ printPsetInfo(const char *param, struct printQueryOpt *popt)
 			printf(_("Tuples only is off.\n"));
 	}
 
-	/* unicode style formatting */
+	/* Unicode style formatting */
 	else if (strcmp(param, "unicode_border_linestyle") == 0)
 	{
-		printf(_("Unicode border linestyle is \"%s\".\n"),
+		printf(_("Unicode border line style is \"%s\".\n"),
 			 _unicode_linestyle2string(popt->topt.unicode_border_linestyle));
 	}
 
 	else if (strcmp(param, "unicode_column_linestyle") == 0)
 	{
-		printf(_("Unicode column linestyle is \"%s\".\n"),
+		printf(_("Unicode column line style is \"%s\".\n"),
 			 _unicode_linestyle2string(popt->topt.unicode_column_linestyle));
 	}
 
 	else if (strcmp(param, "unicode_header_linestyle") == 0)
 	{
-		printf(_("Unicode header linestyle is \"%s\".\n"),
+		printf(_("Unicode header line style is \"%s\".\n"),
 			 _unicode_linestyle2string(popt->topt.unicode_header_linestyle));
 	}
 

@@ -18,7 +18,7 @@
  * "x" to be considered equal() to another reference to "x" in the query.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -29,6 +29,7 @@
 
 #include "postgres.h"
 
+#include "nodes/extensible.h"
 #include "nodes/relation.h"
 #include "utils/datum.h"
 
@@ -846,15 +847,6 @@ _equalSpecialJoinInfo(const SpecialJoinInfo *a, const SpecialJoinInfo *b)
 }
 
 static bool
-_equalLateralJoinInfo(const LateralJoinInfo *a, const LateralJoinInfo *b)
-{
-	COMPARE_BITMAPSET_FIELD(lateral_lhs);
-	COMPARE_BITMAPSET_FIELD(lateral_rhs);
-
-	return true;
-}
-
-static bool
 _equalAppendRelInfo(const AppendRelInfo *a, const AppendRelInfo *b)
 {
 	COMPARE_SCALAR_FIELD(parent_relid);
@@ -880,6 +872,25 @@ _equalPlaceHolderInfo(const PlaceHolderInfo *a, const PlaceHolderInfo *b)
 	return true;
 }
 
+/*
+ * Stuff from extensible.h
+ */
+static bool
+_equalExtensibleNode(const ExtensibleNode *a, const ExtensibleNode *b)
+{
+	const ExtensibleNodeMethods  *methods;
+
+	COMPARE_STRING_FIELD(extnodename);
+
+	/* At this point, we know extnodename is the same for both nodes. */
+	methods = GetExtensibleNodeMethods(a->extnodename, false);
+
+	/* compare the private fields */
+	if (!methods->nodeEqual(a, b))
+		return false;
+
+	return true;
+}
 
 /*
  * Stuff from parsenodes.h
@@ -2160,6 +2171,7 @@ _equalAStar(const A_Star *a, const A_Star *b)
 static bool
 _equalAIndices(const A_Indices *a, const A_Indices *b)
 {
+	COMPARE_SCALAR_FIELD(is_slice);
 	COMPARE_NODE_FIELD(lidx);
 	COMPARE_NODE_FIELD(uidx);
 
@@ -2860,9 +2872,6 @@ equal(const void *a, const void *b)
 		case T_SpecialJoinInfo:
 			retval = _equalSpecialJoinInfo(a, b);
 			break;
-		case T_LateralJoinInfo:
-			retval = _equalLateralJoinInfo(a, b);
-			break;
 		case T_AppendRelInfo:
 			retval = _equalAppendRelInfo(a, b);
 			break;
@@ -2882,6 +2891,13 @@ equal(const void *a, const void *b)
 		case T_BitString:
 		case T_Null:
 			retval = _equalValue(a, b);
+			break;
+
+			/*
+			 * EXTENSIBLE NODES
+			 */
+		case T_ExtensibleNode:
+			retval = _equalExtensibleNode(a, b);
 			break;
 
 			/*

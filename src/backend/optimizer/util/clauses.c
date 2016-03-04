@@ -3,7 +3,7 @@
  * clauses.c
  *	  routines to manipulate qualification clauses
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -3489,7 +3489,7 @@ eval_const_expressions_mutator(Node *node,
 				 * can optimize field selection from a RowExpr construct.
 				 *
 				 * However, replacing a whole-row Var in this way has a
-				 * pitfall: if we've already built the reltargetlist for the
+				 * pitfall: if we've already built the rel targetlist for the
 				 * source relation, then the whole-row Var is scheduled to be
 				 * produced by the relation scan, but the simple Var probably
 				 * isn't, which will lead to a failure in setrefs.c.  This is
@@ -4886,7 +4886,8 @@ evaluate_expr(Expr *expr, Oid result_type, int32 result_typmod,
 	 *
 	 * Also, if it's varlena, forcibly detoast it.  This protects us against
 	 * storing TOAST pointers into plans that might outlive the referenced
-	 * data.
+	 * data.  (makeConst would handle detoasting anyway, but it's worth a few
+	 * extra lines here so that we can do the copy and detoast in one step.)
 	 */
 	if (!const_is_null)
 	{

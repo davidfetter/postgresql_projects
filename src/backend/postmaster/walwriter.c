@@ -31,7 +31,7 @@
  * should be killed by SIGQUIT and then a recovery cycle started.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -64,6 +64,7 @@
  * GUC parameters
  */
 int			WalWriterDelay = 200;
+int			WalWriterFlushAfter = 128;
 
 /*
  * Number of do-nothing loops before lengthening the delay time, and the

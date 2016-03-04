@@ -35,7 +35,7 @@
  * take some time. Once caught up, the current highest priority standby
  * will release waiters from the queue.
  *
- * Portions Copyright (c) 2010-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010-2016, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/replication/syncrep.c
@@ -183,7 +183,7 @@ SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
 		/*
 		 * If a wait for synchronous replication is pending, we can neither
 		 * acknowledge the commit nor raise ERROR or FATAL.  The latter would
-		 * lead the client to believe that that the transaction aborted, which
+		 * lead the client to believe that the transaction aborted, which
 		 * is not true: it's already committed locally. The former is no good
 		 * either: the client has requested synchronous replication, and is
 		 * entitled to assume that an acknowledged commit is also replicated,
@@ -406,7 +406,7 @@ SyncRepGetSynchronousStandby(void)
  * Update the LSNs on each queue based upon our latest state. This
  * implements a simple policy of first-valid-standby-releases-waiter.
  *
- * Other policies are possible, which would change what we do here and what
+ * Other policies are possible, which would change what we do here and
  * perhaps also which information we store as well.
  */
 void
@@ -419,9 +419,9 @@ SyncRepReleaseWaiters(void)
 
 	/*
 	 * If this WALSender is serving a standby that is not on the list of
-	 * potential standbys then we have nothing to do. If we are still starting
-	 * up, still running base backup or the current flush position is still
-	 * invalid, then leave quickly also.
+	 * potential sync standbys then we have nothing to do. If we are still
+	 * starting up, still running base backup or the current flush position
+	 * is still invalid, then leave quickly also.
 	 */
 	if (MyWalSnd->sync_standby_priority == 0 ||
 		MyWalSnd->state < WALSNDSTATE_STREAMING ||

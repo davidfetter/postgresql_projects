@@ -16,7 +16,7 @@
  *		contents of records in here except turning them into a more usable
  *		format.
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -449,7 +449,7 @@ DecodeCommit(LogicalDecodingContext *ctx, XLogRecordBuffer *buf,
 			 xl_xact_parsed_commit *parsed, TransactionId xid)
 {
 	XLogRecPtr	origin_lsn = InvalidXLogRecPtr;
-	XLogRecPtr	commit_time = InvalidXLogRecPtr;
+	TimestampTz	commit_time = parsed->xact_time;
 	XLogRecPtr	origin_id = XLogRecGetOrigin(buf->record);
 	int			i;
 

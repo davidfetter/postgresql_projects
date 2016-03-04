@@ -3,7 +3,7 @@
  * nodeGather.c
  *	  Support routines for scanning a plan via multiple workers.
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * A Gather executor launches parallel workers to run multiple copies of a
@@ -138,7 +138,7 @@ ExecGather(GatherState *node)
 	/*
 	 * Initialize the parallel context and workers on first execution. We do
 	 * this on first execution rather than during node initialization, as it
-	 * needs to allocate large dynamic segement, so it is better to do if it
+	 * needs to allocate large dynamic segment, so it is better to do if it
 	 * is really needed.
 	 */
 	if (!node->initialized)
@@ -153,7 +153,6 @@ ExecGather(GatherState *node)
 		if (gather->num_workers > 0 && IsInParallelMode())
 		{
 			ParallelContext *pcxt;
-			bool	got_any_worker = false;
 
 			/* Initialize the workers required to execute Gather node. */
 			if (!node->pei)
@@ -169,29 +168,26 @@ ExecGather(GatherState *node)
 			LaunchParallelWorkers(pcxt);
 
 			/* Set up tuple queue readers to read the results. */
-			if (pcxt->nworkers > 0)
+			if (pcxt->nworkers_launched > 0)
 			{
 				node->nreaders = 0;
 				node->reader =
-					palloc(pcxt->nworkers * sizeof(TupleQueueReader *));
+					palloc(pcxt->nworkers_launched * sizeof(TupleQueueReader *));
 
-				for (i = 0; i < pcxt->nworkers; ++i)
+				for (i = 0; i < pcxt->nworkers_launched; ++i)
 				{
-					if (pcxt->worker[i].bgwhandle == NULL)
-						continue;
-
 					shm_mq_set_handle(node->pei->tqueue[i],
 									  pcxt->worker[i].bgwhandle);
 					node->reader[node->nreaders++] =
 						CreateTupleQueueReader(node->pei->tqueue[i],
 											   fslot->tts_tupleDescriptor);
-					got_any_worker = true;
 				}
 			}
-
-			/* No workers?  Then never mind. */
-			if (!got_any_worker)
+			else
+			{
+				/* No workers?  Then never mind. */
 				ExecShutdownGatherWorkers(node);
+			}
 		}
 
 		/* Run plan locally if no workers or not single-copy. */
@@ -359,13 +355,19 @@ gather_readnext(GatherState *gatherstate)
 			continue;
 		}
 
-		/* Advance nextreader pointer in round-robin fashion. */
-		gatherstate->nextreader =
-			(gatherstate->nextreader + 1) % gatherstate->nreaders;
-
 		/* If we got a tuple, return it. */
 		if (tup)
 			return tup;
+
+		/*
+		 * Advance nextreader pointer in round-robin fashion.  Note that we
+		 * only reach this code if we weren't able to get a tuple from the
+		 * current worker.  We used to advance the nextreader pointer after
+		 * every tuple, but it turns out to be much more efficient to keep
+		 * reading from the same queue until that would require blocking.
+		 */
+		gatherstate->nextreader =
+			(gatherstate->nextreader + 1) % gatherstate->nreaders;
 
 		/* Have we visited every TupleQueueReader? */
 		if (gatherstate->nextreader == waitpos)

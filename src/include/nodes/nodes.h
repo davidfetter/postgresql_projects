@@ -4,7 +4,7 @@
  *	  Definitions for tagged nodes.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/nodes/nodes.h
@@ -247,7 +247,6 @@ typedef enum NodeTag
 	T_RestrictInfo,
 	T_PlaceHolderVar,
 	T_SpecialJoinInfo,
-	T_LateralJoinInfo,
 	T_AppendRelInfo,
 	T_PlaceHolderInfo,
 	T_MinMaxAggInfo,
@@ -275,6 +274,11 @@ typedef enum NodeTag
 	T_List,
 	T_IntList,
 	T_OidList,
+
+	/*
+	 * TAGS FOR EXTENSIBLE NODES (extensible.h)
+	 */
+	T_ExtensibleNode,
 
 	/*
 	 * TAGS FOR STATEMENT NODES (mostly in parsenodes.h)
@@ -455,6 +459,7 @@ typedef enum NodeTag
 	T_TIDBitmap,				/* in nodes/tidbitmap.h */
 	T_InlineCodeBlock,			/* in nodes/parsenodes.h */
 	T_FdwRoutine,				/* in foreign/fdwapi.h */
+	T_IndexAmRoutine,			/* in access/amapi.h */
 	T_TsmRoutine				/* in access/tsmapi.h */
 } NodeTag;
 
@@ -527,10 +532,17 @@ extern PGDLLIMPORT Node *newNodeMacroHolder;
  */
 extern char *nodeToString(const void *obj);
 
+struct Bitmapset;		/* not to include bitmapset.h here */
+struct StringInfoData;	/* not to include stringinfo.h here */
+extern void outToken(struct StringInfoData *str, const char *s);
+extern void outBitmapset(struct StringInfoData *str,
+						 const struct Bitmapset *bms);
+
 /*
  * nodes/{readfuncs.c,read.c}
  */
 extern void *stringToNode(char *str);
+extern struct Bitmapset *readBitmapset(void);
 
 /*
  * nodes/copyfuncs.c

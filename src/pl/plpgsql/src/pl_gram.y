@@ -3,7 +3,7 @@
  *
  * pl_gram.y			- Parser for the PL/pgSQL procedural language
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -3518,7 +3518,7 @@ check_sql_expr(const char *stmt, int location, int leaderlen)
 	syntax_errcontext.previous = error_context_stack;
 	error_context_stack = &syntax_errcontext;
 
-	oldCxt = MemoryContextSwitchTo(compile_tmp_cxt);
+	oldCxt = MemoryContextSwitchTo(plpgsql_compile_tmp_cxt);
 	(void) raw_parser(stmt);
 	MemoryContextSwitchTo(oldCxt);
 

@@ -31,7 +31,7 @@
  * for too long.)
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -1515,7 +1515,7 @@ SerializeSnapshot(Snapshot snapshot, char *start_address)
 	 * snapshot taken during recovery; all the top-level XIDs are in subxip as
 	 * well in that case, so we mustn't lose them.
 	 */
-	if (snapshot->subxcnt > 0)
+	if (serialized_snapshot->subxcnt > 0)
 	{
 		Size		subxipoff = sizeof(SerializedSnapshotData) +
 		snapshot->xcnt * sizeof(TransactionId);

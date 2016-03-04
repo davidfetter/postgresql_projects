@@ -3,7 +3,7 @@
  * plpgsql.h		- Definitions for the PL/pgSQL
  *			  procedural language
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -938,9 +938,9 @@ extern PLpgSQL_datum **plpgsql_Datums;
 extern char *plpgsql_error_funcname;
 
 extern PLpgSQL_function *plpgsql_curr_compile;
-extern MemoryContext compile_tmp_cxt;
+extern MemoryContext plpgsql_compile_tmp_cxt;
 
-extern PLpgSQL_plugin **plugin_ptr;
+extern PLpgSQL_plugin **plpgsql_plugin_ptr;
 
 /**********************************************************************
  * Function declarations
@@ -999,9 +999,9 @@ extern void plpgsql_exec_event_trigger(PLpgSQL_function *func,
 extern void plpgsql_xact_cb(XactEvent event, void *arg);
 extern void plpgsql_subxact_cb(SubXactEvent event, SubTransactionId mySubid,
 				   SubTransactionId parentSubid, void *arg);
-extern Oid exec_get_datum_type(PLpgSQL_execstate *estate,
+extern Oid plpgsql_exec_get_datum_type(PLpgSQL_execstate *estate,
 					PLpgSQL_datum *datum);
-extern void exec_get_datum_type_info(PLpgSQL_execstate *estate,
+extern void plpgsql_exec_get_datum_type_info(PLpgSQL_execstate *estate,
 						 PLpgSQL_datum *datum,
 						 Oid *typeid, int32 *typmod, Oid *collation);
 
