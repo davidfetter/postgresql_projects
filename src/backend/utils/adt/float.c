@@ -2520,28 +2520,6 @@ float8_avg(PG_FUNCTION_ARGS)
 }
 
 Datum
-float8_weighted_avg(PG_FUNCTION_ARGS)
-{
-	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
-	float8	   *transvalues;
-	float8		N,
-				sumWX,
-				sumW;
-
-	transvalues = check_float8_array(transarray, "float8_weighted_avg", 6);
-	N = transvalues[0];
-	sumW = transvalues[1];
-	sumWX = transvalues[5];
-
-	if (N < 1.0)
-		PG_RETURN_NULL();
-
-	CHECKFLOATVAL(N, isinf(1.0/sumW) || isinf(sumWX), true);
-
-	PG_RETURN_FLOAT8(sumWX/sumW);
-}
-
-Datum
 float8_var_pop(PG_FUNCTION_ARGS)
 {
 	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
@@ -3102,6 +3080,7 @@ float8_regr_intercept(PG_FUNCTION_ARGS)
  * Q, another intermediate value.
  *
  */
+
 Datum
 float8_weighted_accum(PG_FUNCTION_ARGS)
 {
@@ -3145,6 +3124,41 @@ float8_weighted_accum(PG_FUNCTION_ARGS)
 	else /* You do not need to call this directly. */
 		ereport(ERROR,
 				(errmsg("float8_weighted_accum called outside agg context")));
+}
+
+/*
+ * This is the final function for the weighted mean, having borrowed
+ * the 6-element accumulator used in the binary aggregates below to
+ * get
+ *
+ *     N, the number of elements with non-zero weights,
+ *     sumW, the sum of the weights, and
+ *     sumWX, the dot product of elements and weights.
+ *
+ *  While it might be possible to optimize this further by making a
+ *  more compact accumulator, the performance gain is likely marginal.
+ *
+ */
+Datum
+float8_weighted_avg(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
+	float8	   *transvalues;
+	float8		N,
+				sumWX,
+				sumW;
+
+	transvalues = check_float8_array(transarray, "float8_weighted_avg", 6);
+	N = transvalues[0];
+	sumW = transvalues[1];
+	sumWX = transvalues[5];
+
+	if (N < 1.0)
+		PG_RETURN_NULL();
+
+	CHECKFLOATVAL(N, isinf(1.0/sumW) || isinf(sumWX), true);
+
+	PG_RETURN_FLOAT8(sumWX/sumW);
 }
 
 Datum
