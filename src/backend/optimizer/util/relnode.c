@@ -24,6 +24,7 @@
 #include "optimizer/placeholder.h"
 #include "optimizer/plancat.h"
 #include "optimizer/restrictinfo.h"
+#include "optimizer/tlist.h"
 #include "utils/hsearch.h"
 
 
@@ -106,10 +107,7 @@ build_simple_rel(PlannerInfo *root, int relid, RelOptKind reloptkind)
 	rel->consider_startup = (root->tuple_fraction > 0);
 	rel->consider_param_startup = false;		/* might get changed later */
 	rel->consider_parallel = false;		/* might get changed later */
-	rel->reltarget.exprs = NIL;
-	rel->reltarget.cost.startup = 0;
-	rel->reltarget.cost.per_tuple = 0;
-	rel->reltarget.width = 0;
+	rel->reltarget = create_empty_pathtarget();
 	rel->pathlist = NIL;
 	rel->ppilist = NIL;
 	rel->partial_pathlist = NIL;
@@ -128,7 +126,6 @@ build_simple_rel(PlannerInfo *root, int relid, RelOptKind reloptkind)
 	rel->pages = 0;
 	rel->tuples = 0;
 	rel->allvisfrac = 0;
-	rel->subplan = NULL;
 	rel->subroot = NULL;
 	rel->subplan_params = NIL;
 	rel->serverid = InvalidOid;
@@ -393,10 +390,7 @@ build_join_rel(PlannerInfo *root,
 	joinrel->consider_startup = (root->tuple_fraction > 0);
 	joinrel->consider_param_startup = false;
 	joinrel->consider_parallel = false;
-	joinrel->reltarget.exprs = NIL;
-	joinrel->reltarget.cost.startup = 0;
-	joinrel->reltarget.cost.per_tuple = 0;
-	joinrel->reltarget.width = 0;
+	joinrel->reltarget = create_empty_pathtarget();
 	joinrel->pathlist = NIL;
 	joinrel->ppilist = NIL;
 	joinrel->partial_pathlist = NIL;
@@ -422,7 +416,6 @@ build_join_rel(PlannerInfo *root,
 	joinrel->pages = 0;
 	joinrel->tuples = 0;
 	joinrel->allvisfrac = 0;
-	joinrel->subplan = NULL;
 	joinrel->subroot = NULL;
 	joinrel->subplan_params = NIL;
 	joinrel->serverid = InvalidOid;
@@ -613,7 +606,7 @@ build_joinrel_tlist(PlannerInfo *root, RelOptInfo *joinrel,
 	Relids		relids = joinrel->relids;
 	ListCell   *vars;
 
-	foreach(vars, input_rel->reltarget.exprs)
+	foreach(vars, input_rel->reltarget->exprs)
 	{
 		Var		   *var = (Var *) lfirst(vars);
 		RelOptInfo *baserel;
@@ -643,9 +636,9 @@ build_joinrel_tlist(PlannerInfo *root, RelOptInfo *joinrel,
 		if (bms_nonempty_difference(baserel->attr_needed[ndx], relids))
 		{
 			/* Yup, add it to the output */
-			joinrel->reltarget.exprs = lappend(joinrel->reltarget.exprs, var);
-			/* Vars have cost zero, so no need to adjust reltarget.cost */
-			joinrel->reltarget.width += baserel->attr_widths[ndx];
+			joinrel->reltarget->exprs = lappend(joinrel->reltarget->exprs, var);
+			/* Vars have cost zero, so no need to adjust reltarget->cost */
+			joinrel->reltarget->width += baserel->attr_widths[ndx];
 		}
 	}
 }
@@ -832,10 +825,67 @@ build_empty_join_rel(PlannerInfo *root)
 	joinrel->relids = NULL;		/* empty set */
 	joinrel->rows = 1;			/* we produce one row for such cases */
 	joinrel->rtekind = RTE_JOIN;
+	joinrel->reltarget = create_empty_pathtarget();
 
 	root->join_rel_list = lappend(root->join_rel_list, joinrel);
 
 	return joinrel;
+}
+
+
+/*
+ * fetch_upper_rel
+ *		Build a RelOptInfo describing some post-scan/join query processing,
+ *		or return a pre-existing one if somebody already built it.
+ *
+ * An "upper" relation is identified by an UpperRelationKind and a Relids set.
+ * The meaning of the Relids set is not specified here, and very likely will
+ * vary for different relation kinds.
+ *
+ * Most of the fields in an upper-level RelOptInfo are not used and are not
+ * set here (though makeNode should ensure they're zeroes).  We basically only
+ * care about fields that are of interest to add_path() and set_cheapest().
+ */
+RelOptInfo *
+fetch_upper_rel(PlannerInfo *root, UpperRelationKind kind, Relids relids)
+{
+	RelOptInfo *upperrel;
+	ListCell   *lc;
+
+	/*
+	 * For the moment, our indexing data structure is just a List for each
+	 * relation kind.  If we ever get so many of one kind that this stops
+	 * working well, we can improve it.  No code outside this function should
+	 * assume anything about how to find a particular upperrel.
+	 */
+
+	/* If we already made this upperrel for the query, return it */
+	foreach(lc, root->upper_rels[kind])
+	{
+		upperrel = (RelOptInfo *) lfirst(lc);
+
+		if (bms_equal(upperrel->relids, relids))
+			return upperrel;
+	}
+
+	upperrel = makeNode(RelOptInfo);
+	upperrel->reloptkind = RELOPT_UPPER_REL;
+	upperrel->relids = bms_copy(relids);
+
+	/* cheap startup cost is interesting iff not all tuples to be retrieved */
+	upperrel->consider_startup = (root->tuple_fraction > 0);
+	upperrel->consider_param_startup = false;
+	upperrel->consider_parallel = false;		/* might get changed later */
+	upperrel->reltarget = create_empty_pathtarget();
+	upperrel->pathlist = NIL;
+	upperrel->cheapest_startup_path = NULL;
+	upperrel->cheapest_total_path = NULL;
+	upperrel->cheapest_unique_path = NULL;
+	upperrel->cheapest_parameterized_paths = NIL;
+
+	root->upper_rels[kind] = lappend(root->upper_rels[kind], upperrel);
+
+	return upperrel;
 }
 
 

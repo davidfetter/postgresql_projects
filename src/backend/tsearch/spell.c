@@ -219,6 +219,19 @@ findchar(char *str, int c)
 	return NULL;
 }
 
+static char *
+findchar2(char *str, int c1, int c2)
+{
+	while (*str)
+	{
+		if (t_iseq(str, c1) || t_iseq(str, c2))
+			return str;
+		str += pg_mblen(str);
+	}
+
+	return NULL;
+}
+
 
 /* backward string compare for suffix tree operations */
 static int
@@ -363,7 +376,7 @@ DecodeFlag(IspellDict *Conf, char *sflag, char **sflagnext)
 									 errmsg("non-ASCII affix flag \"%s\"",
 											sflag)));
 						}
-						else if (isdigit(*next))
+						else if (isdigit((unsigned char) *next))
 						{
 							if (!met_comma)
 								ereport(ERROR,
@@ -381,7 +394,7 @@ DecodeFlag(IspellDict *Conf, char *sflag, char **sflagnext)
 												sflag)));
 							met_comma = true;
 						}
-						else if (!isspace(*next))
+						else if (!isspace((unsigned char) *next))
 						{
 							ereport(ERROR,
 									(errcode(ERRCODE_CONFIG_FILE_ERROR),
@@ -1164,7 +1177,7 @@ NIImportOOAffixes(IspellDict *Conf, const char *filename)
 					ereport(ERROR,
 						(errcode(ERRCODE_CONFIG_FILE_ERROR),
 						 errmsg("Ispell dictionary supports only default, "
-						 		"long and num flag value")));
+								"long and num flag value")));
 			}
 		}
 
@@ -1262,18 +1275,13 @@ NIImportOOAffixes(IspellDict *Conf, const char *filename)
 
 			if (flag == 0)
 				goto nextline;
+			/* Get flags after '/' (flags are case sensitive) */
+			if ((ptr = strchr(repl, '/')) != NULL)
+				aflg |= getFlagValues(Conf, getFlags(Conf, ptr + 1));
+			/* Get lowercased version of string before '/' */
 			prepl = lowerstr_ctx(Conf, repl);
-			/* Find position of '/' in lowercased string "prepl" */
 			if ((ptr = strchr(prepl, '/')) != NULL)
-			{
-				/*
-				 * Here we use non-lowercased string "repl". We need position
-				 * of '/' in "repl".
-				 */
 				*ptr = '\0';
-				ptr = repl + (ptr - prepl) + 1;
-				aflg |= getFlagValues(Conf, getFlags(Conf, ptr));
-			}
 			pfind = lowerstr_ctx(Conf, find);
 			pmask = lowerstr_ctx(Conf, mask);
 			if (t_iseq(find, '0'))
@@ -1343,12 +1351,10 @@ NIImportAffixes(IspellDict *Conf, const char *filename)
 
 		if (STRNCMP(pstr, "compoundwords") == 0)
 		{
-			/* Find position in lowercased string "pstr" */
-			s = findchar(pstr, 'l');
+			/* Find case-insensitive L flag in non-lowercased string */
+			s = findchar2(recoded, 'l', 'L');
 			if (s)
 			{
-				/* Here we use non-lowercased string "recoded" */
-				s = recoded + (s - pstr);
 				while (*s && !t_isspace(s))
 					s += pg_mblen(s);
 				while (*s && t_isspace(s))
@@ -1459,6 +1465,12 @@ MergeAffix(IspellDict *Conf, int a1, int a2)
 {
 	char	  **ptr;
 
+	/* Do not merge affix flags if one of affix flags is empty */
+	if (*Conf->AffixData[a1] == '\0')
+		return a2;
+	else if (*Conf->AffixData[a2] == '\0')
+		return a1;
+
 	while (Conf->nAffixData + 1 >= Conf->lenAffixData)
 	{
 		Conf->lenAffixData *= 2;
@@ -1467,10 +1479,20 @@ MergeAffix(IspellDict *Conf, int a1, int a2)
 	}
 
 	ptr = Conf->AffixData + Conf->nAffixData;
-	*ptr = cpalloc(strlen(Conf->AffixData[a1]) +
-				   strlen(Conf->AffixData[a2]) +
-				   1 /* space */ + 1 /* \0 */ );
-	sprintf(*ptr, "%s %s", Conf->AffixData[a1], Conf->AffixData[a2]);
+	if (Conf->flagMode == FM_NUM)
+	{
+		*ptr = cpalloc(strlen(Conf->AffixData[a1]) +
+					   strlen(Conf->AffixData[a2]) +
+					   1 /* comma */ + 1 /* \0 */ );
+		sprintf(*ptr, "%s,%s", Conf->AffixData[a1], Conf->AffixData[a2]);
+	}
+	else
+	{
+		*ptr = cpalloc(strlen(Conf->AffixData[a1]) +
+					   strlen(Conf->AffixData[a2]) +
+					   1 /* \0 */ );
+		sprintf(*ptr, "%s%s", Conf->AffixData[a1], Conf->AffixData[a2]);
+	}
 	ptr++;
 	*ptr = NULL;
 	Conf->nAffixData++;

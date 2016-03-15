@@ -220,7 +220,8 @@ find_placeholders_in_expr(PlannerInfo *root, Node *expr)
 	 * convenient to use.
 	 */
 	vars = pull_var_clause(expr,
-						   PVC_RECURSE_AGGREGATES,
+						   PVC_RECURSE_AGGREGATES |
+						   PVC_RECURSE_WINDOWFUNCS |
 						   PVC_INCLUDE_PLACEHOLDERS);
 	foreach(vl, vars)
 	{
@@ -354,7 +355,8 @@ fix_placeholder_input_needed_levels(PlannerInfo *root)
 	{
 		PlaceHolderInfo *phinfo = (PlaceHolderInfo *) lfirst(lc);
 		List	   *vars = pull_var_clause((Node *) phinfo->ph_var->phexpr,
-										   PVC_RECURSE_AGGREGATES,
+										   PVC_RECURSE_AGGREGATES |
+										   PVC_RECURSE_WINDOWFUNCS |
 										   PVC_INCLUDE_PLACEHOLDERS);
 
 		add_vars_to_targetlist(root, vars, phinfo->ph_eval_at, false);
@@ -389,8 +391,8 @@ add_placeholders_to_base_rels(PlannerInfo *root)
 		{
 			RelOptInfo *rel = find_base_rel(root, varno);
 
-			rel->reltarget.exprs = lappend(rel->reltarget.exprs,
-										   copyObject(phinfo->ph_var));
+			rel->reltarget->exprs = lappend(rel->reltarget->exprs,
+											copyObject(phinfo->ph_var));
 			/* reltarget's cost and width fields will be updated later */
 		}
 	}
@@ -423,9 +425,9 @@ add_placeholders_to_joinrel(PlannerInfo *root, RelOptInfo *joinrel,
 			if (bms_is_subset(phinfo->ph_eval_at, relids))
 			{
 				/* Yup, add it to the output */
-				joinrel->reltarget.exprs = lappend(joinrel->reltarget.exprs,
-												   phinfo->ph_var);
-				joinrel->reltarget.width += phinfo->ph_width;
+				joinrel->reltarget->exprs = lappend(joinrel->reltarget->exprs,
+													phinfo->ph_var);
+				joinrel->reltarget->width += phinfo->ph_width;
 
 				/*
 				 * Charge the cost of evaluating the contained expression if
@@ -445,8 +447,8 @@ add_placeholders_to_joinrel(PlannerInfo *root, RelOptInfo *joinrel,
 
 					cost_qual_eval_node(&cost, (Node *) phinfo->ph_var->phexpr,
 										root);
-					joinrel->reltarget.cost.startup += cost.startup;
-					joinrel->reltarget.cost.per_tuple += cost.per_tuple;
+					joinrel->reltarget->cost.startup += cost.startup;
+					joinrel->reltarget->cost.per_tuple += cost.per_tuple;
 				}
 
 				/* Adjust joinrel's direct_lateral_relids as needed */
