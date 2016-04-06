@@ -19,12 +19,12 @@ include $(top_builddir)/src/Makefile.global
 REFDOCDIR= $(top_srcdir)/doc/src/sgml/ref
 
 override CPPFLAGS := -I. -I$(srcdir) -I$(libpq_srcdir) $(CPPFLAGS)
-LDFLAGS += -L$(top_builddir)/src/fe_utils -lpgfeutils
+LDFLAGS += -L$(top_builddir)/src/fe_utils -lpgfeutils -lpq
 
 OBJS=	command.o common.o help.o input.o stringutils.o mainloop.o copy.o \
 	startup.o prompt.o variables.o large_obj.o describe.o \
 	tab-complete.o \
-	sql_help.o psqlscan.o psqlscanslash.o \
+	sql_help.o psqlscanslash.o \
 	$(WIN32RES)
 
 
@@ -39,20 +39,15 @@ sql_help.c: sql_help.h ;
 sql_help.h: create_help.pl $(wildcard $(REFDOCDIR)/*.sgml)
 	$(PERL) $< $(REFDOCDIR) $*
 
-psqlscan.c: FLEXFLAGS = -Cfe -p -p
-psqlscan.c: FLEX_NO_BACKUP=yes
-
 psqlscanslash.c: FLEXFLAGS = -Cfe -p -p
-# Ideally we'd check this, but parallel make causes problems:
-# psqlscanslash.c: FLEX_NO_BACKUP=yes
+psqlscanslash.c: FLEX_NO_BACKUP=yes
 
-# Latest flex causes warnings in these files.
+# Latest flex causes warnings in this file.
 ifeq ($(GCC),yes)
-psqlscan.o: CFLAGS += -Wno-error
 psqlscanslash.o: CFLAGS += -Wno-error
 endif
 
-distprep: sql_help.h psqlscan.c psqlscanslash.c
+distprep: sql_help.h psqlscanslash.c
 
 install: all installdirs
 	$(INSTALL_PROGRAM) psql$(X) '$(DESTDIR)$(bindir)/psql$(X)'
@@ -70,4 +65,4 @@ clean distclean:
 # files removed here are supposed to be in the distribution tarball,
 # so do not clean them in the clean/distclean rules
 maintainer-clean: distclean
-	rm -f sql_help.h sql_help.c psqlscan.c psqlscanslash.c
+	rm -f sql_help.h sql_help.c psqlscanslash.c

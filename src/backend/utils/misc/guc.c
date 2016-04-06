@@ -345,12 +345,13 @@ static const struct config_enum_entry constraint_exclusion_options[] = {
 };
 
 /*
- * Although only "on", "off", "remote_write", and "local" are documented, we
- * accept all the likely variants of "on" and "off".
+ * Although only "on", "off", "remote_apply", "remote_write", and "local" are
+ * documented, we accept all the likely variants of "on" and "off".
  */
 static const struct config_enum_entry synchronous_commit_options[] = {
 	{"local", SYNCHRONOUS_COMMIT_LOCAL_FLUSH, false},
 	{"remote_write", SYNCHRONOUS_COMMIT_REMOTE_WRITE, false},
+	{"remote_apply", SYNCHRONOUS_COMMIT_REMOTE_APPLY, false},
 	{"on", SYNCHRONOUS_COMMIT_ON, false},
 	{"off", SYNCHRONOUS_COMMIT_OFF, false},
 	{"true", SYNCHRONOUS_COMMIT_ON, true},
@@ -6999,22 +7000,37 @@ AlterSystemSetConfigFile(AlterSystemStmt *altersysstmt)
 					 errmsg("parameter \"%s\" cannot be changed",
 							name)));
 
+		/*
+		 * If a value is specified, verify that it's sane.
+		 */
 		if (value)
 		{
 			union config_var_val newval;
 			void	   *newextra = NULL;
 
+			/* Check that it's acceptable for the indicated parameter */
 			if (!parse_and_validate_value(record, name, value,
 										  PGC_S_FILE, ERROR,
 										  &newval, &newextra))
 				ereport(ERROR,
-						(errmsg("invalid value for parameter \"%s\": \"%s\"",
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid value for parameter \"%s\": \"%s\"",
 								name, value)));
 
 			if (record->vartype == PGC_STRING && newval.stringval != NULL)
 				free(newval.stringval);
 			if (newextra)
 				free(newextra);
+
+			/*
+			 * We must also reject values containing newlines, because the
+			 * grammar for config files doesn't support embedded newlines in
+			 * string literals.
+			 */
+			if (strchr(value, '\n'))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("parameter value for ALTER SYSTEM must not contain a newline")));
 		}
 	}
 
@@ -7051,13 +7067,15 @@ AlterSystemSetConfigFile(AlterSystemStmt *altersysstmt)
 			infile = AllocateFile(AutoConfFileName, "r");
 			if (infile == NULL)
 				ereport(ERROR,
-						(errmsg("could not open file \"%s\": %m",
+						(errcode_for_file_access(),
+						 errmsg("could not open file \"%s\": %m",
 								AutoConfFileName)));
 
 			/* parse it */
 			if (!ParseConfigFp(infile, AutoConfFileName, 0, LOG, &head, &tail))
 				ereport(ERROR,
-						(errmsg("could not parse contents of file \"%s\"",
+						(errcode(ERRCODE_CONFIG_FILE_ERROR),
+						 errmsg("could not parse contents of file \"%s\"",
 								AutoConfFileName)));
 
 			FreeFile(infile);

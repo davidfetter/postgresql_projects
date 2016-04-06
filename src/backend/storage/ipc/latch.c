@@ -143,7 +143,7 @@ static void WaitEventAdjustPoll(WaitEventSet *set, WaitEvent *event);
 static void WaitEventAdjustWin32(WaitEventSet *set, WaitEvent *event);
 #endif
 
-static int WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
+static inline int WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 					  WaitEvent *occurred_events, int nevents);
 
 /*
@@ -383,7 +383,7 @@ SetLatch(volatile Latch *latch)
 #endif
 
 	/*
-	 * The memory barrier has be to be placed here to ensure that any flag
+	 * The memory barrier has to be placed here to ensure that any flag
 	 * variables possibly changed by this process have been flushed to main
 	 * memory, before we check/set is_set.
 	 */
@@ -968,7 +968,7 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
  * epoll_event struct contain a pointer to our events, making association
  * easy.
  */
-static int
+static inline int
 WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 					  WaitEvent *occurred_events, int nevents)
 {

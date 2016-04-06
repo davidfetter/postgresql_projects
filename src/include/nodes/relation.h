@@ -563,6 +563,10 @@ typedef struct RelOptInfo
  *		indextlist is a TargetEntry list representing the index columns.
  *		It provides an equivalent base-relation Var for each simple column,
  *		and links to the matching indexprs element for each expression column.
+ *
+ *		While most of these fields are filled when the IndexOptInfo is created
+ *		(by plancat.c), indrestrictinfo and predOK are set later, in
+ *		check_index_predicates().
  */
 typedef struct IndexOptInfo
 {
@@ -595,7 +599,12 @@ typedef struct IndexOptInfo
 
 	List	   *indextlist;		/* targetlist representing index columns */
 
-	bool		predOK;			/* true if predicate matches query */
+	List	   *indrestrictinfo;/* parent relation's baserestrictinfo list,
+								 * less any conditions implied by the index's
+								 * predicate (unless it's a target rel, see
+								 * comments in check_index_predicates()) */
+
+	bool		predOK;			/* true if index predicate matches query */
 	bool		unique;			/* true if a unique index */
 	bool		immediate;		/* is uniqueness enforced immediately? */
 	bool		hypothetical;	/* true if index doesn't really exist */
@@ -1030,23 +1039,8 @@ typedef struct ForeignPath
  * FDW case, we provide a "custom_private" field in CustomPath; providers
  * may prefer to use that rather than define another struct type.
  */
-struct CustomPath;
 
-#define CUSTOMPATH_SUPPORT_BACKWARD_SCAN	0x0001
-#define CUSTOMPATH_SUPPORT_MARK_RESTORE		0x0002
-
-typedef struct CustomPathMethods
-{
-	const char *CustomName;
-
-	/* Convert Path to a Plan */
-	struct Plan *(*PlanCustomPath) (PlannerInfo *root,
-												RelOptInfo *rel,
-												struct CustomPath *best_path,
-												List *tlist,
-												List *clauses,
-												List *custom_plans);
-} CustomPathMethods;
+struct CustomPathMethods;
 
 typedef struct CustomPath
 {
@@ -1054,7 +1048,7 @@ typedef struct CustomPath
 	uint32		flags;			/* mask of CUSTOMPATH_* flags, see above */
 	List	   *custom_paths;	/* list of child Path nodes, if any */
 	List	   *custom_private;
-	const CustomPathMethods *methods;
+	const struct CustomPathMethods *methods;
 } CustomPath;
 
 /*
@@ -1311,6 +1305,7 @@ typedef struct AggPath
 	List	   *qual;			/* quals (HAVING quals), if any */
 	bool		combineStates;	/* input is partially aggregated agg states */
 	bool		finalizeAggs;	/* should the executor call the finalfn? */
+	bool		serialStates;	/* should agg states be (de)serialized? */
 } AggPath;
 
 /*
