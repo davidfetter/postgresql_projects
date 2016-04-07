@@ -145,7 +145,7 @@ DATA(insert ( 2103	n 0 numeric_avg_accum numeric_avg		-					-	-	numeric_avg_accu
 DATA(insert ( 2104	n 0 float4_accum	float8_avg			-					-	-	-				-				-						f f 0	1022	0	0	0		0	"{0,0,0}" _null_ ));
 DATA(insert ( 2105	n 0 float8_accum	float8_avg			-					-	-	-				-				-						f f 0	1022	0	0	0		0	"{0,0,0}" _null_ ));
 DATA(insert ( 2106	n 0 interval_accum	interval_avg		-					-	-	interval_accum	interval_accum_inv interval_avg			f f 0	1187	0	0	1187	0	"{0 second,0 second}" "{0 second,0 second}" ));
-DATA(insert ( 3998 n 0 float8_regr_accum float8_weighted_avg - - - float8_regr_accum - - f f 0 1022 0 48 1022 0 "{0,0,0,0,0,0}" _null_)); 
+DATA(insert ( 3998 n 0 float8_regr_accum float8_weighted_avg - - - - - - f f 0 1022 0 48 0 0 "{0,0,0,0,0,0}" _null_));
 
 /* sum */
 DATA(insert ( 2107	n 0 int8_avg_accum	numeric_poly_sum	-					-	-	int8_avg_accum	int8_avg_accum_inv	numeric_poly_sum	f f 0	2281	0	48	2281	48	_null_ _null_ ));
