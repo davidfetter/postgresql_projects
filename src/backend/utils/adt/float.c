@@ -3136,8 +3136,12 @@ float8_weighted_accum(PG_FUNCTION_ARGS)
 
 	transvalues = check_float8_array(transarray, "float8_weighted_stddev_accum", 4);
 
-	if (newvalW <= 0.0) /* We only care about positive weights */
+	if (newvalW == 0.0) /* Discard zero weights */
 		PG_RETURN_NULL();
+
+	if (newvalW < 0.0) /* Negative weights are an error. */
+		ereport(ERROR,
+				(errmsg("negative weights are not allowed")));
 
 	N = transvalues[0];
 	W = transvalues[1];
