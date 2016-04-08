@@ -1242,8 +1242,8 @@ pg_SSPI_recvauth(Port *port)
 
 	if (!GetTokenInformation(token, TokenUser, NULL, 0, &retlen) && GetLastError() != 122)
 		ereport(ERROR,
-			(errmsg_internal("could not get token user size: error code %lu",
-							 GetLastError())));
+				(errmsg_internal("could not get token information buffer size: error code %lu",
+								 GetLastError())));
 
 	tokenuser = malloc(retlen);
 	if (tokenuser == NULL)
@@ -1252,8 +1252,8 @@ pg_SSPI_recvauth(Port *port)
 
 	if (!GetTokenInformation(token, TokenUser, tokenuser, retlen, &retlen))
 		ereport(ERROR,
-				(errmsg_internal("could not get token user: error code %lu",
-								 GetLastError())));
+		  (errmsg_internal("could not get token information: error code %lu",
+						   GetLastError())));
 
 	CloseHandle(token);
 
@@ -1739,6 +1739,18 @@ CheckPAMAuth(Port *port, char *user, char *password)
 {
 	int			retval;
 	pam_handle_t *pamh = NULL;
+	char		hostinfo[NI_MAXHOST];
+
+	retval = pg_getnameinfo_all(&port->raddr.addr, port->raddr.salen,
+								hostinfo, sizeof(hostinfo), NULL, 0,
+								port->hba->pam_use_hostname ? 0 : NI_NUMERICHOST | NI_NUMERICSERV);
+	if (retval != 0)
+	{
+		ereport(WARNING,
+				(errmsg_internal("pg_getnameinfo_all() failed: %s",
+								 gai_strerror(retval))));
+		return STATUS_ERROR;
+	}
 
 	/*
 	 * We can't entirely rely on PAM to pass through appdata --- it appears
@@ -1781,6 +1793,17 @@ CheckPAMAuth(Port *port, char *user, char *password)
 				(errmsg("pam_set_item(PAM_USER) failed: %s",
 						pam_strerror(pamh, retval))));
 		pam_passwd = NULL;		/* Unset pam_passwd */
+		return STATUS_ERROR;
+	}
+
+	retval = pam_set_item(pamh, PAM_RHOST, hostinfo);
+
+	if (retval != PAM_SUCCESS)
+	{
+		ereport(LOG,
+				(errmsg("pam_set_item(PAM_RHOST) failed: %s",
+					pam_strerror(pamh, retval))));
+		pam_passwd = NULL;
 		return STATUS_ERROR;
 	}
 

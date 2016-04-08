@@ -9128,6 +9128,12 @@ CREATE TYPE rainbow AS ENUM ('red', 'orange', 'yellow', 'green', 'blue', 'purple
         <entry><literal>!'cat'</literal></entry>
        </row>
        <row>
+        <entry> <literal>&lt;-&gt;</literal> </entry>
+        <entry><type>tsquery</> followed by <type>tsquery</></entry>
+        <entry><literal>to_tsquery('fat') &lt;-&gt; to_tsquery('rat')</literal></entry>
+        <entry><literal>'fat' &lt;-&gt; 'rat'</literal></entry>
+       </row>
+       <row>
         <entry> <literal>@&gt;</literal> </entry>
         <entry><type>tsquery</> contains another ?</entry>
         <entry><literal>'cat'::tsquery @&gt; 'cat &amp; rat'::tsquery</literal></entry>
@@ -9218,6 +9224,18 @@ CREATE TYPE rainbow AS ENUM ('red', 'orange', 'yellow', 'green', 'blue', 'purple
         <entry>produce <type>tsquery</> ignoring punctuation</entry>
         <entry><literal>plainto_tsquery('english', 'The Fat Rats')</literal></entry>
         <entry><literal>'fat' &amp; 'rat'</literal></entry>
+       </row>
+       <row>
+        <entry>
+         <indexterm>
+          <primary>phraseto_tsquery</primary>
+         </indexterm>
+         <literal><function>phraseto_tsquery(<optional> <replaceable class="PARAMETER">config</> <type>regconfig</> , </optional> <replaceable class="PARAMETER">query</> <type>text</type>)</function></literal>
+        </entry>
+        <entry><type>tsquery</type></entry>
+        <entry>produce <type>tsquery</> ignoring punctuation</entry>
+        <entry><literal>phraseto_tsquery('english', 'The Fat Rats')</literal></entry>
+        <entry><literal>'fat' &lt;-&gt; 'rat'</literal></entry>
        </row>
        <row>
         <entry>
@@ -9420,6 +9438,27 @@ CREATE TYPE rainbow AS ENUM ('red', 'orange', 'yellow', 'green', 'blue', 'purple
         <entry>replace using targets and substitutes from a <command>SELECT</> command</entry>
         <entry><literal>SELECT ts_rewrite('a &amp; b'::tsquery, 'SELECT t,s FROM aliases')</literal></entry>
         <entry><literal>'b' &amp; ( 'foo' | 'bar' )</literal></entry>
+       </row>
+       <row>
+        <entry>
+         <indexterm>
+          <primary>tsquery_phrase</primary>
+         </indexterm>
+         <literal><function>tsquery_phrase(<replaceable class="PARAMETER">query1</replaceable> <type>tsquery</>, <replaceable class="PARAMETER">query2</replaceable> <type>tsquery</>)</function></literal>
+        </entry>
+        <entry><type>tsquery</type></entry>
+        <entry>implementation of <literal>&lt;-&gt;</> (FOLLOWED BY) operator</entry>
+        <entry><literal>tsquery_phrase(to_tsquery('fat'), to_tsquery('cat'))</literal></entry>
+        <entry><literal>'fat' &lt;-&gt; 'cat'</literal></entry>
+       </row>
+       <row>
+        <entry>
+         <literal><function>tsquery_phrase(<replaceable class="PARAMETER">query1</replaceable> <type>tsquery</>, <replaceable class="PARAMETER">query2</replaceable> <type>tsquery</>, <replaceable class="PARAMETER">distance</replaceable> <type>integer</>)</function></literal>
+        </entry>
+        <entry><type>tsquery</type></entry>
+        <entry>phrase-concatenate with distance</entry>
+        <entry><literal>tsquery_phrase(to_tsquery('fat'), to_tsquery('cat'), 10)</literal></entry>
+        <entry><literal>'fat' &lt;10&gt; 'cat'</literal></entry>
        </row>
        <row>
         <entry>
@@ -10903,6 +10942,9 @@ table2-mapping
    <primary>jsonb_set</primary>
   </indexterm>
   <indexterm>
+   <primary>jsonb_insert</primary>
+  </indexterm>
+  <indexterm>
    <primary>jsonb_pretty</primary>
   </indexterm>
 
@@ -11184,6 +11226,39 @@ table2-mapping
         </para></entry>
        </row>
       <row>
+       <entry>
+           <para><literal>
+           jsonb_insert(target jsonb, path text[], new_value jsonb, <optional><parameter>insert_after</parameter> <type>boolean</type></optional>)
+           </literal></para>
+       </entry>
+       <entry><para><type>jsonb</type></para></entry>
+       <entry>
+         Returns <replaceable>target</replaceable> with
+         <replaceable>new_value</replaceable> inserted. If
+         <replaceable>target</replaceable> section designated by
+         <replaceable>path</replaceable> is in a JSONB array,
+         <replaceable>new_value</replaceable> will be inserted before target or
+         after if <replaceable>insert_after</replaceable> is true (default is
+         <literal>false</>). If <replaceable>target</replaceable> section
+         designated by <replaceable>path</replaceable> is in JSONB object,
+         <replaceable>new_value</replaceable> will be inserted only if
+         <replaceable>target</replaceable> does not exist. As with the path
+         orientated operators, negative integers that appear in
+         <replaceable>path</replaceable> count from the end of JSON arrays.
+       </entry>
+       <entry>
+           <para><literal>
+               jsonb_insert('{"a": [0,1,2]}', '{a, 1}', '"new_value"')
+           </literal></para>
+           <para><literal>
+               jsonb_insert('{"a": [0,1,2]}', '{a, 1}', '"new_value"', true)
+           </literal></para>
+       </entry>
+       <entry><para><literal>{"a": [0, "new_value", 1, 2]}</literal>
+         </para><para><literal>{"a": [0, 1, "new_value", 2]}</literal>
+        </para></entry>
+       </row>
+      <row>
        <entry><para><literal>jsonb_pretty(from_json jsonb)</literal>
          </para></entry>
        <entry><para><type>text</type></para></entry>
@@ -11235,10 +11310,11 @@ table2-mapping
   <note>
     <para>
       All the items of the <literal>path</> parameter of <literal>jsonb_set</>
-      must be present in the <literal>target</>, unless
-      <literal>create_missing</> is true, in which case all but the last item
-      must be present. If these conditions are not met the <literal>target</>
-      is returned unchanged.
+      as well as <literal>jsonb_insert</> except the last item must be present
+      in the <literal>target</>. If <literal>create_missing</> is false, all
+      items of the <literal>path</> parameter of <literal>jsonb_set</> must be
+      present. If these conditions are not met the <literal>target</> is
+      returned unchanged.
     </para>
     <para>
       If the last path item is an object key, it will be created if it
@@ -12602,12 +12678,13 @@ NULL baz</literallayout>(3 rows)</entry>
   <table id="functions-aggregate-table">
    <title>General-Purpose Aggregate Functions</title>
 
-   <tgroup cols="4">
+   <tgroup cols="5">
     <thead>
      <row>
       <entry>Function</entry>
       <entry>Argument Type(s)</entry>
       <entry>Return Type</entry>
+      <entry>Partial Mode</entry>
       <entry>Description</entry>
      </row>
     </thead>
@@ -12626,6 +12703,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
        array of the argument type
       </entry>
+      <entry>No</entry>
       <entry>input values, including nulls, concatenated into an array</entry>
      </row>
 
@@ -12639,6 +12717,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
        same as argument data type
       </entry>
+      <entry>No</entry>
       <entry>input arrays concatenated into array of one higher dimension
        (inputs must all have same dimensionality,
         and cannot be empty or NULL)</entry>
@@ -12664,6 +12743,7 @@ NULL baz</literallayout>(3 rows)</entry>
        <type>double precision</type> for a floating-point argument,
        otherwise the same as the argument data type
       </entry>
+      <entry>All types apart from floating-point types</entry>
       <entry>the average (arithmetic mean) of all input values</entry>
      </row>
 
@@ -12704,6 +12784,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
         same as argument data type
       </entry>
+      <entry>Yes</entry>
       <entry>the bitwise AND of all non-null input values, or null if none</entry>
      </row>
 
@@ -12721,6 +12802,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
         same as argument data type
       </entry>
+      <entry>Yes</entry>
       <entry>the bitwise OR of all non-null input values, or null if none</entry>
      </row>
 
@@ -12737,6 +12819,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
        <type>bool</type>
       </entry>
+      <entry>Yes</entry>
       <entry>true if all input values are true, otherwise false</entry>
      </row>
 
@@ -12753,6 +12836,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
        <type>bool</type>
       </entry>
+      <entry>Yes</entry>
       <entry>true if at least one input value is true, otherwise false</entry>
      </row>
 
@@ -12765,6 +12849,7 @@ NULL baz</literallayout>(3 rows)</entry>
       </entry>
       <entry></entry>
       <entry><type>bigint</type></entry>
+      <entry>Yes</entry>
       <entry>number of input rows</entry>
      </row>
 
@@ -12772,6 +12857,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry><function>count(<replaceable class="parameter">expression</replaceable>)</function></entry>
       <entry>any</entry>
       <entry><type>bigint</type></entry>
+      <entry>Yes</entry>
       <entry>
        number of input rows for which the value of <replaceable
        class="parameter">expression</replaceable> is not null
@@ -12791,6 +12877,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
        <type>bool</type>
       </entry>
+      <entry>Yes</entry>
       <entry>equivalent to <function>bool_and</function></entry>
      </row>
 
@@ -12807,6 +12894,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
        <type>json</type>
       </entry>
+      <entry>No</entry>
       <entry>aggregates values as a JSON array</entry>
      </row>
 
@@ -12823,6 +12911,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
        <type>jsonb</type>
       </entry>
+      <entry>No</entry>
       <entry>aggregates values as a JSON array</entry>
      </row>
 
@@ -12839,6 +12928,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
        <type>json</type>
       </entry>
+      <entry>No</entry>
       <entry>aggregates name/value pairs as a JSON object</entry>
      </row>
 
@@ -12855,6 +12945,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
        <type>jsonb</type>
       </entry>
+      <entry>No</entry>
       <entry>aggregates name/value pairs as a JSON object</entry>
      </row>
 
@@ -12868,6 +12959,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>any numeric, string, date/time, network, or enum type,
              or arrays of these types</entry>
       <entry>same as argument type</entry>
+      <entry>Yes</entry>
       <entry>
        maximum value of <replaceable
        class="parameter">expression</replaceable> across all input
@@ -12885,6 +12977,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>any numeric, string, date/time, network, or enum type,
              or arrays of these types</entry>
       <entry>same as argument type</entry>
+      <entry>Yes</entry>
       <entry>
        minimum value of <replaceable
        class="parameter">expression</replaceable> across all input
@@ -12908,6 +13001,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
        same as argument types
       </entry>
+      <entry>No</entry>
       <entry>input values concatenated into a string, separated by delimiter</entry>
      </row>
 
@@ -12930,6 +13024,7 @@ NULL baz</literallayout>(3 rows)</entry>
        <type>bigint</type> arguments, otherwise the same as the
        argument data type
       </entry>
+      <entry>All types apart from floating-point types</entry>
       <entry>sum of <replaceable class="parameter">expression</replaceable> across all input values</entry>
      </row>
 
@@ -12946,6 +13041,7 @@ NULL baz</literallayout>(3 rows)</entry>
       <entry>
        <type>xml</type>
       </entry>
+      <entry>No</entry>
       <entry>concatenation of XML values (see also <xref linkend="functions-xml-xmlagg">)</entry>
      </row>
     </tbody>
@@ -12960,6 +13056,12 @@ NULL baz</literallayout>(3 rows)</entry>
    returns null rather than an empty array when there are no input
    rows.  The <function>coalesce</function> function can be used to
    substitute zero or an empty array for null when necessary.
+  </para>
+
+  <para>
+   Aggregate functions which support <firstterm>Partial Mode</firstterm>
+   are eligible to participate in various optimizations, such as parallel
+   aggregation.
   </para>
 
   <note>
@@ -13045,12 +13147,13 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
   <table id="functions-aggregate-statistics-table">
    <title>Aggregate Functions for Statistics</title>
 
-   <tgroup cols="4">
+   <tgroup cols="5">
     <thead>
      <row>
       <entry>Function</entry>
       <entry>Argument Type</entry>
       <entry>Return Type</entry>
+      <entry>Partial Mode</entry>
       <entry>Description</entry>
      </row>
     </thead>
@@ -13073,6 +13176,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry>correlation coefficient</entry>
      </row>
 
@@ -13093,6 +13197,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry>population covariance</entry>
      </row>
 
@@ -13113,6 +13218,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry>sample covariance</entry>
      </row>
 
@@ -13129,6 +13235,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry>average of the independent variable
       (<literal>sum(<replaceable class="parameter">X</replaceable>)/<replaceable class="parameter">N</replaceable></literal>)</entry>
      </row>
@@ -13146,6 +13253,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry>average of the dependent variable
       (<literal>sum(<replaceable class="parameter">Y</replaceable>)/<replaceable class="parameter">N</replaceable></literal>)</entry>
      </row>
@@ -13163,6 +13271,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>bigint</type>
       </entry>
+      <entry>No</entry>
       <entry>number of input rows in which both expressions are nonnull</entry>
      </row>
 
@@ -13182,6 +13291,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry>y-intercept of the least-squares-fit linear equation
       determined by the (<replaceable
       class="parameter">X</replaceable>, <replaceable
@@ -13201,6 +13311,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry>square of the correlation coefficient</entry>
      </row>
 
@@ -13220,6 +13331,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry>slope of the least-squares-fit linear equation determined
       by the (<replaceable class="parameter">X</replaceable>,
       <replaceable class="parameter">Y</replaceable>) pairs</entry>
@@ -13238,6 +13350,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry><literal>sum(<replaceable
       class="parameter">X</replaceable>^2) - sum(<replaceable
       class="parameter">X</replaceable>)^2/<replaceable
@@ -13258,6 +13371,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry><literal>sum(<replaceable
       class="parameter">X</replaceable>*<replaceable
       class="parameter">Y</replaceable>) - sum(<replaceable
@@ -13281,6 +13395,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry><literal>sum(<replaceable
       class="parameter">Y</replaceable>^2) - sum(<replaceable
       class="parameter">Y</replaceable>)^2/<replaceable
@@ -13307,6 +13422,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        <type>double precision</type> for floating-point arguments,
        otherwise <type>numeric</type>
       </entry>
+      <entry>All types apart from floating-point types</entry>
       <entry>historical alias for <function>stddev_samp</function></entry>
      </row>
 
@@ -13330,6 +13446,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        <type>double precision</type> for floating-point arguments,
        otherwise <type>numeric</type>
       </entry>
+      <entry>All types apart from floating-point types</entry>
       <entry>population standard deviation of the input values</entry>
      </row>
 
@@ -13376,6 +13493,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        <type>double precision</type> for floating-point arguments,
        otherwise <type>numeric</type>
       </entry>
+      <entry>All types apart from floating-point types</entry>
       <entry>sample standard deviation of the input values</entry>
      </row>
 
@@ -13418,6 +13536,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        <type>double precision</type> for floating-point arguments,
        otherwise <type>numeric</type>
       </entry>
+      <entry>All types apart from floating-point types</entry>
       <entry>historical alias for <function>var_samp</function></entry>
      </row>
 
@@ -13441,6 +13560,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        <type>double precision</type> for floating-point arguments,
        otherwise <type>numeric</type>
       </entry>
+      <entry>All types apart from floating-point types</entry>
       <entry>population variance of the input values (square of the population standard deviation)</entry>
      </row>
 
@@ -13464,6 +13584,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        <type>double precision</type> for floating-point arguments,
        otherwise <type>numeric</type>
       </entry>
+      <entry>All types apart from floating-point types</entry>
       <entry>sample variance of the input values (square of the sample standard deviation)</entry>
      </row>
     </tbody>
@@ -13488,13 +13609,14 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
   <table id="functions-orderedset-table">
    <title>Ordered-Set Aggregate Functions</title>
 
-   <tgroup cols="5">
+   <tgroup cols="6">
     <thead>
      <row>
       <entry>Function</entry>
       <entry>Direct Argument Type(s)</entry>
       <entry>Aggregated Argument Type(s)</entry>
       <entry>Return Type</entry>
+      <entry>Partial Mode</entry>
       <entry>Description</entry>
      </row>
     </thead>
@@ -13517,6 +13639,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        same as sort expression
       </entry>
+      <entry>No</entry>
       <entry>
        returns the most frequent input value (arbitrarily choosing the first
        one if there are multiple equally-frequent results)
@@ -13543,6 +13666,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        same as sort expression
       </entry>
+      <entry>No</entry>
       <entry>
        continuous percentile: returns a value corresponding to the specified
        fraction in the ordering, interpolating between adjacent input items if
@@ -13563,6 +13687,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        array of sort expression's type
       </entry>
+      <entry>No</entry>
       <entry>
        multiple continuous percentile: returns an array of results matching
        the shape of the <literal>fractions</literal> parameter, with each
@@ -13587,6 +13712,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        same as sort expression
       </entry>
+      <entry>No</entry>
       <entry>
        discrete percentile: returns the first input value whose position in
        the ordering equals or exceeds the specified fraction
@@ -13606,6 +13732,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        array of sort expression's type
       </entry>
+      <entry>No</entry>
       <entry>
        multiple discrete percentile: returns an array of results matching the
        shape of the <literal>fractions</literal> parameter, with each non-null
@@ -13644,13 +13771,14 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
   <table id="functions-hypothetical-table">
    <title>Hypothetical-Set Aggregate Functions</title>
 
-   <tgroup cols="5">
+   <tgroup cols="6">
     <thead>
      <row>
       <entry>Function</entry>
       <entry>Direct Argument Type(s)</entry>
       <entry>Aggregated Argument Type(s)</entry>
       <entry>Return Type</entry>
+      <entry>Partial Mode</entry>
       <entry>Description</entry>
      </row>
     </thead>
@@ -13674,6 +13802,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>bigint</type>
       </entry>
+      <entry>No</entry>
       <entry>
        rank of the hypothetical row, with gaps for duplicate rows
       </entry>
@@ -13696,6 +13825,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>bigint</type>
       </entry>
+      <entry>No</entry>
       <entry>
        rank of the hypothetical row, without gaps
       </entry>
@@ -13718,6 +13848,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry>
        relative rank of the hypothetical row, ranging from 0 to 1
       </entry>
@@ -13740,6 +13871,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
+      <entry>No</entry>
       <entry>
        relative rank of the hypothetical row, ranging from
        1/<replaceable>N</> to 1
@@ -17371,8 +17503,9 @@ SELECT set_config('log_statement_stats', 'off', false);
    <para>
     The functions shown in <xref
     linkend="functions-admin-signal-table"> send control signals to
-    other server processes.  Use of these functions is usually restricted
-    to superusers, with noted exceptions.
+    other server processes.  Use of these functions is restricted to
+    superusers by default but access may be granted to others with the
+    <command>GRANT</command>, with noted exceptions.
    </para>
 
    <table id="functions-admin-signal-table">
@@ -17522,7 +17655,7 @@ SELECT set_config('log_statement_stats', 'off', false);
         <literal><function>pg_create_restore_point(<parameter>name</> <type>text</>)</function></literal>
         </entry>
        <entry><type>pg_lsn</type></entry>
-       <entry>Create a named point for performing restore (restricted to superusers)</entry>
+       <entry>Create a named point for performing restore (restricted to superusers by default, but other users can be granted EXECUTE to run the function)</entry>
       </row>
       <row>
        <entry>
@@ -17547,17 +17680,24 @@ SELECT set_config('log_statement_stats', 'off', false);
       </row>
       <row>
        <entry>
-        <literal><function>pg_start_backup(<parameter>label</> <type>text</> <optional>, <parameter>fast</> <type>boolean</> </optional>)</function></literal>
+        <literal><function>pg_start_backup(<parameter>label</> <type>text</> <optional>, <parameter>fast</> <type>boolean</> <optional>, <parameter>exclusive</> <type>boolean</> </optional></optional>)</function></literal>
         </entry>
        <entry><type>pg_lsn</type></entry>
-       <entry>Prepare for performing on-line backup (restricted to superusers or replication roles)</entry>
+       <entry>Prepare for performing on-line backup (restricted to superusers by default, but other users can be granted EXECUTE to run the function)</entry>
       </row>
       <row>
        <entry>
         <literal><function>pg_stop_backup()</function></literal>
         </entry>
        <entry><type>pg_lsn</type></entry>
-       <entry>Finish performing on-line backup (restricted to superusers or replication roles)</entry>
+       <entry>Finish performing exclusive on-line backup (restricted to superusers by default, but other users can be granted EXECUTE to run the function)</entry>
+      </row>
+      <row>
+       <entry>
+        <literal><function>pg_stop_backup(<parameter>exclusive</> <type>boolean</>)</function></literal>
+        </entry>
+       <entry><type>setof record</type></entry>
+       <entry>Finish performing exclusive or non-exclusive on-line backup (restricted to superusers by default, but other users can be granted EXECUTE to run the function)</entry>
       </row>
       <row>
        <entry>
@@ -17578,7 +17718,7 @@ SELECT set_config('log_statement_stats', 'off', false);
         <literal><function>pg_switch_xlog()</function></literal>
         </entry>
        <entry><type>pg_lsn</type></entry>
-       <entry>Force switch to a new transaction log file (restricted to superusers)</entry>
+       <entry>Force switch to a new transaction log file (restricted to superusers by default, but other users can be granted EXECUTE to run the function)</entry>
       </row>
       <row>
        <entry>
@@ -17606,15 +17746,19 @@ SELECT set_config('log_statement_stats', 'off', false);
    </table>
 
    <para>
-    <function>pg_start_backup</> accepts an
-    arbitrary user-defined label for the backup.  (Typically this would be
-    the name under which the backup dump file will be stored.)  The function
-    writes a backup label file (<filename>backup_label</>) and, if there
-    are any links in the <filename>pg_tblspc/</> directory, a tablespace map
-    file (<filename>tablespace_map</>) into the database cluster's data
-    directory, performs a checkpoint, and then returns the backup's starting
-    transaction log location as text.  The user can ignore this result value,
-    but it is provided in case it is useful.
+    <function>pg_start_backup</> accepts an arbitrary user-defined label for
+    the backup.  (Typically this would be the name under which the backup dump
+    file will be stored.) When used in exclusive mode, the function writes a
+    backup label file (<filename>backup_label</>) and, if there are any links
+    in the <filename>pg_tblspc/</> directory, a tablespace map file
+    (<filename>tablespace_map</>) into the database cluster's data directory,
+    performs a checkpoint, and then returns the backup's starting transaction
+    log location as text.  The user can ignore this result value, but it is
+    provided in case it is useful. When used in non-exclusive mode, the
+    contents of these files are instead returned by the
+    <function>pg_stop_backup</> function, and should be written to the backup
+    by the caller.
+
 <programlisting>
 postgres=# select pg_start_backup('label_goes_here');
  pg_start_backup
@@ -17629,10 +17773,17 @@ postgres=# select pg_start_backup('label_goes_here');
    </para>
 
    <para>
-    <function>pg_stop_backup</> removes the label file and, if it exists,
-    the <filename>tablespace_map</> file created by
-    <function>pg_start_backup</>, and creates a backup history file in
-    the transaction log archive area.  The history file includes the label given to
+    In an exclusive backup, <function>pg_stop_backup</> removes the label file
+    and, if it exists, the <filename>tablespace_map</> file created by
+    <function>pg_start_backup</>. In a non-exclusive backup, the contents of
+    the <filename>backup_label</> and <filename>tablespace_map</> are returned
+    in the result of the function, and should be written to files in the
+    backup (and not in the data directory).
+   </para>
+
+   <para>
+    The function also creates a backup history file in the transaction log
+    archive area. The history file includes the label given to
     <function>pg_start_backup</>, the starting and ending transaction log locations for
     the backup, and the starting and ending times of the backup.  The return
     value is the backup's ending transaction log location (which again
@@ -17835,7 +17986,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
         <literal><function>pg_xlog_replay_pause()</function></literal>
         </entry>
        <entry><type>void</type></entry>
-       <entry>Pauses recovery immediately (restricted to superusers).
+       <entry>Pauses recovery immediately (restricted to superusers by default, but other users can be granted EXECUTE to run the function).
        </entry>
       </row>
       <row>
@@ -17843,7 +17994,7 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
         <literal><function>pg_xlog_replay_resume()</function></literal>
         </entry>
        <entry><type>void</type></entry>
-       <entry>Restarts recovery if it was paused (restricted to superusers).
+       <entry>Restarts recovery if it was paused (restricted to superusers by default, but other users can be granted EXECUTE to run the function).
        </entry>
       </row>
      </tbody>
@@ -18303,6 +18454,51 @@ postgres=# SELECT * FROM pg_xlogfile_name_offset(pg_stop_backup());
         parameter <parameter>flush</parameter> determines whether the
         corresponding local transaction will be guaranteed to have been
         flushed to disk or not.
+       </entry>
+      </row>
+
+      <row>
+       <entry id="pg-logical-emit-message-text">
+        <indexterm>
+         <primary>pg_logical_emit_message</primary>
+        </indexterm>
+        <literal><function>pg_logical_emit_message(<parameter>transactional</parameter> <type>bool</type>, <parameter>prefix</parameter> <type>text</type>, <parameter>content</parameter> <type>text</type>)</function></literal>
+       </entry>
+       <entry>
+        void
+       </entry>
+       <entry>
+        Emit text logical decoding message. This can be used to pass generic
+        messages to logical decoding plugins through WAL. The parameter
+        <parameter>transactional</parameter> specifies if the message should
+        be part of current transaction or if it should be written immediately
+        and decoded as soon as the logical decoding reads the record. The
+        <parameter>prefix</parameter> is textual prefix used by the logical
+        decoding plugins to easily recognize interesting messages for them.
+        The <parameter>content</parameter> is the text of the message.
+       </entry>
+      </row>
+
+      <row>
+       <entry id="pg-logical-emit-message-bytea">
+        <indexterm>
+         <primary>>pg_logical_emit_message</primary>
+        </indexterm>
+        <literal><function>>pg_logical_emit_message(<parameter>transactional</parameter> <type>bool</type>, <parameter>prefix</parameter> <type>text</type>, <parameter>content</parameter> <type>bytea</type>)</function></literal>
+       </entry>
+       <entry>
+        void
+       </entry>
+       <entry>
+        Emit binary logical decoding message. This can be used to pass generic
+        messages to logical decoding plugins through WAL. The parameter
+        <parameter>transactional</parameter> specifies if the message should
+        be part of current transaction or if it should be written immediately
+        and decoded as soon as the logical decoding reads the record. The
+        <parameter>prefix</parameter> is textual prefix used by the logical
+        decoding plugins to easily recognize interesting messages for them.
+        The <parameter>content</parameter> is the binary content of the
+        message.
        </entry>
       </row>
 
