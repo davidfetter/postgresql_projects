@@ -12743,7 +12743,7 @@ NULL baz</literallayout>(3 rows)</entry>
        <type>double precision</type> for a floating-point argument,
        otherwise the same as the argument data type
       </entry>
-      <entry>All types apart from floating-point types</entry>
+      <entry>Yes</entry>
       <entry>the average (arithmetic mean) of all input values</entry>
      </row>
 
@@ -13024,7 +13024,7 @@ NULL baz</literallayout>(3 rows)</entry>
        <type>bigint</type> arguments, otherwise the same as the
        argument data type
       </entry>
-      <entry>All types apart from floating-point types</entry>
+      <entry>Yes</entry>
       <entry>sum of <replaceable class="parameter">expression</replaceable> across all input values</entry>
      </row>
 
@@ -13176,7 +13176,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
-      <entry>No</entry>
+      <entry>Yes</entry>
       <entry>correlation coefficient</entry>
      </row>
 
@@ -13197,7 +13197,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
-      <entry>No</entry>
+      <entry>Yes</entry>
       <entry>population covariance</entry>
      </row>
 
@@ -13218,7 +13218,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
-      <entry>No</entry>
+      <entry>Yes</entry>
       <entry>sample covariance</entry>
      </row>
 
@@ -13235,7 +13235,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
-      <entry>No</entry>
+      <entry>Yes</entry>
       <entry>average of the independent variable
       (<literal>sum(<replaceable class="parameter">X</replaceable>)/<replaceable class="parameter">N</replaceable></literal>)</entry>
      </row>
@@ -13253,7 +13253,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
-      <entry>No</entry>
+      <entry>Yes</entry>
       <entry>average of the dependent variable
       (<literal>sum(<replaceable class="parameter">Y</replaceable>)/<replaceable class="parameter">N</replaceable></literal>)</entry>
      </row>
@@ -13271,7 +13271,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>bigint</type>
       </entry>
-      <entry>No</entry>
+      <entry>Yes</entry>
       <entry>number of input rows in which both expressions are nonnull</entry>
      </row>
 
@@ -13291,7 +13291,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
-      <entry>No</entry>
+      <entry>Yes</entry>
       <entry>y-intercept of the least-squares-fit linear equation
       determined by the (<replaceable
       class="parameter">X</replaceable>, <replaceable
@@ -13311,7 +13311,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
-      <entry>No</entry>
+      <entry>Yes</entry>
       <entry>square of the correlation coefficient</entry>
      </row>
 
@@ -13331,7 +13331,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
-      <entry>No</entry>
+      <entry>Yes</entry>
       <entry>slope of the least-squares-fit linear equation determined
       by the (<replaceable class="parameter">X</replaceable>,
       <replaceable class="parameter">Y</replaceable>) pairs</entry>
@@ -13350,7 +13350,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
-      <entry>No</entry>
+      <entry>Yes</entry>
       <entry><literal>sum(<replaceable
       class="parameter">X</replaceable>^2) - sum(<replaceable
       class="parameter">X</replaceable>)^2/<replaceable
@@ -13371,7 +13371,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
-      <entry>No</entry>
+      <entry>Yes</entry>
       <entry><literal>sum(<replaceable
       class="parameter">X</replaceable>*<replaceable
       class="parameter">Y</replaceable>) - sum(<replaceable
@@ -13395,7 +13395,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       <entry>
        <type>double precision</type>
       </entry>
-      <entry>No</entry>
+      <entry>Yes</entry>
       <entry><literal>sum(<replaceable
       class="parameter">Y</replaceable>^2) - sum(<replaceable
       class="parameter">Y</replaceable>)^2/<replaceable
@@ -13422,7 +13422,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        <type>double precision</type> for floating-point arguments,
        otherwise <type>numeric</type>
       </entry>
-      <entry>All types apart from floating-point types</entry>
+      <entry>Yes</entry>
       <entry>historical alias for <function>stddev_samp</function></entry>
      </row>
 
@@ -13446,7 +13446,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        <type>double precision</type> for floating-point arguments,
        otherwise <type>numeric</type>
       </entry>
-      <entry>All types apart from floating-point types</entry>
+      <entry>Yes</entry>
       <entry>population standard deviation of the input values</entry>
      </row>
 
@@ -13493,7 +13493,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        <type>double precision</type> for floating-point arguments,
        otherwise <type>numeric</type>
       </entry>
-      <entry>All types apart from floating-point types</entry>
+      <entry>Yes</entry>
       <entry>sample standard deviation of the input values</entry>
      </row>
 
@@ -13536,7 +13536,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        <type>double precision</type> for floating-point arguments,
        otherwise <type>numeric</type>
       </entry>
-      <entry>All types apart from floating-point types</entry>
+      <entry>Yes</entry>
       <entry>historical alias for <function>var_samp</function></entry>
      </row>
 
@@ -13560,7 +13560,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        <type>double precision</type> for floating-point arguments,
        otherwise <type>numeric</type>
       </entry>
-      <entry>All types apart from floating-point types</entry>
+      <entry>Yes</entry>
       <entry>population variance of the input values (square of the population standard deviation)</entry>
      </row>
 
@@ -13584,7 +13584,7 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
        <type>double precision</type> for floating-point arguments,
        otherwise <type>numeric</type>
       </entry>
-      <entry>All types apart from floating-point types</entry>
+      <entry>Yes</entry>
       <entry>sample variance of the input values (square of the sample standard deviation)</entry>
      </row>
     </tbody>

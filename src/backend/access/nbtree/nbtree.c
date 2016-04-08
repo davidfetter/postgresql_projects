@@ -97,7 +97,6 @@ bthandler(PG_FUNCTION_ARGS)
 	amroutine->amstorage = false;
 	amroutine->amclusterable = true;
 	amroutine->ampredlocks = true;
-	amroutine->amcaninclude = true;
 	amroutine->amkeytype = InvalidOid;
 
 	amroutine->ambuild = btbuild;
@@ -911,7 +910,7 @@ restart:
 	buf = ReadBufferExtended(rel, MAIN_FORKNUM, blkno, RBM_NORMAL,
 							 info->strategy);
 	LockBuffer(buf, BT_READ);
-	page = BufferGetPage(buf);
+	page = BufferGetPage(buf, NULL, NULL, BGP_NO_SNAPSHOT_TEST);
 	if (!PageIsNew(page))
 	{
 		_bt_checkpage(rel, buf);

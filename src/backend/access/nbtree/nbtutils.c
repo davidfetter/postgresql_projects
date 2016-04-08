@@ -63,26 +63,17 @@ _bt_mkscankey(Relation rel, IndexTuple itup)
 {
 	ScanKey		skey;
 	TupleDesc	itupdesc;
-	int			indnatts,
-				indnkeyatts;
+	int			natts;
 	int16	   *indoption;
 	int			i;
 
 	itupdesc = RelationGetDescr(rel);
-	indnatts = IndexRelationGetNumberOfAttributes(rel);
-	indnkeyatts = IndexRelationGetNumberOfKeyAttributes(rel);
+	natts = RelationGetNumberOfAttributes(rel);
 	indoption = rel->rd_indoption;
 
-	Assert(indnkeyatts != 0);
-	Assert(indnkeyatts <= indnatts);
+	skey = (ScanKey) palloc(natts * sizeof(ScanKeyData));
 
-	/*
-	 * We'll execute search using ScanKey constructed on key columns.
-	 * Non key (included) columns must be omitted.
-	 */
-	skey = (ScanKey) palloc(indnkeyatts * sizeof(ScanKeyData));
-
-	for (i = 0; i < indnkeyatts; i++)
+	for (i = 0; i < natts; i++)
 	{
 		FmgrInfo   *procinfo;
 		Datum		arg;
@@ -124,16 +115,16 @@ ScanKey
 _bt_mkscankey_nodata(Relation rel)
 {
 	ScanKey		skey;
-	int			indnkeyatts;
+	int			natts;
 	int16	   *indoption;
 	int			i;
 
-	indnkeyatts = IndexRelationGetNumberOfKeyAttributes(rel);
+	natts = RelationGetNumberOfAttributes(rel);
 	indoption = rel->rd_indoption;
 
-	skey = (ScanKey) palloc(indnkeyatts * sizeof(ScanKeyData));
+	skey = (ScanKey) palloc(natts * sizeof(ScanKeyData));
 
-	for (i = 0; i < indnkeyatts; i++)
+	for (i = 0; i < natts; i++)
 	{
 		FmgrInfo   *procinfo;
 		int			flags;
@@ -1765,7 +1756,7 @@ _bt_killitems(IndexScanDesc scan)
 		 */
 		LockBuffer(so->currPos.buf, BT_READ);
 
-		page = BufferGetPage(so->currPos.buf);
+		page = BufferGetPage(so->currPos.buf, NULL, NULL, BGP_NO_SNAPSHOT_TEST);
 	}
 	else
 	{
@@ -1778,7 +1769,7 @@ _bt_killitems(IndexScanDesc scan)
 		if (!BufferIsValid(buf))
 			return;
 
-		page = BufferGetPage(buf);
+		page = BufferGetPage(buf, NULL, NULL, BGP_NO_SNAPSHOT_TEST);
 		if (PageGetLSN(page) == so->currPos.lsn)
 			so->currPos.buf = buf;
 		else

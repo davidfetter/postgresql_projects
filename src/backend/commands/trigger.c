@@ -479,7 +479,6 @@ CreateTrigger(CreateTrigStmt *stmt, const char *queryString,
 											  RelationGetRelid(rel),
 											  NULL,		/* no conkey */
 											  0,
-											  0,
 											  InvalidOid,		/* no domain */
 											  InvalidOid,		/* no index */
 											  InvalidOid,		/* no foreign key */
@@ -2799,7 +2798,7 @@ ltrmark:;
 		 */
 		LockBuffer(buffer, BUFFER_LOCK_SHARE);
 
-		page = BufferGetPage(buffer);
+		page = BufferGetPage(buffer, NULL, NULL, BGP_NO_SNAPSHOT_TEST);
 		lp = PageGetItemId(page, ItemPointerGetOffsetNumber(tid));
 
 		Assert(ItemIdIsNormal(lp));

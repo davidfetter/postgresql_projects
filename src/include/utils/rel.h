@@ -15,6 +15,7 @@
 #define REL_H
 
 #include "access/tupdesc.h"
+#include "access/xlog.h"
 #include "catalog/pg_class.h"
 #include "catalog/pg_index.h"
 #include "fmgr.h"
@@ -341,23 +342,9 @@ typedef struct ViewOptions
 
 /*
  * RelationGetNumberOfAttributes
- *		Returns the total number of attributes in a relation.
+ *		Returns the number of attributes in a relation.
  */
 #define RelationGetNumberOfAttributes(relation) ((relation)->rd_rel->relnatts)
-
-/*
- * IndexRelationGetNumberOfAttributes
- *		Returns the number of attributes in an index.
- */
-#define IndexRelationGetNumberOfAttributes(relation) \
-		((relation)->rd_index->indnatts)
-
-/*
- * IndexRelationGetNumberOfKeyAttributes
- *		Returns the number of key attributes in an index.
- */
-#define IndexRelationGetNumberOfKeyAttributes(relation) \
-		((relation)->rd_index->indnkeyatts)
 
 /*
  * RelationGetDescr

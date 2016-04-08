@@ -64,7 +64,6 @@ hashhandler(PG_FUNCTION_ARGS)
 	amroutine->amstorage = false;
 	amroutine->amclusterable = false;
 	amroutine->ampredlocks = false;
-	amroutine->amcaninclude = false;
 	amroutine->amkeytype = INT4OID;
 
 	amroutine->ambuild = hashbuild;
@@ -279,7 +278,8 @@ hashgettuple(IndexScanDesc scan, ScanDirection dir)
 
 		buf = so->hashso_curbuf;
 		Assert(BufferIsValid(buf));
-		page = BufferGetPage(buf);
+		page = BufferGetPage(buf, scan->xs_snapshot, rel,
+							 BGP_TEST_FOR_OLD_SNAPSHOT);
 		maxoffnum = PageGetMaxOffsetNumber(page);
 		for (offnum = ItemPointerGetOffsetNumber(current);
 			 offnum <= maxoffnum;
@@ -328,7 +328,8 @@ hashgettuple(IndexScanDesc scan, ScanDirection dir)
 		while (res)
 		{
 			offnum = ItemPointerGetOffsetNumber(current);
-			page = BufferGetPage(so->hashso_curbuf);
+			page = BufferGetPage(so->hashso_curbuf, NULL, NULL,
+								 BGP_NO_SNAPSHOT_TEST);
 			if (!ItemIdIsDead(PageGetItemId(page, offnum)))
 				break;
 			res = _hash_next(scan, dir);
@@ -371,7 +372,8 @@ hashgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 			OffsetNumber offnum;
 
 			offnum = ItemPointerGetOffsetNumber(&(so->hashso_curpos));
-			page = BufferGetPage(so->hashso_curbuf);
+			page = BufferGetPage(so->hashso_curbuf, NULL, NULL,
+								 BGP_NO_SNAPSHOT_TEST);
 			add_tuple = !ItemIdIsDead(PageGetItemId(page, offnum));
 		}
 		else
@@ -516,7 +518,8 @@ hashbulkdelete(IndexVacuumInfo *info, IndexBulkDeleteResult *stats,
 	 * each bucket.
 	 */
 	metabuf = _hash_getbuf(rel, HASH_METAPAGE, HASH_READ, LH_META_PAGE);
-	metap = HashPageGetMeta(BufferGetPage(metabuf));
+	metap = HashPageGetMeta(BufferGetPage(metabuf, NULL, NULL,
+										  BGP_NO_SNAPSHOT_TEST));
 	orig_maxbucket = metap->hashm_maxbucket;
 	orig_ntuples = metap->hashm_ntuples;
 	memcpy(&local_metapage, metap, sizeof(local_metapage));
@@ -560,7 +563,7 @@ loop_top:
 			buf = _hash_getbuf_with_strategy(rel, blkno, HASH_WRITE,
 										   LH_BUCKET_PAGE | LH_OVERFLOW_PAGE,
 											 info->strategy);
-			page = BufferGetPage(buf);
+			page = BufferGetPage(buf, NULL, NULL, BGP_NO_SNAPSHOT_TEST);
 			opaque = (HashPageOpaque) PageGetSpecialPointer(page);
 			Assert(opaque->hasho_bucket == cur_bucket);
 
@@ -615,7 +618,8 @@ loop_top:
 
 	/* Write-lock metapage and check for split since we started */
 	metabuf = _hash_getbuf(rel, HASH_METAPAGE, HASH_WRITE, LH_META_PAGE);
-	metap = HashPageGetMeta(BufferGetPage(metabuf));
+	metap = HashPageGetMeta(BufferGetPage(metabuf, NULL, NULL,
+										  BGP_NO_SNAPSHOT_TEST));
 
 	if (cur_maxbucket != metap->hashm_maxbucket)
 	{
