@@ -3104,7 +3104,7 @@ float8_regr_intercept(PG_FUNCTION_ARGS)
  *		WEIGHTED AGGREGATES
  *		===================
  *
- * The transition datatype for these aggregates is a 4-element array
+ * The transition datatype for these aggregates is a 5-element array
  * of float8, holding the values N, sum(W), sum(W*X), and sum(W*X*X)
  * in that order.
  *
@@ -3113,10 +3113,11 @@ float8_regr_intercept(PG_FUNCTION_ARGS)
  * the rounding error inherent in the general one.
  * https://en.wikipedia.org/wiki/Standard_deviation#Rapid_calculation_methods
  *
- * It consists of a four-element array which includes:
+ * It consists of a five-element array which includes:
  *
  * N, the number of non-zero-weighted values seen thus far,
  * W, the running sum of weights,
+ * WX, the running dot product of weights and values,
  * A, an intermediate value used in the calculation, and
  * Q, another intermediate value.
  *
@@ -3129,12 +3130,13 @@ float8_weighted_accum(PG_FUNCTION_ARGS)
 	float8		newvalX = PG_GETARG_FLOAT8(1);
 	float8		newvalW = PG_GETARG_FLOAT8(2);
 	float8	   *transvalues;
-	float8		N,
-				W,
-				A,
-				Q;
+	float8		N,	/* common */
+				W,	/* common */
+				WX,	/* Used in avg */
+				A,	/* Used in stddev_* */
+				Q;	/* Used in stddev_* */
 
-	transvalues = check_float8_array(transarray, "float8_weighted_stddev_accum", 4);
+	transvalues = check_float8_array(transarray, "float8_weighted_accum", 5);
 
 	if (newvalW == 0.0) /* Discard zero weights */
 		PG_RETURN_NULL();
@@ -3143,26 +3145,30 @@ float8_weighted_accum(PG_FUNCTION_ARGS)
 		ereport(ERROR,
 				(errmsg("negative weights are not allowed")));
 
-	N = transvalues[0];
-	W = transvalues[1];
-	A = transvalues[2];
-	Q = transvalues[3];
+	N  = transvalues[0];
+	W  = transvalues[1];
+	WX = transvalues[2];
+	A  = transvalues[3];
+	Q  = transvalues[4];
 
 	N += 1.0;
 	CHECKFLOATVAL(N, isinf(transvalues[0]), true);
 	W += newvalW;
 	CHECKFLOATVAL(W, isinf(transvalues[1]) || isinf(newvalW), true);
-	A += newvalW * ( newvalX - transvalues[2] ) / W;
-	CHECKFLOATVAL(A, isinf(newvalW) || isinf(transvalues[2]) || isinf(1.0/W), true);
-	Q += newvalW * (newvalX - transvalues[2]) * (newvalX - A);
-	CHECKFLOATVAL(A, isinf(newvalX -  transvalues[3]) || isinf(newvalX - A) || isinf(1.0/W), true);
+	WX += newvalW * newvalX;
+	CHECKFLOATVAL(WX, isinf(transvalues[1]) || isinf(newvalW), true);
+	A += newvalW * ( newvalX - transvalues[3] ) / W;
+	CHECKFLOATVAL(A, isinf(newvalW) || isinf(transvalues[3]) || isinf(1.0/W), true);
+	Q += newvalW * (newvalX - transvalues[3]) * (newvalX - A);
+	CHECKFLOATVAL(A, isinf(newvalX -  transvalues[4]) || isinf(newvalX - A) || isinf(1.0/W), true);
 
 	if (AggCheckCallContext(fcinfo, NULL)) /* Update in place is safe in Agg context */
 	{
 		transvalues[0] = N;
 		transvalues[1] = W;
-		transvalues[2] = A;
-		transvalues[3] = Q;
+		transvalues[2] = WX;
+		transvalues[3] = A;
+		transvalues[4] = Q;
 
 		PG_RETURN_ARRAYTYPE_P(transarray);
 	}
@@ -3172,9 +3178,8 @@ float8_weighted_accum(PG_FUNCTION_ARGS)
 }
 
 /*
- * This is the final function for the weighted mean, having borrowed
- * the 6-element accumulator used in the binary aggregates below to
- * get
+ * This is the final function for the weighted mean. It uses the
+ * 5-element accumulator common to weighted aggregates.
  *
  *     N, the number of elements with non-zero weights,
  *     sumW, the sum of the weights, and
@@ -3193,10 +3198,10 @@ float8_weighted_avg(PG_FUNCTION_ARGS)
 				sumWX,
 				sumW;
 
-	transvalues = check_float8_array(transarray, "float8_weighted_avg", 6);
+	transvalues = check_float8_array(transarray, "float8_weighted_avg", 5);
 	N = transvalues[0];
 	sumW = transvalues[1];
-	sumWX = transvalues[5];
+	sumWX = transvalues[2];
 
 	if (N < 1.0)
 		PG_RETURN_NULL();
@@ -3216,10 +3221,10 @@ float8_weighted_stddev_samp(PG_FUNCTION_ARGS)
 				/* Skip A.  Not used in the calculation */
 				Q;
 
-	transvalues = check_float8_array(transarray, "float8_weighted_stddev_samp", 4);
+	transvalues = check_float8_array(transarray, "float8_weighted_stddev_samp", 5);
 	N = transvalues[0];
 	W = transvalues[1];
-	Q = transvalues[3];
+	Q = transvalues[4];
 
 	if (N < 2.0) /* Must have at least two samples to get a stddev */
 		PG_RETURN_NULL();
@@ -3242,10 +3247,10 @@ float8_weighted_stddev_pop(PG_FUNCTION_ARGS)
 				/* Skip A.  Not used in the calculation */
 				Q;
 
-	transvalues = check_float8_array(transarray, "float8_weighted_stddev_pop", 4);
+	transvalues = check_float8_array(transarray, "float8_weighted_stddev_pop", 5);
 	N = transvalues[0];
 	W = transvalues[1];
-	Q = transvalues[3];
+	Q = transvalues[4];
 
 	if (N < 2.0) /* Must have at least two samples to get a stddev */
 		PG_RETURN_NULL();
