@@ -279,12 +279,12 @@ static const char BinarySignature[11] = "PGCOPY\n\377\r\n\0";
 
 
 /* non-export function prototypes */
-static CopyState BeginCopy(bool is_from, Relation rel, Node *raw_query,
+static CopyState BeginCopy(bool is_from, Relation rel, Node *raw_query, ParamListInfo params,
 		  const char *queryString, const Oid queryRelId, List *attnamelist,
 		  List *options);
 static void EndCopy(CopyState cstate);
 static void ClosePipeToProgram(CopyState cstate);
-static CopyState BeginCopyTo(Relation rel, Node *query, const char *queryString,
+static CopyState BeginCopyTo(Relation rel, Node *query, ParamListInfo params, const char *queryString,
 			const Oid queryRelId, const char *filename, bool is_program,
 			List *attnamelist, List *options);
 static void EndCopyTo(CopyState cstate);
@@ -787,7 +787,7 @@ CopyLoadRawBuf(CopyState cstate)
  * the table or the specifically requested columns.
  */
 Oid
-DoCopy(const CopyStmt *stmt, const char *queryString, uint64 *processed)
+DoCopy(const CopyStmt *stmt, const char *queryString, ParamListInfo params, uint64 *processed)
 {
 	CopyState	cstate;
 	bool		is_from = stmt->is_from;
@@ -944,7 +944,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString, uint64 *processed)
 	}
 	else
 	{
-		cstate = BeginCopyTo(rel, query, queryString, relid,
+		cstate = BeginCopyTo(rel, query, params, queryString, relid,
 							 stmt->filename, stmt->is_program,
 							 stmt->attlist, stmt->options);
 		*processed = DoCopyTo(cstate);	/* copy from database to file */
@@ -1321,6 +1321,7 @@ static CopyState
 BeginCopy(bool is_from,
 		  Relation rel,
 		  Node *raw_query,
+		  ParamListInfo params,
 		  const char *queryString,
 		  const Oid queryRelId,
 		  List *attnamelist,
@@ -1391,11 +1392,16 @@ BeginCopy(bool is_from,
 		 * function and is executed repeatedly.  (See also the same hack in
 		 * DECLARE CURSOR and PREPARE.)  XXX FIXME someday.
 		 */
-		rewritten = pg_analyze_and_rewrite((Node *) copyObject(raw_query),
-										   queryString, NULL, 0);
+		if (!IsA(raw_query,List))
+		{
+			rewritten = pg_analyze_and_rewrite((Node *) copyObject(raw_query),
+											   queryString, NULL, 0);
+		}
+		else
+			rewritten = (List *) raw_query;
 
 		/* check that we got back something we can work with */
-		if (rewritten == NIL)
+		if (rewritten == NIL || linitial(rewritten) == NIL)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1453,7 +1459,7 @@ BeginCopy(bool is_from,
 		}
 
 		/* plan the query */
-		plan = pg_plan_query(query, 0, NULL);
+		plan = pg_plan_query(query, 0, params);
 
 		/*
 		 * With row level security and a user using "COPY relation TO", we
@@ -1495,7 +1501,7 @@ BeginCopy(bool is_from,
 		cstate->queryDesc = CreateQueryDesc(plan, queryString,
 											GetActiveSnapshot(),
 											InvalidSnapshot,
-											dest, NULL, 0);
+											dest, params, 0);
 
 		/*
 		 * Call ExecutorStart to prepare the plan for execution.
@@ -1682,6 +1688,7 @@ EndCopy(CopyState cstate)
 static CopyState
 BeginCopyTo(Relation rel,
 			Node *query,
+			ParamListInfo params,
 			const char *queryString,
 			const Oid queryRelId,
 			const char *filename,
@@ -1725,7 +1732,7 @@ BeginCopyTo(Relation rel,
 							RelationGetRelationName(rel))));
 	}
 
-	cstate = BeginCopy(false, rel, query, queryString, queryRelId, attnamelist,
+	cstate = BeginCopy(false, rel, query, params, queryString, queryRelId, attnamelist,
 					   options);
 	oldcontext = MemoryContextSwitchTo(cstate->copycontext);
 
@@ -2670,7 +2677,7 @@ BeginCopyFrom(Relation rel,
 	MemoryContext oldcontext;
 	bool		volatile_defexprs;
 
-	cstate = BeginCopy(true, rel, NULL, NULL, InvalidOid, attnamelist, options);
+	cstate = BeginCopy(true, rel, NULL, NULL, NULL, InvalidOid, attnamelist, options);
 	oldcontext = MemoryContextSwitchTo(cstate->copycontext);
 
 	/* Initialize state variables */

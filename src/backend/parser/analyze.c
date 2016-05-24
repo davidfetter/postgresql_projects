@@ -299,6 +299,13 @@ transformStmt(ParseState *pstate, Node *parseTree)
 			result = makeNode(Query);
 			result->commandType = CMD_UTILITY;
 			result->utilityStmt = (Node *) parseTree;
+
+			if (IsA(parseTree,CopyStmt)
+				&& ((CopyStmt *)parseTree)->query != NIL)
+			{
+				CopyStmt *stmt = (CopyStmt *) parseTree;
+				stmt->query = transformStmt(pstate, stmt->query);
+			}
 			break;
 	}
 
@@ -343,6 +350,7 @@ analyze_requires_snapshot(Node *parseTree)
 
 		case T_ExplainStmt:
 		case T_CreateTableAsStmt:
+		case T_CopyStmt:
 			/* yes, because we must analyze the contained statement */
 			result = true;
 			break;

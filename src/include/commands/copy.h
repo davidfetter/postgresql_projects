@@ -21,7 +21,7 @@
 /* CopyStateData is private in commands/copy.c */
 typedef struct CopyStateData *CopyState;
 
-extern Oid DoCopy(const CopyStmt *stmt, const char *queryString,
+extern Oid DoCopy(const CopyStmt *stmt, const char *queryString, ParamListInfo params,
 	   uint64 *processed);
 
 extern void ProcessCopyOptions(CopyState cstate, bool is_from, List *options);
