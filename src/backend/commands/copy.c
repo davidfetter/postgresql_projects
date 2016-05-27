@@ -37,6 +37,7 @@
 #include "optimizer/clauses.h"
 #include "optimizer/planner.h"
 #include "nodes/makefuncs.h"
+#include "parser/analyze.h"
 #include "rewrite/rewriteHandler.h"
 #include "storage/fd.h"
 #include "tcop/tcopprot.h"
@@ -906,7 +907,7 @@ DoCopy(const CopyStmt *stmt, const char *queryString, ParamListInfo params, uint
 			select->targetList = list_make1(target);
 			select->fromClause = list_make1(from);
 
-			query = (Node *) select;
+			query = (Node *) parse_analyze((Node *) select, queryString, NULL, 0);
 
 			/*
 			 * Close the relation for now, but keep the lock on it to prevent
@@ -1392,16 +1393,10 @@ BeginCopy(bool is_from,
 		 * function and is executed repeatedly.  (See also the same hack in
 		 * DECLARE CURSOR and PREPARE.)  XXX FIXME someday.
 		 */
-		if (!IsA(raw_query,List))
-		{
-			rewritten = pg_analyze_and_rewrite((Node *) copyObject(raw_query),
-											   queryString, NULL, 0);
-		}
-		else
-			rewritten = (List *) raw_query;
+		rewritten = QueryRewrite(copyObject(raw_query));
 
 		/* check that we got back something we can work with */
-		if (rewritten == NIL || linitial(rewritten) == NIL)
+		if (rewritten == NIL)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),

@@ -44,7 +44,9 @@ c
 -- This should fail
 --
 copy (select t into temp test3 from test1 where id=3) to stdout;
-ERROR:  COPY (SELECT INTO) is not supported
+ERROR:  SELECT ... INTO is not allowed here
+LINE 1: copy (select t into temp test3 from test1 where id=3) to std...
+                                 ^
 --
 -- This should fail
 --

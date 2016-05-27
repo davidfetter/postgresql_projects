@@ -350,9 +350,13 @@ analyze_requires_snapshot(Node *parseTree)
 
 		case T_ExplainStmt:
 		case T_CreateTableAsStmt:
-		case T_CopyStmt:
 			/* yes, because we must analyze the contained statement */
 			result = true;
+			break;
+
+		case T_CopyStmt:
+			/* maybe, because we might have a contained statement */
+			result = ((CopyStmt *)parseTree)->query != NULL;
 			break;
 
 		default:

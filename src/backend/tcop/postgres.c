@@ -739,16 +739,6 @@ pg_rewrite_query(Query *query)
 
 	if (query->commandType == CMD_UTILITY)
 	{
-		if (query->utilityStmt
-			&& IsA(query->utilityStmt,CopyStmt)
-			&& ((CopyStmt *)(query->utilityStmt))->query)
-		{
-			CopyStmt *stmt = (CopyStmt *)(query->utilityStmt);
-			Assert(IsA(stmt->query,Query));
-			stmt->query = (Node *) QueryRewrite((Query *)(stmt->query));
-			if (stmt->query == (Node *) NIL)
-				stmt->query = (Node *) list_make1(NIL);
-		}
 		/* don't rewrite utilities, just dump 'em into result list */
 		querytree_list = list_make1(query);
 	}

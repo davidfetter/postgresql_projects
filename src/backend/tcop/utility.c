@@ -1769,6 +1769,16 @@ UtilityContainsQuery(Node *parsetree)
 				return UtilityContainsQuery(qry->utilityStmt);
 			return qry;
 
+		case T_CopyStmt:
+			qry = (Query *) ((CopyStmt *) parsetree)->query;
+			if (qry)
+			{
+				Assert(IsA(qry, Query));
+				if (qry->commandType == CMD_UTILITY)
+					return UtilityContainsQuery(qry->utilityStmt);
+			}
+			return qry;
+
 		case T_CreateTableAsStmt:
 			qry = (Query *) ((CreateTableAsStmt *) parsetree)->query;
 			Assert(IsA(qry, Query));
