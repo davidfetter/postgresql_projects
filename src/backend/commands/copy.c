@@ -37,6 +37,7 @@
 #include "optimizer/clauses.h"
 #include "optimizer/planner.h"
 #include "nodes/makefuncs.h"
+#include "nodes/nodeFuncs.h"
 #include "parser/analyze.h"
 #include "rewrite/rewriteHandler.h"
 #include "storage/fd.h"
@@ -286,7 +287,7 @@ static CopyState BeginCopy(bool is_from, Relation rel, Node *raw_query, ParamLis
 static void EndCopy(CopyState cstate);
 static void ClosePipeToProgram(CopyState cstate);
 static CopyState BeginCopyTo(Relation rel, Node *query, ParamListInfo params, const char *queryString,
-			const Oid queryRelId, const char *filename, bool is_program,
+			const Oid queryRelId, Node *filename_expr, bool is_program,
 			List *attnamelist, List *options);
 static void EndCopyTo(CopyState cstate);
 static uint64 DoCopyTo(CopyState cstate);
@@ -768,6 +769,43 @@ CopyLoadRawBuf(CopyState cstate)
 }
 
 
+static char *
+CopyEvalFilename(QueryDesc *qd, Node *expr, ParamListInfo params)
+{
+	char *filename = NULL;
+
+	if (expr)
+	{
+		EState *estate = qd ? qd->estate : CreateExecutorState();
+		MemoryContext oldcontext = MemoryContextSwitchTo(estate->es_query_cxt);
+
+		Assert(exprType(expr) == CSTRINGOID);
+
+		if (qd == NULL)
+			estate->es_param_list_info = params;
+
+		{
+			ExprContext *ecxt = CreateExprContext(estate);
+			ExprState *exprstate = ExecPrepareExpr(copyObject(expr), estate);
+			bool isnull;
+			Datum result = ExecEvalExprSwitchContext(exprstate, ecxt, &isnull, NULL);
+			if (!isnull)
+				filename = MemoryContextStrdup(oldcontext, DatumGetCString(result));
+			FreeExprContext(ecxt, true);
+		}
+
+		MemoryContextSwitchTo(oldcontext);
+
+		if (qd == NULL)
+			FreeExecutorState(estate);
+
+		if (!filename)
+			elog(ERROR, "COPY filename expression must not return NULL");
+	}
+
+	return filename;
+}
+
 /*
  *	 DoCopy executes the SQL COPY statement
  *
@@ -930,6 +968,8 @@ DoCopy(const CopyStmt *stmt, const char *queryString, ParamListInfo params, uint
 
 	if (is_from)
 	{
+		char *filename;
+
 		Assert(rel);
 
 		/* check read-only transaction and parallel mode */
@@ -937,11 +977,16 @@ DoCopy(const CopyStmt *stmt, const char *queryString, ParamListInfo params, uint
 			PreventCommandIfReadOnly("COPY FROM");
 		PreventCommandIfParallelMode("COPY FROM");
 
-		cstate = BeginCopyFrom(rel, stmt->filename, stmt->is_program,
+		filename = CopyEvalFilename(NULL, stmt->filename, params);
+
+		cstate = BeginCopyFrom(rel, filename, stmt->is_program,
 							   stmt->attlist, stmt->options);
 		cstate->range_table = range_table;
 		*processed = CopyFrom(cstate);	/* copy from file to database */
 		EndCopyFrom(cstate);
+
+		if (filename)
+			pfree(filename);
 	}
 	else
 	{
@@ -1686,13 +1731,13 @@ BeginCopyTo(Relation rel,
 			ParamListInfo params,
 			const char *queryString,
 			const Oid queryRelId,
-			const char *filename,
+			Node *filename_expr,
 			bool is_program,
 			List *attnamelist,
 			List *options)
 {
 	CopyState	cstate;
-	bool		pipe = (filename == NULL);
+	bool		pipe = (filename_expr == NULL);
 	MemoryContext oldcontext;
 
 	if (rel != NULL && rel->rd_rel->relkind != RELKIND_RELATION)
@@ -1739,7 +1784,7 @@ BeginCopyTo(Relation rel,
 	}
 	else
 	{
-		cstate->filename = pstrdup(filename);
+		cstate->filename = CopyEvalFilename(cstate->queryDesc, filename_expr, params);
 		cstate->is_program = is_program;
 
 		if (is_program)
@@ -1760,7 +1805,7 @@ BeginCopyTo(Relation rel,
 			 * Prevent write to relative path ... too easy to shoot oneself in
 			 * the foot by overwriting a database file ...
 			 */
-			if (!is_absolute_path(filename))
+			if (!is_absolute_path(cstate->filename))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_NAME),
 					  errmsg("relative path not allowed for COPY to file")));

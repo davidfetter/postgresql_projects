@@ -313,8 +313,8 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <defelt>	event_trigger_when_item
 %type <chr>		enable_trigger
 
-%type <str>		copy_file_name
-				database_name access_method_clause access_method attr_name
+%type <node>	copy_file_name param_opt_indirection
+%type <str>		database_name access_method_clause access_method attr_name
 				name cursor_name file_name
 				index_name opt_index_name cluster_index_specification
 
@@ -2651,7 +2651,11 @@ opt_program:
  * stdout. We silently correct the "typo".)		 - AY 9/94
  */
 copy_file_name:
-			Sconst									{ $$ = $1; }
+			Sconst									{ $$ = makeStringConst($1,@1); }
+			| '(' Sconst ')'						{ $$ = makeStringConst($2,@2); }
+			| param_opt_indirection					{ $$ = $1; }
+			| '(' columnref ')'						{ $$ = $2; }
+			| '(' param_opt_indirection ')'			{ $$ = $2; }
 			| STDIN									{ $$ = NULL; }
 			| STDOUT								{ $$ = NULL; }
 		;
@@ -12049,21 +12053,7 @@ b_expr:		c_expr
  */
 c_expr:		columnref								{ $$ = $1; }
 			| AexprConst							{ $$ = $1; }
-			| PARAM opt_indirection
-				{
-					ParamRef *p = makeNode(ParamRef);
-					p->number = $1;
-					p->location = @1;
-					if ($2)
-					{
-						A_Indirection *n = makeNode(A_Indirection);
-						n->arg = (Node *) p;
-						n->indirection = check_indirection($2, yyscanner);
-						$$ = (Node *) n;
-					}
-					else
-						$$ = (Node *) p;
-				}
+			| param_opt_indirection					{ $$ = $1; }
 			| '(' a_expr ')' opt_indirection
 				{
 					if ($4)
@@ -12190,6 +12180,23 @@ c_expr:		columnref								{ $$ = $1; }
 				  g->location = @1;
 				  $$ = (Node *)g;
 			  }
+		;
+
+param_opt_indirection: PARAM opt_indirection
+				{
+					ParamRef *p = makeNode(ParamRef);
+					p->number = $1;
+					p->location = @1;
+					if ($2)
+					{
+						A_Indirection *n = makeNode(A_Indirection);
+						n->arg = (Node *) p;
+						n->indirection = check_indirection($2, yyscanner);
+						$$ = (Node *) n;
+					}
+					else
+						$$ = (Node *) p;
+				}
 		;
 
 func_application: func_name '(' ')'

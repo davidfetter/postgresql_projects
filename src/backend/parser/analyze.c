@@ -36,12 +36,14 @@
 #include "parser/parse_coerce.h"
 #include "parser/parse_collate.h"
 #include "parser/parse_cte.h"
+#include "parser/parse_expr.h"
 #include "parser/parse_oper.h"
 #include "parser/parse_param.h"
 #include "parser/parse_relation.h"
 #include "parser/parse_target.h"
 #include "parser/parsetree.h"
 #include "rewrite/rewriteManip.h"
+#include "utils/builtins.h"
 #include "utils/rel.h"
 
 
@@ -74,6 +76,7 @@ static Query *transformCreateTableAsStmt(ParseState *pstate,
 						   CreateTableAsStmt *stmt);
 static void transformLockingClause(ParseState *pstate, Query *qry,
 					   LockingClause *lc, bool pushedDown);
+static Query *transformCopyStmt(ParseState *pstate, CopyStmt *stmt);
 #ifdef RAW_EXPRESSION_COVERAGE_TEST
 static bool test_raw_expression_coverage(Node *node, void *context);
 #endif
@@ -290,6 +293,11 @@ transformStmt(ParseState *pstate, Node *parseTree)
 											(CreateTableAsStmt *) parseTree);
 			break;
 
+		case T_CopyStmt:
+			result = transformCopyStmt(pstate,
+										  (CopyStmt *) parseTree);
+			break;
+
 		default:
 
 			/*
@@ -299,13 +307,6 @@ transformStmt(ParseState *pstate, Node *parseTree)
 			result = makeNode(Query);
 			result->commandType = CMD_UTILITY;
 			result->utilityStmt = (Node *) parseTree;
-
-			if (IsA(parseTree,CopyStmt)
-				&& ((CopyStmt *)parseTree)->query != NIL)
-			{
-				CopyStmt *stmt = (CopyStmt *) parseTree;
-				stmt->query = transformStmt(pstate, stmt->query);
-			}
 			break;
 	}
 
@@ -364,6 +365,40 @@ analyze_requires_snapshot(Node *parseTree)
 			result = false;
 			break;
 	}
+
+	return result;
+}
+
+static Query *
+transformCopyStmt(ParseState *pstate, CopyStmt *stmt)
+{
+	Query *result = makeNode(Query);
+
+	result->commandType = CMD_UTILITY;
+	result->utilityStmt = (Node *) stmt;
+
+	if (stmt->filename)
+	{
+		Node *expr1 = transformExpr(pstate, stmt->filename, EXPR_KIND_OTHER);
+		Node *expr2 = coerce_to_target_type(pstate, expr1, exprType(expr1),
+											CSTRINGOID, -1,
+											COERCION_EXPLICIT,
+											COERCE_IMPLICIT_CAST,
+											exprLocation(expr1));
+
+		if (!expr2)
+			ereport(ERROR,
+				(errcode(ERRCODE_CANNOT_COERCE),
+				 errmsg("cannot cast type %s to %s",
+						format_type_be(exprType(expr1)),
+						format_type_be(CSTRINGOID)),
+				 parser_errposition(pstate, exprLocation(expr1))));
+
+		stmt->filename = expr2;
+	}
+
+	if (stmt->query != NULL)
+		stmt->query = (Node *) transformStmt(pstate, stmt->query);
 
 	return result;
 }
