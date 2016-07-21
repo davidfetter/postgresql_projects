@@ -47,6 +47,7 @@
 #include "optimizer/geqo.h"
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
+#include "parser/analyze.h"
 #include "parser/parse_expr.h"
 #include "parser/parse_type.h"
 #include "parser/parser.h"
@@ -1649,6 +1650,26 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&syslog_split_messages,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"allow_empty_deletes", PGC_SUSET, QUERY_TUNING,
+			gettext_noop("Allow DELETE without a WHERE clause"),
+			NULL
+		},
+		&allow_empty_deletes,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"allow_empty_updates", PGC_SUSET, QUERY_TUNING,
+			gettext_noop("Allow UPDATE without a WHERE clause"),
+			NULL
+		},
+		&allow_empty_updates,
 		true,
 		NULL, NULL, NULL
 	},

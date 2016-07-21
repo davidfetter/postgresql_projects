@@ -42,4 +42,7 @@ extern void applyLockingClause(Query *qry, Index rtindex,
 				   LockClauseStrength strength,
 				   LockWaitPolicy waitPolicy, bool pushedDown);
 
+extern bool allow_empty_deletes;
+extern bool allow_empty_updates;
+
 #endif   /* ANALYZE_H */

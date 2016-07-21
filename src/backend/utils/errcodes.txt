@@ -388,6 +388,7 @@ Section: Class 54 - Program Limit Exceeded
 # this is for wired-in limits, not resource exhaustion problems (class borrowed from DB2)
 54000    E    ERRCODE_PROGRAM_LIMIT_EXCEEDED                                 program_limit_exceeded
 54001    E    ERRCODE_STATEMENT_TOO_COMPLEX                                  statement_too_complex
+54002    E    ERRCODE_STATEMENT_HAS_NO_WHERE                                 statement_has_no_where
 54011    E    ERRCODE_TOO_MANY_COLUMNS                                       too_many_columns
 54023    E    ERRCODE_TOO_MANY_ARGUMENTS                                     too_many_arguments
 

@@ -7019,6 +7019,32 @@ dynamic_library_path = 'C:\tools\postgresql;H:\my_project\lib;$libdir'
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-allow-empty-updates" xreflabel="allow_empty_updates">
+      <term><varname>allow_empty_updates</varname> (<type>boolean</type>)
+      <indexterm>
+       <primary><varname>allow_empty_updates</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Allow UPDATE statements that lack a WHERE clause.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-allow-empty-deletes" xreflabel="allow_empty_deletes">
+      <term><varname>allow_empty_deletes</varname> (<type>boolean</type>)
+      <indexterm>
+       <primary><varname>allow_empty_deletes</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Allow DELETE statements that lack a WHERE clause.
+       </para>
+      </listitem>
+     </varlistentry>
+
      </variablelist>
     </sect2>
    </sect1>

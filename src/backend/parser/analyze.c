@@ -48,6 +48,9 @@
 /* Hook for plugins to get control at end of parse analysis */
 post_parse_analyze_hook_type post_parse_analyze_hook = NULL;
 
+bool allow_empty_deletes = true;
+bool allow_empty_updates = true;
+
 static Query *transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt);
 static Query *transformInsertStmt(ParseState *pstate, InsertStmt *stmt);
 static List *transformInsertRow(ParseState *pstate, List *exprlist,
@@ -407,6 +410,12 @@ transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
 
 	qual = transformWhereClause(pstate, stmt->whereClause,
 								EXPR_KIND_WHERE, "WHERE");
+
+	/* Check for allow_empty_deletes */
+	if (!allow_empty_deletes && qual == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_STATEMENT_HAS_NO_WHERE),
+				 errmsg("DELETE without a WHERE clause is disallowed")));
 
 	qry->returningList = transformReturningList(pstate, stmt->returningList);
 
@@ -2109,6 +2118,12 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 
 	qual = transformWhereClause(pstate, stmt->whereClause,
 								EXPR_KIND_WHERE, "WHERE");
+
+	/* Check for allow_empty_updates */
+	if (!allow_empty_updates && qual == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_STATEMENT_HAS_NO_WHERE),
+				 errmsg("UPDATE without a WHERE clause is disallowed")));
 
 	qry->returningList = transformReturningList(pstate, stmt->returningList);
 
