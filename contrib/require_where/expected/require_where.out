@@ -1,0 +1,16 @@
+--
+--   Test require_where
+--
+\set echo all
+CREATE TABLE test_require_where(t TEXT);
+UPDATE test_require_where SET t=t; -- succeeds
+DELETE FROM test_require_where; -- succeeds
+LOAD 'require_where';
+UPDATE test_require_where SET t=t; -- fails
+ERROR:  UPDATE requires a WHERE clause when the "require_where" extension is loaded.
+HINT:  To update all rows, use "WHERE true" or similar.
+UPDATE test_require_where SET t=t WHERE true; -- succeeds
+DELETE FROM test_require_where; -- fails
+ERROR:  DELETE requires a WHERE clause when the "require_where" extension is loaded.
+HINT:  To delete all rows, use "WHERE true" or similar.
+DELETE FROM test_require_where WHERE true; -- succeeds

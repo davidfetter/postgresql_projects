@@ -135,6 +135,7 @@ CREATE EXTENSION <replaceable>module_name</replaceable> FROM unpackaged;
  &pgtrgm;
  &pgvisibility;
  &postgres-fdw;
+ &require-where;
  &seg;
  &sepgsql;
  &contrib-spi;

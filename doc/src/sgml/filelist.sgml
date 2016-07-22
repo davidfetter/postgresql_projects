@@ -139,6 +139,7 @@
 <!ENTITY pgtrgm          SYSTEM "pgtrgm.sgml">
 <!ENTITY pgvisibility    SYSTEM "pgvisibility.sgml">
 <!ENTITY postgres-fdw    SYSTEM "postgres-fdw.sgml">
+<!ENTITY require-where   SYSTEM "require_where.sgml">
 <!ENTITY seg             SYSTEM "seg.sgml">
 <!ENTITY contrib-spi     SYSTEM "contrib-spi.sgml">
 <!ENTITY sepgsql         SYSTEM "sepgsql.sgml">

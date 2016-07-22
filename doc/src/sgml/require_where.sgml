@@ -1,0 +1,54 @@
+<!-- doc/src/sgml/require_where.sgml -->
+
+<sect1 id="require-where" xreflabel="require_where">
+ <title>require_where</title>
+
+ <indexterm zone="require-where">
+  <primary>require_where</primary>
+ </indexterm>
+
+ <para>
+  This module makes it a requirement that WHERE on both DELETE or UPDATE be present.
+ </para>
+
+ <para>
+  To use this module, you need to include <literal>require_where</literal> in
+  the either the <xref linkend="guc-shared-preload-libraries"> parameter, or
+  <command>LOAD</command> the library directly.
+ </para>
+
+ <para>
+  Here is an example showing how to set up a database cluster with
+  <literal>require_where</literal>.
+<screen>
+$ psql -U postgres
+# SHOW shared_preload_libraries; /* Make sure not to clobber something by accident */
+
+If you found something, 
+# ALTER SYSTEM SET shared_preload_libraries='the,stuff,you,found,require_where';
+
+Otherwise,
+# ALTER SYSTEM SET shared_preload_libraries='require_where';
+
+Then restart <productname>PostgreSQL</productname>
+</screen>
+ </para>
+
+ <para>
+  Here is an example using <command>LOAD</command>:
+<screen>
+$ psql -U postgres
+# LOAD '$libdir/require_where';
+</screen>
+ </para>
+
+ <sect2>
+  <title>Authors</title>
+
+  <para>
+    David Fetter <email>david@fetter.org</email>,
+    Robert Haas <email>robertmhaas@gmail.com</email> and
+    Andrew Gierth <email>andrew@tao11.riddles.org.uk</email>.
+  </para>
+ </sect2>
+</sect1>
