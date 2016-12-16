@@ -1848,7 +1848,8 @@ typedef struct AggState
 	int			numtrans;		/* number of pertrans items */
 	AggSplit	aggsplit;		/* agg-splitting mode, see nodes.h */
 	AggStatePerPhase phase;		/* pointer to current phase data */
-	int			numphases;		/* number of phases */
+	AggStatePerPhase hashphase;		/* pointer to hash phase data */
+	int			numphases;		/* number of phases (excluding hash) */
 	int			current_phase;	/* current phase number */
 	FmgrInfo   *hashfunctions;	/* per-grouping-field hash fns */
 	AggStatePerAgg peragg;		/* per-Aggref information */
@@ -1872,7 +1873,7 @@ typedef struct AggState
 	/* these fields are used in AGG_PLAIN and AGG_SORTED modes: */
 	AggStatePerGroup pergroup;	/* per-Aggref-per-group working state */
 	HeapTuple	grp_firstTuple; /* copy of first tuple of current group */
-	/* these fields are used in AGG_HASHED mode: */
+	/* these fields are used in AGG_HASHED and AGG_MIXED modes: */
 	TupleHashTable hashtable;	/* hash table with one entry per group */
 	TupleTableSlot *hashslot;	/* slot for loading hash table */
 	int			numhashGrpCols;	/* number of columns in hash table */
