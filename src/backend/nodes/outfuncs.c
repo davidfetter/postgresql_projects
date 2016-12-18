@@ -1854,6 +1854,18 @@ _outAggPath(StringInfo str, const AggPath *node)
 }
 
 static void
+_outRollupData(StringInfo str, const RollupData *node)
+{
+	WRITE_NODE_TYPE("ROLLUP");
+
+	WRITE_NODE_FIELD(groupClause);
+	WRITE_NODE_FIELD(gsets);
+	WRITE_NODE_FIELD(gsets_ref);
+	WRITE_FLOAT_FIELD(numGroups, "%.0f");
+	WRITE_BOOL_FIELD(hashable);
+}
+
+static void
 _outGroupingSetsPath(StringInfo str, const GroupingSetsPath *node)
 {
 	WRITE_NODE_TYPE("GROUPINGSETSPATH");
@@ -1861,8 +1873,8 @@ _outGroupingSetsPath(StringInfo str, const GroupingSetsPath *node)
 	_outPathInfo(str, (const Path *) node);
 
 	WRITE_NODE_FIELD(subpath);
-	WRITE_NODE_FIELD(rollup_groupclauses);
-	WRITE_NODE_FIELD(rollup_lists);
+	WRITE_ENUM_FIELD(aggstrategy, AggStrategy);
+	WRITE_NODE_FIELD(rollups);
 	WRITE_NODE_FIELD(qual);
 }
 
@@ -3763,6 +3775,9 @@ outNode(StringInfo str, const void *obj)
 				break;
 			case T_PlannerParamItem:
 				_outPlannerParamItem(str, obj);
+				break;
+			case T_RollupData:
+				_outRollupData(str, obj);
 				break;
 
 			case T_ExtensibleNode:

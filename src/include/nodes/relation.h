@@ -1358,16 +1358,24 @@ typedef struct AggPath
 
 /*
  * GroupingSetsPath represents a GROUPING SETS aggregation
- *
- * Currently we only support this in sorted not hashed form, so the input
- * must always be appropriately presorted.
  */
+
+typedef struct RollupData
+{
+	NodeTag		type;
+	List	   *groupClause;	/* applicable subset of parse->groupClause */
+	List	   *gsets;			/* lists of integer indexes into groupClause */
+	List	   *gsets_ref;		/* lists of sortgrouprefs */
+	double		numGroups;		/* est. number of result groups */
+	bool		hashable;		/* can be hashed */
+} RollupData;
+
 typedef struct GroupingSetsPath
 {
 	Path		path;
 	Path	   *subpath;		/* path representing input source */
-	List	   *rollup_groupclauses;	/* list of lists of SortGroupClause's */
-	List	   *rollup_lists;	/* parallel list of lists of grouping sets */
+	AggStrategy aggstrategy;	/* basic strategy */
+	List	   *rollups;		/* list of RollupData */
 	List	   *qual;			/* quals (HAVING quals), if any */
 } GroupingSetsPath;
 
