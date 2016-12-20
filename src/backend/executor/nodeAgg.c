@@ -449,7 +449,7 @@ static void initialize_aggregates(AggState *aggstate,
 static void advance_transition_function(AggState *aggstate,
 							AggStatePerTrans pertrans,
 							AggStatePerGroup pergroupstate);
-static void advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup);
+static void advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup, bool is_hash);
 static void advance_combine_function(AggState *aggstate,
 						 AggStatePerTrans pertrans,
 						 AggStatePerGroup pergroupstate);
@@ -501,13 +501,29 @@ static int find_compatible_pertrans(AggState *aggstate, Aggref *newagg,
 
 
 /*
- * Switch to phase "newphase", which must either be 0 (to reset) or
+ * Select the current grouping set; affects current_set and
+ * curaggcontext. -1 selects the hashed set.
+ */
+
+static void
+select_current_set(AggState *aggstate, int setno)
+{
+	if (setno >= 0)
+		aggstate->curaggcontext = aggstate->aggcontexts[setno];
+	else
+		aggstate->curaggcontext = aggstate->hashcontext;
+
+	aggstate->current_set = setno;
+}
+
+/*
+ * Switch to phase "newphase", which must either be 1 (to reset) or
  * current_phase + 1. Juggle the tuplesorts accordingly.
  */
 static void
 initialize_phase(AggState *aggstate, int newphase)
 {
-	Assert(newphase == 0 || newphase == aggstate->current_phase + 1);
+	Assert(newphase <= 1 || newphase == aggstate->current_phase + 1);
 
 	/*
 	 * Whatever the previous state, we're now done with whatever input
@@ -519,7 +535,7 @@ initialize_phase(AggState *aggstate, int newphase)
 		aggstate->sort_in = NULL;
 	}
 
-	if (newphase == 0)
+	if (newphase <= 1)
 	{
 		/*
 		 * Discard any existing output tuplesort.
@@ -546,7 +562,7 @@ initialize_phase(AggState *aggstate, int newphase)
 	 * If this isn't the last phase, we need to sort appropriately for the
 	 * next phase in sequence.
 	 */
-	if (newphase < aggstate->numphases - 1)
+	if (newphase > 0 && newphase < aggstate->numphases - 1)
 	{
 		Sort	   *sortnode = aggstate->phases[newphase + 1].sortnode;
 		PlanState  *outerNode = outerPlanState(aggstate);
@@ -567,7 +583,7 @@ initialize_phase(AggState *aggstate, int newphase)
 }
 
 /*
- * Fetch a tuple from either the outer plan (for phase 0) or from the sorter
+ * Fetch a tuple from either the outer plan (for phase 1) or from the sorter
  * populated by the previous phase.  Copy it to the sorter for the next phase
  * if any.
  */
@@ -584,7 +600,27 @@ fetch_input_tuple(AggState *aggstate)
 		slot = aggstate->sort_slot;
 	}
 	else
+	{
 		slot = ExecProcNode(outerPlanState(aggstate));
+
+		if (aggstate->aggstrategy == AGG_MIXED && !TupIsNull(slot))
+		{
+			TupleHashEntryData *entry;
+
+			/* set up for advance_aggregates call */
+			aggstate->tmpcontext->ecxt_outertuple = slot;
+
+			/* Find or build hashtable entry for this tuple's group */
+			entry = lookup_hash_entry(aggstate, slot);
+
+			/* Advance the aggregates */
+			Assert(!DO_AGGSPLIT_COMBINE(aggstate->aggsplit));
+
+			advance_aggregates(aggstate, (AggStatePerGroup) entry->additional, true);
+
+			ResetExprContext(aggstate->tmpcontext);
+		}
+	}
 
 	if (!TupIsNull(slot) && aggstate->sort_out)
 		tuplesort_puttupleslot(aggstate->sort_out, slot);
@@ -652,8 +688,7 @@ initialize_aggregate(AggState *aggstate, AggStatePerTrans pertrans,
 	{
 		MemoryContext oldContext;
 
-		oldContext = MemoryContextSwitchTo(
-		aggstate->aggcontexts[aggstate->current_set]->ecxt_per_tuple_memory);
+		oldContext = MemoryContextSwitchTo(aggstate->curaggcontext->ecxt_per_tuple_memory);
 		pergroupstate->transValue = datumCopy(pertrans->initValue,
 											  pertrans->transtypeByVal,
 											  pertrans->transtypeLen);
@@ -676,8 +711,8 @@ initialize_aggregate(AggState *aggstate, AggStatePerTrans pertrans,
  *
  * If there are multiple grouping sets, we initialize only the first numReset
  * of them (the grouping sets are ordered so that the most specific one, which
- * is reset most often, is first). As a convenience, if numReset is < 1, we
- * reinitialize all sets.
+ * is reset most often, is first). As a convenience, if numReset is 0, we
+ * reinitialize all sets. numReset is -1 to initialize a hashtable entry.
  *
  * When called, CurrentMemoryContext should be the per-query context.
  */
@@ -691,22 +726,35 @@ initialize_aggregates(AggState *aggstate,
 	int			setno = 0;
 	AggStatePerTrans transstates = aggstate->pertrans;
 
-	if (numReset < 1)
+	if (numReset == 0)
 		numReset = numGroupingSets;
 
 	for (transno = 0; transno < aggstate->numtrans; transno++)
 	{
 		AggStatePerTrans pertrans = &transstates[transno];
 
-		for (setno = 0; setno < numReset; setno++)
+		if (numReset < 0)
 		{
 			AggStatePerGroup pergroupstate;
 
-			pergroupstate = &pergroup[transno + (setno * (aggstate->numtrans))];
+			pergroupstate = &pergroup[transno];
 
-			aggstate->current_set = setno;
+			select_current_set(aggstate, -1);
 
 			initialize_aggregate(aggstate, pertrans, pergroupstate);
+		}
+		else
+		{
+			for (setno = 0; setno < numReset; setno++)
+			{
+				AggStatePerGroup pergroupstate;
+
+				pergroupstate = &pergroup[transno + (setno * (aggstate->numtrans))];
+
+				select_current_set(aggstate, setno);
+
+				initialize_aggregate(aggstate, pertrans, pergroupstate);
+			}
 		}
 	}
 }
@@ -757,7 +805,7 @@ advance_transition_function(AggState *aggstate,
 			 * do not need to pfree the old transValue, since it's NULL.
 			 */
 			oldContext = MemoryContextSwitchTo(
-											   aggstate->aggcontexts[aggstate->current_set]->ecxt_per_tuple_memory);
+											   aggstate->curaggcontext->ecxt_per_tuple_memory);
 			pergroupstate->transValue = datumCopy(fcinfo->arg[1],
 												  pertrans->transtypeByVal,
 												  pertrans->transtypeLen);
@@ -807,7 +855,7 @@ advance_transition_function(AggState *aggstate,
 	{
 		if (!fcinfo->isnull)
 		{
-			MemoryContextSwitchTo(aggstate->aggcontexts[aggstate->current_set]->ecxt_per_tuple_memory);
+			MemoryContextSwitchTo(aggstate->curaggcontext->ecxt_per_tuple_memory);
 			if (DatumIsReadWriteExpandedObject(newVal,
 											   false,
 											   pertrans->transtypeLen) &&
@@ -844,7 +892,7 @@ advance_transition_function(AggState *aggstate,
  * When called, CurrentMemoryContext should be the per-query context.
  */
 static void
-advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
+advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup, bool is_hash)
 {
 	int			transno;
 	int			setno = 0;
@@ -880,6 +928,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 		{
 			/* DISTINCT and/or ORDER BY case */
 			Assert(slot->tts_nvalid >= (pertrans->numInputs + inputoff));
+			Assert(!is_hash);
 
 			/*
 			 * If the transfn is strict, we want to check for nullity before
@@ -939,13 +988,24 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 				fcinfo->argnull[i + 1] = slot->tts_isnull[i + inputoff];
 			}
 
-			for (setno = 0; setno < numGroupingSets; setno++)
+			if (is_hash)
 			{
-				AggStatePerGroup pergroupstate = &pergroup[transno + (setno * numTrans)];
+				AggStatePerGroup pergroupstate = &pergroup[transno];
 
-				aggstate->current_set = setno;
+				select_current_set(aggstate, -1);
 
 				advance_transition_function(aggstate, pertrans, pergroupstate);
+			}
+			else
+			{
+				for (setno = 0; setno < numGroupingSets; setno++)
+				{
+					AggStatePerGroup pergroupstate = &pergroup[transno + (setno * numTrans)];
+
+					select_current_set(aggstate, setno);
+
+					advance_transition_function(aggstate, pertrans, pergroupstate);
+				}
 			}
 		}
 	}
@@ -1061,7 +1121,7 @@ advance_combine_function(AggState *aggstate,
 			if (!pertrans->transtypeByVal)
 			{
 				oldContext = MemoryContextSwitchTo(
-												   aggstate->aggcontexts[aggstate->current_set]->ecxt_per_tuple_memory);
+												   aggstate->curaggcontext->ecxt_per_tuple_memory);
 				pergroupstate->transValue = datumCopy(fcinfo->arg[1],
 													pertrans->transtypeByVal,
 													  pertrans->transtypeLen);
@@ -1106,7 +1166,7 @@ advance_combine_function(AggState *aggstate,
 	{
 		if (!fcinfo->isnull)
 		{
-			MemoryContextSwitchTo(aggstate->aggcontexts[aggstate->current_set]->ecxt_per_tuple_memory);
+			MemoryContextSwitchTo(aggstate->curaggcontext->ecxt_per_tuple_memory);
 			if (DatumIsReadWriteExpandedObject(newVal,
 											   false,
 											   pertrans->transtypeLen) &&
@@ -1576,10 +1636,12 @@ finalize_aggregates(AggState *aggstate,
 	bool	   *aggnulls = econtext->ecxt_aggnulls;
 	int			aggno;
 
-	Assert(currentSet == 0 ||
-		   ((Agg *) aggstate->ss.ps.plan)->aggstrategy != AGG_HASHED);
+	Assert(currentSet == -1 ||
+		   aggstate->aggstrategy != AGG_HASHED);
 
-	aggstate->current_set = currentSet;
+	select_current_set(aggstate, currentSet);
+	if (currentSet < 0)
+		currentSet = 0;
 
 	for (aggno = 0; aggno < aggstate->numaggs; aggno++)
 	{
@@ -1592,7 +1654,7 @@ finalize_aggregates(AggState *aggstate,
 
 		if (pertrans->numSortCols > 0)
 		{
-			Assert(((Agg *) aggstate->ss.ps.plan)->aggstrategy != AGG_HASHED);
+			Assert(aggstate->aggstrategy != AGG_HASHED);
 
 			if (pertrans->numInputs == 1)
 				process_ordered_aggregate_single(aggstate,
@@ -1702,7 +1764,7 @@ find_unaggregated_cols_walker(Node *node, Bitmapset **colnos)
  * GROUP BY columns.  The per-group data is allocated in lookup_hash_entry(),
  * for each entry.
  *
- * The hash table always lives in the aggcontext memory context.
+ * The hash table always lives in the hashcontext memory context.
  */
 static void
 build_hash_table(AggState *aggstate)
@@ -1711,18 +1773,18 @@ build_hash_table(AggState *aggstate)
 	MemoryContext tmpmem = aggstate->tmpcontext->ecxt_per_tuple_memory;
 	Size		additionalsize;
 
-	Assert(node->aggstrategy == AGG_HASHED);
+	Assert(aggstate->aggstrategy == AGG_HASHED || aggstate->aggstrategy == AGG_MIXED);
 	Assert(node->numGroups > 0);
 
 	additionalsize = aggstate->numaggs * sizeof(AggStatePerGroupData);
 
 	aggstate->hashtable = BuildTupleHashTable(node->numCols,
 											  aggstate->hashGrpColIdxHash,
-											  aggstate->phase->eqfunctions,
+											  aggstate->phases[0].eqfunctions,
 											  aggstate->hashfunctions,
 											  node->numGroups,
 											  additionalsize,
-							 aggstate->aggcontexts[0]->ecxt_per_tuple_memory,
+							 aggstate->hashcontext->ecxt_per_tuple_memory,
 											  tmpmem,
 								  !DO_AGGSPLIT_SKIPFINAL(aggstate->aggsplit));
 }
@@ -1762,6 +1824,25 @@ find_hash_columns(AggState *aggstate)
 
 	/* Find Vars that will be needed in tlist and qual */
 	colnos = find_unaggregated_cols(aggstate);
+	/*
+	 * If we're doing grouping sets, then some Vars might be referenced in
+	 * tlist/qual for the benefit of other grouping sets, but not needed when
+	 * hashing; i.e. prepare_projection_slot will null them out, so there'd be
+	 * no point storing them.
+	 */
+	if (aggstate->phases[0].grouped_cols)
+	{
+		Bitmapset  *grouped_cols = aggstate->phases[0].grouped_cols[0];
+		ListCell   *lc;
+
+		foreach(lc, aggstate->all_grouped_cols)
+		{
+			int			attnum = lfirst_int(lc);
+
+			if (!bms_is_member(attnum, grouped_cols))
+				colnos = bms_del_member(colnos, attnum);
+		}
+	}
 	/* Add in all the grouping columns */
 	for (i = 0; i < node->numCols; i++)
 		colnos = bms_add_member(colnos, node->grpColIdx[i]);
@@ -1873,7 +1954,7 @@ lookup_hash_entry(AggState *aggstate, TupleTableSlot *inputslot)
 						  sizeof(AggStatePerGroupData) * aggstate->numtrans);
 		/* initialize aggregates for new tuple group */
 		initialize_aggregates(aggstate, (AggStatePerGroup) entry->additional,
-							  0);
+							  -1);
 	}
 
 	return entry;
@@ -1926,6 +2007,8 @@ ExecAgg(AggState *node)
 			case AGG_HASHED:
 				if (!node->table_filled)
 					agg_fill_hash_table(node);
+				/*FALLTHROUGH*/
+			case AGG_MIXED:
 				result = agg_retrieve_hash_table(node);
 				break;
 			default:
@@ -2037,6 +2120,18 @@ agg_retrieve_direct(AggState *aggstate)
 				node = aggstate->phase->aggnode;
 				numReset = numGroupingSets;
 			}
+			else if (aggstate->aggstrategy == AGG_MIXED)
+			{
+				/*
+				 * Mixed mode; we've output all the grouped stuff and have a
+				 * full hashtable, so switch to outputting that.
+				 */
+				initialize_phase(aggstate, 0);
+				aggstate->table_filled = true;
+				ResetTupleHashIterator(aggstate->hashtable, &aggstate->hashiter);
+				result = agg_retrieve_hash_table(aggstate);
+				return result;
+			}
 			else
 			{
 				aggstate->agg_done = true;
@@ -2073,7 +2168,7 @@ agg_retrieve_direct(AggState *aggstate)
 		 *----------
 		 */
 		if (aggstate->input_done ||
-			(node->aggstrategy == AGG_SORTED &&
+			(node->aggstrategy != AGG_PLAIN &&
 			 aggstate->projected_set != -1 &&
 			 aggstate->projected_set < (numGroupingSets - 1) &&
 			 nextSetSize > 0 &&
@@ -2189,7 +2284,7 @@ agg_retrieve_direct(AggState *aggstate)
 					if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
 						combine_aggregates(aggstate, pergroup);
 					else
-						advance_aggregates(aggstate, pergroup);
+						advance_aggregates(aggstate, pergroup, false);
 
 					/* Reset per-input-tuple context after each tuple */
 					ResetExprContext(tmpcontext);
@@ -2216,7 +2311,7 @@ agg_retrieve_direct(AggState *aggstate)
 					 * If we are grouping, check whether we've crossed a group
 					 * boundary.
 					 */
-					if (node->aggstrategy == AGG_SORTED)
+					if (node->aggstrategy != AGG_PLAIN)
 					{
 						if (!execTuplesMatch(firstSlot,
 											 outerslot,
@@ -2300,7 +2395,7 @@ agg_fill_hash_table(AggState *aggstate)
 		if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
 			combine_aggregates(aggstate, (AggStatePerGroup) entry->additional);
 		else
-			advance_aggregates(aggstate, (AggStatePerGroup) entry->additional);
+			advance_aggregates(aggstate, (AggStatePerGroup) entry->additional, true);
 
 		/* Reset per-input-tuple context after each tuple */
 		ResetExprContext(tmpcontext);
@@ -2333,7 +2428,6 @@ agg_retrieve_hash_table(AggState *aggstate)
 	peragg = aggstate->peragg;
 	firstSlot = aggstate->ss.ss_ScanTupleSlot;
 	hashslot = aggstate->hashslot;
-
 
 	/*
 	 * We loop retrieving groups until we find one satisfying
@@ -2385,13 +2479,15 @@ agg_retrieve_hash_table(AggState *aggstate)
 
 		pergroup = (AggStatePerGroup) entry->additional;
 
-		finalize_aggregates(aggstate, peragg, pergroup, 0);
-
 		/*
 		 * Use the representative input tuple for any references to
 		 * non-aggregated input columns in the qual and tlist.
 		 */
 		econtext->ecxt_outertuple = firstSlot;
+
+		prepare_projection_slot(aggstate, econtext->ecxt_outertuple, 0);
+
+		finalize_aggregates(aggstate, peragg, pergroup, -1);
 
 		result = project_aggregates(aggstate);
 		if (result)
@@ -2421,6 +2517,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				transno,
 				aggno;
 	int			phase;
+	int			phaseidx;
 	List	   *combined_inputeval;
 	ListCell   *l;
 	Bitmapset  *all_grouped_cols = NULL;
@@ -2429,6 +2526,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	int			column_offset;
 	int			i = 0;
 	int			j = 0;
+	bool		use_hashing = (node->aggstrategy == AGG_HASHED || node->aggstrategy == AGG_MIXED);
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
@@ -2443,6 +2541,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->aggs = NIL;
 	aggstate->numaggs = 0;
 	aggstate->numtrans = 0;
+	aggstate->aggstrategy = node->aggstrategy;
 	aggstate->aggsplit = node->aggsplit;
 	aggstate->maxsets = 0;
 	aggstate->hashfunctions = NULL;
@@ -2479,7 +2578,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	}
 
 	aggstate->maxsets = numGroupingSets;
-	aggstate->numphases = numPhases = 1 + list_length(node->chain);
+	aggstate->numphases = numPhases = 1 + list_length(node->chain) + (use_hashing ? 0 : 1);
 
 	aggstate->aggcontexts = (ExprContext **)
 		palloc0(sizeof(ExprContext *) * numGroupingSets);
@@ -2504,6 +2603,12 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	{
 		ExecAssignExprContext(estate, &aggstate->ss.ps);
 		aggstate->aggcontexts[i] = aggstate->ss.ps.ps_ExprContext;
+	}
+
+	if (use_hashing)
+	{
+		ExecAssignExprContext(estate, &aggstate->ss.ps);
+		aggstate->hashcontext = aggstate->ss.ps.ps_ExprContext;
 	}
 
 	ExecAssignExprContext(estate, &aggstate->ss.ps);
@@ -2583,24 +2688,25 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	aggstate->phases = palloc0(numPhases * sizeof(AggStatePerPhaseData));
 
-	for (phase = 0; phase < numPhases; ++phase)
+	for (phaseidx = 0, phase = (use_hashing ? 0 : 1); phase < numPhases; ++phase, ++phaseidx)
 	{
 		AggStatePerPhase phasedata = &aggstate->phases[phase];
 		Agg		   *aggnode;
 		Sort	   *sortnode;
 		int			num_sets;
 
-		if (phase > 0)
+		if (phaseidx > 0)
 		{
-			aggnode = list_nth(node->chain, phase - 1);
+			aggnode = list_nth(node->chain, phaseidx - 1);
 			sortnode = (Sort *) aggnode->plan.lefttree;
-			Assert(IsA(sortnode, Sort));
 		}
 		else
 		{
 			aggnode = node;
 			sortnode = NULL;
 		}
+
+		Assert(phase <= 1 || IsA(sortnode, Sort));
 
 		phasedata->numsets = num_sets = list_length(aggnode->groupingSets);
 
@@ -2629,7 +2735,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		}
 		else
 		{
-			Assert(phase == 0);
+			Assert(phaseidx == 0);
 
 			phasedata->gset_lengths = NULL;
 			phasedata->grouped_cols = NULL;
@@ -2662,8 +2768,18 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 * Initialize current phase-dependent values to initial phase
 	 */
 
-	aggstate->current_phase = 0;
-	initialize_phase(aggstate, 0);
+	if (node->aggstrategy == AGG_HASHED)
+	{
+		aggstate->current_phase = 0;
+		initialize_phase(aggstate, 0);
+		select_current_set(aggstate, -1);
+	}
+	else
+	{
+		aggstate->current_phase = 1;
+		initialize_phase(aggstate, 1);
+		select_current_set(aggstate, 0);
+	}
 
 	/*
 	 * Set up aggregate-result storage in the output expr context, and also
@@ -2679,11 +2795,10 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->peragg = peraggs;
 	aggstate->pertrans = pertransstates;
 
-
 	/*
 	 * Hashing can only appear in the initial phase.
 	 */
-	if (node->aggstrategy == AGG_HASHED)
+	if (use_hashing)
 	{
 		find_hash_columns(aggstate);
 
@@ -2695,7 +2810,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		build_hash_table(aggstate);
 		aggstate->table_filled = false;
 	}
-	else
+
+	if (node->aggstrategy != AGG_HASHED)
 	{
 		AggStatePerGroup pergroup;
 
@@ -3285,7 +3401,7 @@ build_pertrans_for_aggref(AggStatePerTrans pertrans,
 		 * We don't implement DISTINCT or ORDER BY aggs in the HASHED case
 		 * (yet)
 		 */
-		Assert(((Agg *) aggstate->ss.ps.plan)->aggstrategy != AGG_HASHED);
+		Assert(aggstate->aggstrategy != AGG_HASHED && aggstate->aggstrategy != AGG_MIXED);
 
 		/* If we have only one input, we need its len/byval info. */
 		if (numInputs == 1)
@@ -3534,6 +3650,8 @@ ExecEndAgg(AggState *node)
 	/* And ensure any agg shutdown callbacks have been called */
 	for (setno = 0; setno < numGroupingSets; setno++)
 		ReScanExprContext(node->aggcontexts[setno]);
+	if (node->hashcontext)
+		ReScanExprContext(node->hashcontext);
 
 	/*
 	 * We don't actually free any ExprContexts here (see comment in
@@ -3563,7 +3681,7 @@ ExecReScanAgg(AggState *node)
 
 	node->ss.ps.ps_TupFromTlist = false;
 
-	if (aggnode->aggstrategy == AGG_HASHED)
+	if (node->aggstrategy == AGG_HASHED)
 	{
 		/*
 		 * In the hashed case, if we haven't yet built the hash table then we
@@ -3608,11 +3726,7 @@ ExecReScanAgg(AggState *node)
 	 * ExecReScan already did it. But we do need to reset our per-grouping-set
 	 * contexts, which may have transvalues stored in them. (We use rescan
 	 * rather than just reset because transfns may have registered callbacks
-	 * that need to be run now.)
-	 *
-	 * Note that with AGG_HASHED, the hash table is allocated in a sub-context
-	 * of the aggcontext. This used to be an issue, but now, resetting a
-	 * context automatically deletes sub-contexts too.
+	 * that need to be run now.) For the AGG_HASHED case, see below.
 	 */
 
 	for (setno = 0; setno < numGroupingSets; setno++)
@@ -3632,13 +3746,22 @@ ExecReScanAgg(AggState *node)
 	MemSet(econtext->ecxt_aggvalues, 0, sizeof(Datum) * node->numaggs);
 	MemSet(econtext->ecxt_aggnulls, 0, sizeof(bool) * node->numaggs);
 
-	if (aggnode->aggstrategy == AGG_HASHED)
+	/*
+	 * With AGG_HASHED/MIXED, the hash table is allocated in a sub-context of
+	 * the hashcontext. This used to be an issue, but now, resetting a context
+	 * automatically deletes sub-contexts too.
+	 */
+
+	if (node->aggstrategy == AGG_HASHED || node->aggstrategy == AGG_MIXED)
 	{
+		ReScanExprContext(node->hashcontext);
 		/* Rebuild an empty hash table */
 		build_hash_table(node);
 		node->table_filled = false;
+		/* iterator will be reset when the table is filled */
 	}
-	else
+
+	if (node->aggstrategy != AGG_HASHED)
 	{
 		/*
 		 * Reset the per-group state (in particular, mark transvalues null)
@@ -3646,8 +3769,8 @@ ExecReScanAgg(AggState *node)
 		MemSet(node->pergroup, 0,
 			 sizeof(AggStatePerGroupData) * node->numaggs * numGroupingSets);
 
-		/* reset to phase 0 */
-		initialize_phase(node, 0);
+		/* reset to phase 1 */
+		initialize_phase(node, 1);
 
 		node->input_done = false;
 		node->projected_set = -1;
@@ -3688,7 +3811,7 @@ AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
 		if (aggcontext)
 		{
 			AggState   *aggstate = ((AggState *) fcinfo->context);
-			ExprContext *cxt = aggstate->aggcontexts[aggstate->current_set];
+			ExprContext *cxt = aggstate->curaggcontext;
 
 			*aggcontext = cxt->ecxt_per_tuple_memory;
 		}
@@ -3777,7 +3900,7 @@ AggRegisterCallback(FunctionCallInfo fcinfo,
 	if (fcinfo->context && IsA(fcinfo->context, AggState))
 	{
 		AggState   *aggstate = (AggState *) fcinfo->context;
-		ExprContext *cxt = aggstate->aggcontexts[aggstate->current_set];
+		ExprContext *cxt = aggstate->curaggcontext;
 
 		RegisterExprContextCallback(cxt, func, arg);
 

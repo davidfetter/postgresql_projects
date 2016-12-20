@@ -43,8 +43,6 @@ create function gstest_data(v integer, out a integer, out b integer)
 
 -- basic functionality
 
-set enable_hashagg=false;
-
 -- simple rollup with multiple plain aggregates, with and without ordering
 -- (and with ordering differing from grouping)
 select a, b, grouping(a,b), sum(v), count(*), max(v)
@@ -163,7 +161,7 @@ select a, b from (values (1,2),(2,3)) v(a,b) group by a,b, grouping sets(a);
 
 -- Tests for chained aggregates
 select a, b, grouping(a,b), sum(v), count(*), max(v)
-  from gstest1 group by grouping sets ((a,b),(a+1,b+1),(a+2,b+2));
+  from gstest1 group by grouping sets ((a,b),(a+1,b+1),(a+2,b+2)) order by 3,6;
 select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY ROLLUP((e+1),(f+1));
 select(select (select grouping(a,b) from (values (1)) v2(c)) from (values (1,2)) v1(a,b) group by (a,b)) from (values(6,7)) v3(e,f) GROUP BY CUBE((e+1),(f+1)) ORDER BY (e+1),(f+1);
 select a, b, sum(c), sum(sum(c)) over (order by a,b) as rsum

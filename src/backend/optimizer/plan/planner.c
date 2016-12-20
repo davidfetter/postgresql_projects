@@ -3417,6 +3417,11 @@ get_number_of_groups(PlannerInfo *root,
  * estimate_hashagg_tablesize
  *	  estimate the number of bytes that a hash aggregate hashtable will
  *	  require based on the agg_costs, path width and dNumGroups.
+ *
+ * XXX this may be over-estimating the size now that hashagg knows to omit
+ * unneeded columns from the hashtable. Also for mixed-mode grouping sets,
+ * grouping columns not in the hashed set are counted here even though hashagg
+ * won't store them. Is this a problem?
  */
 static Size
 estimate_hashagg_tablesize(Path *path, const AggClauseCosts *agg_costs,
@@ -4075,7 +4080,9 @@ consider_groupingsets_paths(PlannerInfo *root,
 		 * 2. If there are no unsortable groups, but there's at least one
 		 * rollup that contains only one group, is hashable, and fits in
 		 * work_mem, then we hash that one. This at least makes cube(a,b) work
-		 * in one pass. (At this stage we're not fussy about which to pick.)
+		 * in one pass. (At this stage we're not fussy about which to pick,
+		 * but we can't hash the first one in the list since that one is the
+		 * one which the input is sorted on.)
 		 *
 		 * Eventually, what this code needs to do is to try a knapsack
 		 * algorithm to calculate the maximum number of sort passes that can be
@@ -4101,7 +4108,7 @@ consider_groupingsets_paths(PlannerInfo *root,
 		{
 			ListCell *lc;
 
-			foreach(lc, gd->rollups)
+			for_each_cell(lc, lnext(list_head(gd->rollups)))
 			{
 				RollupData *rollup = lfirst(lc);
 				if (rollup->hashable && list_length(rollup->gsets) == 1)

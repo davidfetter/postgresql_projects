@@ -58,8 +58,8 @@ SELECT SUM(count(*)) OVER(PARTITION BY generate_series(1,3) ORDER BY generate_se
 -- sorting + grouping
 SELECT few.dataa, count(*), min(id), max(id), generate_series(1,3) FROM few GROUP BY few.dataa ORDER BY 5, 1;
 
-set enable_hashagg = false;
 -- grouping sets are a bit special, they produce NULLs in columns not actually NULL
+set enable_hashagg = false;
 SELECT dataa, datab b, generate_series(1,2) g, count(*) FROM few GROUP BY CUBE(dataa, datab);
 SELECT dataa, datab b, generate_series(1,2) g, count(*) FROM few GROUP BY CUBE(dataa, datab) ORDER BY dataa;
 SELECT dataa, datab b, generate_series(1,2) g, count(*) FROM few GROUP BY CUBE(dataa, datab) ORDER BY g;

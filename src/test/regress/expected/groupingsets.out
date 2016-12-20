@@ -462,7 +462,7 @@ select a, b from (values (1,2),(2,3)) v(a,b) group by a,b, grouping sets(a);
 
 -- Tests for chained aggregates
 select a, b, grouping(a,b), sum(v), count(*), max(v)
-  from gstest1 group by grouping sets ((a,b),(a+1,b+1),(a+2,b+2));
+  from gstest1 group by grouping sets ((a,b),(a+1,b+1),(a+2,b+2)) order by 3,6;
  a | b | grouping | sum | count | max 
 ---+---+----------+-----+-------+-----
  1 | 1 |        0 |  21 |     2 |  11
@@ -473,18 +473,18 @@ select a, b, grouping(a,b), sum(v), count(*), max(v)
  3 | 4 |        0 |  17 |     1 |  17
  4 | 1 |        0 |  37 |     2 |  19
    |   |        3 |  21 |     2 |  11
-   |   |        3 |  25 |     2 |  13
-   |   |        3 |  14 |     1 |  14
-   |   |        3 |  15 |     1 |  15
-   |   |        3 |  16 |     1 |  16
-   |   |        3 |  17 |     1 |  17
-   |   |        3 |  37 |     2 |  19
    |   |        3 |  21 |     2 |  11
    |   |        3 |  25 |     2 |  13
+   |   |        3 |  25 |     2 |  13
+   |   |        3 |  14 |     1 |  14
    |   |        3 |  14 |     1 |  14
    |   |        3 |  15 |     1 |  15
+   |   |        3 |  15 |     1 |  15
+   |   |        3 |  16 |     1 |  16
    |   |        3 |  16 |     1 |  16
    |   |        3 |  17 |     1 |  17
+   |   |        3 |  17 |     1 |  17
+   |   |        3 |  37 |     2 |  19
    |   |        3 |  37 |     2 |  19
 (21 rows)
 
