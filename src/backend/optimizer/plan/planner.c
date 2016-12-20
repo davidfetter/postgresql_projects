@@ -4091,10 +4091,25 @@ consider_groupingsets_paths(PlannerInfo *root,
 
 		if (gd->unsortable_sets && list_length(gd->unsortable_sets) == 1)
 		{
+			Bitmapset *gset_all = NULL;
+			List *gset_union = NIL;
+			ListCell *lc, *lc2;
+			int i;
+
+			foreach(lc, gd->unsortable_sets)
+			{
+				foreach(lc2, lfirst(lc))
+				{
+					gset_all = bms_add_member(gset_all, lfirst_int(lc2));
+				}
+			}
+			i = -1;
+			while ((i = bms_next_member(gset_all, i)) >= 0)
+				gset_union = lappend(gset_union, i);
+
 			hash_rollup = makeNode(RollupData);
 
-			hash_rollup->groupClause = preprocess_groupclause(root,
-															   gd->unsortable_sets);
+			hash_rollup->groupClause = preprocess_groupclause(root, gset_union);
 			hash_rollup->gsets = remap_to_groupclause_idx(hash_rollup->groupClause,
 														  gd->unsortable_sets,
 														  gd->tleref_to_colnum_map);
