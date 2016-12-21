@@ -1842,6 +1842,7 @@ typedef struct AggStatePerAggData *AggStatePerAgg;
 typedef struct AggStatePerTransData *AggStatePerTrans;
 typedef struct AggStatePerGroupData *AggStatePerGroup;
 typedef struct AggStatePerPhaseData *AggStatePerPhase;
+typedef struct AggStatePerHashData *AggStatePerHash;
 
 typedef struct AggState
 {
@@ -1855,7 +1856,6 @@ typedef struct AggState
 	AggStatePerPhase hashphase;		/* pointer to hash phase data */
 	int			numphases;		/* number of phases (excluding hash) */
 	int			current_phase;	/* current phase number */
-	FmgrInfo   *hashfunctions;	/* per-grouping-field hash fns */
 	AggStatePerAgg peragg;		/* per-Aggref information */
 	AggStatePerTrans pertrans;	/* per-Trans state information */
 	ExprContext *hashcontext;	/* econtexts for long-lived data (hashtable) */
@@ -1880,14 +1880,10 @@ typedef struct AggState
 	AggStatePerGroup pergroup;	/* per-Aggref-per-group working state */
 	HeapTuple	grp_firstTuple; /* copy of first tuple of current group */
 	/* these fields are used in AGG_HASHED and AGG_MIXED modes: */
-	TupleHashTable hashtable;	/* hash table with one entry per group */
-	TupleTableSlot *hashslot;	/* slot for loading hash table */
-	int			numhashGrpCols;	/* number of columns in hash table */
-	int			largestGrpColIdx; /* largest column required for hashing */
-	AttrNumber *hashGrpColIdxInput;	/* and their indices in input slot */
-	AttrNumber *hashGrpColIdxHash;	/* indices for execGrouping in hashtbl */
 	bool		table_filled;	/* hash table filled yet? */
-	TupleHashIterator hashiter; /* for iterating through hash table */
+	int			num_hashes;
+	AggStatePerHash perhash;
+	AggStatePerGroup *hash_pergroup; /* array of per-group pointers */
 	/* support for evaluation of agg inputs */
 	TupleTableSlot *evalslot;	/* slot for agg inputs */
 	ProjectionInfo *evalproj;	/* projection machinery */
