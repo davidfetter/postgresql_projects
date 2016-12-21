@@ -1863,20 +1863,21 @@ static void
 find_hash_columns(AggState *aggstate)
 {
 	Bitmapset  *base_colnos;
-	TupleDesc	hashDesc;
 	List	   *outerTlist = outerPlanState(aggstate)->plan->targetlist;
-	List		*hashTlist = NIL;
 	int			numHashes = aggstate->num_hashes;
-	int			i;
+	int			j;
 
 	/* Find Vars that will be needed in tlist and qual */
 	base_colnos = find_unaggregated_cols(aggstate);
 
-	for (i = 0; i < numHashes; ++i)
+	for (j = 0; j < numHashes; ++j)
 	{
-		AggStatePerHash perhash = &aggstate->perhash[i];
+		AggStatePerHash perhash = &aggstate->perhash[j];
 		Bitmapset *colnos = bms_copy(base_colnos);
 		AttrNumber *grpColIdx = perhash->aggnode->grpColIdx;
+		List		*hashTlist = NIL;
+		TupleDesc	hashDesc;
+		int			i;
 
 		perhash->largestGrpColIdx = 0;
 
@@ -1888,7 +1889,7 @@ find_hash_columns(AggState *aggstate)
 		 */
 		if (aggstate->phases[0].grouped_cols)
 		{
-			Bitmapset  *grouped_cols = aggstate->phases[0].grouped_cols[i];
+			Bitmapset  *grouped_cols = aggstate->phases[0].grouped_cols[j];
 			ListCell   *lc;
 
 			foreach(lc, aggstate->all_grouped_cols)

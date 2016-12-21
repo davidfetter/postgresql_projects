@@ -1368,6 +1368,7 @@ typedef struct RollupData
 	List	   *gsets_ref;		/* lists of sortgrouprefs */
 	double		numGroups;		/* est. number of result groups */
 	bool		hashable;		/* can be hashed */
+	bool		is_hashed;		/* to be implemented as a hashagg */
 } RollupData;
 
 typedef struct GroupingSetsPath

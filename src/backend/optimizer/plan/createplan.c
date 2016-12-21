@@ -1740,78 +1740,58 @@ create_groupingsets_plan(PlannerInfo *root, GroupingSetsPath *best_path)
 	if (list_length(rollups) > 1)
 	{
 		ListCell *lc2 = lnext(list_head(rollups));
-		Plan   *mixed_mode_agg = NULL;
-
-		/*
-		 * We want to iterate over all but the first rollup list element.  But
-		 * in AGG_MIXED mode, the second element also lacks a Sort node, so
-		 * handle it last.
-		 */
-
-		if (best_path->aggstrategy == AGG_MIXED)
-			lc2 = lnext(lc2);
+		bool is_first_sort = ((RollupData *)linitial(rollups))->is_hashed;
 
 		for_each_cell(lc, lc2)
 		{
 			RollupData *rollup = lfirst(lc);
 			AttrNumber *new_grpColIdx;
-			Plan	   *sort_plan;
+			Plan	   *sort_plan = NULL;
 			Plan	   *agg_plan;
+			AggStrategy strat;
 
 			new_grpColIdx = remap_groupColIdx(root, rollup->groupClause);
 
-			sort_plan = (Plan *)
-				make_sort_from_groupcols(rollup->groupClause,
-										 new_grpColIdx,
-										 subplan);
+			if (!rollup->is_hashed && !is_first_sort)
+			{
+				sort_plan = (Plan *)
+					make_sort_from_groupcols(rollup->groupClause,
+											 new_grpColIdx,
+											 subplan);
+			}
+
+			if (!rollup->is_hashed)
+				is_first_sort = false;
+
+			if (rollup->is_hashed)
+				strat = AGG_HASHED;
+			else if (list_length(linitial(rollup->gsets)) == 0)
+				strat = AGG_PLAIN;
+			else
+				strat = AGG_SORTED;
 
 			agg_plan = (Plan *) make_agg(NIL,
 										 NIL,
-										 AGG_SORTED,
+										 strat,
 										 AGGSPLIT_SIMPLE,
 									   list_length((List *) linitial(rollup->gsets)),
 										 new_grpColIdx,
 										 extract_grouping_ops(rollup->groupClause),
 										 rollup->gsets,
 										 NIL,
-										 0,		/* numGroups not needed */
+										 rollup->numGroups,
 										 sort_plan);
 
 			/*
 			 * Nuke stuff we don't need to avoid bloating debug output.
 			 */
-			sort_plan->targetlist = NIL;
-			sort_plan->lefttree = NULL;
+			if (sort_plan)
+			{
+				sort_plan->targetlist = NIL;
+				sort_plan->lefttree = NULL;
+			}
 
-			chain = lcons(agg_plan, chain);
-		}
-
-		if (best_path->aggstrategy == AGG_MIXED)
-		{
-			RollupData *rollup = lsecond(rollups);
-			AttrNumber *new_grpColIdx;
-			Plan	   *agg_plan;
-
-			new_grpColIdx = remap_groupColIdx(root, rollup->groupClause);
-
-			agg_plan = (Plan *) make_agg(NIL,
-										 NIL,
-										 AGG_SORTED,
-										 AGGSPLIT_SIMPLE,
-									   list_length((List *) linitial(rollup->gsets)),
-										 new_grpColIdx,
-										 extract_grouping_ops(rollup->groupClause),
-										 rollup->gsets,
-										 NIL,
-										 0,		/* numGroups not needed */
-										 subplan);
-
-			/*
-			 * Nuke stuff we don't need to avoid bloating debug output.
-			 */
-			agg_plan->lefttree = NULL;
-
-			chain = lcons(agg_plan, chain);
+			chain = lappend(chain, agg_plan);
 		}
 	}
 

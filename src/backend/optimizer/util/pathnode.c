@@ -2561,6 +2561,8 @@ create_groupingsets_path(PlannerInfo *root,
 {
 	GroupingSetsPath *pathnode = makeNode(GroupingSetsPath);
 	ListCell   *lc;
+	bool		is_first = true;
+	bool		is_first_sort = true;
 
 	/* The topmost generated Plan node will be an Agg */
 	pathnode->path.pathtype = T_Agg;
@@ -2601,7 +2603,6 @@ create_groupingsets_path(PlannerInfo *root,
 	pathnode->qual = having_qual;
 
 	Assert(rollups != NIL);
-	Assert(aggstrategy != AGG_HASHED || list_length(rollups) == 1);
 	Assert(aggstrategy != AGG_PLAIN || list_length(rollups) == 1);
 	Assert(aggstrategy != AGG_MIXED || list_length(rollups) > 1);
 
@@ -2615,20 +2616,15 @@ create_groupingsets_path(PlannerInfo *root,
 		 * In AGG_SORTED or AGG_PLAIN mode, the first rollup takes the
 		 * (already-sorted) input, and following ones do their own sort.
 		 *
-		 * In AGG_HASHED mode, there is only one rollup.
+		 * In AGG_HASHED mode, there is one rollup for each grouping set.
 		 *
-		 * In AGG_MIXED mode, the first rollup is hashed, the second (if any)
-		 * one takes the (already-sorted) input, and following ones do their
-		 * own sort.
+		 * In AGG_MIXED mode, the first rollups are hashed, the first
+		 * non-hashed one takes the (already-sorted) input, and
+		 * following ones do their own sort.
 		 */
 
-		if (rollup == linitial(rollups))
+		if (is_first)
 		{
-			/*
-			 * First rollup expects input to be already sorted, if sorting is
-			 * being done.
-			 */
-
 			cost_agg(&pathnode->path, root,
 					 aggstrategy,
 					 agg_costs,
@@ -2637,13 +2633,29 @@ create_groupingsets_path(PlannerInfo *root,
 					 subpath->startup_cost,
 					 subpath->total_cost,
 					 subpath->rows);
+			is_first = false;
+			if (!rollup->is_hashed)
+				is_first_sort = false;
 		}
 		else
 		{
 			Path		sort_path;		/* dummy for result of cost_sort */
 			Path		agg_path;		/* dummy for result of cost_agg */
 
-			if (aggstrategy != AGG_MIXED || rollup != lsecond(rollups))
+			if (rollup->is_hashed || is_first_sort)
+			{
+				/* Account for cost of aggregation, but don't charge input cost again */
+				cost_agg(&agg_path, root,
+						 rollup->is_hashed ? AGG_HASHED : AGG_SORTED,
+						 agg_costs,
+						 numGroupCols,
+						 rollup->numGroups,
+						 0.0, 0.0,
+						 subpath->rows);
+				if (!rollup->is_hashed)
+					is_first_sort = false;
+			}
+			else
 			{
 				/* Account for cost of sort, but don't charge input cost again */
 				cost_sort(&sort_path, root, NIL,
@@ -2664,17 +2676,6 @@ create_groupingsets_path(PlannerInfo *root,
 						 sort_path.startup_cost,
 						 sort_path.total_cost,
 						 sort_path.rows);
-			}
-			else
-			{
-				/* Account for cost of aggregation, but don't charge input cost again */
-				cost_agg(&agg_path, root,
-						 AGG_SORTED,
-						 agg_costs,
-						 numGroupCols,
-						 rollup->numGroups,
-						 0.0, 0.0,
-						 subpath->rows);
 			}
 
 			pathnode->path.total_cost += agg_path.total_cost;
