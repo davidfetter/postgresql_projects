@@ -1853,8 +1853,7 @@ typedef struct AggState
 	AggStrategy aggstrategy;	/* strategy mode */
 	AggSplit	aggsplit;		/* agg-splitting mode, see nodes.h */
 	AggStatePerPhase phase;		/* pointer to current phase data */
-	AggStatePerPhase hashphase;		/* pointer to hash phase data */
-	int			numphases;		/* number of phases (excluding hash) */
+	int			numphases;		/* number of phases (including phase 0) */
 	int			current_phase;	/* current phase number */
 	AggStatePerAgg peragg;		/* per-Aggref information */
 	AggStatePerTrans pertrans;	/* per-Trans state information */
@@ -1873,7 +1872,7 @@ typedef struct AggState
 	/* These fields are for grouping set phase data */
 	int			maxsets;		/* The max number of sets in any phase */
 	AggStatePerPhase phases;	/* array of all phases */
-	Tuplesortstate *sort_in;	/* sorted input to phases > 0 */
+	Tuplesortstate *sort_in;	/* sorted input to phases > 1 */
 	Tuplesortstate *sort_out;	/* input is copied here for next phase */
 	TupleTableSlot *sort_slot;	/* slot for sort results */
 	/* these fields are used in AGG_PLAIN and AGG_SORTED modes: */

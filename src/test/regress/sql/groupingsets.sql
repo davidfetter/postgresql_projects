@@ -43,6 +43,8 @@ create function gstest_data(v integer, out a integer, out b integer)
 
 -- basic functionality
 
+set enable_hashagg = false;
+
 -- simple rollup with multiple plain aggregates, with and without ordering
 -- (and with ordering differing from grouping)
 select a, b, grouping(a,b), sum(v), count(*), max(v)

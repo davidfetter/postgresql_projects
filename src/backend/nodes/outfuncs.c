@@ -1863,6 +1863,7 @@ _outRollupData(StringInfo str, const RollupData *node)
 	WRITE_NODE_FIELD(gsets_ref);
 	WRITE_FLOAT_FIELD(numGroups, "%.0f");
 	WRITE_BOOL_FIELD(hashable);
+	WRITE_BOOL_FIELD(is_hashed);
 }
 
 static void
