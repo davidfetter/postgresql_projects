@@ -478,7 +478,7 @@ static void initialize_aggregates(AggState *aggstate,
 static void advance_transition_function(AggState *aggstate,
 							AggStatePerTrans pertrans,
 							AggStatePerGroup pergroupstate);
-static void advance_aggregates(AggState *aggstate, AggStatePerGroup *pergroups, bool is_hash);
+static void advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup, AggStatePerGroup *pergroups);
 static void advance_combine_function(AggState *aggstate,
 						 AggStatePerTrans pertrans,
 						 AggStatePerGroup pergroupstate);
@@ -637,7 +637,6 @@ fetch_input_tuple(AggState *aggstate)
 			AggStatePerGroup *pergroup = aggstate->hash_pergroup;
 			int setno;
 
-			/* set up for advance_aggregates call */
 			aggstate->tmpcontext->ecxt_outertuple = slot;
 
 			for (setno = 0; setno < numHashes; setno++)
@@ -645,12 +644,6 @@ fetch_input_tuple(AggState *aggstate)
 				select_current_set(aggstate, setno, true);
 				pergroup[setno] = lookup_hash_entry(aggstate)->additional;
 			}
-
-			/* Advance the aggregates */
-			if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
-				combine_aggregates(aggstate, pergroup[0]);
-			else
-				advance_aggregates(aggstate, pergroup, true);
 
 			ResetExprContext(aggstate->tmpcontext);
 		}
@@ -919,28 +912,23 @@ advance_transition_function(AggState *aggstate,
 /*
  * Advance each aggregate transition state for one input tuple.  The input
  * tuple has been stored in tmpcontext->ecxt_outertuple, so that it is
- * accessible to ExecEvalExpr.  pergroups is an array of pointers to per-group
- * structs to use, which is handled differently according to whether we're
- * hashing or not: in the hash case it's an array with one pointer per
- * hashtable, each pointing to an array of numTrans items; otherwise it's an
- * array of one pointer, which points to an array of numTrans * numGroupingSets
- * items.
+ * accessible to ExecEvalExpr.
+ *
+ * We have two sets of transition states to handle: one for sorted aggregation
+ * and one for hashed; we do them both here, to avoid multiple evaluation of
+ * the inputs.
  *
  * When called, CurrentMemoryContext should be the per-query context.
  */
 static void
-advance_aggregates(AggState *aggstate, AggStatePerGroup *pergroups, bool is_hash)
+advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup, AggStatePerGroup *pergroups)
 {
 	int			transno;
 	int			setno = 0;
-	int			numGroupingSets;
+	int			numGroupingSets = Max(aggstate->phase->numsets, 1);
+	int			numHashes = aggstate->num_hashes;
 	int			numTrans = aggstate->numtrans;
 	TupleTableSlot *slot = aggstate->evalslot;
-
-	if (is_hash)
-		numGroupingSets = aggstate->num_hashes;
-	else
-		numGroupingSets = Max(aggstate->phase->numsets, 1);
 
 	/* compute input for all aggregates */
 	if (aggstate->evalproj)
@@ -970,7 +958,7 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup *pergroups, bool is_hash
 		{
 			/* DISTINCT and/or ORDER BY case */
 			Assert(slot->tts_nvalid >= (pertrans->numInputs + inputoff));
-			Assert(!is_hash);
+			Assert(!pergroups);
 
 			/*
 			 * If the transfn is strict, we want to check for nullity before
@@ -1030,18 +1018,36 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup *pergroups, bool is_hash
 				fcinfo->argnull[i + 1] = slot->tts_isnull[i + inputoff];
 			}
 
-			for (setno = 0; setno < numGroupingSets; setno++)
+			if (pergroup)
 			{
-				AggStatePerGroup pergroupstate;
+				/* advance transition states for ordered grouping */
 
-				select_current_set(aggstate, setno, is_hash);
+				for (setno = 0; setno < numGroupingSets; setno++)
+				{
+					AggStatePerGroup pergroupstate;
 
-				if (is_hash)
+					select_current_set(aggstate, setno, false);
+
+					pergroupstate = &pergroup[transno + (setno * numTrans)];
+
+					advance_transition_function(aggstate, pertrans, pergroupstate);
+				}
+			}
+
+			if (pergroups)
+			{
+				/* advance transition states for hashed grouping */
+
+				for (setno = 0; setno < numHashes; setno++)
+				{
+					AggStatePerGroup pergroupstate;
+
+					select_current_set(aggstate, setno, true);
+
 					pergroupstate = &pergroups[setno][transno];
-				else
-					pergroupstate = &pergroups[0][transno + (setno * numTrans)];
 
-				advance_transition_function(aggstate, pertrans, pergroupstate);
+					advance_transition_function(aggstate, pertrans, pergroupstate);
+				}
 			}
 		}
 	}
@@ -2109,6 +2115,7 @@ agg_retrieve_direct(AggState *aggstate)
 	ExprContext *tmpcontext;
 	AggStatePerAgg peragg;
 	AggStatePerGroup pergroup;
+	AggStatePerGroup *hash_pergroups = NULL;
 	TupleTableSlot *outerslot;
 	TupleTableSlot *firstSlot;
 	TupleTableSlot *result;
@@ -2213,6 +2220,13 @@ agg_retrieve_direct(AggState *aggstate)
 				break;
 			}
 		}
+
+		/*
+		 * During phase 1 only of a mixed agg, we need to update hashtables as
+		 * well in advance_aggregates.
+		 */
+		if (aggstate->aggstrategy == AGG_MIXED && aggstate->current_phase == 1)
+			hash_pergroups = aggstate->hash_pergroup;
 
 		/*
 		 * Get the number of columns in the next grouping set after the last
@@ -2359,7 +2373,7 @@ agg_retrieve_direct(AggState *aggstate)
 					if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
 						combine_aggregates(aggstate, pergroup);
 					else
-						advance_aggregates(aggstate, &pergroup, false);
+						advance_aggregates(aggstate, pergroup, hash_pergroups);
 
 					/* Reset per-input-tuple context after each tuple */
 					ResetExprContext(tmpcontext);
@@ -2452,6 +2466,18 @@ agg_fill_hash_table(AggState *aggstate)
 		outerslot = fetch_input_tuple(aggstate);
 		if (TupIsNull(outerslot))
 			break;
+
+		/*
+		 * fetch_input_tuple did all the hash lookups, but did not actually
+		 * advance the aggregates; hash_pergroup points to the hash entries to
+		 * update.
+		 */
+		if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
+			combine_aggregates(aggstate, aggstate->hash_pergroup[0]);
+		else
+			advance_aggregates(aggstate, NULL, aggstate->hash_pergroup);
+
+		ResetExprContext(aggstate->tmpcontext);
 	}
 
 	aggstate->table_filled = true;
