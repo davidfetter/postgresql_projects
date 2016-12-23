@@ -130,10 +130,11 @@
  *	  data for the first phase is handled by the planner, as it might be
  *	  satisfied by underlying nodes.)
  *
- *	  Hashing can be mixed with sorted grouping; to do this we populate the
- *	  hash tables as part of fetching tuples from the outer plan, and emit the
- *	  hashed results after we're done with all the sorted ones.  Alternatively
- *	  we can do multiple grouping sets with only hashing.
+ *	  Hashing can be mixed with sorted grouping.  To do this, we have an
+ *	  AGG_MIXED strategy that populates the hashtables during the first sorted
+ *	  phase, and switches to reading them out after completing all sort phases.
+ *	  We can also support AGG_HASHED with multiple hash tables and no sorting
+ *	  at all.
  *
  *	  From the perspective of aggregate transition and final functions, the
  *	  only issue regarding grouping sets is this: a single call site (flinfo)
@@ -509,6 +510,7 @@ static Bitmapset *find_unaggregated_cols(AggState *aggstate);
 static bool find_unaggregated_cols_walker(Node *node, Bitmapset **colnos);
 static void build_hash_table(AggState *aggstate);
 static TupleHashEntryData *lookup_hash_entry(AggState *aggstate);
+static AggStatePerGroup *lookup_hash_entries(AggState *aggstate);
 static TupleTableSlot *agg_retrieve_direct(AggState *aggstate);
 static void agg_fill_hash_table(AggState *aggstate);
 static TupleTableSlot *agg_retrieve_hash_table(AggState *aggstate);
@@ -628,26 +630,7 @@ fetch_input_tuple(AggState *aggstate)
 		slot = aggstate->sort_slot;
 	}
 	else
-	{
 		slot = ExecProcNode(outerPlanState(aggstate));
-
-		if (aggstate->perhash && !TupIsNull(slot))
-		{
-			int numHashes = aggstate->num_hashes;
-			AggStatePerGroup *pergroup = aggstate->hash_pergroup;
-			int setno;
-
-			aggstate->tmpcontext->ecxt_outertuple = slot;
-
-			for (setno = 0; setno < numHashes; setno++)
-			{
-				select_current_set(aggstate, setno, true);
-				pergroup[setno] = lookup_hash_entry(aggstate)->additional;
-			}
-
-			ResetExprContext(aggstate->tmpcontext);
-		}
-	}
 
 	if (!TupIsNull(slot) && aggstate->sort_out)
 		tuplesort_puttupleslot(aggstate->sort_out, slot);
@@ -1997,7 +1980,8 @@ hash_agg_entry_size(int numAggs)
 /*
  * Find or create a hashtable entry for the tuple group containing the current
  * tuple (already set in tmpcontext's outertuple slot), in the current grouping
- * set (which the caller must have selected).
+ * set (which the caller must have selected - note that initialize_aggregate
+ * depends on this).
  *
  * When called, CurrentMemoryContext should be the per-query context.
  */
@@ -2038,6 +2022,28 @@ lookup_hash_entry(AggState *aggstate)
 	}
 
 	return entry;
+}
+
+/*
+ * Look up hash entries for the current tuple in all hashed grouping sets,
+ * returning an array of pergroup pointers suitable for advance_aggregates.
+ *
+ * Be aware that lookup_hash_entry can reset the tmpcontext.
+ */
+static AggStatePerGroup *
+lookup_hash_entries(AggState *aggstate)
+{
+	int			numHashes = aggstate->num_hashes;
+	AggStatePerGroup *pergroup = aggstate->hash_pergroup;
+	int			setno;
+
+	for (setno = 0; setno < numHashes; setno++)
+	{
+		select_current_set(aggstate, setno, true);
+		pergroup[setno] = lookup_hash_entry(aggstate)->additional;
+	}
+
+	return pergroup;
 }
 
 /*
@@ -2222,13 +2228,6 @@ agg_retrieve_direct(AggState *aggstate)
 		}
 
 		/*
-		 * During phase 1 only of a mixed agg, we need to update hashtables as
-		 * well in advance_aggregates.
-		 */
-		if (aggstate->aggstrategy == AGG_MIXED && aggstate->current_phase == 1)
-			hash_pergroups = aggstate->hash_pergroup;
-
-		/*
 		 * Get the number of columns in the next grouping set after the last
 		 * projected one (if any). This is the number of columns to compare to
 		 * see if we reached the boundary of that set too.
@@ -2370,6 +2369,17 @@ agg_retrieve_direct(AggState *aggstate)
 				 */
 				for (;;)
 				{
+					/*
+					 * During phase 1 only of a mixed agg, we need to update
+					 * hashtables as well in advance_aggregates.
+					 */
+					if (aggstate->aggstrategy == AGG_MIXED && aggstate->current_phase == 1)
+					{
+						hash_pergroups = lookup_hash_entries(aggstate);
+					}
+					else
+						hash_pergroups = NULL;
+
 					if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
 						combine_aggregates(aggstate, pergroup);
 					else
@@ -2455,6 +2465,7 @@ static void
 agg_fill_hash_table(AggState *aggstate)
 {
 	TupleTableSlot *outerslot;
+	ExprContext *tmpcontext = aggstate->tmpcontext;
 
 	/*
 	 * Process each outer-plan tuple, and then fetch the next one, until we
@@ -2462,19 +2473,20 @@ agg_fill_hash_table(AggState *aggstate)
 	 */
 	for (;;)
 	{
+		AggStatePerGroup *pergroups;
+
 		outerslot = fetch_input_tuple(aggstate);
 		if (TupIsNull(outerslot))
 			break;
 
-		/*
-		 * fetch_input_tuple did all the hash lookups, but did not actually
-		 * advance the aggregates; hash_pergroup points to the hash entries to
-		 * update.
-		 */
+		tmpcontext->ecxt_outertuple = outerslot;
+
+		pergroups = lookup_hash_entries(aggstate);
+
 		if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
-			combine_aggregates(aggstate, aggstate->hash_pergroup[0]);
+			combine_aggregates(aggstate, pergroups[0]);
 		else
-			advance_aggregates(aggstate, NULL, aggstate->hash_pergroup);
+			advance_aggregates(aggstate, NULL, pergroups);
 
 		ResetExprContext(aggstate->tmpcontext);
 	}
@@ -2609,11 +2621,11 @@ agg_retrieve_hash_table(AggState *aggstate)
  *	Creates the run-time information for the agg node produced by the
  *	planner and initializes its outer subtree.
  *
- *  What we get from the planner is actually one "real" Agg node which is part
- *  of the plan tree proper, but which optionally has an additional list of Agg
- *  nodes hung off the side via the "chain" field.  This is because an Agg node
- *  happens to be a convenient representation of all the data we need for
- *  grouping sets.
+ *	What we get from the planner is actually one "real" Agg node which is part
+ *	of the plan tree proper, but which optionally has an additional list of Agg
+ *	nodes hung off the side via the "chain" field.  This is because an Agg node
+ *	happens to be a convenient representation of all the data we need for
+ *	grouping sets.
  *
  *	For many purposes, we treat the "real" node as if it were just the first
  *	node in the chain.  The chain must be ordered such that hashed entries come
