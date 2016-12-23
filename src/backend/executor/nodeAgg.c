@@ -2458,8 +2458,7 @@ agg_fill_hash_table(AggState *aggstate)
 
 	/*
 	 * Process each outer-plan tuple, and then fetch the next one, until we
-	 * exhaust the outer plan.  The actual insertion into the hashtables is
-	 * done inside fetch_input_tuple.
+	 * exhaust the outer plan.
 	 */
 	for (;;)
 	{

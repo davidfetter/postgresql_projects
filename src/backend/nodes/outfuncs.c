@@ -1860,10 +1860,19 @@ _outRollupData(StringInfo str, const RollupData *node)
 
 	WRITE_NODE_FIELD(groupClause);
 	WRITE_NODE_FIELD(gsets);
-	WRITE_NODE_FIELD(gsets_ref);
+	WRITE_NODE_FIELD(gsets_data);
 	WRITE_FLOAT_FIELD(numGroups, "%.0f");
 	WRITE_BOOL_FIELD(hashable);
 	WRITE_BOOL_FIELD(is_hashed);
+}
+
+static void
+_outGroupingSetData(StringInfo str, const GroupingSetData *node)
+{
+	WRITE_NODE_TYPE("GSDATA");
+
+	WRITE_NODE_FIELD(set);
+	WRITE_FLOAT_FIELD(numGroups, "%.0f");
 }
 
 static void
@@ -3779,6 +3788,9 @@ outNode(StringInfo str, const void *obj)
 				break;
 			case T_RollupData:
 				_outRollupData(str, obj);
+				break;
+			case T_GroupingSetData:
+				_outGroupingSetData(str, obj);
 				break;
 
 			case T_ExtensibleNode:

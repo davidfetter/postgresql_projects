@@ -270,6 +270,7 @@ typedef enum NodeTag
 	T_MinMaxAggInfo,
 	T_PlannerParamItem,
 	T_RollupData,
+	T_GroupingSetData,
 
 	/*
 	 * TAGS FOR MEMORY NODES (memnodes.h)
