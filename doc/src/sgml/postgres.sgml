@@ -222,6 +222,7 @@
   &plpython;
 
   &spi;
+  &hooks;
   &bgworker;
   &logicaldecoding;
   &replication-origins;

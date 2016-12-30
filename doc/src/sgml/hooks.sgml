@@ -1,0 +1,1548 @@
+<!-- doc/src/sgml/hooks.sgml -->
+
+<chapter id="hooks">
+ <title>Hooks</title>
+
+ <indexterm zone="hooks">
+  <primary>Hooks</primary>
+ </indexterm>
+
+ <para>
+  <firstterm>Hooks</firstterm> give people writing <acronym>C</acronym>
+  the ability to control <productname>PostgreSQL</productname> at a very
+  fine grain, overriding or enhancing behaviors in many parts of the system.
+ </para>
+
+<sect1 id="backend-hooks">
+ <title>Backend hooks</title>
+
+ <refentry id="hook-assign-hook">
+  <indexterm><primary>assign_hook</primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>assign_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>assign_hook</refname>
+   <refpurpose>used to update any derived state that needs to change when a GUC variable is set</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-check-hook">
+  <indexterm><primary>check_hook</primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>check_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>check_hook</refname>
+   <refpurpose>used to perform validity checking on variable values (above and
+   beyond what GUC can do), to compute derived settings when nontrivial work is
+   needed to do that, and optionally to "canonicalize" user-supplied
+   values.
+   </refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-check-password-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>check_password_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>check_password_hook</refname>
+   <refpurpose>check passwords when <command>CREATE ROLE</command> or <command>ALTER ROLE</command> is called</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-ClientAuthentication-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>ClientAuthentication_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>ClientAuthentication_hook</refname>
+   <refpurpose>get control following client authentication, but before the user has been informed about the results</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-create-upper-paths-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>create_upper_paths_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>create_upper_paths_hook</refname>
+   <refpurpose>control when grouping_planner() plans upper rels</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+
+ <refentry id="hook-emit-log-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>emit_log_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>emit_log_hook</refname>
+   <refpurpose>intercept messages before they are sent to the server log</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-ExecutorStart-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>ExecutorStart_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>ExecutorStart_hook</refname>
+   <refpurpose>gives plugins control in ExecutorStart()</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-ExecutorRun-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>ExecutorRun_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>ExecutorRun_hook</refname>
+   <refpurpose>gives plugins control in ExecutorRun()</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-ExecutorFinish-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>ExecutorFinish_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>ExecutorFinish_hook</refname>
+   <refpurpose>gives plugins control in ExecutorFinish()</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-ExecutorEnd-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>ExecutorEnd_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>ExecutorEnd_hook</refname>
+   <refpurpose>gives plugins control in ExecutorEnd()</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-ExecutorCheckPerms-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>ExecutorCheckPerms_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>ExecutorCheckPerms_hook</refname>
+   <refpurpose>gives plugins control in ExecCheckRTPerms()</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-explain-get-index-name-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>explain_get_index_name_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>explain_get_index_name_hook</refname>
+   <refpurpose>give control in explain_get_index_name()</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-ExplainOneQuery-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>ExplainOneQuery_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>ExplainOneQuery_hook</refname>
+   <refpurpose>give control in ExplainOneQuery()</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-fixed-paramref-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>fixed_paramref_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>fixed_paramref_hook</refname>
+   <refpurpose>transform a ParamRef using fixed parameter types</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-fmgr-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>fmgr_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>fmgr_hook</refname>
+   <refpurpose>give control at entry and exit of functions</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+Control entry and exit from functions.  This is used, for example, in access control.
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-get-attavgwidth-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>get_attavgwidth_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>get_attavgwidth_hook</refname>
+   <refpurpose>give control when get_attavgwidth() is called</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+The optimizer calls get_attavgwidth() without any other way for plug-ins to control the result.
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-get-index-stats-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>get_index_stats_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>get_index_stats_hook</refname>
+   <refpurpose>get control when asking for stats</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-get-relation-info-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>get_relation_info_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>get_relation_info_hook</refname>
+   <refpurpose>Allow a plugin to editorialize on the info obtained from the catalogs</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+Allow a plugin to editorialize on the info we obtained from the catalogs.
+Actions might include altering the assumed relation size, removing an index, or
+adding a hypothetical index to the indexlist.
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-get-relation-stats-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>get_relation_stats_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>get_relation_stats_hook</refname>
+   <refpurpose>get control when asking for stats</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-join-search-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>join_search_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>join_search_hook</refname>
+   <refpurpose>enable replacing standard_join_search()</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-needs-fmgr-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>needs_fmgr_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>needs_fmgr_hook</refname>
+   <refpurpose>make it possible to step in when determining whether a function needs an fmgr_hook</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-object-access-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>object_access_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>object_access_hook</refname>
+   <refpurpose>step in on object access</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+This is intended as infrastructure for security and logging plugins.
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-p-coerce-param-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>p_coerce_param_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>p_coerce_param_hook</refname>
+   <refpurpose>allow the CoerceParamHook to decide what happens</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-p-paramref-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>p_paramref_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>p_paramref_hook</refname>
+   <refpurpose>parser callback for ParamRefs ($n symbols)</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-p-pre-columnref-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>p_pre_columnref_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>p_pre_columnref_hook</refname>
+   <refpurpose>modify the interpretation of column refs pre-parse</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-pgstat-beshutdown-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>pgstat_beshutdown_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>pgstat_beshutdown_hook</refname>
+   <refpurpose>control what happens when a back-end is shutting down</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-planner-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>planner_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>planner_hook</refname>
+   <refpurpose>take control in planner()</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+Yes, it's possible to modify or even replace the planner.
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-post-parse-analyze-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>post_parse_analyze_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>post_parse_analyze_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-p-post-columnref-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>p_post_columnref_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>p_post_columnref_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-pre-columnref-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>pre_columnref_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>pre_columnref_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-prev-post-parse-analyze-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>prev_post_parse_analyze_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>prev_post_parse_analyze_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-prev-shmem-startup-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>prev_shmem_startup_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>prev_shmem_startup_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-ProcessUtility-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>ProcessUtility_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>ProcessUtility_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-prompt1-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>prompt1_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>prompt1_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-prompt2-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>prompt2_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>prompt2_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-prompt3-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>prompt3_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>prompt3_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-quiet-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>quiet_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>quiet_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-sepgsql-audit-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>sepgsql_audit_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>sepgsql_audit_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-sepgsql-fmgr-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>sepgsql_fmgr_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>sepgsql_fmgr_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-sepgsql-needs-fmgr-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>sepgsql_needs_fmgr_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>sepgsql_needs_fmgr_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-set-join-pathlist-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>set_join_pathlist_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>set_join_pathlist_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-set-rel-pathlist-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>set_rel_pathlist_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>set_rel_pathlist_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-shmem-startup-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>shmem_startup_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>shmem_startup_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-show-context-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>show_context_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>show_context_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-show-hook">
+  <indexterm><primary>show_hook</primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>show_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>show_hook</refname>
+   <refpurpose>Show hooks are used to modify the default SHOW display for a
+   variable.
+   </refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-singleline-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>singleline_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>singleline_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-singlestep-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>singlestep_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>singlestep_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-variable-coerce-param-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>variable_coerce_param_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>variable_coerce_param_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-variable-paramref-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>variable_paramref_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>variable_paramref_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-verbosity-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>verbosity_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>verbosity_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+</sect1>
+
+<sect1 id="psql-hooks">
+ <title>psql hooks</title>
+
+ <refentry id="hook-autocommit-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>autocommit_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>autocommit_hook</refname>
+   <refpurpose>controls AUTOCOMMIT setting</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-on-error-rollback-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>on_error_rollback_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>on_error_rollback_hook</refname>
+   <refpurpose>controls ON_ERROR_ROLLBACK setting</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-on-error-stop-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>on_error_stop_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>on_error_stop_hook</refname>
+   <refpurpose>controls ON_ERROR_STOP setting</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-comp-keyword-case-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>comp_keyword_case_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>comp_keyword_case_hook</refname>
+   <refpurpose>controls the case behavior of tab completion of keywords</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-echo-hidden-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>echo_hidden_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>echo_hidden_hook</refname>
+   <refpurpose>controls ECHO_HIDDEN setting</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-echo-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>echo_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>echo_hook</refname>
+   <refpurpose>controls ECHO setting</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-fetch-count-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>fetch_count_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>fetch_count_hook</refname>
+   <refpurpose>controls FETCH_COUNT setting</refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+ <refentry id="hook-histcontrol-hook">
+  <indexterm><primary></primary></indexterm>
+
+  <refmeta>
+   <refentrytitle>histcontrol_hook</refentrytitle>
+   <manvolnum>3</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+   <refname>histcontrol_hook</refname>
+   <refpurpose></refpurpose> 
+  </refnamediv>
+
+  <refsynopsisdiv>
+<synopsis>
+</synopsis>
+ </refsynopsisdiv>
+
+  <refsect1>
+   <title>Description</title>
+ 
+   <para>
+   </para>
+  </refsect1>
+ </refentry>
+
+
+</sect1>
+</chapter>
