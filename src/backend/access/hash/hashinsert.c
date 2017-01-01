@@ -35,6 +35,7 @@ _hash_doinsert(Relation rel, IndexTuple itup)
 	BlockNumber blkno;
 	BlockNumber oldblkno;
 	bool		retry;
+	Page		metapage;
 	Page		page;
 	HashPageOpaque pageopaque;
 	Size		itemsz;
@@ -58,7 +59,8 @@ _hash_doinsert(Relation rel, IndexTuple itup)
 restart_insert:
 	/* Read the metapage */
 	metabuf = _hash_getbuf(rel, HASH_METAPAGE, HASH_READ, LH_META_PAGE);
-	metap = HashPageGetMeta(BufferGetPage(metabuf));
+	metapage = BufferGetPage(metabuf);
+	metap = HashPageGetMeta(metapage);
 
 	/*
 	 * Check whether the item can fit on a hash page at all. (Eventually, we
@@ -67,11 +69,11 @@ restart_insert:
 	 *
 	 * XXX this is useless code if we are only storing hash keys.
 	 */
-	if (itemsz > HashMaxItemSize((Page) metap))
+	if (itemsz > HashMaxItemSize(metapage))
 		ereport(ERROR,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 				 errmsg("index row size %zu exceeds hash maximum %zu",
-						itemsz, HashMaxItemSize((Page) metap)),
+						itemsz, HashMaxItemSize(metapage)),
 			errhint("Values larger than a buffer page cannot be indexed.")));
 
 	oldblkno = InvalidBlockNumber;
@@ -102,7 +104,7 @@ restart_insert:
 		lowmask = metap->hashm_lowmask;
 
 		/* Release metapage lock, but keep pin. */
-		_hash_chgbufaccess(rel, metabuf, HASH_READ, HASH_NOLOCK);
+		LockBuffer(metabuf, BUFFER_LOCK_UNLOCK);
 
 		/*
 		 * If the previous iteration of this loop locked the primary page of
@@ -123,7 +125,7 @@ restart_insert:
 		 * Reacquire metapage lock and check that no bucket split has taken
 		 * place while we were awaiting the bucket lock.
 		 */
-		_hash_chgbufaccess(rel, metabuf, HASH_NOLOCK, HASH_READ);
+		LockBuffer(metabuf, BUFFER_LOCK_SHARE);
 		oldblkno = blkno;
 		retry = true;
 	}
@@ -147,7 +149,7 @@ restart_insert:
 	if (H_BUCKET_BEING_SPLIT(pageopaque) && IsBufferCleanupOK(buf))
 	{
 		/* release the lock on bucket buffer, before completing the split. */
-		_hash_chgbufaccess(rel, buf, HASH_READ, HASH_NOLOCK);
+		LockBuffer(buf, BUFFER_LOCK_UNLOCK);
 
 		_hash_finish_split(rel, metabuf, buf, pageopaque->hasho_bucket,
 						   maxbucket, highmask, lowmask);
@@ -178,7 +180,7 @@ restart_insert:
 			if (buf != bucket_buf)
 				_hash_relbuf(rel, buf);
 			else
-				_hash_chgbufaccess(rel, buf, HASH_READ, HASH_NOLOCK);
+				LockBuffer(buf, BUFFER_LOCK_UNLOCK);
 			buf = _hash_getbuf(rel, nextblkno, HASH_WRITE, LH_OVERFLOW_PAGE);
 			page = BufferGetPage(buf);
 		}
@@ -190,7 +192,7 @@ restart_insert:
 			 */
 
 			/* release our write lock without modifying buffer */
-			_hash_chgbufaccess(rel, buf, HASH_READ, HASH_NOLOCK);
+			LockBuffer(buf, BUFFER_LOCK_UNLOCK);
 
 			/* chain to a new overflow page */
 			buf = _hash_addovflpage(rel, metabuf, buf, (buf == bucket_buf) ? true : false);
@@ -221,7 +223,7 @@ restart_insert:
 	 * Write-lock the metapage so we can increment the tuple count. After
 	 * incrementing it, check to see if it's time for a split.
 	 */
-	_hash_chgbufaccess(rel, metabuf, HASH_NOLOCK, HASH_WRITE);
+	LockBuffer(metabuf, BUFFER_LOCK_EXCLUSIVE);
 
 	metap->hashm_ntuples += 1;
 
@@ -230,7 +232,8 @@ restart_insert:
 		(double) metap->hashm_ffactor * (metap->hashm_maxbucket + 1);
 
 	/* Write out the metapage and drop lock, but keep pin */
-	_hash_chgbufaccess(rel, metabuf, HASH_WRITE, HASH_NOLOCK);
+	MarkBufferDirty(metabuf);
+	LockBuffer(metabuf, BUFFER_LOCK_UNLOCK);
 
 	/* Attempt to split if a split is needed */
 	if (do_expand)

@@ -96,6 +96,12 @@ bool		g_verbose;			/* User wants verbose narration of our
 /* subquery used to convert user ID (eg, datdba) to user name */
 static const char *username_subquery;
 
+/*
+ * For 8.0 and earlier servers, pulled from pg_database, for 8.1+ we use
+ * FirstNormalObjectId - 1.
+ */
+static Oid g_last_builtin_oid; /* value of the last builtin oid */
+
 /* The specified names/patterns should to match at least one entity */
 static int	strict_names = 0;
 
@@ -233,6 +239,7 @@ static char *convertRegProcReference(Archive *fout,
 						const char *proc);
 static char *convertOperatorReference(Archive *fout, const char *opr);
 static char *convertTSFunction(Archive *fout, Oid funcOid);
+static Oid findLastBuiltinOid_V71(Archive *fout, const char *);
 static void selectSourceSchema(Archive *fout, const char *schemaName);
 static char *getFormattedTypeName(Archive *fout, Oid oid, OidOptions opts);
 static void getBlobs(Archive *fout);
@@ -683,6 +690,20 @@ main(int argc, char **argv)
 	if (dumpsnapshot && fout->remoteVersion < 90200)
 		exit_horribly(NULL,
 		   "Exported snapshots are not supported by this server version.\n");
+
+	/*
+	 * Find the last built-in OID, if needed (prior to 8.1)
+	 *
+	 * With 8.1 and above, we can just use FirstNormalObjectId - 1.
+	 */
+	if (fout->remoteVersion < 80100)
+		g_last_builtin_oid = findLastBuiltinOid_V71(fout,
+													PQdb(GetConnection(fout)));
+	else
+		g_last_builtin_oid = FirstNormalObjectId - 1;
+
+	if (g_verbose)
+		write_msg(NULL, "last built-in OID is %u\n", g_last_builtin_oid);
 
 	/* Expand schema selection patterns into OID lists */
 	if (schema_include_patterns.head != NULL)
@@ -1494,7 +1515,7 @@ selectDumpableCast(CastInfo *cast, Archive *fout)
 	 * This would be DUMP_COMPONENT_ACL for from-initdb casts, but they do not
 	 * support ACLs currently.
 	 */
-	if (cast->dobj.catId.oid < (Oid) FirstNormalObjectId)
+	if (cast->dobj.catId.oid <= (Oid) g_last_builtin_oid)
 		cast->dobj.dump = DUMP_COMPONENT_NONE;
 	else
 		cast->dobj.dump = fout->dopt->include_everything ?
@@ -1526,7 +1547,7 @@ selectDumpableProcLang(ProcLangInfo *plang, Archive *fout)
 		plang->dobj.dump = DUMP_COMPONENT_NONE;
 	else
 	{
-		if (plang->dobj.catId.oid < (Oid) FirstNormalObjectId)
+		if (plang->dobj.catId.oid <= (Oid) g_last_builtin_oid)
 			plang->dobj.dump = fout->remoteVersion < 90600 ?
 				DUMP_COMPONENT_NONE : DUMP_COMPONENT_ACL;
 		else
@@ -1552,7 +1573,7 @@ selectDumpableAccessMethod(AccessMethodInfo *method, Archive *fout)
 	 * This would be DUMP_COMPONENT_ACL for from-initdb access methods, but
 	 * they do not support ACLs currently.
 	 */
-	if (method->dobj.catId.oid < (Oid) FirstNormalObjectId)
+	if (method->dobj.catId.oid <= (Oid) g_last_builtin_oid)
 		method->dobj.dump = DUMP_COMPONENT_NONE;
 	else
 		method->dobj.dump = fout->dopt->include_everything ?
@@ -1577,7 +1598,7 @@ selectDumpableExtension(ExtensionInfo *extinfo, DumpOptions *dopt)
 	 * change permissions on those objects, if they wish to, and have those
 	 * changes preserved.
 	 */
-	if (dopt->binary_upgrade && extinfo->dobj.catId.oid < (Oid) FirstNormalObjectId)
+	if (dopt->binary_upgrade && extinfo->dobj.catId.oid <= (Oid) g_last_builtin_oid)
 		extinfo->dobj.dump = extinfo->dobj.dump_contains = DUMP_COMPONENT_ACL;
 	else
 		extinfo->dobj.dump = extinfo->dobj.dump_contains =
@@ -4690,8 +4711,11 @@ getFuncs(Archive *fout, int *numFuncs)
 	 * 3. Otherwise, we normally exclude functions in pg_catalog.  However, if
 	 * they're members of extensions and we are in binary-upgrade mode then
 	 * include them, since we want to dump extension members individually in
-	 * that mode.  Also, in 9.6 and up, include functions in pg_catalog if
-	 * they have an ACL different from what's shown in pg_init_privs.
+	 * that mode.  Also, if they are used by casts or transforms then we need
+	 * to gather the information about them, though they won't be dumped if
+	 * they are built-in.  Also, in 9.6 and up, include functions in
+	 * pg_catalog if they have an ACL different from what's shown in
+	 * pg_init_privs.
 	 */
 	if (fout->remoteVersion >= 90600)
 	{
@@ -4725,12 +4749,21 @@ getFuncs(Archive *fout, int *numFuncs)
 						  "\n  AND ("
 						  "\n  pronamespace != "
 						  "(SELECT oid FROM pg_namespace "
-						  "WHERE nspname = 'pg_catalog')",
+						  "WHERE nspname = 'pg_catalog')"
+						  "\n  OR EXISTS (SELECT 1 FROM pg_cast"
+						  "\n  WHERE pg_cast.oid > %u "
+						  "\n  AND p.oid = pg_cast.castfunc)"
+						  "\n  OR EXISTS (SELECT 1 FROM pg_transform"
+						  "\n  WHERE pg_transform.oid > %u AND "
+						  "\n  (p.oid = pg_transform.trffromsql"
+						  "\n  OR p.oid = pg_transform.trftosql))",
 						  acl_subquery->data,
 						  racl_subquery->data,
 						  initacl_subquery->data,
 						  initracl_subquery->data,
-						  username_subquery);
+						  username_subquery,
+						  g_last_builtin_oid,
+						  g_last_builtin_oid);
 		if (dopt->binary_upgrade)
 			appendPQExpBufferStr(query,
 							   "\n  OR EXISTS(SELECT 1 FROM pg_depend WHERE "
@@ -4764,11 +4797,24 @@ getFuncs(Archive *fout, int *numFuncs)
 							   "\n  AND NOT EXISTS (SELECT 1 FROM pg_depend "
 								 "WHERE classid = 'pg_proc'::regclass AND "
 								 "objid = p.oid AND deptype = 'i')");
-		appendPQExpBufferStr(query,
+		appendPQExpBuffer(query,
 							 "\n  AND ("
 							 "\n  pronamespace != "
 							 "(SELECT oid FROM pg_namespace "
-							 "WHERE nspname = 'pg_catalog')");
+							 "WHERE nspname = 'pg_catalog')"
+							 "\n  OR EXISTS (SELECT 1 FROM pg_cast"
+							 "\n  WHERE pg_cast.oid > '%u'::oid"
+							 "\n  AND p.oid = pg_cast.castfunc)",
+							 g_last_builtin_oid);
+
+		if (fout->remoteVersion >= 90500)
+			appendPQExpBuffer(query,
+								 "\n  OR EXISTS (SELECT 1 FROM pg_transform"
+								 "\n  WHERE pg_transform.oid > '%u'::oid"
+								 "\n  AND (p.oid = pg_transform.trffromsql"
+								 "\n  OR p.oid = pg_transform.trftosql))",
+								 g_last_builtin_oid);
+
 		if (dopt->binary_upgrade && fout->remoteVersion >= 90100)
 			appendPQExpBufferStr(query,
 							   "\n  OR EXISTS(SELECT 1 FROM pg_depend WHERE "
@@ -8820,8 +8866,8 @@ dumpExtension(Archive *fout, ExtensionInfo *extinfo)
 		/*
 		 * We unconditionally create the extension, so we must drop it if it
 		 * exists.  This could happen if the user deleted 'plpgsql' and then
-		 * readded it, causing its oid to be greater than FirstNormalObjectId.
-		 * The FirstNormalObjectId test was kept to avoid repeatedly dropping
+		 * readded it, causing its oid to be greater than g_last_builtin_oid.
+		 * The g_last_builtin_oid test was kept to avoid repeatedly dropping
 		 * and recreating extensions like 'plpgsql'.
 		 */
 		appendPQExpBuffer(q, "DROP EXTENSION IF EXISTS %s;\n", qextname);
@@ -10945,7 +10991,8 @@ dumpCast(Archive *fout, CastInfo *cast)
 	{
 		funcInfo = findFuncByOid(cast->castfunc);
 		if (funcInfo == NULL)
-			return;
+			exit_horribly(NULL, "unable to find function definition for OID %u",
+						  cast->castfunc);
 	}
 
 	/*
@@ -11054,13 +11101,15 @@ dumpTransform(Archive *fout, TransformInfo *transform)
 	{
 		fromsqlFuncInfo = findFuncByOid(transform->trffromsql);
 		if (fromsqlFuncInfo == NULL)
-			return;
+			exit_horribly(NULL, "unable to find function definition for OID %u",
+						  transform->trffromsql);
 	}
 	if (OidIsValid(transform->trftosql))
 	{
 		tosqlFuncInfo = findFuncByOid(transform->trftosql);
 		if (tosqlFuncInfo == NULL)
-			return;
+			exit_horribly(NULL, "unable to find function definition for OID %u",
+						  transform->trftosql);
 	}
 
 	/* Make sure we are in proper schema (needed for getFormattedTypeName) */
@@ -15325,6 +15374,33 @@ dumpTableConstraintComment(Archive *fout, ConstraintInfo *coninfo)
 }
 
 /*
+ * findLastBuiltinOid_V71 -
+ *
+ * find the last built in oid
+ *
+ * For 7.1 through 8.0, we do this by retrieving datlastsysoid from the
+ * pg_database entry for the current database.
+ */
+static Oid
+findLastBuiltinOid_V71(Archive *fout, const char *dbname)
+{
+	PGresult   *res;
+	Oid         last_oid;
+	PQExpBuffer query = createPQExpBuffer();
+
+	resetPQExpBuffer(query);
+	appendPQExpBufferStr(query, "SELECT datlastsysoid from pg_database where datname = ");
+	appendStringLiteralAH(query, dbname, fout);
+
+	res = ExecuteSqlQueryForSingleRow(fout, query->data);
+	last_oid = atooid(PQgetvalue(res, 0, PQfnumber(res, "datlastsysoid")));
+	PQclear(res);
+	destroyPQExpBuffer(query);
+
+	return last_oid;
+}
+
+/*
  * dumpSequence
  *	  write the declaration (not data) of one user-defined sequence
  */
@@ -15354,8 +15430,7 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 	if (fout->remoteVersion >= 100000)
 	{
 		appendPQExpBuffer(query,
-						  "SELECT relname, "
-						  "seqstart, seqincrement, "
+						  "SELECT seqstart, seqincrement, "
 						  "CASE WHEN seqincrement > 0 AND seqmax = %s THEN NULL "
 						  "     WHEN seqincrement < 0 AND seqmax = -1 THEN NULL "
 						  "     ELSE seqmax "
@@ -15374,8 +15449,7 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 	else if (fout->remoteVersion >= 80400)
 	{
 		appendPQExpBuffer(query,
-						  "SELECT sequence_name, "
-						  "start_value, increment_by, "
+						  "SELECT start_value, increment_by, "
 				   "CASE WHEN increment_by > 0 AND max_value = %s THEN NULL "
 				   "     WHEN increment_by < 0 AND max_value = -1 THEN NULL "
 						  "     ELSE max_value "
@@ -15391,8 +15465,7 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 	else
 	{
 		appendPQExpBuffer(query,
-						  "SELECT sequence_name, "
-						  "0 AS start_value, increment_by, "
+						  "SELECT 0 AS start_value, increment_by, "
 				   "CASE WHEN increment_by > 0 AND max_value = %s THEN NULL "
 				   "     WHEN increment_by < 0 AND max_value = -1 THEN NULL "
 						  "     ELSE max_value "
@@ -15417,24 +15490,14 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 		exit_nicely(1);
 	}
 
-	/* Disable this check: it fails if sequence has been renamed */
-#ifdef NOT_USED
-	if (strcmp(PQgetvalue(res, 0, 0), tbinfo->dobj.name) != 0)
-	{
-		write_msg(NULL, "query to get data of sequence \"%s\" returned name \"%s\"\n",
-				  tbinfo->dobj.name, PQgetvalue(res, 0, 0));
-		exit_nicely(1);
-	}
-#endif
-
-	startv = PQgetvalue(res, 0, 1);
-	incby = PQgetvalue(res, 0, 2);
+	startv = PQgetvalue(res, 0, 0);
+	incby = PQgetvalue(res, 0, 1);
+	if (!PQgetisnull(res, 0, 2))
+		maxv = PQgetvalue(res, 0, 2);
 	if (!PQgetisnull(res, 0, 3))
-		maxv = PQgetvalue(res, 0, 3);
-	if (!PQgetisnull(res, 0, 4))
-		minv = PQgetvalue(res, 0, 4);
-	cache = PQgetvalue(res, 0, 5);
-	cycled = (strcmp(PQgetvalue(res, 0, 6), "t") == 0);
+		minv = PQgetvalue(res, 0, 3);
+	cache = PQgetvalue(res, 0, 4);
+	cycled = (strcmp(PQgetvalue(res, 0, 5), "t") == 0);
 
 	/*
 	 * DROP must be fully qualified in case same name appears in pg_catalog

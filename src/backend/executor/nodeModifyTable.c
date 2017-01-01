@@ -262,6 +262,7 @@ ExecInsert(ModifyTableState *mtstate,
 	Relation	resultRelationDesc;
 	Oid			newId;
 	List	   *recheckIndexes = NIL;
+	TupleTableSlot *oldslot = NULL;
 
 	/*
 	 * get the heap tuple out of the tuple table slot, making sure we have a
@@ -318,7 +319,19 @@ ExecInsert(ModifyTableState *mtstate,
 		map = mtstate->mt_partition_tupconv_maps[leaf_part_index];
 		if (map)
 		{
+			Relation partrel = resultRelInfo->ri_RelationDesc;
+
 			tuple = do_convert_tuple(tuple, map);
+
+			/*
+			 * We must use the partition's tuple descriptor from this
+			 * point on, until we're finished dealing with the partition.
+			 * Use the dedicated slot for that.
+			 */
+			oldslot = slot;
+			slot = estate->es_partition_tuple_slot;
+			Assert(slot != NULL);
+			ExecSetSlotDescriptor(slot, RelationGetDescr(partrel));
 			ExecStoreTuple(tuple, slot, InvalidBuffer, true);
 		}
 	}
@@ -566,6 +579,10 @@ ExecInsert(ModifyTableState *mtstate,
 	{
 		resultRelInfo = saved_resultRelInfo;
 		estate->es_result_relation_info = resultRelInfo;
+
+		/* Switch back to the slot corresponding to the root table */
+		Assert(oldslot != NULL);
+		slot = oldslot;
 	}
 
 	/*
@@ -1718,69 +1735,31 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	if (operation == CMD_INSERT &&
 		rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
-		int					i,
-							j,
-							num_parted;
-		List			   *leaf_parts;
-		ListCell		   *cell;
-		ResultRelInfo	   *leaf_part_rri;
+		PartitionDispatch  *partition_dispatch_info;
+		ResultRelInfo	   *partitions;
+		TupleConversionMap **partition_tupconv_maps;
+		int					num_parted,
+							num_partitions;
 
-		/* Get the tuple-routing information and lock partitions */
-		mtstate->mt_partition_dispatch_info =
-					RelationGetPartitionDispatchInfo(rel, RowExclusiveLock,
-													 &num_parted,
-													 &leaf_parts);
+		ExecSetupPartitionTupleRouting(rel,
+									   &partition_dispatch_info,
+									   &partitions,
+									   &partition_tupconv_maps,
+									   &num_parted, &num_partitions);
+		mtstate->mt_partition_dispatch_info = partition_dispatch_info;
 		mtstate->mt_num_dispatch = num_parted;
-		mtstate->mt_num_partitions = list_length(leaf_parts);
-		mtstate->mt_partitions = (ResultRelInfo *)
-						palloc0(mtstate->mt_num_partitions *
-												sizeof(ResultRelInfo));
-		mtstate->mt_partition_tupconv_maps = (TupleConversionMap **)
-						palloc0(mtstate->mt_num_partitions *
-												sizeof(TupleConversionMap *));
+		mtstate->mt_partitions = partitions;
+		mtstate->mt_num_partitions = num_partitions;
+		mtstate->mt_partition_tupconv_maps = partition_tupconv_maps;
 
-		leaf_part_rri = mtstate->mt_partitions;
-		i = j = 0;
-		foreach(cell, leaf_parts)
-		{
-			Oid			partrelid = lfirst_oid(cell);
-			Relation	partrel;
-
-			/*
-			 * We locked all the partitions above including the leaf
-			 * partitions.  Note that each of the relations in
-			 * mtstate->mt_partitions will be closed by ExecEndModifyTable().
-			 */
-			partrel = heap_open(partrelid, NoLock);
-
-			/*
-			 * Verify result relation is a valid target for the current
-			 * operation
-			 */
-			CheckValidResultRel(partrel, CMD_INSERT);
-
-			InitResultRelInfo(leaf_part_rri,
-							  partrel,
-							  1,		/* dummy */
-							  false,	/* no partition constraint checks */
-							  eflags);
-
-			/* Open partition indices (note: ON CONFLICT unsupported)*/
-			if (partrel->rd_rel->relhasindex && operation != CMD_DELETE &&
-				leaf_part_rri->ri_IndexRelationDescs == NULL)
-				ExecOpenIndices(leaf_part_rri, false);
-
-			if (!equalTupleDescs(RelationGetDescr(rel),
-								 RelationGetDescr(partrel)))
-				mtstate->mt_partition_tupconv_maps[i] =
-							convert_tuples_by_name(RelationGetDescr(rel),
-												   RelationGetDescr(partrel),
-								  gettext_noop("could not convert row type"));
-
-			leaf_part_rri++;
-			i++;
-		}
+		/*
+		 * Initialize a dedicated slot to manipulate tuples of any given
+		 * partition's rowtype.
+		 */
+		estate->es_partition_tuple_slot = ExecInitExtraTupleSlot(estate);
 	}
+	else
+		estate->es_partition_tuple_slot = NULL;
 
 	/*
 	 * Initialize any WITH CHECK OPTION constraints if needed.
@@ -2104,12 +2083,14 @@ ExecEndModifyTable(ModifyTableState *node)
 	 * Remember node->mt_partition_dispatch_info[0] corresponds to the root
 	 * partitioned table, which we must not try to close, because it is the
 	 * main target table of the query that will be closed by ExecEndPlan().
+	 * Also, tupslot is NULL for the root partitioned table.
 	 */
 	for (i = 1; i < node->mt_num_dispatch; i++)
 	{
 		PartitionDispatch pd = node->mt_partition_dispatch_info[i];
 
 		heap_close(pd->reldesc, NoLock);
+		ExecDropSingleTupleTableSlot(pd->tupslot);
 	}
 	for (i = 0; i < node->mt_num_partitions; i++)
 	{

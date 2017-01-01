@@ -1184,7 +1184,7 @@ ExecuteTruncate(TruncateStmt *stmt)
 	{
 		RangeVar   *rv = lfirst(cell);
 		Relation	rel;
-		bool		recurse = interpretInhOption(rv->inhOpt);
+		bool		recurse = rv->inh;
 		Oid			myrelid;
 
 		rel = heap_openrv(rv, AccessExclusiveLock);
@@ -1604,7 +1604,7 @@ MergeAttributes(List *schema, List *supers, char relpersistence,
 	 * execute if the user attempts to create a table with hundreds of
 	 * thousands of columns.
 	 *
-	 * Note that we also need to check that any we do not exceed this figure
+	 * Note that we also need to check that we do not exceed this figure
 	 * after including columns from inherited relations.
 	 */
 	if (list_length(schema) > MaxHeapAttributeNumber)
@@ -2655,7 +2655,7 @@ renameatt(RenameStmt *stmt)
 		renameatt_internal(relid,
 						   stmt->subname,		/* old att name */
 						   stmt->newname,		/* new att name */
-						   interpretInhOption(stmt->relation->inhOpt),	/* recursive? */
+						   stmt->relation->inh, /* recursive? */
 						   false,		/* recursing? */
 						   0,	/* expected inhcount */
 						   stmt->behavior);
@@ -2807,7 +2807,8 @@ RenameConstraint(RenameStmt *stmt)
 		rename_constraint_internal(relid, typid,
 								   stmt->subname,
 								   stmt->newname,
-		 stmt->relation ? interpretInhOption(stmt->relation->inhOpt) : false,	/* recursive? */
+								   (stmt->relation &&
+									stmt->relation->inh),		/* recursive? */
 								   false,		/* recursing? */
 								   0 /* expected inhcount */ );
 
@@ -3049,9 +3050,7 @@ AlterTable(Oid relid, LOCKMODE lockmode, AlterTableStmt *stmt)
 
 	CheckTableNotInUse(rel, "ALTER TABLE");
 
-	ATController(stmt,
-				 rel, stmt->cmds, interpretInhOption(stmt->relation->inhOpt),
-				 lockmode);
+	ATController(stmt, rel, stmt->cmds, stmt->relation->inh, lockmode);
 }
 
 /*
@@ -12743,7 +12742,7 @@ transformPartitionSpec(Relation rel, PartitionSpec *partspec, char *strategy)
 	RangeTblEntry *rte;
 	ListCell   *l;
 
-	newspec = (PartitionSpec *) makeNode(PartitionSpec);
+	newspec = makeNode(PartitionSpec);
 
 	newspec->strategy = partspec->strategy;
 	newspec->location = partspec->location;
@@ -12996,7 +12995,6 @@ ATExecAttachPartition(List **wqueue, Relation rel, PartitionCmd *cmd)
 			   *existConstraint;
 	SysScanDesc scan;
 	ScanKeyData skey;
-	HeapTuple	tuple;
 	AttrNumber	attno;
 	int			natts;
 	TupleDesc	tupleDesc;
@@ -13018,7 +13016,7 @@ ATExecAttachPartition(List **wqueue, Relation rel, PartitionCmd *cmd)
 				 errmsg("\"%s\" is already a partition",
 						RelationGetRelationName(attachRel))));
 
-	if (attachRel->rd_rel->reloftype)
+	if (OidIsValid(attachRel->rd_rel->reloftype))
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 				 errmsg("cannot attach a typed table as partition")));
@@ -13119,9 +13117,10 @@ ATExecAttachPartition(List **wqueue, Relation rel, PartitionCmd *cmd)
 		if (attribute->attisdropped)
 			continue;
 
-		/* Find same column in parent (matching on column name). */
-		tuple = SearchSysCacheCopyAttName(RelationGetRelid(rel), attributeName);
-		if (!HeapTupleIsValid(tuple))
+		/* Try to find the column in parent (matching on column name) */
+		if (!SearchSysCacheExists2(ATTNAME,
+								   ObjectIdGetDatum(RelationGetRelid(rel)),
+								   CStringGetDatum(attributeName)))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("table \"%s\" contains column \"%s\" not found in parent \"%s\"",
@@ -13167,7 +13166,6 @@ ATExecAttachPartition(List **wqueue, Relation rel, PartitionCmd *cmd)
 	 * There is a case in which we cannot rely on just the result of the
 	 * proof.
 	 */
-	tupleDesc = RelationGetDescr(attachRel);
 	attachRel_constr = tupleDesc->constr;
 	existConstraint = NIL;
 	if (attachRel_constr != NULL)
@@ -13246,7 +13244,7 @@ ATExecAttachPartition(List **wqueue, Relation rel, PartitionCmd *cmd)
 			skip_validate = true;
 
 		/*
-		 * We choose to err on the safer side, ie, give up on skipping the the
+		 * We choose to err on the safer side, i.e., give up on skipping the
 		 * validation scan, if the partition key column doesn't have the NOT
 		 * NULL constraint and the table is to become a list partition that
 		 * does not accept nulls.  In this case, the partition predicate
@@ -13297,8 +13295,11 @@ ATExecAttachPartition(List **wqueue, Relation rel, PartitionCmd *cmd)
 		}
 	}
 
+	/* It's safe to skip the validation scan after all */
 	if (skip_validate)
-		elog(NOTICE, "skipping scan to validate partition constraint");
+		ereport(INFO,
+				(errmsg("partition constraint for table \"%s\" is implied by existing constraints",
+						RelationGetRelationName(attachRel))));
 
 	/*
 	 * Set up to have the table to be scanned to validate the partition

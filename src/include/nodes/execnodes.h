@@ -384,6 +384,9 @@ typedef struct EState
 	TupleTableSlot *es_trig_oldtup_slot;		/* for TriggerEnabled */
 	TupleTableSlot *es_trig_newtup_slot;		/* for TriggerEnabled */
 
+	/* Slot used to manipulate a tuple after it is routed to a partition */
+	TupleTableSlot *es_partition_tuple_slot;
+
 	/* Parameter info: */
 	ParamListInfo es_param_list_info;	/* values of external params */
 	ParamExecData *es_param_exec_vals;	/* values of internal params */
@@ -889,6 +892,7 @@ typedef struct CaseExprState
 	ExprState  *arg;			/* implicit equality comparison argument */
 	List	   *args;			/* the arguments (list of WHEN clauses) */
 	ExprState  *defresult;		/* the default result (ELSE clause) */
+	int16		argtyplen;		/* if arg is provided, its typlen */
 } CaseExprState;
 
 /* ----------------

@@ -1406,64 +1406,22 @@ BeginCopy(ParseState *pstate,
 		/* Initialize state for CopyFrom tuple routing. */
 		if (is_from && rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 		{
-			List	   *leaf_parts;
-			ListCell   *cell;
-			int			i,
-						num_parted;
-			ResultRelInfo *leaf_part_rri;
+			PartitionDispatch  *partition_dispatch_info;
+			ResultRelInfo	   *partitions;
+			TupleConversionMap **partition_tupconv_maps;
+			int					num_parted,
+								num_partitions;
 
-			/* Get the tuple-routing information and lock partitions */
-			cstate->partition_dispatch_info =
-				RelationGetPartitionDispatchInfo(rel, RowExclusiveLock,
-												 &num_parted,
-												 &leaf_parts);
+			ExecSetupPartitionTupleRouting(rel,
+										   &partition_dispatch_info,
+										   &partitions,
+										   &partition_tupconv_maps,
+										   &num_parted, &num_partitions);
+			cstate->partition_dispatch_info = partition_dispatch_info;
 			cstate->num_dispatch = num_parted;
-			cstate->num_partitions = list_length(leaf_parts);
-			cstate->partitions = (ResultRelInfo *)
-				palloc(cstate->num_partitions *
-					   sizeof(ResultRelInfo));
-			cstate->partition_tupconv_maps = (TupleConversionMap **)
-				palloc0(cstate->num_partitions *
-						sizeof(TupleConversionMap *));
-
-			leaf_part_rri = cstate->partitions;
-			i = 0;
-			foreach(cell, leaf_parts)
-			{
-				Relation	partrel;
-
-				/*
-				 * We locked all the partitions above including the leaf
-				 * partitions.  Note that each of the relations in
-				 * cstate->partitions will be closed by CopyFrom() after it's
-				 * finished with its processing.
-				 */
-				partrel = heap_open(lfirst_oid(cell), NoLock);
-
-				/*
-				 * Verify result relation is a valid target for the current
-				 * operation.
-				 */
-				CheckValidResultRel(partrel, CMD_INSERT);
-
-				InitResultRelInfo(leaf_part_rri,
-								  partrel,
-								  1,	/* dummy */
-								  false,		/* no partition constraint
-												 * check */
-								  0);
-
-				/* Open partition indices */
-				ExecOpenIndices(leaf_part_rri, false);
-
-				if (!equalTupleDescs(tupDesc, RelationGetDescr(partrel)))
-					cstate->partition_tupconv_maps[i] =
-						convert_tuples_by_name(tupDesc,
-											   RelationGetDescr(partrel),
-								 gettext_noop("could not convert row type"));
-				leaf_part_rri++;
-				i++;
-			}
+			cstate->partitions = partitions;
+			cstate->num_partitions = num_partitions;
+			cstate->partition_tupconv_maps = partition_tupconv_maps;
 		}
 	}
 	else
@@ -2478,6 +2436,15 @@ CopyFrom(CopyState cstate)
 	estate->es_trig_tuple_slot = ExecInitExtraTupleSlot(estate);
 
 	/*
+	 * Initialize a dedicated slot to manipulate tuples of any given
+	 * partition's rowtype.
+	 */
+	if (cstate->partition_dispatch_info)
+		estate->es_partition_tuple_slot = ExecInitExtraTupleSlot(estate);
+	else
+		estate->es_partition_tuple_slot = NULL;
+
+	/*
 	 * It's more efficient to prepare a bunch of tuples for insertion, and
 	 * insert them in one heap_multi_insert() call, than call heap_insert()
 	 * separately for every tuple. However, we can't do that if there are
@@ -2526,7 +2493,8 @@ CopyFrom(CopyState cstate)
 
 	for (;;)
 	{
-		TupleTableSlot *slot;
+		TupleTableSlot *slot,
+					   *oldslot = NULL;
 		bool		skip_tuple;
 		Oid			loaded_oid = InvalidOid;
 
@@ -2613,7 +2581,19 @@ CopyFrom(CopyState cstate)
 			map = cstate->partition_tupconv_maps[leaf_part_index];
 			if (map)
 			{
+				Relation	partrel = resultRelInfo->ri_RelationDesc;
+
 				tuple = do_convert_tuple(tuple, map);
+
+				/*
+				 * We must use the partition's tuple descriptor from this
+				 * point on.  Use a dedicated slot from this point on until
+				 * we're finished dealing with the partition.
+				 */
+				oldslot = slot;
+				slot = estate->es_partition_tuple_slot;
+				Assert(slot != NULL);
+				ExecSetSlotDescriptor(slot, RelationGetDescr(partrel));
 				ExecStoreTuple(tuple, slot, InvalidBuffer, true);
 			}
 
@@ -2709,6 +2689,10 @@ CopyFrom(CopyState cstate)
 			{
 				resultRelInfo = saved_resultRelInfo;
 				estate->es_result_relation_info = resultRelInfo;
+
+				/* Switch back to the slot corresponding to the root table */
+				Assert(oldslot != NULL);
+				slot = oldslot;
 			}
 		}
 	}
@@ -2756,13 +2740,14 @@ CopyFrom(CopyState cstate)
 		 * Remember cstate->partition_dispatch_info[0] corresponds to the root
 		 * partitioned table, which we must not try to close, because it is
 		 * the main target table of COPY that will be closed eventually by
-		 * DoCopy().
+		 * DoCopy().  Also, tupslot is NULL for the root partitioned table.
 		 */
 		for (i = 1; i < cstate->num_dispatch; i++)
 		{
 			PartitionDispatch pd = cstate->partition_dispatch_info[i];
 
 			heap_close(pd->reldesc, NoLock);
+			ExecDropSingleTupleTableSlot(pd->tupslot);
 		}
 		for (i = 0; i < cstate->num_partitions; i++)
 		{
