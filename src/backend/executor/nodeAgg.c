@@ -2478,20 +2478,27 @@ agg_fill_hash_table(AggState *aggstate)
 		if (TupIsNull(outerslot))
 			break;
 
+		/* set up for lookup_hash_entries and advance_aggregates */
 		tmpcontext->ecxt_outertuple = outerslot;
 
+		/* Find or build hashtable entries */
 		pergroups = lookup_hash_entries(aggstate);
 
+		/* Advance the aggregates */
 		if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
 			combine_aggregates(aggstate, pergroups[0]);
 		else
 			advance_aggregates(aggstate, NULL, pergroups);
 
+		/*
+		 * Reset per-input-tuple context after each tuple, but note that the
+		 * hash lookups do this too
+		 */
 		ResetExprContext(aggstate->tmpcontext);
 	}
 
 	aggstate->table_filled = true;
-	/* Initialize to walk the hash table */
+	/* Initialize to walk the first hash table */
 	select_current_set(aggstate, 0, true);
 	ResetTupleHashIterator(aggstate->perhash[0].hashtable, &aggstate->perhash[0].hashiter);
 }

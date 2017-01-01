@@ -86,7 +86,7 @@ DiscreteKnapsack(int max_weight, int num_items,
 		for (j = max_weight; j >= 0; --j)
 		{
 			int ow = j - iw;
-			if (iw <= j	&& values[j] <= values[ow] + iv)
+			if (iw <= j && values[j] <= values[ow] + iv)
 			{
 				/* copy sets[ow] to sets[j] without realloc */
 				if (j != ow)

@@ -4053,6 +4053,13 @@ create_grouping_paths(PlannerInfo *root,
 }
 
 
+/*
+ * For a given input path, consider the possible ways of doing grouping sets on
+ * it, by combinations of hashing and sorting.  This can be called multiple
+ * times, so it's important that it not scribble on input.  No result is
+ * returned, but any generated paths are added to grouped_rel.
+ */
+
 static void
 consider_groupingsets_paths(PlannerInfo *root,
 							RelOptInfo *grouped_rel,
@@ -4095,7 +4102,7 @@ consider_groupingsets_paths(PlannerInfo *root,
 		if (pathkeys_contained_in(root->group_pathkeys, path->pathkeys))
 		{
 			unhashable_rollup = lfirst(l_start);
-		    exclude_groups = unhashable_rollup->numGroups;
+			exclude_groups = unhashable_rollup->numGroups;
 			l_start = lnext(l_start);
 		}
 
@@ -4248,7 +4255,9 @@ consider_groupingsets_paths(PlannerInfo *root,
 
 			/*
 			 * We leave the first rollup out of consideration since it's the
-			 * one that matches the input sort order.
+			 * one that matches the input sort order.  We assign indexes "i" to
+			 * only those entries considered for hashing; the second loop,
+			 * below, must use the same condition.
 			 */
 			i = 0;
 			for_each_cell(lc, lnext(list_head(gd->rollups)))
