@@ -4,7 +4,7 @@
  *	  definitions for executor state nodes
  *
  *
- * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/nodes/execnodes.h
@@ -383,9 +383,6 @@ typedef struct EState
 	TupleTableSlot *es_trig_tuple_slot; /* for trigger output tuples */
 	TupleTableSlot *es_trig_oldtup_slot;		/* for TriggerEnabled */
 	TupleTableSlot *es_trig_newtup_slot;		/* for TriggerEnabled */
-
-	/* Slot used to manipulate a tuple after it is routed to a partition */
-	TupleTableSlot *es_partition_tuple_slot;
 
 	/* Parameter info: */
 	ParamListInfo es_param_list_info;	/* values of external params */
@@ -1165,6 +1162,7 @@ typedef struct ModifyTableState
 	ResultRelInfo  *mt_partitions;	/* Per partition result relation */
 	TupleConversionMap **mt_partition_tupconv_maps;
 									/* Per partition tuple conversion map */
+	TupleTableSlot *mt_partition_tuple_slot;
 } ModifyTableState;
 
 /* ----------------
