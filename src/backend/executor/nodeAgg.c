@@ -1806,7 +1806,7 @@ find_unaggregated_cols_walker(Node *node, Bitmapset **colnos)
  * for each entry.
  *
  * We have a separate hashtable and associated perhash data structure for each
- * grouping set for which we're doing hashing.  The number of 
+ * grouping set for which we're doing hashing.
  *
  * The hash tables always live in the hashcontext's per-tuple memory context
  * (there is only one of these for all tables together, since they are all
