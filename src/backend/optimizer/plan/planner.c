@@ -2088,6 +2088,21 @@ preprocess_grouping_sets(PlannerInfo *root)
 				GroupingSetData *gs = makeNode(GroupingSetData);
 				gs->set = gset;
 				gd->unsortable_sets = lappend(gd->unsortable_sets, gs);
+
+				/*
+				 * We must enforce here that an unsortable set is hashable;
+				 * later code assumes this.  Parse analysis only checks that
+				 * every individual column is either hashable or sortable.
+				 *
+				 * Note that passing this test doesn't guarantee we can
+				 * generate a plan; there might be other showstoppers.
+				 */
+
+				if (bms_overlap_list(gd->unhashable_refs, gset))
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("could not implement GROUP BY"),
+							 errdetail("Some of the datatypes only support hashing, while others only support sorting.")));
 			}
 			else
 				sortable_sets = lappend(sortable_sets, gset);
