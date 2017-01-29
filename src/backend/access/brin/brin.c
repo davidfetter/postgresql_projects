@@ -28,6 +28,7 @@
 #include "pgstat.h"
 #include "storage/bufmgr.h"
 #include "storage/freespace.h"
+#include "utils/builtins.h"
 #include "utils/index_selfuncs.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
@@ -111,6 +112,9 @@ brinhandler(PG_FUNCTION_ARGS)
 	amroutine->amendscan = brinendscan;
 	amroutine->ammarkpos = NULL;
 	amroutine->amrestrpos = NULL;
+	amroutine->amestimateparallelscan = NULL;
+	amroutine->aminitparallelscan = NULL;
+	amroutine->amparallelrescan = NULL;
 
 	PG_RETURN_POINTER(amroutine);
 }

@@ -155,8 +155,7 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 			tlist = lappend(tlist, tle);
 
 			torder = addTargetToSortList(pstate, tle,
-										 torder, tlist, sortby,
-										 true /* fix unknowns */ );
+										 torder, tlist, sortby);
 		}
 
 		/* Never any DISTINCT in an ordered-set agg */
@@ -196,7 +195,6 @@ transformAggregateCall(ParseState *pstate, Aggref *agg,
 									 aggorder,
 									 &tlist,
 									 EXPR_KIND_ORDER_BY,
-									 true /* fix unknowns */ ,
 									 true /* force SQL99 rules */ );
 
 		/*
@@ -447,6 +445,7 @@ check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 			errkind = true;
 			break;
 		case EXPR_KIND_VALUES:
+		case EXPR_KIND_VALUES_SINGLE:
 			errkind = true;
 			break;
 		case EXPR_KIND_CHECK_CONSTRAINT:
@@ -840,6 +839,7 @@ transformWindowFuncCall(ParseState *pstate, WindowFunc *wfunc,
 			errkind = true;
 			break;
 		case EXPR_KIND_VALUES:
+		case EXPR_KIND_VALUES_SINGLE:
 			errkind = true;
 			break;
 		case EXPR_KIND_CHECK_CONSTRAINT:

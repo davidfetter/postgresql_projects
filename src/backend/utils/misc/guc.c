@@ -59,6 +59,7 @@
 #include "postmaster/postmaster.h"
 #include "postmaster/syslogger.h"
 #include "postmaster/walwriter.h"
+#include "replication/logicallauncher.h"
 #include "replication/slot.h"
 #include "replication/syncrep.h"
 #include "replication/walreceiver.h"
@@ -83,6 +84,7 @@
 #include "utils/rls.h"
 #include "utils/snapmgr.h"
 #include "utils/tzparser.h"
+#include "utils/varlena.h"
 #include "utils/xml.h"
 
 #ifndef PG_KRB_SRVTAB
@@ -2315,7 +2317,7 @@ static struct config_int ConfigureNamesInt[] =
 			NULL
 		},
 		&max_wal_senders,
-		0, 0, MAX_BACKENDS,
+		10, 0, MAX_BACKENDS,
 		NULL, NULL, NULL
 	},
 
@@ -2326,7 +2328,7 @@ static struct config_int ConfigureNamesInt[] =
 			NULL
 		},
 		&max_replication_slots,
-		0, 0, MAX_BACKENDS /* XXX? */ ,
+		10, 0, MAX_BACKENDS /* XXX? */ ,
 		NULL, NULL, NULL
 	},
 
@@ -2469,6 +2471,18 @@ static struct config_int ConfigureNamesInt[] =
 		&max_worker_processes,
 		8, 0, MAX_BACKENDS,
 		check_max_worker_processes, NULL, NULL
+	},
+
+	{
+		{"max_logical_replication_workers",
+			PGC_POSTMASTER,
+			RESOURCES_ASYNCHRONOUS,
+			gettext_noop("Maximum number of logical replication worker processes."),
+			NULL,
+		},
+		&max_logical_replication_workers,
+		4, 0, MAX_BACKENDS,
+		NULL, NULL, NULL
 	},
 
 	{
@@ -3749,7 +3763,7 @@ static struct config_enum ConfigureNamesEnum[] =
 			NULL
 		},
 		&wal_level,
-		WAL_LEVEL_MINIMAL, wal_level_options,
+		WAL_LEVEL_REPLICA, wal_level_options,
 		NULL, NULL, NULL
 	},
 
@@ -7864,8 +7878,8 @@ ShowGUCConfigOption(const char *name, DestReceiver *dest)
 
 	/* need a tuple descriptor representing a single TEXT column */
 	tupdesc = CreateTemplateTupleDesc(1, false);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 1, varname,
-					   TEXTOID, -1, 0);
+	TupleDescInitBuiltinEntry(tupdesc, (AttrNumber) 1, varname,
+							  TEXTOID, -1, 0);
 
 	/* prepare for projection of tuples */
 	tstate = begin_tup_output_tupdesc(dest, tupdesc);
@@ -7891,12 +7905,12 @@ ShowAllGUCConfig(DestReceiver *dest)
 
 	/* need a tuple descriptor representing three TEXT columns */
 	tupdesc = CreateTemplateTupleDesc(3, false);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "name",
-					   TEXTOID, -1, 0);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 2, "setting",
-					   TEXTOID, -1, 0);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 3, "description",
-					   TEXTOID, -1, 0);
+	TupleDescInitBuiltinEntry(tupdesc, (AttrNumber) 1, "name",
+							  TEXTOID, -1, 0);
+	TupleDescInitBuiltinEntry(tupdesc, (AttrNumber) 2, "setting",
+							  TEXTOID, -1, 0);
+	TupleDescInitBuiltinEntry(tupdesc, (AttrNumber) 3, "description",
+							  TEXTOID, -1, 0);
 
 	/* prepare for projection of tuples */
 	tstate = begin_tup_output_tupdesc(dest, tupdesc);

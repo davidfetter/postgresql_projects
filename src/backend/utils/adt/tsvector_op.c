@@ -27,6 +27,7 @@
 #include "tsearch/ts_utils.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
+#include "utils/regproc.h"
 #include "utils/rel.h"
 
 
@@ -1926,7 +1927,8 @@ ts_match_vq(PG_FUNCTION_ARGS)
 	CHKVAL		chkval;
 	bool		result;
 
-	if (!val->size || !query->size)
+	/* empty query matches nothing */
+	if (!query->size)
 	{
 		PG_FREE_IF_COPY(val, 0);
 		PG_FREE_IF_COPY(query, 1);

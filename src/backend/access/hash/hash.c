@@ -25,6 +25,7 @@
 #include "commands/vacuum.h"
 #include "miscadmin.h"
 #include "optimizer/plancat.h"
+#include "utils/builtins.h"
 #include "utils/index_selfuncs.h"
 #include "utils/rel.h"
 
@@ -85,6 +86,9 @@ hashhandler(PG_FUNCTION_ARGS)
 	amroutine->amendscan = hashendscan;
 	amroutine->ammarkpos = NULL;
 	amroutine->amrestrpos = NULL;
+	amroutine->amestimateparallelscan = NULL;
+	amroutine->aminitparallelscan = NULL;
+	amroutine->amparallelrescan = NULL;
 
 	PG_RETURN_POINTER(amroutine);
 }

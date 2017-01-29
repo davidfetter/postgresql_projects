@@ -43,6 +43,7 @@ typedef enum NodeTag
 	 */
 	T_Plan,
 	T_Result,
+	T_ProjectSet,
 	T_ModifyTable,
 	T_Append,
 	T_MergeAppend,
@@ -91,6 +92,7 @@ typedef enum NodeTag
 	 */
 	T_PlanState,
 	T_ResultState,
+	T_ProjectSetState,
 	T_ModifyTableState,
 	T_AppendState,
 	T_MergeAppendState,
@@ -245,6 +247,7 @@ typedef enum NodeTag
 	T_UniquePath,
 	T_GatherPath,
 	T_ProjectionPath,
+	T_ProjectSetPath,
 	T_SortPath,
 	T_GroupPath,
 	T_UpperUniquePath,
@@ -303,6 +306,7 @@ typedef enum NodeTag
 	/*
 	 * TAGS FOR STATEMENT NODES (mostly in parsenodes.h)
 	 */
+	T_RawStmt,
 	T_Query,
 	T_PlannedStmt,
 	T_InsertStmt,
@@ -409,6 +413,11 @@ typedef enum NodeTag
 	T_CreateTransformStmt,
 	T_CreateAmStmt,
 	T_PartitionCmd,
+	T_CreatePublicationStmt,
+	T_AlterPublicationStmt,
+	T_CreateSubscriptionStmt,
+	T_AlterSubscriptionStmt,
+	T_DropSubscriptionStmt,
 
 	/*
 	 * TAGS FOR PARSE TREE NODES (parsenodes.h)
@@ -550,6 +559,26 @@ extern PGDLLIMPORT Node *newNodeMacroHolder;
 #define NodeSetTag(nodeptr,t)	(((Node*)(nodeptr))->type = (t))
 
 #define IsA(nodeptr,_type_)		(nodeTag(nodeptr) == T_##_type_)
+
+/*
+ * castNode(type, ptr) casts ptr to "type *", and if assertions are enabled,
+ * verifies that the node has the appropriate type (using its nodeTag()).
+ *
+ * Use an inline function when assertions are enabled, to avoid multiple
+ * evaluations of the ptr argument (which could e.g. be a function call).
+ */
+#ifdef USE_ASSERT_CHECKING
+static inline Node *
+castNodeImpl(NodeTag type, void *ptr)
+{
+	Assert(ptr == NULL || nodeTag(ptr) == type);
+	return (Node *) ptr;
+}
+#define castNode(_type_, nodeptr) ((_type_ *) castNodeImpl(T_##_type_, nodeptr))
+#else
+#define castNode(_type_, nodeptr) ((_type_ *) (nodeptr))
+#endif   /* USE_ASSERT_CHECKING */
+
 
 /* ----------------------------------------------------------------
  *					  extern declarations follow

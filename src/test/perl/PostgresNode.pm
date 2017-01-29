@@ -19,7 +19,7 @@ PostgresNode - class representing PostgreSQL server instance
 
   # Change a setting and restart
   $node->append_conf('postgresql.conf', 'hot_standby = on');
-  $node->restart('fast');
+  $node->restart();
 
   # run a query with psql, like:
   #   echo 'SELECT 1' | psql -qAXt postgres -v ON_ERROR_STOP=1
@@ -380,7 +380,9 @@ WAL archiving can be enabled on this node by passing the keyword parameter
 has_archiving => 1. This is disabled by default.
 
 postgresql.conf can be set up for replication by passing the keyword
-parameter allows_streaming => 1. This is disabled by default.
+parameter allows_streaming => 'logical' or 'physical' (passing 1 will also
+suffice for physical replication) depending on type of replication that
+should be enabled. This is disabled by default.
 
 The new node is set up in a fast but unsafe configuration where fsync is
 disabled.
@@ -415,14 +417,27 @@ sub init
 
 	if ($params{allows_streaming})
 	{
-		print $conf "wal_level = replica\n";
+		if ($params{allows_streaming} eq "logical")
+		{
+			print $conf "wal_level = logical\n";
+		}
+		else
+		{
+			print $conf "wal_level = replica\n";
+		}
 		print $conf "max_wal_senders = 5\n";
+		print $conf "max_replication_slots = 5\n";
 		print $conf "wal_keep_segments = 20\n";
 		print $conf "max_wal_size = 128MB\n";
 		print $conf "shared_buffers = 1MB\n";
 		print $conf "wal_log_hints = on\n";
 		print $conf "hot_standby = on\n";
 		print $conf "max_connections = 10\n";
+	}
+	else
+	{
+		print $conf "wal_level = minimal\n";
+		print $conf "max_wal_senders = 0\n";
 	}
 
 	if ($TestLib::windows_os)
@@ -632,7 +647,7 @@ port = $port
 
 =item $node->start()
 
-Wrapper for pg_ctl -w start
+Wrapper for pg_ctl start
 
 Start the node and wait until it is ready to accept connections.
 
@@ -645,7 +660,7 @@ sub start
 	my $pgdata = $self->data_dir;
 	my $name   = $self->name;
 	print("### Starting node \"$name\"\n");
-	my $ret = TestLib::system_log('pg_ctl', '-w', '-D', $self->data_dir, '-l',
+	my $ret = TestLib::system_log('pg_ctl', '-D', $self->data_dir, '-l',
 		$self->logfile, 'start');
 
 	if ($ret != 0)
@@ -702,7 +717,7 @@ sub reload
 
 =item $node->restart()
 
-Wrapper for pg_ctl -w restart
+Wrapper for pg_ctl restart
 
 =cut
 
@@ -714,7 +729,7 @@ sub restart
 	my $logfile = $self->logfile;
 	my $name    = $self->name;
 	print "### Restarting node \"$name\"\n";
-	TestLib::system_log('pg_ctl', '-D', $pgdata, '-w', '-l', $logfile,
+	TestLib::system_log('pg_ctl', '-D', $pgdata, '-l', $logfile,
 		'restart');
 	$self->_update_pid;
 }
@@ -723,7 +738,7 @@ sub restart
 
 =item $node->promote()
 
-Wrapper for pg_ctl promote -w
+Wrapper for pg_ctl promote
 
 =cut
 
@@ -735,7 +750,7 @@ sub promote
 	my $logfile = $self->logfile;
 	my $name    = $self->name;
 	print "### Promoting node \"$name\"\n";
-	TestLib::system_log('pg_ctl', '-D', $pgdata, '-w', '-l', $logfile,
+	TestLib::system_log('pg_ctl', '-D', $pgdata, '-l', $logfile,
 		'promote');
 }
 
@@ -1324,15 +1339,17 @@ sub run_log
 	TestLib::run_log(@_);
 }
 
-=pod $node->lsn(mode)
+=pod
 
-Look up xlog positions on the server:
+=item $node->lsn(mode)
 
-* insert position (master only, error on replica)
-* write position (master only, error on replica)
-* flush position
-* receive position (always undef on master)
-* replay position
+Look up WAL positions on the server:
+
+ * insert position (master only, error on replica)
+ * write position (master only, error on replica)
+ * flush position (master only, error on replica)
+ * receive position (always undef on master)
+ * replay position (always undef on master)
 
 mode must be specified.
 
@@ -1363,11 +1380,13 @@ sub lsn
 	}
 }
 
-=pod $node->wait_for_catchup(standby_name, mode, target_lsn)
+=pod
+
+=item $node->wait_for_catchup(standby_name, mode, target_lsn)
 
 Wait for the node with application_name standby_name (usually from node->name)
 until its replication position in pg_stat_replication equals or passes the
-upstream's xlog insert point at the time this function is called. By default
+upstream's WAL insert point at the time this function is called. By default
 the replay_location is waited for, but 'mode' may be specified to wait for any
 of sent|write|flush|replay.
 
@@ -1401,7 +1420,9 @@ sub wait_for_catchup
 	print "done\n";
 }
 
-=pod $node->wait_for_slot_catchup(slot_name, mode, target_lsn)
+=pod
+
+=item $node->wait_for_slot_catchup(slot_name, mode, target_lsn)
 
 Wait for the named replication slot to equal or pass the supplied target_lsn.
 The position used is the restart_lsn unless mode is given, in which case it may
@@ -1435,7 +1456,9 @@ sub wait_for_slot_catchup
 	print "done\n";
 }
 
-=pod $node->query_hash($dbname, $query, @columns)
+=pod
+
+=item $node->query_hash($dbname, $query, @columns)
 
 Execute $query on $dbname, replacing any appearance of the string __COLUMNS__
 within the query with a comma-separated list of @columns.
@@ -1473,7 +1496,9 @@ sub query_hash
 	return \%val;
 }
 
-=pod $node->slot(slot_name)
+=pod
+
+=item $node->slot(slot_name)
 
 Return hash-ref of replication slot data for the named slot, or a hash-ref with
 all values '' if not found. Does not differentiate between null and empty string

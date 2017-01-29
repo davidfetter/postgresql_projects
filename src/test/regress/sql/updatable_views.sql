@@ -1001,8 +1001,8 @@ SELECT * FROM v1 WHERE a=3; -- should not see anything
 SELECT * FROM v1 WHERE a=8;
 
 EXPLAIN (VERBOSE, COSTS OFF)
-UPDATE v1 SET a=100 WHERE snoop(a) AND leakproof(a) AND a = 3;
-UPDATE v1 SET a=100 WHERE snoop(a) AND leakproof(a) AND a = 3;
+UPDATE v1 SET a=100 WHERE snoop(a) AND leakproof(a) AND a < 7 AND a != 6;
+UPDATE v1 SET a=100 WHERE snoop(a) AND leakproof(a) AND a < 7 AND a != 6;
 
 SELECT * FROM v1 WHERE a=100; -- Nothing should have been changed to 100
 SELECT * FROM t1 WHERE a=100; -- Nothing should have been changed to 100
@@ -1112,3 +1112,22 @@ INSERT INTO v1 VALUES (-1, 'invalid'); -- should fail
 
 DROP VIEW v1;
 DROP TABLE t1;
+
+-- check that an auto-updatable view on a partitioned table works correctly
+create table pt (a int, b int) partition by range (a, b);
+create table pt1 (b int not null, a int not null) partition by range (b);
+create table pt11 (like pt1);
+alter table pt11 drop a;
+alter table pt11 add a int;
+alter table pt11 drop a;
+alter table pt11 add a int not null;
+alter table pt1 attach partition pt11 for values from (2) to (5);
+alter table pt attach partition pt1 for values from (1, 2) to (1, 10);
+
+create view ptv as select * from pt;
+insert into ptv values (1, 2);
+select tableoid::regclass, * from pt;
+create view ptv_wco as select * from pt where a = 0 with check option;
+insert into ptv_wco values (1, 2);
+drop view ptv, ptv_wco;
+drop table pt, pt1, pt11;

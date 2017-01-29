@@ -95,8 +95,8 @@ ExecWorkTableScan(WorkTableScanState *node)
 		param = &(estate->es_param_exec_vals[plan->wtParam]);
 		Assert(param->execPlan == NULL);
 		Assert(!param->isnull);
-		node->rustate = (RecursiveUnionState *) DatumGetPointer(param->value);
-		Assert(node->rustate && IsA(node->rustate, RecursiveUnionState));
+		node->rustate = castNode(RecursiveUnionState, DatumGetPointer(param->value));
+		Assert(node->rustate);
 
 		/*
 		 * The scan tuple type (ie, the rowtype we expect to find in the work
@@ -173,8 +173,6 @@ ExecInitWorkTableScan(WorkTableScan *node, EState *estate, int eflags)
 	 * Initialize result tuple type, but not yet projection info.
 	 */
 	ExecAssignResultTypeFromTL(&scanstate->ss.ps);
-
-	scanstate->ss.ps.ps_TupFromTlist = false;
 
 	return scanstate;
 }

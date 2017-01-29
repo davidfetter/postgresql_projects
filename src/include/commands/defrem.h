@@ -42,7 +42,7 @@ extern bool CheckIndexCompatible(Oid oldId,
 					 List *attributeList,
 					 List *exclusionOpNames);
 extern Oid	GetDefaultOpClass(Oid type_id, Oid am_id);
-extern Oid	ResolveOpClass(List *opclass, Oid attrType,
+extern Oid ResolveOpClass(List *opclass, Oid attrType,
 			   char *accessMethodName, Oid accessMethodId);
 
 /* commands/functioncmds.c */
@@ -154,5 +154,6 @@ extern int64 defGetInt64(DefElem *def);
 extern List *defGetQualifiedName(DefElem *def);
 extern TypeName *defGetTypeName(DefElem *def);
 extern int	defGetTypeLength(DefElem *def);
+extern List *defGetStringList(DefElem *def);
 
 #endif   /* DEFREM_H */

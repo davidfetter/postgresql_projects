@@ -175,7 +175,7 @@ ExecProcessReturning(ResultRelInfo *resultRelInfo,
 	econtext->ecxt_outertuple = planSlot;
 
 	/* Compute the RETURNING expressions */
-	return ExecProject(projectReturning, NULL);
+	return ExecProject(projectReturning);
 }
 
 /*
@@ -262,7 +262,8 @@ ExecInsert(ModifyTableState *mtstate,
 	Relation	resultRelationDesc;
 	Oid			newId;
 	List	   *recheckIndexes = NIL;
-	TupleTableSlot *oldslot = NULL;
+	TupleTableSlot *oldslot = slot,
+			   *result = NULL;
 
 	/*
 	 * get the heap tuple out of the tuple table slot, making sure we have a
@@ -278,19 +279,19 @@ ExecInsert(ModifyTableState *mtstate,
 	/* Determine the partition to heap_insert the tuple into */
 	if (mtstate->mt_partition_dispatch_info)
 	{
-		int		leaf_part_index;
+		int			leaf_part_index;
 		TupleConversionMap *map;
 
 		/*
 		 * Away we go ... If we end up not finding a partition after all,
 		 * ExecFindPartition() does not return and errors out instead.
-		 * Otherwise, the returned value is to be used as an index into
-		 * arrays mt_partitions[] and mt_partition_tupconv_maps[] that
-		 * will get us the ResultRelInfo and TupleConversionMap for the
-		 * partition, respectively.
+		 * Otherwise, the returned value is to be used as an index into arrays
+		 * mt_partitions[] and mt_partition_tupconv_maps[] that will get us
+		 * the ResultRelInfo and TupleConversionMap for the partition,
+		 * respectively.
 		 */
 		leaf_part_index = ExecFindPartition(resultRelInfo,
-										mtstate->mt_partition_dispatch_info,
+										 mtstate->mt_partition_dispatch_info,
 											slot,
 											estate);
 		Assert(leaf_part_index >= 0 &&
@@ -307,7 +308,7 @@ ExecInsert(ModifyTableState *mtstate,
 		if (resultRelInfo->ri_FdwRoutine)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("cannot route inserted tuples to a foreign table")));
+				 errmsg("cannot route inserted tuples to a foreign table")));
 
 		/* For ExecInsertIndexTuples() to work on the partition's indexes */
 		estate->es_result_relation_info = resultRelInfo;
@@ -319,16 +320,15 @@ ExecInsert(ModifyTableState *mtstate,
 		map = mtstate->mt_partition_tupconv_maps[leaf_part_index];
 		if (map)
 		{
-			Relation partrel = resultRelInfo->ri_RelationDesc;
+			Relation	partrel = resultRelInfo->ri_RelationDesc;
 
 			tuple = do_convert_tuple(tuple, map);
 
 			/*
-			 * We must use the partition's tuple descriptor from this
-			 * point on, until we're finished dealing with the partition.
-			 * Use the dedicated slot for that.
+			 * We must use the partition's tuple descriptor from this point
+			 * on, until we're finished dealing with the partition. Use the
+			 * dedicated slot for that.
 			 */
-			oldslot = slot;
 			slot = mtstate->mt_partition_tuple_slot;
 			Assert(slot != NULL);
 			ExecSetSlotDescriptor(slot, RelationGetDescr(partrel));
@@ -434,7 +434,7 @@ ExecInsert(ModifyTableState *mtstate,
 		 * Check the constraints of the tuple
 		 */
 		if (resultRelationDesc->rd_att->constr || resultRelInfo->ri_PartitionCheck)
-			ExecConstraints(resultRelInfo, slot, estate);
+			ExecConstraints(resultRelInfo, slot, oldslot, estate);
 
 		if (onconflict != ONCONFLICT_NONE && resultRelInfo->ri_NumIndices > 0)
 		{
@@ -575,16 +575,6 @@ ExecInsert(ModifyTableState *mtstate,
 
 	list_free(recheckIndexes);
 
-	if (saved_resultRelInfo)
-	{
-		resultRelInfo = saved_resultRelInfo;
-		estate->es_result_relation_info = resultRelInfo;
-
-		/* Switch back to the slot corresponding to the root table */
-		Assert(oldslot != NULL);
-		slot = oldslot;
-	}
-
 	/*
 	 * Check any WITH CHECK OPTION constraints from parent views.  We are
 	 * required to do this after testing all constraints and uniqueness
@@ -602,9 +592,12 @@ ExecInsert(ModifyTableState *mtstate,
 
 	/* Process RETURNING if present */
 	if (resultRelInfo->ri_projectReturning)
-		return ExecProcessReturning(resultRelInfo, slot, planSlot);
+		result = ExecProcessReturning(resultRelInfo, slot, planSlot);
 
-	return NULL;
+	if (saved_resultRelInfo)
+		estate->es_result_relation_info = saved_resultRelInfo;
+
+	return result;
 }
 
 /* ----------------------------------------------------------------
@@ -994,10 +987,12 @@ lreplace:;
 								 resultRelInfo, slot, estate);
 
 		/*
-		 * Check the constraints of the tuple
+		 * Check the constraints of the tuple.  Note that we pass the same
+		 * slot for the orig_slot argument, because unlike ExecInsert(), no
+		 * tuple-routing is performed here, hence the slot remains unchanged.
 		 */
 		if (resultRelationDesc->rd_att->constr || resultRelInfo->ri_PartitionCheck)
-			ExecConstraints(resultRelInfo, slot, estate);
+			ExecConstraints(resultRelInfo, slot, slot, estate);
 
 		/*
 		 * replace the heap tuple
@@ -1305,7 +1300,7 @@ ExecOnConflictUpdate(ModifyTableState *mtstate,
 	}
 
 	/* Project the new tuple version */
-	ExecProject(resultRelInfo->ri_onConflictSetProj, NULL);
+	ExecProject(resultRelInfo->ri_onConflictSetProj);
 
 	/*
 	 * Note that it is possible that the target tuple has been modified in
@@ -1735,12 +1730,12 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	if (operation == CMD_INSERT &&
 		rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
-		PartitionDispatch  *partition_dispatch_info;
-		ResultRelInfo	   *partitions;
+		PartitionDispatch *partition_dispatch_info;
+		ResultRelInfo *partitions;
 		TupleConversionMap **partition_tupconv_maps;
-		TupleTableSlot	   *partition_tuple_slot;
-		int					num_parted,
-							num_partitions;
+		TupleTableSlot *partition_tuple_slot;
+		int			num_parted,
+					num_partitions;
 
 		ExecSetupPartitionTupleRouting(rel,
 									   &partition_dispatch_info,
@@ -1783,12 +1778,53 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	}
 
 	/*
+	 * Build WITH CHECK OPTION constraints for each leaf partition rel.
+	 * Note that we didn't build the withCheckOptionList for each partition
+	 * within the planner, but simple translation of the varattnos for each
+	 * partition will suffice.  This only occurs for the INSERT case;
+	 * UPDATE/DELETE cases are handled above.
+	 */
+	if (node->withCheckOptionLists != NIL && mtstate->mt_num_partitions > 0)
+	{
+		List		*wcoList;
+
+		Assert(operation == CMD_INSERT);
+		resultRelInfo = mtstate->mt_partitions;
+		wcoList = linitial(node->withCheckOptionLists);
+		for (i = 0; i < mtstate->mt_num_partitions; i++)
+		{
+			Relation	partrel = resultRelInfo->ri_RelationDesc;
+			List	   *mapped_wcoList;
+			List	   *wcoExprs = NIL;
+			ListCell   *ll;
+
+			/* varno = node->nominalRelation */
+			mapped_wcoList = map_partition_varattnos(wcoList,
+													 node->nominalRelation,
+													 partrel, rel);
+			foreach(ll, mapped_wcoList)
+			{
+				WithCheckOption *wco = (WithCheckOption *) lfirst(ll);
+				ExprState  *wcoExpr = ExecInitExpr((Expr *) wco->qual,
+											   mtstate->mt_plans[i]);
+
+				wcoExprs = lappend(wcoExprs, wcoExpr);
+			}
+
+			resultRelInfo->ri_WithCheckOptions = mapped_wcoList;
+			resultRelInfo->ri_WithCheckOptionExprs = wcoExprs;
+			resultRelInfo++;
+		}
+	}
+
+	/*
 	 * Initialize RETURNING projections if needed.
 	 */
 	if (node->returningLists)
 	{
 		TupleTableSlot *slot;
 		ExprContext *econtext;
+		List	   *returningList;
 
 		/*
 		 * Initialize result tuple slot and assign its rowtype using the first
@@ -1815,6 +1851,32 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 			List	   *rlist = (List *) lfirst(l);
 			List	   *rliststate;
 
+			rliststate = (List *) ExecInitExpr((Expr *) rlist, &mtstate->ps);
+			resultRelInfo->ri_projectReturning =
+				ExecBuildProjectionInfo(rliststate, econtext, slot,
+									 resultRelInfo->ri_RelationDesc->rd_att);
+			resultRelInfo++;
+		}
+
+		/*
+		 * Build a projection for each leaf partition rel.  Note that we
+		 * didn't build the returningList for each partition within the
+		 * planner, but simple translation of the varattnos for each partition
+		 * will suffice.  This only occurs for the INSERT case; UPDATE/DELETE
+		 * are handled above.
+		 */
+		resultRelInfo = mtstate->mt_partitions;
+		returningList = linitial(node->returningLists);
+		for (i = 0; i < mtstate->mt_num_partitions; i++)
+		{
+			Relation	partrel = resultRelInfo->ri_RelationDesc;
+			List	   *rlist,
+					   *rliststate;
+
+			/* varno = node->nominalRelation */
+			rlist = map_partition_varattnos(returningList,
+											node->nominalRelation,
+											partrel, rel);
 			rliststate = (List *) ExecInitExpr((Expr *) rlist, &mtstate->ps);
 			resultRelInfo->ri_projectReturning =
 				ExecBuildProjectionInfo(rliststate, econtext, slot,
@@ -1896,10 +1958,8 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	 */
 	foreach(l, node->rowMarks)
 	{
-		PlanRowMark *rc = (PlanRowMark *) lfirst(l);
+		PlanRowMark *rc = castNode(PlanRowMark, lfirst(l));
 		ExecRowMark *erm;
-
-		Assert(IsA(rc, PlanRowMark));
 
 		/* ignore "parent" rowmarks; they are irrelevant at runtime */
 		if (rc->isParent)
@@ -2073,7 +2133,8 @@ ExecEndModifyTable(ModifyTableState *node)
 														   resultRelInfo);
 	}
 
-	/* Close all the partitioned tables, leaf partitions, and their indices
+	/*
+	 * Close all the partitioned tables, leaf partitions, and their indices
 	 *
 	 * Remember node->mt_partition_dispatch_info[0] corresponds to the root
 	 * partitioned table, which we must not try to close, because it is the
