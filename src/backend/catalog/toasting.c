@@ -315,6 +315,8 @@ create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
 	indexInfo->ii_ReadyForInserts = true;
 	indexInfo->ii_Concurrent = false;
 	indexInfo->ii_BrokenHotChain = false;
+	indexInfo->ii_AmCache = NULL;
+	indexInfo->ii_Context = CurrentMemoryContext;
 
 	collationObjectId[0] = InvalidOid;
 	collationObjectId[1] = InvalidOid;
@@ -350,10 +352,7 @@ create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
 	if (!IsBootstrapProcessingMode())
 	{
 		/* normal case, use a transactional update */
-		simple_heap_update(class_rel, &reltup->t_self, reltup);
-
-		/* Keep catalog indexes current */
-		CatalogUpdateIndexes(class_rel, reltup);
+		CatalogTupleUpdate(class_rel, &reltup->t_self, reltup);
 	}
 	else
 	{

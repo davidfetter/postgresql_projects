@@ -675,9 +675,9 @@ static const SchemaQuery Query_for_list_of_matviews = {
 #define Query_for_list_of_alter_system_set_vars \
 "SELECT name FROM "\
 " (SELECT pg_catalog.lower(name) AS name FROM pg_catalog.pg_settings "\
-"  WHERE context != 'internal') ss "\
-" WHERE substring(name,1,%d)='%s'"\
-" UNION ALL SELECT 'all' ss"
+"  WHERE context != 'internal' "\
+"  UNION ALL SELECT 'all') ss "\
+" WHERE substring(name,1,%d)='%s'"
 
 #define Query_for_list_of_set_vars \
 "SELECT name FROM "\
@@ -1661,9 +1661,10 @@ psql_completion(const char *text, int start, int end)
 	/* ALTER SYSTEM SET, RESET, RESET ALL */
 	else if (Matches2("ALTER", "SYSTEM"))
 		COMPLETE_WITH_LIST2("SET", "RESET");
-	/* ALTER SYSTEM SET|RESET <name> */
 	else if (Matches3("ALTER", "SYSTEM", "SET|RESET"))
 		COMPLETE_WITH_QUERY(Query_for_list_of_alter_system_set_vars);
+	else if (Matches4("ALTER", "SYSTEM", "SET", MatchAny))
+		COMPLETE_WITH_CONST("TO");
 	/* ALTER VIEW <name> */
 	else if (Matches3("ALTER", "VIEW", MatchAny))
 		COMPLETE_WITH_LIST4("ALTER COLUMN", "OWNER TO", "RENAME TO",
@@ -3775,8 +3776,9 @@ append_variable_names(char ***varnames, int *nvars,
 /*
  * This function supports completion with the name of a psql variable.
  * The variable names can be prefixed and suffixed with additional text
- * to support quoting usages. If need_value is true, only the variables
- * that have the set values are picked up.
+ * to support quoting usages. If need_value is true, only variables
+ * that are currently set are included; otherwise, special variables
+ * (those that have hooks) are included even if currently unset.
  */
 static char **
 complete_from_variables(const char *text, const char *prefix, const char *suffix,
@@ -3789,33 +3791,12 @@ complete_from_variables(const char *text, const char *prefix, const char *suffix
 	int			i;
 	struct _variable *ptr;
 
-	static const char *const known_varnames[] = {
-		"AUTOCOMMIT", "COMP_KEYWORD_CASE", "DBNAME", "ECHO", "ECHO_HIDDEN",
-		"ENCODING", "FETCH_COUNT", "HISTCONTROL", "HISTFILE", "HISTSIZE",
-		"HOST", "IGNOREEOF", "LASTOID", "ON_ERROR_ROLLBACK", "ON_ERROR_STOP",
-		"PORT", "PROMPT1", "PROMPT2", "PROMPT3", "QUIET",
-		"SHOW_CONTEXT", "SINGLELINE", "SINGLESTEP",
-		"USER", "VERBOSITY", NULL
-	};
-
 	varnames = (char **) pg_malloc((maxvars + 1) * sizeof(char *));
-
-	if (!need_value)
-	{
-		for (i = 0; known_varnames[i] && nvars < maxvars; i++)
-			append_variable_names(&varnames, &nvars, &maxvars,
-								  known_varnames[i], prefix, suffix);
-	}
 
 	for (ptr = pset.vars->next; ptr; ptr = ptr->next)
 	{
 		if (need_value && !(ptr->value))
 			continue;
-		for (i = 0; known_varnames[i]; i++)		/* remove duplicate entry */
-		{
-			if (strcmp(ptr->name, known_varnames[i]) == 0)
-				continue;
-		}
 		append_variable_names(&varnames, &nvars, &maxvars, ptr->name,
 							  prefix, suffix);
 	}

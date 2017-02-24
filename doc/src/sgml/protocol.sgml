@@ -1321,7 +1321,7 @@ the connection to be used for logical replication from that database.
 psql "dbname=postgres replication=database" -c "IDENTIFY_SYSTEM;"
 </programlisting>
  However, it is often more useful to use
- <xref linkend="app-pgreceivexlog"> (for physical replication) or
+ <xref linkend="app-pgreceivewal"> (for physical replication) or
  <xref linkend="app-pgrecvlogical"> (for logical replication).
 </para>
 
@@ -1371,7 +1371,7 @@ The commands accepted in walsender mode are:
       </term>
       <listitem>
       <para>
-       Current xlog flush location. Useful to get a known location in the
+       Current WAL flush location. Useful to get a known location in the
        transaction log where streaming can start.
       </para>
       </listitem>
@@ -1510,6 +1510,55 @@ The commands accepted in walsender mode are:
        </listitem>
       </varlistentry>
      </variablelist>
+
+     <para>
+      In response to this command, the server will send a one-row result set
+      containing the following fields:
+
+      <variablelist>
+       <varlistentry>
+        <term><literal>slot_name</literal> (<type>text</type>)</term>
+        <listitem>
+         <para>
+          The name of the newly-created replication slot.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry>
+        <term><literal>consistent_point</literal> (<type>text</type>)</term>
+        <listitem>
+         <para>
+          The WAL position at which the slot became consistent.  This is the
+          earliest location from which streaming can start on this replication
+          slot.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry>
+        <term><literal>snapshot_name</literal> (<type>text</type>)</term>
+        <listitem>
+         <para>
+          The identifier of the snapshot exported by the command.  The
+          snapshot is valid until a new command is executed on this connection
+          or the replication connection is closed.  Null if the created slot
+          is physical.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry>
+        <term><literal>output_plugin</literal> (<type>text</type>)</term>
+        <listitem>
+         <para>
+          The name of the output plugin used by the newly-created replication
+          slot.  Null if the created slot is physical.
+         </para>
+        </listitem>
+       </varlistentry>
+      </variablelist>
+     </para>
     </listitem>
   </varlistentry>
 

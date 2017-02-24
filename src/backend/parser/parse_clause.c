@@ -903,12 +903,12 @@ transformFromClauseItem(ParseState *pstate, Node *n,
 		rel = transformFromClauseItem(pstate, rts->relation,
 									  top_rte, top_rti, namespace);
 		/* Currently, grammar could only return a RangeVar as contained rel */
-		Assert(IsA(rel, RangeTblRef));
-		rtr = (RangeTblRef *) rel;
+		rtr = castNode(RangeTblRef, rel);
 		rte = rt_fetch(rtr->rtindex, pstate->p_rtable);
 		/* We only support this on plain relations and matviews */
 		if (rte->relkind != RELKIND_RELATION &&
-			rte->relkind != RELKIND_MATVIEW)
+			rte->relkind != RELKIND_MATVIEW &&
+			rte->relkind != RELKIND_PARTITIONED_TABLE)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("TABLESAMPLE clause can only be applied to tables and materialized views"),

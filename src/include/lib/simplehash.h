@@ -23,6 +23,8 @@
  *	  - SH_DEFINE - if defined function definitions are generated
  *	  - SH_SCOPE - in which scope (e.g. extern, static inline) do function
  *		declarations reside
+ *    - SH_USE_NONDEFAULT_ALLOCATOR - if defined no element allocator functions
+ *      are defined, so you can supply your own
  *	  The following parameters are only relevant when SH_DEFINE is defined:
  *	  - SH_KEY - name of the element in SH_ELEMENT_TYPE containing the hash key
  *	  - SH_EQUAL(table, a, b) - compare two table keys
@@ -77,6 +79,8 @@
 #define SH_START_ITERATE SH_MAKE_NAME(start_iterate)
 #define SH_START_ITERATE_AT SH_MAKE_NAME(start_iterate_at)
 #define SH_ITERATE SH_MAKE_NAME(iterate)
+#define SH_ALLOCATE SH_MAKE_NAME(allocate)
+#define SH_FREE SH_MAKE_NAME(free)
 #define SH_STAT SH_MAKE_NAME(stat)
 
 /* internal helper functions (no externally visible prototypes) */
@@ -133,7 +137,8 @@ typedef struct SH_ITERATOR
 } SH_ITERATOR;
 
 /* externally visible function prototypes */
-SH_SCOPE SH_TYPE *SH_CREATE(MemoryContext ctx, uint32 nelements);
+SH_SCOPE SH_TYPE *SH_CREATE(MemoryContext ctx, uint32 nelements,
+							void *private_data);
 SH_SCOPE void SH_DESTROY(SH_TYPE *tb);
 SH_SCOPE void SH_GROW(SH_TYPE *tb, uint32 newsize);
 SH_SCOPE SH_ELEMENT_TYPE *SH_INSERT(SH_TYPE *tb, SH_KEY_TYPE key, bool *found);
@@ -276,27 +281,54 @@ SH_ENTRY_HASH(SH_TYPE *tb, SH_ELEMENT_TYPE * entry)
 #endif
 }
 
+/* default memory allocator function */
+static inline void *SH_ALLOCATE(SH_TYPE *type, Size size);
+static inline void SH_FREE(SH_TYPE *type, void *pointer);
+
+#ifndef SH_USE_NONDEFAULT_ALLOCATOR
+
+/* default memory allocator function */
+static inline void *
+SH_ALLOCATE(SH_TYPE *type, Size size)
+{
+	return MemoryContextAllocExtended(type->ctx, size,
+									  MCXT_ALLOC_HUGE | MCXT_ALLOC_ZERO);
+}
+
+/* default memory free function */
+static inline void
+SH_FREE(SH_TYPE *type, void *pointer)
+{
+	pfree(pointer);
+}
+
+#endif
+
 /*
- * Create a hash table with enough space for `nelements` distinct members,
- * allocating required memory in the passed-in context.
+ * Create a hash table with enough space for `nelements` distinct members.
+ * Memory for the hash table is allocated from the passed-in context.  If
+ * desired, the array of elements can be allocated using a passed-in allocator;
+ * this could be useful in order to place the array of elements in a shared
+ * memory, or in a context that will outlive the rest of the hash table.
+ * Memory other than for the array of elements will still be allocated from
+ * the passed-in context.
  */
 SH_SCOPE SH_TYPE *
-SH_CREATE(MemoryContext ctx, uint32 nelements)
+SH_CREATE(MemoryContext ctx, uint32 nelements, void *private_data)
 {
 	SH_TYPE    *tb;
 	uint64		size;
 
 	tb = MemoryContextAllocZero(ctx, sizeof(SH_TYPE));
 	tb->ctx = ctx;
+	tb->private_data = private_data;
 
 	/* increase nelements by fillfactor, want to store nelements elements */
 	size = Min((double) SH_MAX_SIZE, ((double) nelements) / SH_FILLFACTOR);
 
 	SH_COMPUTE_PARAMETERS(tb, size);
 
-	tb->data = MemoryContextAllocExtended(tb->ctx,
-										  sizeof(SH_ELEMENT_TYPE) * tb->size,
-										  MCXT_ALLOC_HUGE | MCXT_ALLOC_ZERO);
+	tb->data = SH_ALLOCATE(tb, sizeof(SH_ELEMENT_TYPE) * tb->size);
 
 	return tb;
 }
@@ -305,7 +337,7 @@ SH_CREATE(MemoryContext ctx, uint32 nelements)
 SH_SCOPE void
 SH_DESTROY(SH_TYPE *tb)
 {
-	pfree(tb->data);
+	SH_FREE(tb, tb->data);
 	pfree(tb);
 }
 
@@ -333,9 +365,7 @@ SH_GROW(SH_TYPE *tb, uint32 newsize)
 	/* compute parameters for new table */
 	SH_COMPUTE_PARAMETERS(tb, newsize);
 
-	tb->data = MemoryContextAllocExtended(
-								 tb->ctx, sizeof(SH_ELEMENT_TYPE) * tb->size,
-										  MCXT_ALLOC_HUGE | MCXT_ALLOC_ZERO);
+	tb->data = SH_ALLOCATE(tb, sizeof(SH_ELEMENT_TYPE) * tb->size);
 
 	newdata = tb->data;
 
@@ -345,7 +375,7 @@ SH_GROW(SH_TYPE *tb, uint32 newsize)
 	 * we need. We neither want tb->members increased, nor do we need to do
 	 * deal with deleted elements, nor do we need to compare keys. So a
 	 * special-cased implementation is lot faster. As resizing can be time
-	 * consuming and frequent, that's worthwile to optimize.
+	 * consuming and frequent, that's worthwhile to optimize.
 	 *
 	 * To be able to simply move entries over, we have to start not at the
 	 * first bucket (i.e olddata[0]), but find the first bucket that's either
@@ -421,7 +451,7 @@ SH_GROW(SH_TYPE *tb, uint32 newsize)
 		}
 	}
 
-	pfree(olddata);
+	SH_FREE(tb, olddata);
 }
 
 /*
@@ -620,7 +650,7 @@ SH_DELETE(SH_TYPE *tb, SH_KEY_TYPE key)
 
 			/*
 			 * Backward shift following elements till either an empty element
-			 * or an element at its optimal position is encounterered.
+			 * or an element at its optimal position is encountered.
 			 *
 			 * While that sounds expensive, the average chain length is short,
 			 * and deletions would otherwise require toombstones.
@@ -840,6 +870,7 @@ SH_STAT(SH_TYPE *tb)
 #undef SH_DEFINE
 #undef SH_GET_HASH
 #undef SH_STORE_HASH
+#undef SH_USE_NONDEFAULT_ALLOCATOR
 
 /* undefine locally declared macros */
 #undef SH_MAKE_PREFIX
@@ -866,6 +897,8 @@ SH_STAT(SH_TYPE *tb)
 #undef SH_START_ITERATE
 #undef SH_START_ITERATE_AT
 #undef SH_ITERATE
+#undef SH_ALLOCATE
+#undef SH_FREE
 #undef SH_STAT
 
 /* internal function names */

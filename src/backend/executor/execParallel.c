@@ -28,6 +28,8 @@
 #include "executor/nodeCustom.h"
 #include "executor/nodeForeignscan.h"
 #include "executor/nodeSeqscan.h"
+#include "executor/nodeIndexscan.h"
+#include "executor/nodeIndexonlyscan.h"
 #include "executor/tqueue.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/planmain.h"
@@ -37,6 +39,7 @@
 #include "utils/dsa.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
+#include "pgstat.h"
 
 /*
  * Magic numbers for parallel executor communication.  We use constants
@@ -49,6 +52,7 @@
 #define PARALLEL_KEY_TUPLE_QUEUE		UINT64CONST(0xE000000000000004)
 #define PARALLEL_KEY_INSTRUMENTATION	UINT64CONST(0xE000000000000005)
 #define PARALLEL_KEY_DSA				UINT64CONST(0xE000000000000006)
+#define PARALLEL_KEY_QUERY_TEXT		UINT64CONST(0xE000000000000007)
 
 #define PARALLEL_TUPLE_QUEUE_SIZE		65536
 
@@ -156,7 +160,7 @@ ExecSerializePlan(Plan *plan, EState *estate)
 	pstmt->planTree = plan;
 	pstmt->rtable = estate->es_range_table;
 	pstmt->resultRelations = NIL;
-	pstmt->subplans = NIL;
+	pstmt->subplans = estate->es_plannedstmt->subplans;
 	pstmt->rewindPlanIDs = NULL;
 	pstmt->rowMarks = NIL;
 	pstmt->relationOids = NIL;
@@ -196,6 +200,14 @@ ExecParallelEstimate(PlanState *planstate, ExecParallelEstimateContext *e)
 			case T_SeqScanState:
 				ExecSeqScanEstimate((SeqScanState *) planstate,
 									e->pcxt);
+				break;
+			case T_IndexScanState:
+				ExecIndexScanEstimate((IndexScanState *) planstate,
+									  e->pcxt);
+				break;
+			case T_IndexOnlyScanState:
+				ExecIndexOnlyScanEstimate((IndexOnlyScanState *) planstate,
+										  e->pcxt);
 				break;
 			case T_ForeignScanState:
 				ExecForeignScanEstimate((ForeignScanState *) planstate,
@@ -248,6 +260,14 @@ ExecParallelInitializeDSM(PlanState *planstate,
 			case T_SeqScanState:
 				ExecSeqScanInitializeDSM((SeqScanState *) planstate,
 										 d->pcxt);
+				break;
+			case T_IndexScanState:
+				ExecIndexScanInitializeDSM((IndexScanState *) planstate,
+										   d->pcxt);
+				break;
+			case T_IndexOnlyScanState:
+				ExecIndexOnlyScanInitializeDSM((IndexOnlyScanState *) planstate,
+											   d->pcxt);
 				break;
 			case T_ForeignScanState:
 				ExecForeignScanInitializeDSM((ForeignScanState *) planstate,
@@ -350,6 +370,8 @@ ExecInitParallelPlan(PlanState *planstate, EState *estate, int nworkers)
 	int			instrumentation_len = 0;
 	int			instrument_offset = 0;
 	Size		dsa_minsize = dsa_minimum_size();
+	char	   *query_string;
+	int			query_len;
 
 	/* Allocate object for return value. */
 	pei = palloc0(sizeof(ParallelExecutorInfo));
@@ -368,6 +390,11 @@ ExecInitParallelPlan(PlanState *planstate, EState *estate, int nworkers)
 	 * segment, we need to figure out how big it should be.  Estimate space
 	 * for the various things we need to store.
 	 */
+
+	/* Estimate space for query text. */
+	query_len = strlen(estate->es_sourceText);
+	shm_toc_estimate_chunk(&pcxt->estimator, query_len);
+	shm_toc_estimate_keys(&pcxt->estimator, 1);
 
 	/* Estimate space for serialized PlannedStmt. */
 	pstmt_len = strlen(pstmt_data) + 1;
@@ -432,6 +459,11 @@ ExecInitParallelPlan(PlanState *planstate, EState *estate, int nworkers)
 	 * ParallelContext itself needs to store there.  None of the space we
 	 * asked for has been allocated or initialized yet, though, so do that.
 	 */
+
+	/* Store query string */
+	query_string = shm_toc_allocate(pcxt->toc, query_len);
+	memcpy(query_string, estate->es_sourceText, query_len);
+	shm_toc_insert(pcxt->toc, PARALLEL_KEY_QUERY_TEXT, query_string);
 
 	/* Store serialized PlannedStmt. */
 	pstmt_space = shm_toc_allocate(pcxt->toc, pstmt_len);
@@ -533,7 +565,7 @@ ExecParallelRetrieveInstrumentation(PlanState *planstate,
 	int			plan_node_id = planstate->plan->plan_node_id;
 	MemoryContext oldcontext;
 
-	/* Find the instumentation for this node. */
+	/* Find the instrumentation for this node. */
 	for (i = 0; i < instrumentation->num_plan_nodes; ++i)
 		if (instrumentation->plan_node_id[i] == plan_node_id)
 			break;
@@ -643,6 +675,10 @@ ExecParallelGetQueryDesc(shm_toc *toc, DestReceiver *receiver,
 	char	   *paramspace;
 	PlannedStmt *pstmt;
 	ParamListInfo paramLI;
+	char	   *queryString;
+
+	/* Get the query string from shared memory */
+	queryString = shm_toc_lookup(toc, PARALLEL_KEY_QUERY_TEXT);
 
 	/* Reconstruct leader-supplied PlannedStmt. */
 	pstmtspace = shm_toc_lookup(toc, PARALLEL_KEY_PLANNEDSTMT);
@@ -661,7 +697,7 @@ ExecParallelGetQueryDesc(shm_toc *toc, DestReceiver *receiver,
 	 * revising this someday.
 	 */
 	return CreateQueryDesc(pstmt,
-						   "<parallel query>",
+						   queryString,
 						   GetActiveSnapshot(), InvalidSnapshot,
 						   receiver, paramLI, instrument_options);
 }
@@ -725,6 +761,12 @@ ExecParallelInitializeWorker(PlanState *planstate, shm_toc *toc)
 			case T_SeqScanState:
 				ExecSeqScanInitializeWorker((SeqScanState *) planstate, toc);
 				break;
+			case T_IndexScanState:
+				ExecIndexScanInitializeWorker((IndexScanState *) planstate, toc);
+				break;
+			case T_IndexOnlyScanState:
+				ExecIndexOnlyScanInitializeWorker((IndexOnlyScanState *) planstate, toc);
+				break;
 			case T_ForeignScanState:
 				ExecForeignScanInitializeWorker((ForeignScanState *) planstate,
 												toc);
@@ -774,6 +816,12 @@ ParallelQueryMain(dsm_segment *seg, shm_toc *toc)
 	if (instrumentation != NULL)
 		instrument_options = instrumentation->instrument_options;
 	queryDesc = ExecParallelGetQueryDesc(toc, receiver, instrument_options);
+
+	/* Setting debug_query_string for individual workers */
+	debug_query_string = queryDesc->sourceText;
+
+	/* Report workers' query for monitoring purposes */
+	pgstat_report_activity(STATE_RUNNING, debug_query_string);
 
 	/* Prepare to track buffer usage during query execution. */
 	InstrStartParallelQuery();

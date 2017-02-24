@@ -391,7 +391,8 @@ cost_gather(GatherPath *path, PlannerInfo *root,
  * we have to fetch from the table, so they don't reduce the scan cost.
  */
 void
-cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
+cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
+		   bool partial_path)
 {
 	IndexOptInfo *index = path->indexinfo;
 	RelOptInfo *baserel = index->rel;
@@ -400,6 +401,7 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
 	List	   *qpquals;
 	Cost		startup_cost = 0;
 	Cost		run_cost = 0;
+	Cost		cpu_run_cost = 0;
 	Cost		indexStartupCost;
 	Cost		indexTotalCost;
 	Selectivity indexSelectivity;
@@ -413,6 +415,8 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
 	Cost		cpu_per_tuple;
 	double		tuples_fetched;
 	double		pages_fetched;
+	double		rand_heap_pages;
+	double		index_pages;
 
 	/* Should only be applied to base relations */
 	Assert(IsA(baserel, RelOptInfo) &&
@@ -459,7 +463,8 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
 	amcostestimate = (amcostestimate_function) index->amcostestimate;
 	amcostestimate(root, path, loop_count,
 				   &indexStartupCost, &indexTotalCost,
-				   &indexSelectivity, &indexCorrelation);
+				   &indexSelectivity, &indexCorrelation,
+				   &index_pages);
 
 	/*
 	 * Save amcostestimate's results for possible use in bitmap scan planning.
@@ -526,6 +531,8 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
 		if (indexonly)
 			pages_fetched = ceil(pages_fetched * (1.0 - baserel->allvisfrac));
 
+		rand_heap_pages = pages_fetched;
+
 		max_IO_cost = (pages_fetched * spc_random_page_cost) / loop_count;
 
 		/*
@@ -564,6 +571,8 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
 		if (indexonly)
 			pages_fetched = ceil(pages_fetched * (1.0 - baserel->allvisfrac));
 
+		rand_heap_pages = pages_fetched;
+
 		/* max_IO_cost is for the perfectly uncorrelated case (csquared=0) */
 		max_IO_cost = pages_fetched * spc_random_page_cost;
 
@@ -581,6 +590,29 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
 		}
 		else
 			min_IO_cost = 0;
+	}
+
+	if (partial_path)
+	{
+		/*
+		 * Estimate the number of parallel workers required to scan index. Use
+		 * the number of heap pages computed considering heap fetches won't be
+		 * sequential as for parallel scans the pages are accessed in random
+		 * order.
+		 */
+		path->path.parallel_workers = compute_parallel_worker(baserel,
+											   (BlockNumber) rand_heap_pages,
+												  (BlockNumber) index_pages);
+
+		/*
+		 * Fall out if workers can't be assigned for parallel scan, because in
+		 * such a case this path will be rejected.  So there is no benefit in
+		 * doing extra computation.
+		 */
+		if (path->path.parallel_workers <= 0)
+			return;
+
+		path->path.parallel_aware = true;
 	}
 
 	/*
@@ -602,11 +634,24 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
 	startup_cost += qpqual_cost.startup;
 	cpu_per_tuple = cpu_tuple_cost + qpqual_cost.per_tuple;
 
-	run_cost += cpu_per_tuple * tuples_fetched;
+	cpu_run_cost += cpu_per_tuple * tuples_fetched;
 
 	/* tlist eval costs are paid per output row, not per tuple scanned */
 	startup_cost += path->path.pathtarget->cost.startup;
-	run_cost += path->path.pathtarget->cost.per_tuple * path->path.rows;
+	cpu_run_cost += path->path.pathtarget->cost.per_tuple * path->path.rows;
+
+	/* Adjust costing for parallelism, if used. */
+	if (path->path.parallel_workers > 0)
+	{
+		double		parallel_divisor = get_parallel_divisor(&path->path);
+
+		path->path.rows = clamp_row_est(path->path.rows / parallel_divisor);
+
+		/* The CPU cost is divided among all the workers. */
+		cpu_run_cost /= parallel_divisor;
+	}
+
+	run_cost += cpu_run_cost;
 
 	path->path.startup_cost = startup_cost;
 	path->path.total_cost = startup_cost + run_cost;
@@ -637,9 +682,8 @@ extract_nonindex_conditions(List *qual_clauses, List *indexquals)
 
 	foreach(lc, qual_clauses)
 	{
-		RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
+		RestrictInfo *rinfo = castNode(RestrictInfo, lfirst(lc));
 
-		Assert(IsA(rinfo, RestrictInfo));
 		if (rinfo->pseudoconstant)
 			continue;			/* we may drop pseudoconstants here */
 		if (list_member_ptr(indexquals, rinfo))
@@ -1764,11 +1808,9 @@ cost_windowagg(Path *path, PlannerInfo *root,
 	 */
 	foreach(lc, windowFuncs)
 	{
-		WindowFunc *wfunc = (WindowFunc *) lfirst(lc);
+		WindowFunc *wfunc = castNode(WindowFunc, lfirst(lc));
 		Cost		wfunccost;
 		QualCost	argcosts;
-
-		Assert(IsA(wfunc, WindowFunc));
 
 		wfunccost = get_func_cost(wfunc->winfnoid) * cpu_operator_cost;
 
@@ -2803,10 +2845,8 @@ final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 		innerbucketsize = 1.0;
 		foreach(hcl, hashclauses)
 		{
-			RestrictInfo *restrictinfo = (RestrictInfo *) lfirst(hcl);
+			RestrictInfo *restrictinfo = castNode(RestrictInfo, lfirst(hcl));
 			Selectivity thisbucketsize;
-
-			Assert(IsA(restrictinfo, RestrictInfo));
 
 			/*
 			 * First we have to figure out which side of the hashjoin clause
@@ -3497,9 +3537,8 @@ compute_semi_anti_join_factors(PlannerInfo *root,
 		joinquals = NIL;
 		foreach(l, restrictlist)
 		{
-			RestrictInfo *rinfo = (RestrictInfo *) lfirst(l);
+			RestrictInfo *rinfo = castNode(RestrictInfo, lfirst(l));
 
-			Assert(IsA(rinfo, RestrictInfo));
 			if (!rinfo->is_pushed_down)
 				joinquals = lappend(joinquals, rinfo);
 		}
@@ -3930,9 +3969,8 @@ calc_joinrel_size_estimate(PlannerInfo *root,
 		/* Grovel through the clauses to separate into two lists */
 		foreach(l, restrictlist)
 		{
-			RestrictInfo *rinfo = (RestrictInfo *) lfirst(l);
+			RestrictInfo *rinfo = castNode(RestrictInfo, lfirst(l));
 
-			Assert(IsA(rinfo, RestrictInfo));
 			if (rinfo->is_pushed_down)
 				pushedquals = lappend(pushedquals, rinfo);
 			else
@@ -4305,11 +4343,10 @@ set_subquery_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 	 */
 	foreach(lc, subroot->parse->targetList)
 	{
-		TargetEntry *te = (TargetEntry *) lfirst(lc);
+		TargetEntry *te = castNode(TargetEntry, lfirst(lc));
 		Node	   *texpr = (Node *) te->expr;
 		int32		item_width = 0;
 
-		Assert(IsA(te, TargetEntry));
 		/* junk columns aren't visible to upper query */
 		if (te->resjunk)
 			continue;

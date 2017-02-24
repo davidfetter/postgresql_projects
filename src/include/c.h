@@ -340,10 +340,11 @@ typedef unsigned PG_INT128_TYPE uint128;
 #define PG_INT64_MAX	INT64CONST(0x7FFFFFFFFFFFFFFF)
 #define PG_UINT64_MAX	UINT64CONST(0xFFFFFFFFFFFFFFFF)
 
-/* Select timestamp representation (float8 or int64) */
-#ifdef USE_INTEGER_DATETIMES
+/*
+ * We now always use int64 timestamps, but keep this symbol defined for the
+ * benefit of external code that might test it.
+ */
 #define HAVE_INT64_TIMESTAMP
-#endif
 
 /*
  * Size
@@ -989,7 +990,7 @@ typedef NameData *Name;
 /* gettext domain name mangling */
 
 /*
- * To better support parallel installations of major PostgeSQL
+ * To better support parallel installations of major PostgreSQL
  * versions as well as parallel installations of major library soname
  * versions, we mangle the gettext domain name by appending those
  * version numbers.  The coding rule ought to be that wherever the

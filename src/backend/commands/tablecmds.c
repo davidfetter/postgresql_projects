@@ -634,19 +634,14 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 									  relkind == RELKIND_PARTITIONED_TABLE));
 	descriptor->tdhasoid = (localHasOids || parentOidCount > 0);
 
-	if (stmt->partbound)
-	{
-		/* If the parent has OIDs, partitions must have them too. */
-		if (parentOidCount > 0 && !localHasOids)
-			ereport(ERROR,
-					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("cannot create table without OIDs as partition of table with OIDs")));
-		/* If the parent doesn't, partitions must not have them. */
-		if (parentOidCount == 0 && localHasOids)
-			ereport(ERROR,
-					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("cannot create table with OIDs as partition of table without OIDs")));
-	}
+	/*
+	 * If a partitioned table doesn't have the system OID column, then none
+	 * of its partitions should have it.
+	 */
+	if (stmt->partbound && parentOidCount == 0 && localHasOids)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("cannot create table with OIDs as partition of table without OIDs")));
 
 	/*
 	 * Find columns with default values and prepare for insertion of the
@@ -2308,9 +2303,7 @@ StoreCatalogInheritance1(Oid relationId, Oid parentOid,
 
 	tuple = heap_form_tuple(desc, values, nulls);
 
-	simple_heap_insert(inhRelation, tuple);
-
-	CatalogUpdateIndexes(inhRelation, tuple);
+	CatalogTupleInsert(inhRelation, tuple);
 
 	heap_freetuple(tuple);
 
@@ -2398,10 +2391,7 @@ SetRelationHasSubclass(Oid relationId, bool relhassubclass)
 	if (classtuple->relhassubclass != relhassubclass)
 	{
 		classtuple->relhassubclass = relhassubclass;
-		simple_heap_update(relationRelation, &tuple->t_self, tuple);
-
-		/* keep the catalog indexes up to date */
-		CatalogUpdateIndexes(relationRelation, tuple);
+		CatalogTupleUpdate(relationRelation, &tuple->t_self, tuple);
 	}
 	else
 	{
@@ -2592,10 +2582,7 @@ renameatt_internal(Oid myrelid,
 	/* apply the update */
 	namestrcpy(&(attform->attname), newattname);
 
-	simple_heap_update(attrelation, &atttup->t_self, atttup);
-
-	/* keep system catalog indexes current */
-	CatalogUpdateIndexes(attrelation, atttup);
+	CatalogTupleUpdate(attrelation, &atttup->t_self, atttup);
 
 	InvokeObjectPostAlterHook(RelationRelationId, myrelid, attnum);
 
@@ -2902,10 +2889,7 @@ RenameRelationInternal(Oid myrelid, const char *newrelname, bool is_internal)
 	 */
 	namestrcpy(&(relform->relname), newrelname);
 
-	simple_heap_update(relrelation, &reltup->t_self, reltup);
-
-	/* keep the system catalog indexes current */
-	CatalogUpdateIndexes(relrelation, reltup);
+	CatalogTupleUpdate(relrelation, &reltup->t_self, reltup);
 
 	InvokeObjectPostAlterHookArg(RelationRelationId, myrelid, 0,
 								 InvalidOid, is_internal);
@@ -5097,8 +5081,7 @@ ATExecAddColumn(List **wqueue, AlteredTableInfo *tab, Relation rel,
 
 			/* Bump the existing child att's inhcount */
 			childatt->attinhcount++;
-			simple_heap_update(attrdesc, &tuple->t_self, tuple);
-			CatalogUpdateIndexes(attrdesc, tuple);
+			CatalogTupleUpdate(attrdesc, &tuple->t_self, tuple);
 
 			heap_freetuple(tuple);
 
@@ -5191,10 +5174,7 @@ ATExecAddColumn(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	else
 		((Form_pg_class) GETSTRUCT(reltup))->relnatts = newattnum;
 
-	simple_heap_update(pgclass, &reltup->t_self, reltup);
-
-	/* keep catalog indexes current */
-	CatalogUpdateIndexes(pgclass, reltup);
+	CatalogTupleUpdate(pgclass, &reltup->t_self, reltup);
 
 	heap_freetuple(reltup);
 
@@ -5608,18 +5588,22 @@ ATExecDropNotNull(Relation rel, const char *colName, LOCKMODE lockmode)
 	if (rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
 		PartitionKey key = RelationGetPartitionKey(rel);
-		int			partnatts = get_partition_natts(key),
-					i;
 
-		for (i = 0; i < partnatts; i++)
+		if (get_partition_strategy(key) == PARTITION_STRATEGY_RANGE)
 		{
-			AttrNumber	partattnum = get_partition_col_attnum(key, i);
+			int			partnatts = get_partition_natts(key),
+						i;
 
-			if (partattnum == attnum)
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						 errmsg("column \"%s\" is in range partition key",
-								colName)));
+			for (i = 0; i < partnatts; i++)
+			{
+				AttrNumber	partattnum = get_partition_col_attnum(key, i);
+
+				if (partattnum == attnum)
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+							 errmsg("column \"%s\" is in range partition key",
+									colName)));
+			}
 		}
 	}
 
@@ -5630,10 +5614,7 @@ ATExecDropNotNull(Relation rel, const char *colName, LOCKMODE lockmode)
 	{
 		((Form_pg_attribute) GETSTRUCT(tuple))->attnotnull = FALSE;
 
-		simple_heap_update(attr_rel, &tuple->t_self, tuple);
-
-		/* keep the system catalog indexes current */
-		CatalogUpdateIndexes(attr_rel, tuple);
+		CatalogTupleUpdate(attr_rel, &tuple->t_self, tuple);
 
 		ObjectAddressSubSet(address, RelationRelationId,
 							RelationGetRelid(rel), attnum);
@@ -5708,10 +5689,7 @@ ATExecSetNotNull(AlteredTableInfo *tab, Relation rel,
 	{
 		((Form_pg_attribute) GETSTRUCT(tuple))->attnotnull = TRUE;
 
-		simple_heap_update(attr_rel, &tuple->t_self, tuple);
-
-		/* keep the system catalog indexes current */
-		CatalogUpdateIndexes(attr_rel, tuple);
+		CatalogTupleUpdate(attr_rel, &tuple->t_self, tuple);
 
 		/* Tell Phase 3 it needs to test the constraint */
 		tab->new_notnull = true;
@@ -5876,10 +5854,7 @@ ATExecSetStatistics(Relation rel, const char *colName, Node *newValue, LOCKMODE 
 
 	attrtuple->attstattarget = newtarget;
 
-	simple_heap_update(attrelation, &tuple->t_self, tuple);
-
-	/* keep system catalog indexes current */
-	CatalogUpdateIndexes(attrelation, tuple);
+	CatalogTupleUpdate(attrelation, &tuple->t_self, tuple);
 
 	InvokeObjectPostAlterHook(RelationRelationId,
 							  RelationGetRelid(rel),
@@ -5952,8 +5927,7 @@ ATExecSetOptions(Relation rel, const char *colName, Node *options,
 								 repl_val, repl_null, repl_repl);
 
 	/* Update system catalog. */
-	simple_heap_update(attrelation, &newtuple->t_self, newtuple);
-	CatalogUpdateIndexes(attrelation, newtuple);
+	CatalogTupleUpdate(attrelation, &newtuple->t_self, newtuple);
 
 	InvokeObjectPostAlterHook(RelationRelationId,
 							  RelationGetRelid(rel),
@@ -6036,10 +6010,7 @@ ATExecSetStorage(Relation rel, const char *colName, Node *newValue, LOCKMODE loc
 				 errmsg("column data type %s can only have storage PLAIN",
 						format_type_be(attrtuple->atttypid))));
 
-	simple_heap_update(attrelation, &tuple->t_self, tuple);
-
-	/* keep system catalog indexes current */
-	CatalogUpdateIndexes(attrelation, tuple);
+	CatalogTupleUpdate(attrelation, &tuple->t_self, tuple);
 
 	InvokeObjectPostAlterHook(RelationRelationId,
 							  RelationGetRelid(rel),
@@ -6277,10 +6248,7 @@ ATExecDropColumn(List **wqueue, Relation rel, const char *colName,
 					/* Child column must survive my deletion */
 					childatt->attinhcount--;
 
-					simple_heap_update(attr_rel, &tuple->t_self, tuple);
-
-					/* keep the system catalog indexes current */
-					CatalogUpdateIndexes(attr_rel, tuple);
+					CatalogTupleUpdate(attr_rel, &tuple->t_self, tuple);
 
 					/* Make update visible */
 					CommandCounterIncrement();
@@ -6296,10 +6264,7 @@ ATExecDropColumn(List **wqueue, Relation rel, const char *colName,
 				childatt->attinhcount--;
 				childatt->attislocal = true;
 
-				simple_heap_update(attr_rel, &tuple->t_self, tuple);
-
-				/* keep the system catalog indexes current */
-				CatalogUpdateIndexes(attr_rel, tuple);
+				CatalogTupleUpdate(attr_rel, &tuple->t_self, tuple);
 
 				/* Make update visible */
 				CommandCounterIncrement();
@@ -6343,10 +6308,7 @@ ATExecDropColumn(List **wqueue, Relation rel, const char *colName,
 		tuple_class = (Form_pg_class) GETSTRUCT(tuple);
 
 		tuple_class->relhasoids = false;
-		simple_heap_update(class_rel, &tuple->t_self, tuple);
-
-		/* Keep the catalog indexes up to date */
-		CatalogUpdateIndexes(class_rel, tuple);
+		CatalogTupleUpdate(class_rel, &tuple->t_self, tuple);
 
 		heap_close(class_rel, RowExclusiveLock);
 
@@ -6667,7 +6629,7 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 
 	/*
 	 * Check if ONLY was specified with ALTER TABLE.  If so, allow the
-	 * contraint creation only if there are no children currently.  Error out
+	 * constraint creation only if there are no children currently.  Error out
 	 * otherwise.
 	 */
 	if (!recurse && children != NIL)
@@ -7195,8 +7157,7 @@ ATExecAlterConstraint(Relation rel, AlterTableCmd *cmd,
 		copy_con = (Form_pg_constraint) GETSTRUCT(copyTuple);
 		copy_con->condeferrable = cmdcon->deferrable;
 		copy_con->condeferred = cmdcon->initdeferred;
-		simple_heap_update(conrel, &copyTuple->t_self, copyTuple);
-		CatalogUpdateIndexes(conrel, copyTuple);
+		CatalogTupleUpdate(conrel, &copyTuple->t_self, copyTuple);
 
 		InvokeObjectPostAlterHook(ConstraintRelationId,
 								  HeapTupleGetOid(contuple), 0);
@@ -7249,8 +7210,7 @@ ATExecAlterConstraint(Relation rel, AlterTableCmd *cmd,
 
 			copy_tg->tgdeferrable = cmdcon->deferrable;
 			copy_tg->tginitdeferred = cmdcon->initdeferred;
-			simple_heap_update(tgrel, &copyTuple->t_self, copyTuple);
-			CatalogUpdateIndexes(tgrel, copyTuple);
+			CatalogTupleUpdate(tgrel, &copyTuple->t_self, copyTuple);
 
 			InvokeObjectPostAlterHook(TriggerRelationId,
 									  HeapTupleGetOid(tgtuple), 0);
@@ -7436,8 +7396,7 @@ ATExecValidateConstraint(Relation rel, char *constrName, bool recurse,
 		copyTuple = heap_copytuple(tuple);
 		copy_con = (Form_pg_constraint) GETSTRUCT(copyTuple);
 		copy_con->convalidated = true;
-		simple_heap_update(conrel, &copyTuple->t_self, copyTuple);
-		CatalogUpdateIndexes(conrel, copyTuple);
+		CatalogTupleUpdate(conrel, &copyTuple->t_self, copyTuple);
 
 		InvokeObjectPostAlterHook(ConstraintRelationId,
 								  HeapTupleGetOid(tuple), 0);
@@ -8339,8 +8298,7 @@ ATExecDropConstraint(Relation rel, const char *constrName,
 			{
 				/* Child constraint must survive my deletion */
 				con->coninhcount--;
-				simple_heap_update(conrel, &copy_tuple->t_self, copy_tuple);
-				CatalogUpdateIndexes(conrel, copy_tuple);
+				CatalogTupleUpdate(conrel, &copy_tuple->t_self, copy_tuple);
 
 				/* Make update visible */
 				CommandCounterIncrement();
@@ -8356,8 +8314,7 @@ ATExecDropConstraint(Relation rel, const char *constrName,
 			con->coninhcount--;
 			con->conislocal = true;
 
-			simple_heap_update(conrel, &copy_tuple->t_self, copy_tuple);
-			CatalogUpdateIndexes(conrel, copy_tuple);
+			CatalogTupleUpdate(conrel, &copy_tuple->t_self, copy_tuple);
 
 			/* Make update visible */
 			CommandCounterIncrement();
@@ -8981,7 +8938,7 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 			  foundDep->refobjid == attTup->attcollation))
 			elog(ERROR, "found unexpected dependency for column");
 
-		simple_heap_delete(depRel, &depTup->t_self);
+		CatalogTupleDelete(depRel, &depTup->t_self);
 	}
 
 	systable_endscan(scan);
@@ -9003,10 +8960,7 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 
 	ReleaseSysCache(typeTuple);
 
-	simple_heap_update(attrelation, &heapTup->t_self, heapTup);
-
-	/* keep system catalog indexes current */
-	CatalogUpdateIndexes(attrelation, heapTup);
+	CatalogTupleUpdate(attrelation, &heapTup->t_self, heapTup);
 
 	heap_close(attrelation, RowExclusiveLock);
 
@@ -9144,8 +9098,7 @@ ATExecAlterColumnGenericOptions(Relation rel,
 	newtuple = heap_modify_tuple(tuple, RelationGetDescr(attrel),
 								 repl_val, repl_null, repl_repl);
 
-	simple_heap_update(attrel, &newtuple->t_self, newtuple);
-	CatalogUpdateIndexes(attrel, newtuple);
+	CatalogTupleUpdate(attrel, &newtuple->t_self, newtuple);
 
 	InvokeObjectPostAlterHook(RelationRelationId,
 							  RelationGetRelid(rel),
@@ -9661,8 +9614,7 @@ ATExecChangeOwner(Oid relationOid, Oid newOwnerId, bool recursing, LOCKMODE lock
 
 		newtuple = heap_modify_tuple(tuple, RelationGetDescr(class_rel), repl_val, repl_null, repl_repl);
 
-		simple_heap_update(class_rel, &newtuple->t_self, newtuple);
-		CatalogUpdateIndexes(class_rel, newtuple);
+		CatalogTupleUpdate(class_rel, &newtuple->t_self, newtuple);
 
 		heap_freetuple(newtuple);
 
@@ -9789,8 +9741,7 @@ change_owner_fix_column_acls(Oid relationOid, Oid oldOwnerId, Oid newOwnerId)
 									 RelationGetDescr(attRelation),
 									 repl_val, repl_null, repl_repl);
 
-		simple_heap_update(attRelation, &newtuple->t_self, newtuple);
-		CatalogUpdateIndexes(attRelation, newtuple);
+		CatalogTupleUpdate(attRelation, &newtuple->t_self, newtuple);
 
 		heap_freetuple(newtuple);
 	}
@@ -10067,9 +10018,7 @@ ATExecSetRelOptions(Relation rel, List *defList, AlterTableType operation,
 	newtuple = heap_modify_tuple(tuple, RelationGetDescr(pgclass),
 								 repl_val, repl_null, repl_repl);
 
-	simple_heap_update(pgclass, &newtuple->t_self, newtuple);
-
-	CatalogUpdateIndexes(pgclass, newtuple);
+	CatalogTupleUpdate(pgclass, &newtuple->t_self, newtuple);
 
 	InvokeObjectPostAlterHook(RelationRelationId, RelationGetRelid(rel), 0);
 
@@ -10126,9 +10075,7 @@ ATExecSetRelOptions(Relation rel, List *defList, AlterTableType operation,
 		newtuple = heap_modify_tuple(tuple, RelationGetDescr(pgclass),
 									 repl_val, repl_null, repl_repl);
 
-		simple_heap_update(pgclass, &newtuple->t_self, newtuple);
-
-		CatalogUpdateIndexes(pgclass, newtuple);
+		CatalogTupleUpdate(pgclass, &newtuple->t_self, newtuple);
 
 		InvokeObjectPostAlterHookArg(RelationRelationId,
 									 RelationGetRelid(toastrel), 0,
@@ -10289,8 +10236,7 @@ ATExecSetTableSpace(Oid tableOid, Oid newTableSpace, LOCKMODE lockmode)
 	/* update the pg_class row */
 	rd_rel->reltablespace = (newTableSpace == MyDatabaseTableSpace) ? InvalidOid : newTableSpace;
 	rd_rel->relfilenode = newrelfilenode;
-	simple_heap_update(pg_class, &tuple->t_self, tuple);
-	CatalogUpdateIndexes(pg_class, tuple);
+	CatalogTupleUpdate(pg_class, &tuple->t_self, tuple);
 
 	InvokeObjectPostAlterHook(RelationRelationId, RelationGetRelid(rel), 0);
 
@@ -10940,8 +10886,7 @@ MergeAttributesIntoExisting(Relation child_rel, Relation parent_rel)
 				childatt->attislocal = false;
 			}
 
-			simple_heap_update(attrrel, &tuple->t_self, tuple);
-			CatalogUpdateIndexes(attrrel, tuple);
+			CatalogTupleUpdate(attrrel, &tuple->t_self, tuple);
 			heap_freetuple(tuple);
 		}
 		else
@@ -10980,8 +10925,7 @@ MergeAttributesIntoExisting(Relation child_rel, Relation parent_rel)
 				childatt->attislocal = false;
 			}
 
-			simple_heap_update(attrrel, &tuple->t_self, tuple);
-			CatalogUpdateIndexes(attrrel, tuple);
+			CatalogTupleUpdate(attrrel, &tuple->t_self, tuple);
 			heap_freetuple(tuple);
 		}
 		else
@@ -11118,8 +11062,7 @@ MergeConstraintsIntoExisting(Relation child_rel, Relation parent_rel)
 				child_con->conislocal = false;
 			}
 
-			simple_heap_update(catalog_relation, &child_copy->t_self, child_copy);
-			CatalogUpdateIndexes(catalog_relation, child_copy);
+			CatalogTupleUpdate(catalog_relation, &child_copy->t_self, child_copy);
 			heap_freetuple(child_copy);
 
 			found = true;
@@ -11233,7 +11176,7 @@ RemoveInheritance(Relation child_rel, Relation parent_rel)
 		inhparent = ((Form_pg_inherits) GETSTRUCT(inheritsTuple))->inhparent;
 		if (inhparent == RelationGetRelid(parent_rel))
 		{
-			simple_heap_delete(catalogRelation, &inheritsTuple->t_self);
+			CatalogTupleDelete(catalogRelation, &inheritsTuple->t_self);
 			found = true;
 			break;
 		}
@@ -11289,8 +11232,7 @@ RemoveInheritance(Relation child_rel, Relation parent_rel)
 			if (copy_att->attinhcount == 0)
 				copy_att->attislocal = true;
 
-			simple_heap_update(catalogRelation, &copyTuple->t_self, copyTuple);
-			CatalogUpdateIndexes(catalogRelation, copyTuple);
+			CatalogTupleUpdate(catalogRelation, &copyTuple->t_self, copyTuple);
 			heap_freetuple(copyTuple);
 		}
 	}
@@ -11364,8 +11306,7 @@ RemoveInheritance(Relation child_rel, Relation parent_rel)
 			if (copy_con->coninhcount == 0)
 				copy_con->conislocal = true;
 
-			simple_heap_update(catalogRelation, &copyTuple->t_self, copyTuple);
-			CatalogUpdateIndexes(catalogRelation, copyTuple);
+			CatalogTupleUpdate(catalogRelation, &copyTuple->t_self, copyTuple);
 			heap_freetuple(copyTuple);
 		}
 	}
@@ -11428,7 +11369,7 @@ drop_parent_dependency(Oid relid, Oid refclassid, Oid refobjid)
 			dep->refobjid == refobjid &&
 			dep->refobjsubid == 0 &&
 			dep->deptype == DEPENDENCY_NORMAL)
-			simple_heap_delete(catalogRelation, &depTuple->t_self);
+			CatalogTupleDelete(catalogRelation, &depTuple->t_self);
 	}
 
 	systable_endscan(scan);
@@ -11565,8 +11506,7 @@ ATExecAddOf(Relation rel, const TypeName *ofTypename, LOCKMODE lockmode)
 	if (!HeapTupleIsValid(classtuple))
 		elog(ERROR, "cache lookup failed for relation %u", relid);
 	((Form_pg_class) GETSTRUCT(classtuple))->reloftype = typeid;
-	simple_heap_update(relationRelation, &classtuple->t_self, classtuple);
-	CatalogUpdateIndexes(relationRelation, classtuple);
+	CatalogTupleUpdate(relationRelation, &classtuple->t_self, classtuple);
 
 	InvokeObjectPostAlterHook(RelationRelationId, relid, 0);
 
@@ -11610,8 +11550,7 @@ ATExecDropOf(Relation rel, LOCKMODE lockmode)
 	if (!HeapTupleIsValid(tuple))
 		elog(ERROR, "cache lookup failed for relation %u", relid);
 	((Form_pg_class) GETSTRUCT(tuple))->reloftype = InvalidOid;
-	simple_heap_update(relationRelation, &tuple->t_self, tuple);
-	CatalogUpdateIndexes(relationRelation, tuple);
+	CatalogTupleUpdate(relationRelation, &tuple->t_self, tuple);
 
 	InvokeObjectPostAlterHook(RelationRelationId, relid, 0);
 
@@ -11651,8 +11590,7 @@ relation_mark_replica_identity(Relation rel, char ri_type, Oid indexOid,
 	if (pg_class_form->relreplident != ri_type)
 	{
 		pg_class_form->relreplident = ri_type;
-		simple_heap_update(pg_class, &pg_class_tuple->t_self, pg_class_tuple);
-		CatalogUpdateIndexes(pg_class, pg_class_tuple);
+		CatalogTupleUpdate(pg_class, &pg_class_tuple->t_self, pg_class_tuple);
 	}
 	heap_close(pg_class, RowExclusiveLock);
 	heap_freetuple(pg_class_tuple);
@@ -11711,8 +11649,7 @@ relation_mark_replica_identity(Relation rel, char ri_type, Oid indexOid,
 
 		if (dirty)
 		{
-			simple_heap_update(pg_index, &pg_index_tuple->t_self, pg_index_tuple);
-			CatalogUpdateIndexes(pg_index, pg_index_tuple);
+			CatalogTupleUpdate(pg_index, &pg_index_tuple->t_self, pg_index_tuple);
 			InvokeObjectPostAlterHookArg(IndexRelationId, thisIndexOid, 0,
 										 InvalidOid, is_internal);
 		}
@@ -11861,10 +11798,7 @@ ATExecEnableRowSecurity(Relation rel)
 		elog(ERROR, "cache lookup failed for relation %u", relid);
 
 	((Form_pg_class) GETSTRUCT(tuple))->relrowsecurity = true;
-	simple_heap_update(pg_class, &tuple->t_self, tuple);
-
-	/* keep catalog indexes current */
-	CatalogUpdateIndexes(pg_class, tuple);
+	CatalogTupleUpdate(pg_class, &tuple->t_self, tuple);
 
 	heap_close(pg_class, RowExclusiveLock);
 	heap_freetuple(tuple);
@@ -11888,10 +11822,7 @@ ATExecDisableRowSecurity(Relation rel)
 		elog(ERROR, "cache lookup failed for relation %u", relid);
 
 	((Form_pg_class) GETSTRUCT(tuple))->relrowsecurity = false;
-	simple_heap_update(pg_class, &tuple->t_self, tuple);
-
-	/* keep catalog indexes current */
-	CatalogUpdateIndexes(pg_class, tuple);
+	CatalogTupleUpdate(pg_class, &tuple->t_self, tuple);
 
 	heap_close(pg_class, RowExclusiveLock);
 	heap_freetuple(tuple);
@@ -11917,10 +11848,7 @@ ATExecForceNoForceRowSecurity(Relation rel, bool force_rls)
 		elog(ERROR, "cache lookup failed for relation %u", relid);
 
 	((Form_pg_class) GETSTRUCT(tuple))->relforcerowsecurity = force_rls;
-	simple_heap_update(pg_class, &tuple->t_self, tuple);
-
-	/* keep catalog indexes current */
-	CatalogUpdateIndexes(pg_class, tuple);
+	CatalogTupleUpdate(pg_class, &tuple->t_self, tuple);
 
 	heap_close(pg_class, RowExclusiveLock);
 	heap_freetuple(tuple);
@@ -11988,8 +11916,7 @@ ATExecGenericOptions(Relation rel, List *options)
 	tuple = heap_modify_tuple(tuple, RelationGetDescr(ftrel),
 							  repl_val, repl_null, repl_repl);
 
-	simple_heap_update(ftrel, &tuple->t_self, tuple);
-	CatalogUpdateIndexes(ftrel, tuple);
+	CatalogTupleUpdate(ftrel, &tuple->t_self, tuple);
 
 	/*
 	 * Invalidate relcache so that all sessions will refresh any cached plans
@@ -12284,8 +12211,7 @@ AlterRelationNamespaceInternal(Relation classRel, Oid relOid,
 		/* classTup is a copy, so OK to scribble on */
 		classForm->relnamespace = newNspOid;
 
-		simple_heap_update(classRel, &classTup->t_self, classTup);
-		CatalogUpdateIndexes(classRel, classTup);
+		CatalogTupleUpdate(classRel, &classTup->t_self, classTup);
 
 		/* Update dependency on schema if caller said so */
 		if (hasDependEntry &&
@@ -13520,8 +13446,7 @@ ATExecDetachPartition(Relation rel, RangeVar *name)
 								 new_val, new_null, new_repl);
 
 	((Form_pg_class) GETSTRUCT(newtuple))->relispartition = false;
-	simple_heap_update(classRel, &newtuple->t_self, newtuple);
-	CatalogUpdateIndexes(classRel, newtuple);
+	CatalogTupleUpdate(classRel, &newtuple->t_self, newtuple);
 	heap_freetuple(newtuple);
 	heap_close(classRel, RowExclusiveLock);
 

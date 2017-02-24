@@ -15,9 +15,6 @@
  *	  launcher for every enabled subscription in a database. It uses
  *	  walsender protocol to communicate with publisher.
  *
- *	  The apply worker may spawn additional workers (sync) for initial data
- *	  synchronization of tables.
- *
  *	  This module includes server facing code and shares libpqwalreceiver
  *	  module with walreceiver for providing the libpq specific functionality.
  *
@@ -327,7 +324,7 @@ slot_store_cstrings(TupleTableSlot *slot, LogicalRepRelMapEntry *rel,
 /*
  * Modify slot with user data provided as C strigs.
  * This is somewhat similar to heap_modify_tuple but also calls the type
- * input fuction on the user data as the input is the text representation
+ * input function on the user data as the input is the text representation
  * of the types.
  */
 static void
@@ -984,12 +981,11 @@ ApplyLoop(void)
 					{
 						XLogRecPtr	start_lsn;
 						XLogRecPtr	end_lsn;
-						TimestampTz	send_time;
+						TimestampTz send_time;
 
 						start_lsn = pq_getmsgint64(&s);
 						end_lsn = pq_getmsgint64(&s);
-						send_time =
-							IntegerTimestampToTimestampTz(pq_getmsgint64(&s));
+						send_time = pq_getmsgint64(&s);
 
 						if (last_received < start_lsn)
 							last_received = start_lsn;
@@ -1003,13 +999,12 @@ ApplyLoop(void)
 					}
 					else if (c == 'k')
 					{
-						XLogRecPtr endpos;
-						TimestampTz	timestamp;
-						bool reply_requested;
+						XLogRecPtr	endpos;
+						TimestampTz timestamp;
+						bool		reply_requested;
 
 						endpos = pq_getmsgint64(&s);
-						timestamp =
-							IntegerTimestampToTimestampTz(pq_getmsgint64(&s));
+						timestamp = pq_getmsgint64(&s);
 						reply_requested = pq_getmsgbyte(&s);
 
 						send_feedback(endpos, reply_requested, false);

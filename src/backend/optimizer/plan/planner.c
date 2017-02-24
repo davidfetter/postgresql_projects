@@ -343,21 +343,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	if (cursorOptions & CURSOR_OPT_SCROLL)
 	{
 		if (!ExecSupportsBackwardScan(top_plan))
-		{
-			Plan	   *sub_plan = top_plan;
-
-			top_plan = materialize_finished_plan(sub_plan);
-
-			/*
-			 * XXX horrid kluge: if there are any initPlans attached to the
-			 * formerly-top plan node, move them up to the Material node. This
-			 * prevents failure in SS_finalize_plan, which see for comments.
-			 * We don't bother adjusting the sub_plan's cost estimate for
-			 * this.
-			 */
-			top_plan->initPlan = sub_plan->initPlan;
-			sub_plan->initPlan = NIL;
-		}
+			top_plan = materialize_finished_plan(top_plan);
 	}
 
 	/*
@@ -2268,52 +2254,6 @@ is_dummy_plan(Plan *plan)
 }
 
 /*
- * Create a bitmapset of the RT indexes of live base relations
- *
- * Helper for preprocess_rowmarks ... at this point in the proceedings,
- * the only good way to distinguish baserels from appendrel children
- * is to see what is in the join tree.
- */
-static Bitmapset *
-get_base_rel_indexes(Node *jtnode)
-{
-	Bitmapset  *result;
-
-	if (jtnode == NULL)
-		return NULL;
-	if (IsA(jtnode, RangeTblRef))
-	{
-		int			varno = ((RangeTblRef *) jtnode)->rtindex;
-
-		result = bms_make_singleton(varno);
-	}
-	else if (IsA(jtnode, FromExpr))
-	{
-		FromExpr   *f = (FromExpr *) jtnode;
-		ListCell   *l;
-
-		result = NULL;
-		foreach(l, f->fromlist)
-			result = bms_join(result,
-							  get_base_rel_indexes(lfirst(l)));
-	}
-	else if (IsA(jtnode, JoinExpr))
-	{
-		JoinExpr   *j = (JoinExpr *) jtnode;
-
-		result = bms_join(get_base_rel_indexes(j->larg),
-						  get_base_rel_indexes(j->rarg));
-	}
-	else
-	{
-		elog(ERROR, "unrecognized node type: %d",
-			 (int) nodeTag(jtnode));
-		result = NULL;			/* keep compiler quiet */
-	}
-	return result;
-}
-
-/*
  * preprocess_rowmarks - set up PlanRowMarks if needed
  */
 static void
@@ -2352,7 +2292,7 @@ preprocess_rowmarks(PlannerInfo *root)
 	 * make a bitmapset of all base rels and then remove the items we don't
 	 * need or have FOR [KEY] UPDATE/SHARE marks for.
 	 */
-	rels = get_base_rel_indexes((Node *) parse->jointree);
+	rels = get_relids_in_jointree((Node *) parse->jointree, false);
 	if (parse->resultRelation)
 		rels = bms_del_member(rels, parse->resultRelation);
 
@@ -4524,9 +4464,8 @@ create_one_window_path(PlannerInfo *root,
 			window_target = copy_pathtarget(window_target);
 			foreach(lc2, wflists->windowFuncs[wc->winref])
 			{
-				WindowFunc *wfunc = (WindowFunc *) lfirst(lc2);
+				WindowFunc *wfunc = castNode(WindowFunc, lfirst(lc2));
 
-				Assert(IsA(wfunc, WindowFunc));
 				add_column_to_pathtarget(window_target, (Expr *) wfunc, 0);
 				window_target->width += get_typavgwidth(wfunc->wintype, -1);
 			}
@@ -5894,7 +5833,7 @@ plan_cluster_use_sort(Oid tableOid, Oid indexOid)
 	indexScanPath = create_index_path(root, indexInfo,
 									  NIL, NIL, NIL, NIL, NIL,
 									  ForwardScanDirection, false,
-									  NULL, 1.0);
+									  NULL, 1.0, false);
 
 	return (seqScanAndSortPath.total_cost < indexScanPath->path.total_cost);
 }

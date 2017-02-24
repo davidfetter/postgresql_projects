@@ -444,7 +444,7 @@ logicalrep_write_tuple(StringInfo out, Relation rel, HeapTuple tuple)
 		outputstr = OidOutputFunctionCall(typclass->typoutput, values[i]);
 		len = strlen(outputstr) + 1;	/* null terminated */
 		pq_sendint(out, len, 4);		/* length */
-		appendBinaryStringInfo(out, outputstr, len); /* data */
+		pq_sendstring(out, outputstr);	/* data */
 
 		pfree(outputstr);
 
@@ -539,7 +539,7 @@ logicalrep_write_attrs(StringInfo out, Relation rel)
 		if (att->attisdropped)
 			continue;
 
-		/* REPLICA IDENTITY FULL means all colums are sent as part of key. */
+		/* REPLICA IDENTITY FULL means all columns are sent as part of key. */
 		if (replidentfull ||
 			bms_is_member(att->attnum - FirstLowInvalidHeapAttributeNumber,
 						  idattrs))

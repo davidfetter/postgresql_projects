@@ -37,13 +37,8 @@ PGTYPESdate_from_timestamp(timestamp dt)
 
 	if (!TIMESTAMP_NOT_FINITE(dt))
 	{
-#ifdef HAVE_INT64_TIMESTAMP
 		/* Microseconds to days */
 		dDate = (dt / USECS_PER_DAY);
-#else
-		/* Seconds to days */
-		dDate = (dt / (double) SECS_PER_DAY);
-#endif
 	}
 
 	return dDate;
@@ -324,7 +319,7 @@ PGTYPESdate_fmt_asc(date dDate, const char *fmtstring, char *outbuf)
  *
  * function works as follows:
  *	 - first we analyze the parameters
- *	 - if this is a special case with no delimiters, add delimters
+ *	 - if this is a special case with no delimiters, add delimiters
  *	 - find the tokens. First we look for numerical values. If we have found
  *	   less than 3 tokens, we check for the months' names and thereafter for
  *	   the abbreviations of the months' names.

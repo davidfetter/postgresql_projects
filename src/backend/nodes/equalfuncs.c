@@ -423,6 +423,7 @@ _equalSubPlan(const SubPlan *a, const SubPlan *b)
 	COMPARE_SCALAR_FIELD(firstColCollation);
 	COMPARE_SCALAR_FIELD(useHashTable);
 	COMPARE_SCALAR_FIELD(unknownEqFalse);
+	COMPARE_SCALAR_FIELD(parallel_safe);
 	COMPARE_NODE_FIELD(setParam);
 	COMPARE_NODE_FIELD(parParam);
 	COMPARE_NODE_FIELD(args);
@@ -1210,6 +1211,7 @@ _equalDefineStmt(const DefineStmt *a, const DefineStmt *b)
 	COMPARE_NODE_FIELD(defnames);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_NODE_FIELD(definition);
+	COMPARE_SCALAR_FIELD(if_not_exists);
 
 	return true;
 }

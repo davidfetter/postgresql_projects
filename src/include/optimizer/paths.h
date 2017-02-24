@@ -22,7 +22,8 @@
  */
 extern bool enable_geqo;
 extern int	geqo_threshold;
-extern int	min_parallel_relation_size;
+extern int	min_parallel_table_scan_size;
+extern int	min_parallel_index_scan_size;
 
 /* Hook for plugins to get control in set_rel_pathlist() */
 typedef void (*set_rel_pathlist_hook_type) (PlannerInfo *root,
@@ -53,6 +54,8 @@ extern RelOptInfo *standard_join_search(PlannerInfo *root, int levels_needed,
 					 List *initial_rels);
 
 extern void generate_gather_paths(PlannerInfo *root, RelOptInfo *rel);
+extern int compute_parallel_worker(RelOptInfo *rel, BlockNumber heap_pages,
+						BlockNumber index_pages);
 
 #ifdef OPTIMIZER_DEBUG
 extern void debug_print_rel(PlannerInfo *root, RelOptInfo *rel);

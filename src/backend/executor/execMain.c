@@ -190,6 +190,8 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 		estate->es_param_exec_vals = (ParamExecData *)
 			palloc0(queryDesc->plannedstmt->nParamExec * sizeof(ParamExecData));
 
+	estate->es_sourceText = queryDesc->sourceText;
+
 	/*
 	 * If non-read-only query, set the command ID to mark output tuples with
 	 */
@@ -1261,7 +1263,7 @@ InitResultRelInfo(ResultRelInfo *resultRelInfo,
 	resultRelInfo->ri_projectReturning = NULL;
 
 	/*
-	 * If partition_root has been specified, that means we are builiding the
+	 * If partition_root has been specified, that means we are building the
 	 * ResultRelationInfo for one of its leaf partitions.  In that case, we
 	 * need *not* initialize the leaf partition's constraint, but rather the
 	 * the partition_root's (if any).  We must do that explicitly like this,
@@ -1592,10 +1594,6 @@ ExecutePlan(EState *estate,
 	if (numberTuples || dest->mydest == DestIntoRel)
 		use_parallel_mode = false;
 
-	/*
-	 * If a tuple count was supplied, we must force the plan to run without
-	 * parallelism, because we might exit early.
-	 */
 	if (use_parallel_mode)
 		EnterParallelMode();
 

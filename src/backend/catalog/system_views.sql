@@ -169,13 +169,18 @@ CREATE OR REPLACE VIEW pg_sequences AS
         N.nspname AS schemaname,
         C.relname AS sequencename,
         pg_get_userbyid(C.relowner) AS sequenceowner,
+        S.seqtypid::regtype AS data_type,
         S.seqstart AS start_value,
         S.seqmin AS min_value,
         S.seqmax AS max_value,
         S.seqincrement AS increment_by,
         S.seqcycle AS cycle,
         S.seqcache AS cache_size,
-        pg_sequence_last_value(C.oid) AS last_value
+        CASE
+            WHEN has_sequence_privilege(C.oid, 'SELECT,USAGE'::text)
+                THEN pg_sequence_last_value(C.oid)
+            ELSE NULL
+        END AS last_value
     FROM pg_sequence S JOIN pg_class C ON (C.oid = S.seqrelid)
          LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
     WHERE NOT pg_is_other_temp_schema(N.oid)
@@ -458,6 +463,12 @@ CREATE VIEW pg_file_settings AS
 
 REVOKE ALL on pg_file_settings FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION pg_show_all_file_settings() FROM PUBLIC;
+
+CREATE VIEW pg_hba_file_rules AS
+   SELECT * FROM pg_hba_file_rules() AS A;
+
+REVOKE ALL on pg_hba_file_rules FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION pg_hba_file_rules() FROM PUBLIC;
 
 CREATE VIEW pg_timezone_abbrevs AS
     SELECT * FROM pg_timezone_abbrevs();
@@ -1018,7 +1029,7 @@ AS 'pg_logical_slot_peek_binary_changes';
 CREATE OR REPLACE FUNCTION pg_create_physical_replication_slot(
     IN slot_name name, IN immediately_reserve boolean DEFAULT false,
     IN temporary boolean DEFAULT false,
-    OUT slot_name name, OUT xlog_position pg_lsn)
+    OUT slot_name name, OUT wal_position pg_lsn)
 RETURNS RECORD
 LANGUAGE INTERNAL
 STRICT VOLATILE
@@ -1027,7 +1038,7 @@ AS 'pg_create_physical_replication_slot';
 CREATE OR REPLACE FUNCTION pg_create_logical_replication_slot(
     IN slot_name name, IN plugin name,
     IN temporary boolean DEFAULT false,
-    OUT slot_name text, OUT xlog_position pg_lsn)
+    OUT slot_name text, OUT wal_position pg_lsn)
 RETURNS RECORD
 LANGUAGE INTERNAL
 STRICT VOLATILE
@@ -1075,9 +1086,9 @@ REVOKE EXECUTE ON FUNCTION pg_start_backup(text, boolean, boolean) FROM public;
 REVOKE EXECUTE ON FUNCTION pg_stop_backup() FROM public;
 REVOKE EXECUTE ON FUNCTION pg_stop_backup(boolean) FROM public;
 REVOKE EXECUTE ON FUNCTION pg_create_restore_point(text) FROM public;
-REVOKE EXECUTE ON FUNCTION pg_switch_xlog() FROM public;
-REVOKE EXECUTE ON FUNCTION pg_xlog_replay_pause() FROM public;
-REVOKE EXECUTE ON FUNCTION pg_xlog_replay_resume() FROM public;
+REVOKE EXECUTE ON FUNCTION pg_switch_wal() FROM public;
+REVOKE EXECUTE ON FUNCTION pg_wal_replay_pause() FROM public;
+REVOKE EXECUTE ON FUNCTION pg_wal_replay_resume() FROM public;
 REVOKE EXECUTE ON FUNCTION pg_rotate_logfile() FROM public;
 REVOKE EXECUTE ON FUNCTION pg_reload_conf() FROM public;
 

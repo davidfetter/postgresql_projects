@@ -52,10 +52,12 @@ bitno_to_blkno(HashMetaPage metap, uint32 ovflbitnum)
 }
 
 /*
+ * _hash_ovflblkno_to_bitno
+ *
  * Convert overflow page block number to bit number for free-page bitmap.
  */
-static uint32
-blkno_to_bitno(HashMetaPage metap, BlockNumber ovflblkno)
+uint32
+_hash_ovflblkno_to_bitno(HashMetaPage metap, BlockNumber ovflblkno)
 {
 	uint32		splitnum = metap->hashm_ovflpoint;
 	uint32		i;
@@ -67,11 +69,20 @@ blkno_to_bitno(HashMetaPage metap, BlockNumber ovflblkno)
 		if (ovflblkno <= (BlockNumber) (1 << i))
 			break;				/* oops */
 		bitnum = ovflblkno - (1 << i);
-		if (bitnum <= metap->hashm_spares[i])
+
+		/*
+		 * bitnum has to be greater than number of overflow page added in
+		 * previous split point. The overflow page at this splitnum (i) if any
+		 * should start from ((2 ^ i) + metap->hashm_spares[i - 1] + 1).
+		 */
+		if (bitnum > metap->hashm_spares[i - 1] &&
+			bitnum <= metap->hashm_spares[i])
 			return bitnum - 1;	/* -1 to convert 1-based to 0-based */
 	}
 
-	elog(ERROR, "invalid overflow block number %u", ovflblkno);
+	ereport(ERROR,
+			(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			 errmsg("invalid overflow block number %u", ovflblkno)));
 	return 0;					/* keep compiler quiet */
 }
 
@@ -485,7 +496,7 @@ _hash_freeovflpage(Relation rel, Buffer ovflbuf, Buffer wbuf,
 	metap = HashPageGetMeta(BufferGetPage(metabuf));
 
 	/* Identify which bit to set */
-	ovflbitno = blkno_to_bitno(metap, ovflblkno);
+	ovflbitno = _hash_ovflblkno_to_bitno(metap, ovflblkno);
 
 	bitmappage = ovflbitno >> BMPG_SHIFT(metap);
 	bitmapbit = ovflbitno & BMPG_MASK(metap);

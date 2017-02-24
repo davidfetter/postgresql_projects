@@ -801,8 +801,8 @@ CREATE VIEW constraint_column_usage AS
           WHERE nr.oid = r.relnamespace
             AND r.oid = a.attrelid
             AND nc.oid = c.connamespace
-            AND (CASE WHEN c.contype = 'f' THEN r.oid = c.confrelid AND a.attnum = ANY (c.confkey)
-                      ELSE r.oid = c.conrelid AND a.attnum = ANY (c.conkey) END)
+            AND r.oid = CASE c.contype WHEN 'f' THEN c.confrelid ELSE c.conrelid END
+            AND a.attnum = ANY (CASE c.contype WHEN 'f' THEN c.confkey ELSE c.conkey END)
             AND NOT a.attisdropped
             AND c.contype IN ('p', 'u', 'f')
             AND r.relkind IN ('r', 'P')
@@ -1531,8 +1531,8 @@ CREATE VIEW sequences AS
     SELECT CAST(current_database() AS sql_identifier) AS sequence_catalog,
            CAST(nc.nspname AS sql_identifier) AS sequence_schema,
            CAST(c.relname AS sql_identifier) AS sequence_name,
-           CAST('bigint' AS character_data) AS data_type,
-           CAST(64 AS cardinal_number) AS numeric_precision,
+           CAST(format_type(s.seqtypid, null) AS character_data) AS data_type,
+           CAST(_pg_numeric_precision(s.seqtypid, -1) AS cardinal_number) AS numeric_precision,
            CAST(2 AS cardinal_number) AS numeric_precision_radix,
            CAST(0 AS cardinal_number) AS numeric_scale,
            CAST(s.seqstart AS character_data) AS start_value,

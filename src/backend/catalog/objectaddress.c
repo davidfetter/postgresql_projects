@@ -770,7 +770,7 @@ static void getRelationIdentity(StringInfo buffer, Oid relid, List **objname);
  *
  * Note: If the object is not found, we don't give any indication of the
  * reason.  (It might have been a missing schema if the name was qualified, or
- * an inexistant type name in case of a cast, function or operator; etc).
+ * a nonexistent type name in case of a cast, function or operator; etc).
  * Currently there is only one caller that might be interested in such info, so
  * we don't spend much effort here.  If more callers start to care, it might be
  * better to add some support for that in this function.
@@ -1325,6 +1325,8 @@ get_object_address_relobject(ObjectType objtype, List *objname,
 	Relation	relation = NULL;
 	int			nnames;
 	const char *depname;
+	List	   *relname;
+	Oid			reloid;
 
 	/* Extract name of dependent object. */
 	depname = strVal(llast(objname));
@@ -1332,88 +1334,58 @@ get_object_address_relobject(ObjectType objtype, List *objname,
 	/* Separate relation name from dependent object name. */
 	nnames = list_length(objname);
 	if (nnames < 2)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("must specify relation and object name")));
+
+	/* Extract relation name and open relation. */
+	relname = list_truncate(list_copy(objname), nnames - 1);
+	relation = heap_openrv_extended(makeRangeVarFromNameList(relname),
+									AccessShareLock,
+									missing_ok);
+
+	reloid = relation ? RelationGetRelid(relation) : InvalidOid;
+
+	switch (objtype)
 	{
-		Oid			reloid;
-
-		/*
-		 * For compatibility with very old releases, we sometimes allow users
-		 * to attempt to specify a rule without mentioning the relation name.
-		 * If there's only rule by that name in the entire database, this will
-		 * work.  But objects other than rules don't get this special
-		 * treatment.
-		 */
-		if (objtype != OBJECT_RULE)
-			elog(ERROR, "must specify relation and object name");
-		address.classId = RewriteRelationId;
-		address.objectId =
-			get_rewrite_oid_without_relid(depname, &reloid, missing_ok);
-		address.objectSubId = 0;
-
-		/*
-		 * Caller is expecting to get back the relation, even though we didn't
-		 * end up using it to find the rule.
-		 */
-		if (OidIsValid(address.objectId))
-			relation = heap_open(reloid, AccessShareLock);
+		case OBJECT_RULE:
+			address.classId = RewriteRelationId;
+			address.objectId = relation ?
+				get_rewrite_oid(reloid, depname, missing_ok) : InvalidOid;
+			address.objectSubId = 0;
+			break;
+		case OBJECT_TRIGGER:
+			address.classId = TriggerRelationId;
+			address.objectId = relation ?
+				get_trigger_oid(reloid, depname, missing_ok) : InvalidOid;
+			address.objectSubId = 0;
+			break;
+		case OBJECT_TABCONSTRAINT:
+			address.classId = ConstraintRelationId;
+			address.objectId = relation ?
+				get_relation_constraint_oid(reloid, depname, missing_ok) :
+				InvalidOid;
+			address.objectSubId = 0;
+			break;
+		case OBJECT_POLICY:
+			address.classId = PolicyRelationId;
+			address.objectId = relation ?
+				get_relation_policy_oid(reloid, depname, missing_ok) :
+				InvalidOid;
+			address.objectSubId = 0;
+			break;
+		default:
+			elog(ERROR, "unrecognized objtype: %d", (int) objtype);
 	}
-	else
+
+	/* Avoid relcache leak when object not found. */
+	if (!OidIsValid(address.objectId))
 	{
-		List	   *relname;
-		Oid			reloid;
+		if (relation != NULL)
+			heap_close(relation, AccessShareLock);
 
-		/* Extract relation name and open relation. */
-		relname = list_truncate(list_copy(objname), nnames - 1);
-		relation = heap_openrv_extended(makeRangeVarFromNameList(relname),
-										AccessShareLock,
-										missing_ok);
-
-		reloid = relation ? RelationGetRelid(relation) : InvalidOid;
-
-		switch (objtype)
-		{
-			case OBJECT_RULE:
-				address.classId = RewriteRelationId;
-				address.objectId = relation ?
-					get_rewrite_oid(reloid, depname, missing_ok) : InvalidOid;
-				address.objectSubId = 0;
-				break;
-			case OBJECT_TRIGGER:
-				address.classId = TriggerRelationId;
-				address.objectId = relation ?
-					get_trigger_oid(reloid, depname, missing_ok) : InvalidOid;
-				address.objectSubId = 0;
-				break;
-			case OBJECT_TABCONSTRAINT:
-				address.classId = ConstraintRelationId;
-				address.objectId = relation ?
-					get_relation_constraint_oid(reloid, depname, missing_ok) :
-					InvalidOid;
-				address.objectSubId = 0;
-				break;
-			case OBJECT_POLICY:
-				address.classId = PolicyRelationId;
-				address.objectId = relation ?
-					get_relation_policy_oid(reloid, depname, missing_ok) :
-					InvalidOid;
-				address.objectSubId = 0;
-				break;
-			default:
-				elog(ERROR, "unrecognized objtype: %d", (int) objtype);
-				/* placate compiler, which doesn't know elog won't return */
-				address.classId = InvalidOid;
-				address.objectId = InvalidOid;
-				address.objectSubId = 0;
-		}
-
-		/* Avoid relcache leak when object not found. */
-		if (!OidIsValid(address.objectId))
-		{
-			if (relation != NULL)
-				heap_close(relation, AccessShareLock);
-
-			relation = NULL;	/* department of accident prevention */
-			return address;
-		}
+		relation = NULL;	/* department of accident prevention */
+		return address;
 	}
 
 	/* Done. */
@@ -1835,7 +1807,10 @@ get_object_address_publication_rel(List *objname, List *objargs,
 	/* Now look up the pg_publication tuple */
 	pub = GetPublicationByName(pubname, missing_ok);
 	if (!pub)
+	{
+		relation_close(relation, AccessShareLock);
 		return address;
+	}
 
 	/* Find the publication relation mapping in syscache. */
 	address.objectId =
@@ -1849,6 +1824,7 @@ get_object_address_publication_rel(List *objname, List *objargs,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
 					 errmsg("publication relation \"%s\" in publication \"%s\" does not exist",
 							RelationGetRelationName(relation), pubname)));
+		relation_close(relation, AccessShareLock);
 		return address;
 	}
 

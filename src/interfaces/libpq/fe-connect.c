@@ -1896,6 +1896,7 @@ PQconnectPoll(PGconn *conn)
 		case CONNECTION_SSL_STARTUP:
 		case CONNECTION_NEEDED:
 		case CONNECTION_CHECK_WRITABLE:
+		case CONNECTION_CONSUME:
 			break;
 
 		default:
@@ -2908,7 +2909,7 @@ keep_going:						/* We will come back to here until there is
 			}
 
 			/*
-			 * If a read-write connection is requisted check for same.
+			 * If a read-write connection is requested check for same.
 			 */
 			if (conn->target_session_attrs != NULL &&
 				strcmp(conn->target_session_attrs, "read-write") == 0)
@@ -2935,6 +2936,34 @@ keep_going:						/* We will come back to here until there is
 			conn->status = CONNECTION_OK;
 			return PGRES_POLLING_OK;
 
+		case CONNECTION_CONSUME:
+			{
+				conn->status = CONNECTION_OK;
+				if (!PQconsumeInput(conn))
+					goto error_return;
+
+				if (PQisBusy(conn))
+				{
+					conn->status = CONNECTION_CONSUME;
+					restoreErrorMessage(conn, &savedMessage);
+					return PGRES_POLLING_READING;
+				}
+
+				/*
+				 * Call PQgetResult() again to consume NULL result.
+				 */
+				res = PQgetResult(conn);
+				if (res != NULL)
+				{
+					PQclear(res);
+					conn->status = CONNECTION_CONSUME;
+					goto keep_going;
+				}
+
+				/* We are open for business! */
+				conn->status = CONNECTION_OK;
+				return PGRES_POLLING_OK;
+			}
 		case CONNECTION_CHECK_WRITABLE:
 			{
 				if (!saveErrorMessage(conn, &savedMessage))
@@ -2994,9 +3023,12 @@ keep_going:						/* We will come back to here until there is
 					/* We can release the address lists now. */
 					release_all_addrinfo(conn);
 
-					/* We are open for business! */
-					conn->status = CONNECTION_OK;
-					return PGRES_POLLING_OK;
+					/*
+					 * Finish reading any remaining messages before
+					 * being considered as ready.
+					 */
+					conn->status = CONNECTION_CONSUME;
+					goto keep_going;
 				}
 
 				/*
@@ -6312,22 +6344,23 @@ passwordFromFile(char *hostname, char *port, char *dbname,
 
 
 /*
- *	If the connection failed, we should mention if
- *	we got the password from the pgpassfile in case that
- *	password is wrong.
+ *	If the connection failed due to bad password, we should mention
+ *	if we got the password from the pgpassfile.
  */
 static void
 pgpassfileWarning(PGconn *conn)
 {
 	/* If it was 'invalid authorization', add pgpassfile mention */
 	/* only works with >= 9.0 servers */
-	if (conn->pgpassfile_used && conn->password_needed && conn->result &&
-		strcmp(PQresultErrorField(conn->result, PG_DIAG_SQLSTATE),
-			   ERRCODE_INVALID_PASSWORD) == 0)
+	if (conn->pgpassfile_used && conn->password_needed && conn->result)
 	{
-		appendPQExpBuffer(&conn->errorMessage,
+		const char *sqlstate = PQresultErrorField(conn->result,
+												  PG_DIAG_SQLSTATE);
+
+		if (sqlstate && strcmp(sqlstate, ERRCODE_INVALID_PASSWORD) == 0)
+			appendPQExpBuffer(&conn->errorMessage,
 					  libpq_gettext("password retrieved from file \"%s\"\n"),
-						  conn->pgpassfile);
+							  conn->pgpassfile);
 	}
 }
 

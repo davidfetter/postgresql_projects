@@ -3500,7 +3500,7 @@ getPublicationTables(Archive *fout, TableInfo tblinfo[], int numTables)
 
 		resetPQExpBuffer(query);
 
-		/* Get the publication memebership for the table. */
+		/* Get the publication membership for the table. */
 		appendPQExpBuffer(query,
 						  "SELECT pr.tableoid, pr.oid, p.pubname "
 						  "FROM pg_catalog.pg_publication_rel pr,"
@@ -6078,7 +6078,7 @@ getOwnedSeqs(Archive *fout, TableInfo tblinfo[], int numTables)
 
 		owning_tab = findTableByOid(seqinfo->owning_tab);
 		if (owning_tab == NULL)
-			exit_horribly(NULL, "failed sanity check, parent table OID %u of sequence OID %u not found\n",
+			exit_horribly(NULL, "failed sanity check, parent table with OID %u of sequence with OID %u not found\n",
 						  seqinfo->owning_tab, seqinfo->dobj.catId.oid);
 
 		/*
@@ -6768,7 +6768,7 @@ getRules(Archive *fout, int *numRules)
 		ruletableoid = atooid(PQgetvalue(res, i, i_ruletable));
 		ruleinfo[i].ruletable = findTableByOid(ruletableoid);
 		if (ruleinfo[i].ruletable == NULL)
-			exit_horribly(NULL, "failed sanity check, parent table OID %u of pg_rewrite entry OID %u not found\n",
+			exit_horribly(NULL, "failed sanity check, parent table with OID %u of pg_rewrite entry with OID %u not found\n",
 						  ruletableoid, ruleinfo[i].dobj.catId.oid);
 		ruleinfo[i].dobj.namespace = ruleinfo[i].ruletable->dobj.namespace;
 		ruleinfo[i].dobj.dump = ruleinfo[i].ruletable->dobj.dump;
@@ -7160,7 +7160,7 @@ getProcLangs(Archive *fout, int *numProcLangs)
 						  "FROM pg_language l "
 						  "LEFT JOIN pg_init_privs pip ON "
 						  "(l.oid = pip.objoid "
-						  "AND pip.classoid = 'pg_type'::regclass "
+						  "AND pip.classoid = 'pg_language'::regclass "
 						  "AND pip.objsubid = 0) "
 						  "WHERE l.lanispl "
 						  "ORDER BY l.oid",
@@ -8683,6 +8683,9 @@ getDefaultACLs(Archive *fout, int *numDefaultACLs)
 	int			i_defaclnamespace;
 	int			i_defaclobjtype;
 	int			i_defaclacl;
+	int			i_rdefaclacl;
+	int			i_initdefaclacl;
+	int			i_initrdefaclacl;
 	int			i,
 				ntups;
 
@@ -8697,13 +8700,50 @@ getDefaultACLs(Archive *fout, int *numDefaultACLs)
 	/* Make sure we are in proper schema */
 	selectSourceSchema(fout, "pg_catalog");
 
-	appendPQExpBuffer(query, "SELECT oid, tableoid, "
-					  "(%s defaclrole) AS defaclrole, "
-					  "defaclnamespace, "
-					  "defaclobjtype, "
-					  "defaclacl "
-					  "FROM pg_default_acl",
-					  username_subquery);
+	if (fout->remoteVersion >= 90600)
+	{
+		PQExpBuffer acl_subquery = createPQExpBuffer();
+		PQExpBuffer racl_subquery = createPQExpBuffer();
+		PQExpBuffer initacl_subquery = createPQExpBuffer();
+		PQExpBuffer initracl_subquery = createPQExpBuffer();
+
+		buildACLQueries(acl_subquery, racl_subquery, initacl_subquery,
+						initracl_subquery, "defaclacl", "defaclrole",
+						"CASE WHEN defaclobjtype = 'S' THEN 's' ELSE defaclobjtype END::\"char\"",
+						dopt->binary_upgrade);
+
+		appendPQExpBuffer(query, "SELECT d.oid, d.tableoid, "
+						  "(%s d.defaclrole) AS defaclrole, "
+						  "d.defaclnamespace, "
+						  "d.defaclobjtype, "
+						  "%s AS defaclacl, "
+						  "%s AS rdefaclacl, "
+						  "%s AS initdefaclacl, "
+						  "%s AS initrdefaclacl "
+						  "FROM pg_default_acl d "
+						  "LEFT JOIN pg_init_privs pip ON "
+						  "(d.oid = pip.objoid "
+						  "AND pip.classoid = 'pg_default_acl'::regclass "
+						  "AND pip.objsubid = 0) ",
+						  username_subquery,
+						  acl_subquery->data,
+						  racl_subquery->data,
+						  initacl_subquery->data,
+						  initracl_subquery->data);
+	}
+	else
+	{
+		appendPQExpBuffer(query, "SELECT oid, tableoid, "
+						  "(%s defaclrole) AS defaclrole, "
+						  "defaclnamespace, "
+						  "defaclobjtype, "
+						  "defaclacl, "
+						  "NULL AS rdefaclacl, "
+						  "NULL AS initdefaclacl, "
+						  "NULL AS initrdefaclacl "
+						  "FROM pg_default_acl",
+						  username_subquery);
+	}
 
 	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
 
@@ -8718,6 +8758,9 @@ getDefaultACLs(Archive *fout, int *numDefaultACLs)
 	i_defaclnamespace = PQfnumber(res, "defaclnamespace");
 	i_defaclobjtype = PQfnumber(res, "defaclobjtype");
 	i_defaclacl = PQfnumber(res, "defaclacl");
+	i_rdefaclacl = PQfnumber(res, "rdefaclacl");
+	i_initdefaclacl = PQfnumber(res, "initdefaclacl");
+	i_initrdefaclacl = PQfnumber(res, "initrdefaclacl");
 
 	for (i = 0; i < ntups; i++)
 	{
@@ -8738,6 +8781,9 @@ getDefaultACLs(Archive *fout, int *numDefaultACLs)
 		daclinfo[i].defaclrole = pg_strdup(PQgetvalue(res, i, i_defaclrole));
 		daclinfo[i].defaclobjtype = *(PQgetvalue(res, i, i_defaclobjtype));
 		daclinfo[i].defaclacl = pg_strdup(PQgetvalue(res, i, i_defaclacl));
+		daclinfo[i].rdefaclacl = pg_strdup(PQgetvalue(res, i, i_rdefaclacl));
+		daclinfo[i].initdefaclacl = pg_strdup(PQgetvalue(res, i, i_initdefaclacl));
+		daclinfo[i].initrdefaclacl = pg_strdup(PQgetvalue(res, i, i_initrdefaclacl));
 
 		/* Decide whether we want to dump it */
 		selectDumpableDefaultACL(&(daclinfo[i]), dopt);
@@ -11443,7 +11489,7 @@ dumpCast(Archive *fout, CastInfo *cast)
 	{
 		funcInfo = findFuncByOid(cast->castfunc);
 		if (funcInfo == NULL)
-			exit_horribly(NULL, "unable to find function definition for OID %u",
+			exit_horribly(NULL, "could not find function definition for function with OID %u\n",
 						  cast->castfunc);
 	}
 
@@ -11553,14 +11599,14 @@ dumpTransform(Archive *fout, TransformInfo *transform)
 	{
 		fromsqlFuncInfo = findFuncByOid(transform->trffromsql);
 		if (fromsqlFuncInfo == NULL)
-			exit_horribly(NULL, "unable to find function definition for OID %u",
+			exit_horribly(NULL, "could not find function definition for function with OID %u\n",
 						  transform->trffromsql);
 	}
 	if (OidIsValid(transform->trftosql))
 	{
 		tosqlFuncInfo = findFuncByOid(transform->trftosql);
 		if (tosqlFuncInfo == NULL)
-			exit_horribly(NULL, "unable to find function definition for OID %u",
+			exit_horribly(NULL, "could not find function definition for function with OID %u\n",
 						  transform->trftosql);
 	}
 
@@ -14038,6 +14084,9 @@ dumpDefaultACL(Archive *fout, DefaultACLInfo *daclinfo)
 								 daclinfo->dobj.namespace != NULL ?
 								 daclinfo->dobj.namespace->dobj.name : NULL,
 								 daclinfo->defaclacl,
+								 daclinfo->rdefaclacl,
+								 daclinfo->initdefaclacl,
+								 daclinfo->initrdefaclacl,
 								 daclinfo->defaclrole,
 								 fout->remoteVersion,
 								 q))
@@ -15863,18 +15912,15 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 	PGresult   *res;
 	char	   *startv,
 			   *incby,
-			   *maxv = NULL,
-			   *minv = NULL,
-			   *cache;
-	char		bufm[100],
-				bufx[100];
+			   *maxv,
+			   *minv,
+			   *cache,
+			   *seqtype;
 	bool		cycled;
+	bool		is_ascending;
 	PQExpBuffer query = createPQExpBuffer();
 	PQExpBuffer delqry = createPQExpBuffer();
 	PQExpBuffer labelq = createPQExpBuffer();
-
-	snprintf(bufm, sizeof(bufm), INT64_FORMAT, PG_INT64_MIN);
-	snprintf(bufx, sizeof(bufx), INT64_FORMAT, PG_INT64_MAX);
 
 	if (fout->remoteVersion >= 100000)
 	{
@@ -15882,20 +15928,13 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 		selectSourceSchema(fout, "pg_catalog");
 
 		appendPQExpBuffer(query,
-						  "SELECT seqstart, seqincrement, "
-						  "CASE WHEN seqincrement > 0 AND seqmax = %s THEN NULL "
-						  "     WHEN seqincrement < 0 AND seqmax = -1 THEN NULL "
-						  "     ELSE seqmax "
-						  "END AS seqmax, "
-						  "CASE WHEN seqincrement > 0 AND seqmin = 1 THEN NULL "
-						  "     WHEN seqincrement < 0 AND seqmin = %s THEN NULL "
-						  "     ELSE seqmin "
-						  "END AS seqmin, "
+						  "SELECT format_type(seqtypid, NULL), "
+						  "seqstart, seqincrement, "
+						  "seqmax, seqmin, "
 						  "seqcache, seqcycle "
 						  "FROM pg_class c "
 						  "JOIN pg_sequence s ON (s.seqrelid = c.oid) "
 						  "WHERE c.oid = '%u'::oid",
-						  bufx, bufm,
 						  tbinfo->dobj.catId.oid);
 	}
 	else if (fout->remoteVersion >= 80400)
@@ -15909,17 +15948,9 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 		selectSourceSchema(fout, tbinfo->dobj.namespace->dobj.name);
 
 		appendPQExpBuffer(query,
-						  "SELECT start_value, increment_by, "
-				   "CASE WHEN increment_by > 0 AND max_value = %s THEN NULL "
-				   "     WHEN increment_by < 0 AND max_value = -1 THEN NULL "
-						  "     ELSE max_value "
-						  "END AS max_value, "
-					"CASE WHEN increment_by > 0 AND min_value = 1 THEN NULL "
-				   "     WHEN increment_by < 0 AND min_value = %s THEN NULL "
-						  "     ELSE min_value "
-						  "END AS min_value, "
+						  "SELECT 'bigint'::name AS sequence_type, "
+						  "start_value, increment_by, max_value, min_value, "
 						  "cache_value, is_cycled FROM %s",
-						  bufx, bufm,
 						  fmtId(tbinfo->dobj.name));
 	}
 	else
@@ -15928,17 +15959,9 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 		selectSourceSchema(fout, tbinfo->dobj.namespace->dobj.name);
 
 		appendPQExpBuffer(query,
-						  "SELECT 0 AS start_value, increment_by, "
-				   "CASE WHEN increment_by > 0 AND max_value = %s THEN NULL "
-				   "     WHEN increment_by < 0 AND max_value = -1 THEN NULL "
-						  "     ELSE max_value "
-						  "END AS max_value, "
-					"CASE WHEN increment_by > 0 AND min_value = 1 THEN NULL "
-				   "     WHEN increment_by < 0 AND min_value = %s THEN NULL "
-						  "     ELSE min_value "
-						  "END AS min_value, "
+						  "SELECT 'bigint'::name AS sequence_type, "
+						  "0 AS start_value, increment_by, max_value, min_value, "
 						  "cache_value, is_cycled FROM %s",
-						  bufx, bufm,
 						  fmtId(tbinfo->dobj.name));
 	}
 
@@ -15953,14 +15976,48 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 		exit_nicely(1);
 	}
 
-	startv = PQgetvalue(res, 0, 0);
-	incby = PQgetvalue(res, 0, 1);
-	if (!PQgetisnull(res, 0, 2))
-		maxv = PQgetvalue(res, 0, 2);
-	if (!PQgetisnull(res, 0, 3))
-		minv = PQgetvalue(res, 0, 3);
-	cache = PQgetvalue(res, 0, 4);
-	cycled = (strcmp(PQgetvalue(res, 0, 5), "t") == 0);
+	seqtype = PQgetvalue(res, 0, 0);
+	startv = PQgetvalue(res, 0, 1);
+	incby = PQgetvalue(res, 0, 2);
+	maxv = PQgetvalue(res, 0, 3);
+	minv = PQgetvalue(res, 0, 4);
+	cache = PQgetvalue(res, 0, 5);
+	cycled = (strcmp(PQgetvalue(res, 0, 6), "t") == 0);
+
+	is_ascending = incby[0] != '-';
+
+	if (is_ascending && atoi(minv) == 1)
+		minv = NULL;
+	if (!is_ascending && atoi(maxv) == -1)
+		maxv = NULL;
+
+	if (strcmp(seqtype, "smallint") == 0)
+	{
+		if (!is_ascending && atoi(minv) == PG_INT16_MIN)
+			minv = NULL;
+		if (is_ascending && atoi(maxv) == PG_INT16_MAX)
+			maxv = NULL;
+	}
+	else if (strcmp(seqtype, "integer") == 0)
+	{
+		if (!is_ascending && atoi(minv) == PG_INT32_MIN)
+			minv = NULL;
+		if (is_ascending && atoi(maxv) == PG_INT32_MAX)
+			maxv = NULL;
+	}
+	else if (strcmp(seqtype, "bigint") == 0)
+	{
+		char		bufm[100],
+					bufx[100];
+
+		snprintf(bufm, sizeof(bufm), INT64_FORMAT, PG_INT64_MIN);
+		snprintf(bufx, sizeof(bufx), INT64_FORMAT, PG_INT64_MAX);
+
+		if (!is_ascending && strcmp(minv, bufm) == 0)
+			minv = NULL;
+		if (is_ascending && strcmp(maxv, bufx) == 0)
+			maxv = NULL;
+	}
 
 	/*
 	 * DROP must be fully qualified in case same name appears in pg_catalog
@@ -15983,6 +16040,9 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 	appendPQExpBuffer(query,
 					  "CREATE SEQUENCE %s\n",
 					  fmtId(tbinfo->dobj.name));
+
+	if (strcmp(seqtype, "bigint") != 0)
+		appendPQExpBuffer(query, "    AS %s\n", seqtype);
 
 	if (fout->remoteVersion >= 80400)
 		appendPQExpBuffer(query, "    START WITH %s\n", startv);
@@ -16041,7 +16101,7 @@ dumpSequence(Archive *fout, TableInfo *tbinfo)
 		TableInfo  *owning_tab = findTableByOid(tbinfo->owning_tab);
 
 		if (owning_tab == NULL)
-			exit_horribly(NULL, "failed sanity check, parent table OID %u of sequence OID %u not found\n",
+			exit_horribly(NULL, "failed sanity check, parent table with OID %u of sequence with OID %u not found\n",
 						  tbinfo->owning_tab, tbinfo->dobj.catId.oid);
 
 		if (owning_tab->dobj.dump & DUMP_COMPONENT_DEFINITION)

@@ -1473,7 +1473,7 @@ Optional Features:
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
   --disable-integer-datetimes
-                          disable 64-bit integer date/time support
+                          obsolete option, no longer supported
   --enable-nls[=LANGUAGES]
                           enable Native Language Support
   --disable-rpath         do not embed shared library search path in
@@ -2984,10 +2984,10 @@ fi
 
 
 #
-# 64-bit integer date/time storage: enabled by default.
+# 64-bit integer date/time storage is now the only option, but to avoid
+# unnecessary breakage of build scripts, continue to accept an explicit
+# "--enable-integer-datetimes" switch.
 #
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether to build with 64-bit integer date/time support" >&5
-$as_echo_n "checking whether to build with 64-bit integer date/time support... " >&6; }
 
 
 # Check whether --enable-integer-datetimes was given.
@@ -2995,12 +2995,10 @@ if test "${enable_integer_datetimes+set}" = set; then :
   enableval=$enable_integer_datetimes;
   case $enableval in
     yes)
-
-$as_echo "#define USE_INTEGER_DATETIMES 1" >>confdefs.h
-
+      :
       ;;
     no)
-      :
+      as_fn_error $? "--disable-integer-datetimes is no longer supported" "$LINENO" 5
       ;;
     *)
       as_fn_error $? "no argument expected for --enable-integer-datetimes option" "$LINENO" 5
@@ -3010,13 +3008,9 @@ $as_echo "#define USE_INTEGER_DATETIMES 1" >>confdefs.h
 else
   enable_integer_datetimes=yes
 
-$as_echo "#define USE_INTEGER_DATETIMES 1" >>confdefs.h
-
 fi
 
 
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $enable_integer_datetimes" >&5
-$as_echo "$enable_integer_datetimes" >&6; }
 
 
 #
@@ -7088,7 +7082,7 @@ test -z "$INSTALL_SCRIPT" && INSTALL_SCRIPT='${INSTALL}'
 test -z "$INSTALL_DATA" && INSTALL_DATA='${INSTALL} -m 644'
 
 # When Autoconf chooses install-sh as install program it tries to generate
-# a relative path to it in each makefile where it subsitutes it. This clashes
+# a relative path to it in each makefile where it substitutes it. This clashes
 # with our Makefile.global concept. This workaround helps.
 case $INSTALL in
   *install-sh*) install_bin='';;
@@ -7232,7 +7226,7 @@ fi
 $as_echo "$MKDIR_P" >&6; }
 
 # When Autoconf chooses install-sh as mkdir -p program it tries to generate
-# a relative path to it in each makefile where it subsitutes it. This clashes
+# a relative path to it in each makefile where it substitutes it. This clashes
 # with our Makefile.global concept. This workaround helps.
 case $MKDIR_P in
   *install-sh*) MKDIR_P='\${SHELL} \${top_srcdir}/config/install-sh -c -d';;
@@ -7588,10 +7582,16 @@ fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking Python configuration directory" >&5
 $as_echo_n "checking Python configuration directory... " >&6; }
 python_majorversion=`${PYTHON} -c "import sys; print(sys.version[0])"`
+python_minorversion=`${PYTHON} -c "import sys; print(sys.version[2])"`
 python_version=`${PYTHON} -c "import sys; print(sys.version[:3])"`
 python_configdir=`${PYTHON} -c "import distutils.sysconfig; print(' '.join(filter(None,distutils.sysconfig.get_config_vars('LIBPL'))))"`
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: $python_configdir" >&5
 $as_echo "$python_configdir" >&6; }
+
+# Reject unsupported Python versions as soon as practical.
+if test "$python_majorversion" -lt 3 -a "$python_minorversion" -lt 4; then
+  as_fn_error $? "Python version $python_version is too old (version 2.4 or later is required)" "$LINENO" 5
+fi
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking Python include directories" >&5
 $as_echo_n "checking Python include directories... " >&6; }

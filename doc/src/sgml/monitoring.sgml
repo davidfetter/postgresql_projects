@@ -1207,13 +1207,17 @@ postgres   27093  0.0  0.0  30096  2752 ?        Ss   11:34   0:00 postgres: ser
          <entry>Waiting in an extension.</entry>
         </row>
         <row>
-         <entry morerows="9"><literal>IPC</></entry>
+         <entry morerows="10"><literal>IPC</></entry>
          <entry><literal>BgWorkerShutdown</></entry>
          <entry>Waiting for background worker to shut down.</entry>
         </row>
         <row>
          <entry><literal>BgWorkerStartup</></entry>
          <entry>Waiting for background worker to start up.</entry>
+        </row>
+        <row>
+         <entry><literal>BtreePage</></entry>
+         <entry>Waiting for the page number needed to continue a parallel btree scan to become available.</entry>
         </row>
         <row>
          <entry><literal>ExecuteGather</></entry>
@@ -3349,14 +3353,14 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS pid,
      <entry>Probe that fires when a dirty WAL buffer write is complete.</entry>
     </row>
     <row>
-     <entry><literal>xlog-insert</literal></entry>
+     <entry><literal>wal-insert</literal></entry>
      <entry><literal>(unsigned char, unsigned char)</literal></entry>
      <entry>Probe that fires when a WAL record is inserted.
       arg0 is the resource manager (rmid) for the record.
       arg1 contains the info flags.</entry>
     </row>
     <row>
-     <entry><literal>xlog-switch</literal></entry>
+     <entry><literal>wal-switch</literal></entry>
      <entry><literal>()</literal></entry>
      <entry>Probe that fires when a WAL segment switch is requested.</entry>
     </row>

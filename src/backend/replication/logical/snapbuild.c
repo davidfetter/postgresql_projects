@@ -614,7 +614,7 @@ SnapBuildGetOrBuildSnapshot(SnapBuild *builder, TransactionId xid)
 	if (builder->snapshot == NULL)
 	{
 		builder->snapshot = SnapBuildBuildSnapshot(builder, xid);
-		/* inrease refcount for the snapshot builder */
+		/* increase refcount for the snapshot builder */
 		SnapBuildSnapIncRefcount(builder->snapshot);
 	}
 
@@ -678,7 +678,7 @@ SnapBuildProcessChange(SnapBuild *builder, TransactionId xid, XLogRecPtr lsn)
 		if (builder->snapshot == NULL)
 		{
 			builder->snapshot = SnapBuildBuildSnapshot(builder, xid);
-			/* inrease refcount for the snapshot builder */
+			/* increase refcount for the snapshot builder */
 			SnapBuildSnapIncRefcount(builder->snapshot);
 		}
 
@@ -911,7 +911,7 @@ SnapBuildEndTxn(SnapBuild *builder, XLogRecPtr lsn, TransactionId xid)
 		{
 			/*
 			 * None of the originally running transaction is running anymore,
-			 * so our incrementaly built snapshot now is consistent.
+			 * so our incrementally built snapshot now is consistent.
 			 */
 			ereport(LOG,
 				  (errmsg("logical decoding found consistent point at %X/%X",
@@ -1473,7 +1473,7 @@ SnapBuildSerialize(SnapBuild *builder, XLogRecPtr lsn)
 	/*
 	 * We identify snapshots by the LSN they are valid for. We don't need to
 	 * include timelines in the name as each LSN maps to exactly one timeline
-	 * unless the user used pg_resetxlog or similar. If a user did so, there's
+	 * unless the user used pg_resetwal or similar. If a user did so, there's
 	 * no hope continuing to decode anyway.
 	 */
 	sprintf(path, "pg_logical/snapshots/%X-%X.snap",

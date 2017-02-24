@@ -586,9 +586,10 @@ CheckAttributeType(const char *attname,
  * attribute to insert (but we ignore attacl and attoptions, which are always
  * initialized to NULL).
  *
- * indstate is the index state for CatalogIndexInsert.  It can be passed as
- * NULL, in which case we'll fetch the necessary info.  (Don't do this when
- * inserting multiple attributes, because it's a tad more expensive.)
+ * indstate is the index state for CatalogTupleInsertWithInfo.  It can be
+ * passed as NULL, in which case we'll fetch the necessary info.  (Don't do
+ * this when inserting multiple attributes, because it's a tad more
+ * expensive.)
  */
 void
 InsertPgAttributeTuple(Relation pg_attribute_rel,
@@ -630,12 +631,10 @@ InsertPgAttributeTuple(Relation pg_attribute_rel,
 	tup = heap_form_tuple(RelationGetDescr(pg_attribute_rel), values, nulls);
 
 	/* finally insert the new tuple, update the indexes, and clean up */
-	simple_heap_insert(pg_attribute_rel, tup);
-
 	if (indstate != NULL)
-		CatalogIndexInsert(indstate, tup);
+		CatalogTupleInsertWithInfo(pg_attribute_rel, tup, indstate);
 	else
-		CatalogUpdateIndexes(pg_attribute_rel, tup);
+		CatalogTupleInsert(pg_attribute_rel, tup);
 
 	heap_freetuple(tup);
 }
@@ -824,9 +823,7 @@ InsertPgClassTuple(Relation pg_class_desc,
 	HeapTupleSetOid(tup, new_rel_oid);
 
 	/* finally insert the new tuple, update the indexes, and clean up */
-	simple_heap_insert(pg_class_desc, tup);
-
-	CatalogUpdateIndexes(pg_class_desc, tup);
+	CatalogTupleInsert(pg_class_desc, tup);
 
 	heap_freetuple(tup);
 }
@@ -1413,7 +1410,7 @@ RelationRemoveInheritance(Oid relid)
 							  NULL, 1, &key);
 
 	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
-		simple_heap_delete(catalogRelation, &tuple->t_self);
+		CatalogTupleDelete(catalogRelation, &tuple->t_self);
 
 	systable_endscan(scan);
 	heap_close(catalogRelation, RowExclusiveLock);
@@ -1441,7 +1438,7 @@ DeleteRelationTuple(Oid relid)
 		elog(ERROR, "cache lookup failed for relation %u", relid);
 
 	/* delete the relation tuple from pg_class, and finish up */
-	simple_heap_delete(pg_class_desc, &tup->t_self);
+	CatalogTupleDelete(pg_class_desc, &tup->t_self);
 
 	ReleaseSysCache(tup);
 
@@ -1478,7 +1475,7 @@ DeleteAttributeTuples(Oid relid)
 
 	/* Delete all the matching tuples */
 	while ((atttup = systable_getnext(scan)) != NULL)
-		simple_heap_delete(attrel, &atttup->t_self);
+		CatalogTupleDelete(attrel, &atttup->t_self);
 
 	/* Clean up after the scan */
 	systable_endscan(scan);
@@ -1519,7 +1516,7 @@ DeleteSystemAttributeTuples(Oid relid)
 
 	/* Delete all the matching tuples */
 	while ((atttup = systable_getnext(scan)) != NULL)
-		simple_heap_delete(attrel, &atttup->t_self);
+		CatalogTupleDelete(attrel, &atttup->t_self);
 
 	/* Clean up after the scan */
 	systable_endscan(scan);
@@ -1566,7 +1563,7 @@ RemoveAttributeById(Oid relid, AttrNumber attnum)
 	{
 		/* System attribute (probably OID) ... just delete the row */
 
-		simple_heap_delete(attr_rel, &tuple->t_self);
+		CatalogTupleDelete(attr_rel, &tuple->t_self);
 	}
 	else
 	{
@@ -1599,10 +1596,7 @@ RemoveAttributeById(Oid relid, AttrNumber attnum)
 				 "........pg.dropped.%d........", attnum);
 		namestrcpy(&(attStruct->attname), newattname);
 
-		simple_heap_update(attr_rel, &tuple->t_self, tuple);
-
-		/* keep the system catalog indexes current */
-		CatalogUpdateIndexes(attr_rel, tuple);
+		CatalogTupleUpdate(attr_rel, &tuple->t_self, tuple);
 	}
 
 	/*
@@ -1714,7 +1708,7 @@ RemoveAttrDefaultById(Oid attrdefId)
 	myrel = relation_open(myrelid, AccessExclusiveLock);
 
 	/* Now we can delete the pg_attrdef row */
-	simple_heap_delete(attrdef_rel, &tuple->t_self);
+	CatalogTupleDelete(attrdef_rel, &tuple->t_self);
 
 	systable_endscan(scan);
 	heap_close(attrdef_rel, RowExclusiveLock);
@@ -1731,10 +1725,7 @@ RemoveAttrDefaultById(Oid attrdefId)
 
 	((Form_pg_attribute) GETSTRUCT(tuple))->atthasdef = false;
 
-	simple_heap_update(attr_rel, &tuple->t_self, tuple);
-
-	/* keep the system catalog indexes current */
-	CatalogUpdateIndexes(attr_rel, tuple);
+	CatalogTupleUpdate(attr_rel, &tuple->t_self, tuple);
 
 	/*
 	 * Our update of the pg_attribute row will force a relcache rebuild, so
@@ -1811,7 +1802,7 @@ heap_drop_with_catalog(Oid relid)
 		if (!HeapTupleIsValid(tuple))
 			elog(ERROR, "cache lookup failed for foreign table %u", relid);
 
-		simple_heap_delete(rel, &tuple->t_self);
+		CatalogTupleDelete(rel, &tuple->t_self);
 
 		ReleaseSysCache(tuple);
 		heap_close(rel, RowExclusiveLock);
@@ -1932,9 +1923,7 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 	adrel = heap_open(AttrDefaultRelationId, RowExclusiveLock);
 
 	tuple = heap_form_tuple(adrel->rd_att, values, nulls);
-	attrdefOid = simple_heap_insert(adrel, tuple);
-
-	CatalogUpdateIndexes(adrel, tuple);
+	attrdefOid = CatalogTupleInsert(adrel, tuple);
 
 	defobject.classId = AttrDefaultRelationId;
 	defobject.objectId = attrdefOid;
@@ -1964,9 +1953,7 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 	if (!attStruct->atthasdef)
 	{
 		attStruct->atthasdef = true;
-		simple_heap_update(attrrel, &atttup->t_self, atttup);
-		/* keep catalog indexes current */
-		CatalogUpdateIndexes(attrrel, atttup);
+		CatalogTupleUpdate(attrrel, &atttup->t_self, atttup);
 	}
 	heap_close(attrrel, RowExclusiveLock);
 	heap_freetuple(atttup);
@@ -2561,8 +2548,7 @@ MergeWithExistingConstraint(Relation rel, char *ccname, Node *expr,
 				Assert(is_local);
 				con->connoinherit = true;
 			}
-			simple_heap_update(conDesc, &tup->t_self, tup);
-			CatalogUpdateIndexes(conDesc, tup);
+			CatalogTupleUpdate(conDesc, &tup->t_self, tup);
 			break;
 		}
 	}
@@ -2602,10 +2588,7 @@ SetRelationNumChecks(Relation rel, int numchecks)
 	{
 		relStruct->relchecks = numchecks;
 
-		simple_heap_update(relrel, &reltup->t_self, reltup);
-
-		/* keep catalog indexes current */
-		CatalogUpdateIndexes(relrel, reltup);
+		CatalogTupleUpdate(relrel, &reltup->t_self, reltup);
 	}
 	else
 	{
@@ -2774,7 +2757,7 @@ RemoveStatistics(Oid relid, AttrNumber attnum)
 
 	/* we must loop even when attnum != 0, in case of inherited stats */
 	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
-		simple_heap_delete(pgstatistic, &tuple->t_self);
+		CatalogTupleDelete(pgstatistic, &tuple->t_self);
 
 	systable_endscan(scan);
 
@@ -3145,10 +3128,7 @@ StorePartitionKey(Relation rel,
 
 	tuple = heap_form_tuple(RelationGetDescr(pg_partitioned_table), values, nulls);
 
-	simple_heap_insert(pg_partitioned_table, tuple);
-
-	/* Update the indexes on pg_partitioned_table */
-	CatalogUpdateIndexes(pg_partitioned_table, tuple);
+	CatalogTupleInsert(pg_partitioned_table, tuple);
 	heap_close(pg_partitioned_table, RowExclusiveLock);
 
 	/* Mark this relation as dependent on a few things as follows */
@@ -3209,7 +3189,7 @@ RemovePartitionKeyByRelId(Oid relid)
 		elog(ERROR, "cache lookup failed for partition key of relation %u",
 			 relid);
 
-	simple_heap_delete(rel, &tuple->t_self);
+	CatalogTupleDelete(rel, &tuple->t_self);
 
 	ReleaseSysCache(tuple);
 	heap_close(rel, RowExclusiveLock);
@@ -3265,8 +3245,7 @@ StorePartitionBound(Relation rel, Relation parent, Node *bound)
 								 new_val, new_null, new_repl);
 	/* Also set the flag */
 	((Form_pg_class) GETSTRUCT(newtuple))->relispartition = true;
-	simple_heap_update(classRel, &newtuple->t_self, newtuple);
-	CatalogUpdateIndexes(classRel, newtuple);
+	CatalogTupleUpdate(classRel, &newtuple->t_self, newtuple);
 	heap_freetuple(newtuple);
 	heap_close(classRel, RowExclusiveLock);
 

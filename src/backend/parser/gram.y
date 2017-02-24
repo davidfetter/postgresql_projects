@@ -3249,8 +3249,7 @@ ColQualList:
 ColConstraint:
 			CONSTRAINT name ColConstraintElem
 				{
-					Constraint *n = (Constraint *) $3;
-					Assert(IsA(n, Constraint));
+					Constraint *n = castNode(Constraint, $3);
 					n->conname = $2;
 					n->location = @1;
 					$$ = (Node *) n;
@@ -3442,8 +3441,7 @@ TableLikeOption:
 TableConstraint:
 			CONSTRAINT name ConstraintElem
 				{
-					Constraint *n = (Constraint *) $3;
-					Assert(IsA(n, Constraint));
+					Constraint *n = castNode(Constraint, $3);
 					n->conname = $2;
 					n->location = @1;
 					$$ = (Node *) n;
@@ -3941,7 +3939,11 @@ SeqOptList: SeqOptElem								{ $$ = list_make1($1); }
 			| SeqOptList SeqOptElem					{ $$ = lappend($1, $2); }
 		;
 
-SeqOptElem: CACHE NumericOnly
+SeqOptElem: AS SimpleTypename
+				{
+					$$ = makeDefElem("as", (Node *)$2, @1);
+				}
+			| CACHE NumericOnly
 				{
 					$$ = makeDefElem("cache", (Node *)$2, @1);
 				}
@@ -5606,6 +5608,16 @@ DefineStmt:
 					n->definition = $4;
 					$$ = (Node *)n;
 				}
+			| CREATE COLLATION IF_P NOT EXISTS any_name definition
+				{
+					DefineStmt *n = makeNode(DefineStmt);
+					n->kind = OBJECT_COLLATION;
+					n->args = NIL;
+					n->defnames = $6;
+					n->definition = $7;
+					n->if_not_exists = true;
+					$$ = (Node *)n;
+				}
 			| CREATE COLLATION any_name FROM any_name
 				{
 					DefineStmt *n = makeNode(DefineStmt);
@@ -5613,6 +5625,16 @@ DefineStmt:
 					n->args = NIL;
 					n->defnames = $3;
 					n->definition = list_make1(makeDefElem("from", (Node *) $5, @5));
+					$$ = (Node *)n;
+				}
+			| CREATE COLLATION IF_P NOT EXISTS any_name FROM any_name
+				{
+					DefineStmt *n = makeNode(DefineStmt);
+					n->kind = OBJECT_COLLATION;
+					n->args = NIL;
+					n->defnames = $6;
+					n->definition = list_make1(makeDefElem("from", (Node *) $8, @8));
+					n->if_not_exists = true;
 					$$ = (Node *)n;
 				}
 		;
@@ -6259,16 +6281,6 @@ CommentStmt:
 					n->objname = lappend($6, makeString($4));
 					n->objargs = NIL;
 					n->comment = $8;
-					$$ = (Node *) n;
-				}
-			| COMMENT ON RULE name IS comment_text
-				{
-					/* Obsolete syntax supported for awhile for compatibility */
-					CommentStmt *n = makeNode(CommentStmt);
-					n->objtype = OBJECT_RULE;
-					n->objname = list_make1(makeString($4));
-					n->objargs = NIL;
-					n->comment = $6;
 					$$ = (Node *) n;
 				}
 			| COMMENT ON TRANSFORM FOR Typename LANGUAGE name IS comment_text
@@ -11312,7 +11324,7 @@ table_ref:	relation_expr opt_alias_clause
 					n->lateral = true;
 					n->subquery = $2;
 					n->alias = $3;
-					/* same coment as above */
+					/* same comment as above */
 					if ($3 == NULL)
 					{
 						if (IsA($2, SelectStmt) &&
@@ -12740,7 +12752,10 @@ c_expr:		columnref								{ $$ = $1; }
 						 * AEXPR_PAREN nodes wrapping all explicitly
 						 * parenthesized subexpressions; this prevents bogus
 						 * warnings from being issued when the ordering has
-						 * been forced by parentheses.
+						 * been forced by parentheses.  Take care that an
+						 * AEXPR_PAREN node has the same exprLocation as its
+						 * child, so as not to cause surprising changes in
+						 * error cursor positioning.
 						 *
 						 * In principle we should not be relying on a GUC to
 						 * decide whether to insert AEXPR_PAREN nodes.
@@ -12749,7 +12764,8 @@ c_expr:		columnref								{ $$ = $1; }
 						 * we'd just as soon not waste cycles on dummy parse
 						 * nodes if we don't have to.
 						 */
-						$$ = (Node *) makeA_Expr(AEXPR_PAREN, NIL, $2, NULL, @1);
+						$$ = (Node *) makeA_Expr(AEXPR_PAREN, NIL, $2, NULL,
+												 exprLocation($2));
 					}
 					else
 						$$ = $2;
@@ -12817,8 +12833,7 @@ c_expr:		columnref								{ $$ = $1; }
 				}
 			| ARRAY array_expr
 				{
-					A_ArrayExpr *n = (A_ArrayExpr *) $2;
-					Assert(IsA(n, A_ArrayExpr));
+					A_ArrayExpr *n = castNode(A_ArrayExpr, $2);
 					/* point outermost A_ArrayExpr to the ARRAY keyword */
 					n->location = @1;
 					$$ = (Node *)n;
