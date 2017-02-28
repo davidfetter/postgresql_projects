@@ -60,6 +60,8 @@ SELECT regr_avgx(b, a), regr_avgy(b, a) FROM aggtest;
 SELECT regr_r2(b, a) FROM aggtest;
 SELECT regr_slope(b, a), regr_intercept(b, a) FROM aggtest;
 SELECT covar_pop(b, a), covar_samp(b, a) FROM aggtest;
+SELECT weighted_avg(a, b) FROM aggtest;
+SELECT weighted_stddev_pop(a, b), weighted_stddev_samp(a, b) FROM aggtest;
 SELECT corr(b, a) FROM aggtest;
 
 SELECT count(four) AS cnt_1000 FROM onek;

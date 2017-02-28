@@ -2452,6 +2452,7 @@ setseed(PG_FUNCTION_ARGS)
  *		float8_accum		- accumulate for AVG(), variance aggregates, etc.
  *		float4_accum		- same, but input data is float4
  *		float8_avg			- produce final result for float AVG()
+ *		float8_weighted_avg	- produce final result for float WEIGHTED_AVG()
  *		float8_var_samp		- produce final result for float VAR_SAMP()
  *		float8_var_pop		- produce final result for float VAR_POP()
  *		float8_stddev_samp	- produce final result for float STDDEV_SAMP()
@@ -3252,6 +3253,211 @@ float8_regr_intercept(PG_FUNCTION_ARGS)
 	PG_RETURN_FLOAT8(numeratorXXY / numeratorX);
 }
 
+/*
+ *		===================
+ *		WEIGHTED AGGREGATES
+ *		===================
+ *
+ * First, an accumulator function for those we can't pirate from the
+ * other accumulators.  This accumulator function takes out some of
+ * the rounding error inherent in the general one.
+ * https://en.wikipedia.org/wiki/Standard_deviation#Rapid_calculation_methods
+ *
+ * The transition type is an array of 5 float8s:
+ *
+ * N, the number of non-zero-weighted values seen thus far,
+ * W, the running sum of weights,
+ * WX, the running dot product of weights and values,
+ * A, an intermediate value used in the calculation, and
+ * Q, another intermediate value.
+ *
+ */
+
+Datum
+float8_weighted_accum(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
+	float8		newvalX = PG_GETARG_FLOAT8(1);
+	float8		newvalW = PG_GETARG_FLOAT8(2);
+	float8	   *transvalues;
+	float8		N,	/* common */
+				W,	/* common */
+				WX,	/* Used in avg */
+				A,	/* Used in stddev_* */
+				Q;	/* Used in stddev_* */
+
+	transvalues = check_float8_array(transarray, "float8_weighted_accum", 5);
+
+	if (newvalW == 0.0) /* Discard zero weights */
+		PG_RETURN_NULL();
+
+	if (newvalW < 0.0) /* Negative weights are an error. */
+		ereport(ERROR,
+				(errmsg("negative weights are not allowed")));
+
+	N  = transvalues[0];
+	W  = transvalues[1];
+	WX = transvalues[2];
+	A  = transvalues[3];
+	Q  = transvalues[4];
+
+	N += 1.0;
+	CHECKFLOATVAL(N, isinf(transvalues[0]), true);
+	W += newvalW;
+	CHECKFLOATVAL(W, isinf(transvalues[1]) || isinf(newvalW), true);
+	WX += newvalW * newvalX;
+	CHECKFLOATVAL(WX, isinf(transvalues[1]) || isinf(newvalW), true);
+	A += newvalW * ( newvalX - transvalues[3] ) / W;
+	CHECKFLOATVAL(A, isinf(newvalW) || isinf(transvalues[3]) || isinf(1.0/W), true);
+	Q += newvalW * (newvalX - transvalues[3]) * (newvalX - A);
+	CHECKFLOATVAL(A, isinf(newvalX -  transvalues[4]) || isinf(newvalX - A) || isinf(1.0/W), true);
+
+	if (AggCheckCallContext(fcinfo, NULL)) /* Update in place is safe in Agg context */
+	{
+		transvalues[0] = N;
+		transvalues[1] = W;
+		transvalues[2] = WX;
+		transvalues[3] = A;
+		transvalues[4] = Q;
+
+		PG_RETURN_ARRAYTYPE_P(transarray);
+	}
+	else /* You do not need to call this directly. */
+		ereport(ERROR,
+				(errmsg("float8_weighted_accum called outside agg context")));
+}
+
+/*
+ * float8_weighted_combine
+ *
+ * An aggregate combine function used to combine two 5-field aggregate
+ * transition data into one.  This function is used only in two-stage
+ * aggregation and shouldn't be called outside aggregate context.
+ */
+Datum
+float8_weighted_combine(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray1 = PG_GETARG_ARRAYTYPE_P(0);
+	ArrayType  *transarray2 = PG_GETARG_ARRAYTYPE_P(1);
+	float8	   *transvalues1;
+	float8	   *transvalues2;
+	float8		N,
+				W,
+				WX,
+				A,
+				Q;
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate function called in non-aggregate context");
+
+	transvalues1 = check_float8_array(transarray1, "float8_weighted_combine", 5);
+	N = transvalues1[0];
+	W = transvalues1[1];
+	WX = transvalues1[2];
+	A = transvalues1[3];
+	Q = transvalues1[4];
+
+	transvalues2 = check_float8_array(transarray2, "float8_weighted_combine", 5);
+	N += transvalues2[0];
+	W += transvalues2[1];
+	WX += transvalues2[2];
+	CHECKFLOATVAL(WX, isinf(transvalues1[2]) || isinf(transvalues2[2]),
+				  true);
+	A += transvalues2[3];
+	CHECKFLOATVAL(A, isinf(transvalues1[3]) || isinf(transvalues2[3]),
+				  true);
+	W += transvalues2[4];
+	CHECKFLOATVAL(W, isinf(transvalues1[4]) || isinf(transvalues2[4]),
+				  true);
+
+	transvalues1[0] = N;
+	transvalues1[1] = W;
+	transvalues1[2] = WX;
+	transvalues1[3] = A;
+	transvalues1[4] = Q;
+
+	PG_RETURN_ARRAYTYPE_P(transarray1);
+}
+
+/*
+ * This is the final function for the weighted mean. It uses the
+ * 5-element accumulator common to weighted aggregates.
+ *
+ *     N, the number of elements with non-zero weights,
+ *     sumW, the sum of the weights, and
+ *     sumWX, the dot product of elements and weights.
+ *
+ *  While it might be possible to optimize this further by making a
+ *  more compact accumulator, the performance gain is likely marginal.
+ *
+ */
+Datum
+float8_weighted_avg(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
+	float8	   *transvalues;
+	float8		N,
+				sumWX,
+				sumW;
+
+	transvalues = check_float8_array(transarray, "float8_weighted_avg", 5);
+	N = transvalues[0];
+	sumW = transvalues[1];
+	sumWX = transvalues[2];
+
+	if (N < 1.0)
+		PG_RETURN_NULL();
+
+	CHECKFLOATVAL(N, isinf(1.0/sumW) || isinf(sumWX), true);
+
+	PG_RETURN_FLOAT8(sumWX/sumW);
+}
+
+Datum
+float8_weighted_stddev_samp(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
+	float8	   *transvalues;
+	float8		N,
+				W,
+				/* Skip A.  Not used in the calculation */
+				Q;
+
+	transvalues = check_float8_array(transarray, "float8_weighted_stddev_samp", 5);
+	N = transvalues[0];
+	W = transvalues[1];
+	Q = transvalues[4];
+
+	if (N < 2.0) /* Must have at least two samples to get a stddev */
+		PG_RETURN_NULL();
+
+	PG_RETURN_FLOAT8(
+		sqrt(
+			Q / (W - 1)
+		)
+	);
+}
+
+Datum
+float8_weighted_stddev_pop(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
+	float8	   *transvalues;
+	float8		N,
+				W,
+				/* Skip A.  Not used in the calculation */
+				Q;
+
+	transvalues = check_float8_array(transarray, "float8_weighted_stddev_pop", 5);
+	N = transvalues[0];
+	W = transvalues[1];
+	Q = transvalues[4];
+
+	if (N < 2.0) /* Must have at least two samples to get a stddev */
+		PG_RETURN_NULL();
+
+	PG_RETURN_FLOAT8( sqrt( Q / W ) );
+}
 
 /*
  *		====================================

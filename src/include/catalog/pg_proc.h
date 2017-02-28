@@ -2461,6 +2461,16 @@ DESCR("join selectivity of case-insensitive regex non-match");
 /* Aggregate-related functions */
 DATA(insert OID = 1830 (  float8_avg	   PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_avg _null_ _null_ _null_ ));
 DESCR("aggregate final function");
+DATA(insert OID = 441 ( float8_weighted_accum PGNSP PGUID 12 1 0 0 0 f f f f t f i s 3 0 1022 "1022 701 701" _null_ _null_ _null_ _null_ _null_ float8_weighted_accum _null_ _null_ _null_));
+DESCR("weighted aggregate transition function");
+DATA(insert OID = 442 ( float8_weighted_combine PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 1022 "1022 1022" _null_ _null_ _null_ _null _null_ float8_weighted_combine _null_ _null_ _null_));
+DESCR("weighted aggregate combine function");
+DATA(insert OID = 443 ( float8_weighted_avg PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_weighted_avg _null_ _null_ _null_));
+DESCR("aggregate final function");
+DATA(insert OID = 444 ( float8_weighted_stddev_samp PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_weighted_stddev_samp _null_ _null_ _null_));
+DESCR("aggregate final function");
+DATA(insert OID = 445 ( float8_weighted_stddev_pop PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_weighted_stddev_pop _null_ _null_ _null_));
+DESCR("aggregate final function");
 DATA(insert OID = 2512 (  float8_var_pop   PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_var_pop _null_ _null_ _null_ ));
 DESCR("aggregate final function");
 DATA(insert OID = 1831 (  float8_var_samp  PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 701 "1022" _null_ _null_ _null_ _null_ _null_ float8_var_samp _null_ _null_ _null_ ));

@@ -12970,6 +12970,24 @@ NULL baz</literallayout>(3 rows)</entry>
      <row>
       <entry>
        <indexterm>
+        <primary>weighted_average</primary>
+       </indexterm>
+       <indexterm>
+        <primary>weighted_avg</primary>
+       </indexterm>
+       <function>weighted_avg(<replaceable class="parameter">value expression</replaceable>, <replaceable class="parameter">weight expression</replaceable>)</function>
+      </entry>
+      <entry>
+       (<type>double precision, double precision</type>)
+      </entry>
+      <entry>same as argument data type</entry>
+      <entry>Yes</entry>
+      <entry>the average (arithmetic mean) of all input values, weighted by the input weights</entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
         <primary>bit_and</primary>
        </indexterm>
        <function>bit_and(<replaceable class="parameter">expression</replaceable>)</function>
@@ -13651,6 +13669,27 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
      <row>
       <entry>
        <indexterm>
+        <primary>weighted standard deviation</primary>
+        <secondary>population</secondary>
+       </indexterm>
+       <indexterm>
+        <primary>weighted_stddev_pop</primary>
+       </indexterm>
+       <function>weighted_stddev_pop(<replaceable class="parameter">value expression</replaceable>, <replaceable class="parameter">weight expression</replaceable>)</function>
+      </entry>
+      <entry>
+       (<type>double precision, double precision</type>)
+      </entry>
+      <entry>
+        <type>double precision</type>
+      </entry>
+      <entry>Yes</entry>
+      <entry>weighted population standard deviation of the input values.</entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
         <primary>standard deviation</primary>
         <secondary>sample</secondary>
        </indexterm>
@@ -13670,6 +13709,27 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
       </entry>
       <entry>Yes</entry>
       <entry>sample standard deviation of the input values</entry>
+     </row>
+
+     <row>
+      <entry>
+       <indexterm>
+        <primary>weighted standard deviation</primary>
+        <secondary>sample</secondary>
+       </indexterm>
+       <indexterm>
+        <primary>weighted_stddev_samp</primary>
+       </indexterm>
+       <function>weighted_stddev_samp(<replaceable class="parameter">value expression</replaceable>, <replaceable class="parameter">weight expression</replaceable>)</function>
+      </entry>
+      <entry>
+       (<type>double precision, double precision</type>)
+      </entry>
+      <entry>
+       <type>double precision</type>
+      </entry>
+      <entry>Yes</entry>
+      <entry>weighted sample standard deviation of the input values</entry>
      </row>
 
      <row>

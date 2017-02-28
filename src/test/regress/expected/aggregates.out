@@ -247,6 +247,18 @@ SELECT covar_pop(b, a), covar_samp(b, a) FROM aggtest;
  653.62895538751 | 871.505273850014
 (1 row)
 
+SELECT weighted_avg(a, b) FROM aggtest;
+   weighted_avg   
+------------------
+ 55.5553072763149
+(1 row)
+
+SELECT weighted_stddev_pop(a, b), weighted_stddev_samp(a, b) FROM aggtest;
+ weighted_stddev_pop | weighted_stddev_samp 
+---------------------+----------------------
+    24.3364627240769 |     28.1013266097382
+(1 row)
+
 SELECT corr(b, a) FROM aggtest;
        corr        
 -------------------
