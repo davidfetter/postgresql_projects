@@ -1174,6 +1174,20 @@ select a, b, grouping(a,b), sum(v), count(*), max(v)
    |   |        3 |  37 |     2 |  19
 (21 rows)
 
+explain (costs off)
+  select a, b, grouping(a,b), sum(v), count(*), max(v)
+    from gstest1 group by grouping sets ((a,b),(a+1,b+1),(a+2,b+2)) order by 3,6;
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (GROUPING("*VALUES*".column1, "*VALUES*".column2)), (max("*VALUES*".column3))
+   ->  HashAggregate
+         Hash Key: "*VALUES*".column1, "*VALUES*".column2
+         Hash Key: ("*VALUES*".column1 + 1), ("*VALUES*".column2 + 1)
+         Hash Key: ("*VALUES*".column1 + 2), ("*VALUES*".column2 + 2)
+         ->  Values Scan on "*VALUES*"
+(7 rows)
+
 select a, b, sum(c), sum(sum(c)) over (order by a,b) as rsum
   from gstest2 group by cube (a,b) order by rsum, a, b;
  a | b | sum | rsum 
@@ -1187,6 +1201,24 @@ select a, b, sum(c), sum(sum(c)) over (order by a,b) as rsum
    | 2 |   4 |   36
    |   |  12 |   48
 (8 rows)
+
+explain (costs off)
+  select a, b, sum(c), sum(sum(c)) over (order by a,b) as rsum
+    from gstest2 group by cube (a,b) order by rsum, a, b;
+                 QUERY PLAN                  
+---------------------------------------------
+ Sort
+   Sort Key: (sum((sum(c))) OVER (?)), a, b
+   ->  WindowAgg
+         ->  Sort
+               Sort Key: a, b
+               ->  MixedAggregate
+                     Hash Key: a, b
+                     Hash Key: a
+                     Hash Key: b
+                     Group Key: ()
+                     ->  Seq Scan on gstest2
+(11 rows)
 
 select a, b, sum(v.x)
   from (values (1),(2)) v(x), gstest_data(v.x)
@@ -1206,6 +1238,24 @@ select a, b, sum(v.x)
    | 3 |   3
    |   |   9
 (12 rows)
+
+explain (costs off)
+  select a, b, sum(v.x)
+    from (values (1),(2)) v(x), gstest_data(v.x)
+   group by cube (a,b) order by a,b;
+                   QUERY PLAN                   
+------------------------------------------------
+ Sort
+   Sort Key: gstest_data.a, gstest_data.b
+   ->  MixedAggregate
+         Hash Key: gstest_data.a, gstest_data.b
+         Hash Key: gstest_data.a
+         Hash Key: gstest_data.b
+         Group Key: ()
+         ->  Nested Loop
+               ->  Values Scan on "*VALUES*"
+               ->  Function Scan on gstest_data
+(10 rows)
 
 -- More rescan tests
 select * from (values (1),(2)) v(a) left join lateral (select v.a, four, ten, count(*) from onek group by cube(four,ten)) s on true order by v.a,four,ten;
