@@ -4250,7 +4250,7 @@ consider_groupingsets_paths(PlannerInfo *root,
 					{
 						if (bms_is_member(i, hash_items))
 							hash_sets = list_concat(hash_sets,
-													list_copy(rollup->gsets_data));
+											  list_copy(rollup->gsets_data));
 						else
 							rollups = lappend(rollups, rollup);
 						++i;

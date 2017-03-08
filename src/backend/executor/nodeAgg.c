@@ -480,7 +480,7 @@ static void advance_transition_function(AggState *aggstate,
 							AggStatePerTrans pertrans,
 							AggStatePerGroup pergroupstate);
 static void advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup,
-								AggStatePerGroup *pergroups);
+				   AggStatePerGroup *pergroups);
 static void advance_combine_function(AggState *aggstate,
 						 AggStatePerTrans pertrans,
 						 AggStatePerGroup pergroupstate);
@@ -700,7 +700,7 @@ initialize_aggregate(AggState *aggstate, AggStatePerTrans pertrans,
 		MemoryContext oldContext;
 
 		oldContext = MemoryContextSwitchTo(
-							aggstate->curaggcontext->ecxt_per_tuple_memory);
+							 aggstate->curaggcontext->ecxt_per_tuple_memory);
 		pergroupstate->transValue = datumCopy(pertrans->initValue,
 											  pertrans->transtypeByVal,
 											  pertrans->transtypeLen);
