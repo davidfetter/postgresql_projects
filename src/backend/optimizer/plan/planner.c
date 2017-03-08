@@ -2144,7 +2144,7 @@ preprocess_grouping_sets(PlannerInfo *root)
 			rollup->groupClause = NIL;
 
 		/*
-		 * is it hashable? we pretend empty sets are hashable even though we
+		 * Is it hashable? We pretend empty sets are hashable even though we
 		 * actually force them not to be hashed later. But don't bother if
 		 * there's nothing but empty sets.
 		 */
@@ -2173,7 +2173,7 @@ preprocess_grouping_sets(PlannerInfo *root)
 	if (gd->unsortable_sets)
 	{
 		/*
-		 * we have not yet pinned down a groupclause for this, but we will
+		 * We have not yet pinned down a groupclause for this, but we will
 		 * need index-based lists for estimation purposes. Construct
 		 * hash_sets_idx based on the entire original groupclause for now.
 		 */
@@ -4180,13 +4180,16 @@ consider_groupingsets_paths(PlannerInfo *root,
 		/*
 		 * Account first for space needed for groups we can't sort at all.
 		 */
-		availspace -= (double) estimate_hashagg_tablesize(path, agg_costs, gd->dNumHashGroups);
+		availspace -= (double) estimate_hashagg_tablesize(path,
+														  agg_costs,
+														  gd->dNumHashGroups);
 
 		if (availspace > 0 && list_length(gd->rollups) > 1)
 		{
 			double		scale;
+			int			num_rollups = list_length(gd->rollups);
 			int			k_capacity;
-			int		   *k_weights = palloc(list_length(gd->rollups) * sizeof(int));
+			int		   *k_weights = palloc(num_rollups * sizeof(int));
 			Bitmapset  *hash_items = NULL;
 			int			i;
 
@@ -4200,7 +4203,7 @@ consider_groupingsets_paths(PlannerInfo *root,
 			 * no more than a couple of dozen rollups, the memory usage will
 			 * be negligible.)
 			 */
-			scale = availspace / (20.0 * list_length(gd->rollups));
+			scale = availspace / (20.0 * num_rollups);
 			k_capacity = (int) floor(availspace / scale);
 
 			/*
@@ -4246,7 +4249,8 @@ consider_groupingsets_paths(PlannerInfo *root,
 					if (rollup->hashable)
 					{
 						if (bms_is_member(i, hash_items))
-							hash_sets = list_concat(hash_sets, list_copy(rollup->gsets_data));
+							hash_sets = list_concat(hash_sets,
+													list_copy(rollup->gsets_data));
 						else
 							rollups = lappend(rollups, rollup);
 						++i;

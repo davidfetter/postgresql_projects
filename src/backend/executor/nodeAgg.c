@@ -463,9 +463,9 @@ typedef struct AggStatePerHashData
 	FmgrInfo   *eqfunctions;	/* per-grouping-field equality fns */
 	int			numCols;		/* number of hash key columns */
 	int			numhashGrpCols; /* number of columns in hash table */
-	int			largestGrpColIdx;		/* largest column required for hashing */
-	AttrNumber *hashGrpColIdxInput;		/* and their indices in input slot */
-	AttrNumber *hashGrpColIdxHash;		/* indices for execGrouping in hashtbl */
+	int			largestGrpColIdx;		/* largest col required for hashing */
+	AttrNumber *hashGrpColIdxInput;		/* hash col indices in input slot */
+	AttrNumber *hashGrpColIdxHash;		/* indices in hashtbl tuples */
 	Agg		   *aggnode;		/* original Agg node, for numGroups etc. */
 } AggStatePerHashData;
 
@@ -479,7 +479,8 @@ static void initialize_aggregates(AggState *aggstate,
 static void advance_transition_function(AggState *aggstate,
 							AggStatePerTrans pertrans,
 							AggStatePerGroup pergroupstate);
-static void advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup, AggStatePerGroup *pergroups);
+static void advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup,
+								AggStatePerGroup *pergroups);
 static void advance_combine_function(AggState *aggstate,
 						 AggStatePerTrans pertrans,
 						 AggStatePerGroup pergroupstate);
@@ -698,7 +699,8 @@ initialize_aggregate(AggState *aggstate, AggStatePerTrans pertrans,
 	{
 		MemoryContext oldContext;
 
-		oldContext = MemoryContextSwitchTo(aggstate->curaggcontext->ecxt_per_tuple_memory);
+		oldContext = MemoryContextSwitchTo(
+							aggstate->curaggcontext->ecxt_per_tuple_memory);
 		pergroupstate->transValue = datumCopy(pertrans->initValue,
 											  pertrans->transtypeByVal,
 											  pertrans->transtypeLen);
@@ -735,12 +737,13 @@ initialize_aggregates(AggState *aggstate,
 	int			transno;
 	int			numGroupingSets = Max(aggstate->phase->numsets, 1);
 	int			setno = 0;
+	int			numTrans = aggstate->numtrans;
 	AggStatePerTrans transstates = aggstate->pertrans;
 
 	if (numReset == 0)
 		numReset = numGroupingSets;
 
-	for (transno = 0; transno < aggstate->numtrans; transno++)
+	for (transno = 0; transno < numTrans; transno++)
 	{
 		AggStatePerTrans pertrans = &transstates[transno];
 
@@ -758,7 +761,7 @@ initialize_aggregates(AggState *aggstate,
 			{
 				AggStatePerGroup pergroupstate;
 
-				pergroupstate = &pergroup[transno + (setno * (aggstate->numtrans))];
+				pergroupstate = &pergroup[transno + (setno * numTrans)];
 
 				select_current_set(aggstate, setno, false);
 
@@ -2183,7 +2186,8 @@ agg_retrieve_direct(AggState *aggstate)
 				 */
 				initialize_phase(aggstate, 0);
 				aggstate->table_filled = true;
-				ResetTupleHashIterator(aggstate->perhash[0].hashtable, &aggstate->perhash[0].hashiter);
+				ResetTupleHashIterator(aggstate->perhash[0].hashtable,
+									   &aggstate->perhash[0].hashiter);
 				select_current_set(aggstate, 0, true);
 				return agg_retrieve_hash_table(aggstate);
 			}
@@ -2340,7 +2344,8 @@ agg_retrieve_direct(AggState *aggstate)
 					 * During phase 1 only of a mixed agg, we need to update
 					 * hashtables as well in advance_aggregates.
 					 */
-					if (aggstate->aggstrategy == AGG_MIXED && aggstate->current_phase == 1)
+					if (aggstate->aggstrategy == AGG_MIXED &&
+						aggstate->current_phase == 1)
 					{
 						hash_pergroups = lookup_hash_entries(aggstate);
 					}
@@ -2468,7 +2473,8 @@ agg_fill_hash_table(AggState *aggstate)
 	aggstate->table_filled = true;
 	/* Initialize to walk the first hash table */
 	select_current_set(aggstate, 0, true);
-	ResetTupleHashIterator(aggstate->perhash[0].hashtable, &aggstate->perhash[0].hashiter);
+	ResetTupleHashIterator(aggstate->perhash[0].hashtable,
+						   &aggstate->perhash[0].hashiter);
 }
 
 /*
@@ -2576,7 +2582,9 @@ agg_retrieve_hash_table(AggState *aggstate)
 		 */
 		econtext->ecxt_outertuple = firstSlot;
 
-		prepare_projection_slot(aggstate, econtext->ecxt_outertuple, aggstate->current_set);
+		prepare_projection_slot(aggstate,
+								econtext->ecxt_outertuple,
+								aggstate->current_set);
 
 		finalize_aggregates(aggstate, peragg, pergroup, -1);
 
@@ -2830,7 +2838,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		aggstate->phases[0].grouped_cols = palloc(numHashes * sizeof(Bitmapset *));
 	}
 
-	for (phaseidx = 0, phase = 0; phaseidx <= list_length(node->chain); ++phaseidx)
+	phase = 0;
+	for (phaseidx = 0; phaseidx <= list_length(node->chain); ++phaseidx)
 	{
 		Agg		   *aggnode;
 		Sort	   *sortnode;
@@ -3884,7 +3893,8 @@ ExecReScanAgg(AggState *node)
 		if (outerPlan->chgParam == NULL &&
 			!bms_overlap(node->ss.ps.chgParam, aggnode->aggParams))
 		{
-			ResetTupleHashIterator(node->perhash[0].hashtable, &node->perhash[0].hashiter);
+			ResetTupleHashIterator(node->perhash[0].hashtable,
+								   &node->perhash[0].hashiter);
 			select_current_set(node, 0, true);
 			return;
 		}

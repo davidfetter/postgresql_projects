@@ -1813,7 +1813,7 @@ create_groupingsets_plan(PlannerInfo *root, GroupingSetsPath *best_path)
 										 sort_plan);
 
 			/*
-			 * Nuke stuff we don't need to avoid bloating debug output.
+			 * Remove stuff we don't need to avoid bloating debug output.
 			 */
 			if (sort_plan)
 			{

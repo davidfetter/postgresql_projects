@@ -474,7 +474,6 @@ bms_overlap_list(const Bitmapset *a, const List *b)
 	{
 		int			x = lfirst_int(lc);
 
-		/* XXX better to just return false for x<0 ? */
 		if (x < 0)
 			elog(ERROR, "negative bitmapset member not allowed");
 		wordnum = WORDNUM(x);
