@@ -2050,7 +2050,7 @@ lookup_hash_entries(AggState *aggstate)
 TupleTableSlot *
 ExecAgg(AggState *node)
 {
-	TupleTableSlot *result;
+	TupleTableSlot *result = NULL;
 
 	if (!node->agg_done)
 	{
