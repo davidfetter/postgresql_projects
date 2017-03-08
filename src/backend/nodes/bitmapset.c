@@ -472,7 +472,7 @@ bms_overlap_list(const Bitmapset *a, const List *b)
 
 	foreach(lc, b)
 	{
-		int		x = lfirst_int(lc);
+		int			x = lfirst_int(lc);
 
 		/* XXX better to just return false for x<0 ? */
 		if (x < 0)

@@ -61,10 +61,11 @@ DiscreteKnapsack(int max_weight, int num_items,
 													ALLOCSET_SMALL_INITSIZE,
 													ALLOCSET_SMALL_MAXSIZE);
 	MemoryContext oldctx = MemoryContextSwitchTo(local_ctx);
-	double *values;
+	double	   *values;
 	Bitmapset **sets;
-	Bitmapset *result;
-	int i,j;
+	Bitmapset  *result;
+	int			i,
+				j;
 
 	Assert(max_weight >= 0);
 	Assert(num_items > 0 && item_weights);
@@ -80,12 +81,13 @@ DiscreteKnapsack(int max_weight, int num_items,
 
 	for (i = 0; i < num_items; ++i)
 	{
-		int iw = item_weights[i];
-		double iv = item_values ? item_values[i] : 1;
+		int			iw = item_weights[i];
+		double		iv = item_values ? item_values[i] : 1;
 
 		for (j = max_weight; j >= iw; --j)
 		{
-			int ow = j - iw;
+			int			ow = j - iw;
+
 			if (values[j] <= values[ow] + iv)
 			{
 				/* copy sets[ow] to sets[j] without realloc */

@@ -2639,8 +2639,8 @@ create_groupingsets_path(PlannerInfo *root,
 	pathnode->subpath = subpath;
 
 	/*
-	 * Simplify callers by downgrading AGG_SORTED to AGG_PLAIN,
-	 * and AGG_MIXED to AGG_HASHED, here if possible.
+	 * Simplify callers by downgrading AGG_SORTED to AGG_PLAIN, and AGG_MIXED
+	 * to AGG_HASHED, here if possible.
 	 */
 	if (aggstrategy == AGG_SORTED &&
 		list_length(rollups) == 1 &&
@@ -2682,8 +2682,8 @@ create_groupingsets_path(PlannerInfo *root,
 		 * In AGG_HASHED mode, there is one rollup for each grouping set.
 		 *
 		 * In AGG_MIXED mode, the first rollups are hashed, the first
-		 * non-hashed one takes the (already-sorted) input, and
-		 * following ones do their own sort.
+		 * non-hashed one takes the (already-sorted) input, and following ones
+		 * do their own sort.
 		 */
 
 		if (is_first)
@@ -2707,7 +2707,10 @@ create_groupingsets_path(PlannerInfo *root,
 
 			if (rollup->is_hashed || is_first_sort)
 			{
-				/* Account for cost of aggregation, but don't charge input cost again */
+				/*
+				 * Account for cost of aggregation, but don't charge input
+				 * cost again
+				 */
 				cost_agg(&agg_path, root,
 						 rollup->is_hashed ? AGG_HASHED : AGG_SORTED,
 						 agg_costs,

@@ -462,10 +462,10 @@ typedef struct AggStatePerHashData
 	FmgrInfo   *hashfunctions;	/* per-grouping-field hash fns */
 	FmgrInfo   *eqfunctions;	/* per-grouping-field equality fns */
 	int			numCols;		/* number of hash key columns */
-	int			numhashGrpCols;	/* number of columns in hash table */
-	int			largestGrpColIdx; /* largest column required for hashing */
-	AttrNumber *hashGrpColIdxInput;	/* and their indices in input slot */
-	AttrNumber *hashGrpColIdxHash;	/* indices for execGrouping in hashtbl */
+	int			numhashGrpCols; /* number of columns in hash table */
+	int			largestGrpColIdx;		/* largest column required for hashing */
+	AttrNumber *hashGrpColIdxInput;		/* and their indices in input slot */
+	AttrNumber *hashGrpColIdxHash;		/* indices for execGrouping in hashtbl */
 	Agg		   *aggnode;		/* original Agg node, for numGroups etc. */
 } AggStatePerHashData;
 
@@ -814,7 +814,7 @@ advance_transition_function(AggState *aggstate,
 			 * do not need to pfree the old transValue, since it's NULL.
 			 */
 			oldContext = MemoryContextSwitchTo(
-											   aggstate->curaggcontext->ecxt_per_tuple_memory);
+							 aggstate->curaggcontext->ecxt_per_tuple_memory);
 			pergroupstate->transValue = datumCopy(fcinfo->arg[1],
 												  pertrans->transtypeByVal,
 												  pertrans->transtypeLen);
@@ -1145,7 +1145,7 @@ advance_combine_function(AggState *aggstate,
 			if (!pertrans->transtypeByVal)
 			{
 				oldContext = MemoryContextSwitchTo(
-												   aggstate->curaggcontext->ecxt_per_tuple_memory);
+							 aggstate->curaggcontext->ecxt_per_tuple_memory);
 				pergroupstate->transValue = datumCopy(fcinfo->arg[1],
 													pertrans->transtypeByVal,
 													  pertrans->transtypeLen);
@@ -1806,7 +1806,7 @@ build_hash_table(AggState *aggstate)
 {
 	MemoryContext tmpmem = aggstate->tmpcontext->ecxt_per_tuple_memory;
 	Size		additionalsize;
-	int i;
+	int			i;
 
 	Assert(aggstate->aggstrategy == AGG_HASHED || aggstate->aggstrategy == AGG_MIXED);
 
@@ -1824,7 +1824,7 @@ build_hash_table(AggState *aggstate)
 												 perhash->hashfunctions,
 												 perhash->aggnode->numGroups,
 												 additionalsize,
-							 aggstate->hashcontext->ecxt_per_tuple_memory,
+								aggstate->hashcontext->ecxt_per_tuple_memory,
 												 tmpmem,
 								  DO_AGGSPLIT_SKIPFINAL(aggstate->aggsplit));
 	}
@@ -1864,9 +1864,9 @@ find_hash_columns(AggState *aggstate)
 	for (j = 0; j < numHashes; ++j)
 	{
 		AggStatePerHash perhash = &aggstate->perhash[j];
-		Bitmapset *colnos = bms_copy(base_colnos);
+		Bitmapset  *colnos = bms_copy(base_colnos);
 		AttrNumber *grpColIdx = perhash->aggnode->grpColIdx;
-		List		*hashTlist = NIL;
+		List	   *hashTlist = NIL;
 		TupleDesc	hashDesc;
 		int			i;
 
@@ -1904,9 +1904,9 @@ find_hash_columns(AggState *aggstate)
 		/*
 		 * First build mapping for columns directly hashed. These are the
 		 * first, because they'll be accessed when computing hash values and
-		 * comparing tuples for exact matches. We also build simple mapping for
-		 * execGrouping, so it knows where to find the to-be-hashed / compared
-		 * columns in the input.
+		 * comparing tuples for exact matches. We also build simple mapping
+		 * for execGrouping, so it knows where to find the to-be-hashed /
+		 * compared columns in the input.
 		 */
 		for (i = 0; i < perhash->numCols; i++)
 		{
@@ -1981,7 +1981,7 @@ lookup_hash_entry(AggState *aggstate)
 	TupleTableSlot *hashslot = perhash->hashslot;
 	TupleHashEntryData *entry;
 	bool		isnew;
-	int i;
+	int			i;
 
 	/* transfer just the needed columns into hashslot */
 	slot_getsomeattrs(inputslot, perhash->largestGrpColIdx);
@@ -2060,7 +2060,7 @@ ExecAgg(AggState *node)
 			case AGG_HASHED:
 				if (!node->table_filled)
 					agg_fill_hash_table(node);
-				/*FALLTHROUGH*/
+				/* FALLTHROUGH */
 			case AGG_MIXED:
 				result = agg_retrieve_hash_table(node);
 				break;
@@ -2507,7 +2507,7 @@ agg_retrieve_hash_table(AggState *aggstate)
 	while (!aggstate->agg_done)
 	{
 		TupleTableSlot *hashslot = perhash->hashslot;
-		int i;
+		int			i;
 
 		/*
 		 * Find the next entry in the hash table
@@ -2515,7 +2515,7 @@ agg_retrieve_hash_table(AggState *aggstate)
 		entry = ScanTupleHashTable(perhash->hashtable, &perhash->hashiter);
 		if (entry == NULL)
 		{
-			int nextset = aggstate->current_set + 1;
+			int			nextset = aggstate->current_set + 1;
 
 			if (nextset < aggstate->num_hashes)
 			{
@@ -2699,9 +2699,10 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 			numGroupingSets = Max(numGroupingSets,
 								  list_length(agg->groupingSets));
+
 			/*
-			 * additional AGG_HASHED aggs become part of phase 0,
-			 * but all others add an extra phase.
+			 * additional AGG_HASHED aggs become part of phase 0, but all
+			 * others add an extra phase.
 			 */
 			if (agg->aggstrategy != AGG_HASHED)
 				++numPhases;
@@ -2718,11 +2719,12 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 	/*
 	 * Create expression contexts.  We need three or more, one for
-	 * per-input-tuple processing, one for per-output-tuple processing, one for
-	 * all the hashtables, and one for each grouping set.  The per-tuple memory
-	 * context of the per-grouping-set ExprContexts (aggcontexts) replaces the
-	 * standalone memory context formerly used to hold transition values.  We
-	 * cheat a little by using ExecAssignExprContext() to build all of them.
+	 * per-input-tuple processing, one for per-output-tuple processing, one
+	 * for all the hashtables, and one for each grouping set.  The per-tuple
+	 * memory context of the per-grouping-set ExprContexts (aggcontexts)
+	 * replaces the standalone memory context formerly used to hold transition
+	 * values.  We cheat a little by using ExecAssignExprContext() to build
+	 * all of them.
 	 *
 	 * NOTE: the details of what is stored in aggcontexts and what is stored
 	 * in the regular per-query memory context are driven by a simple
@@ -2903,7 +2905,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				}
 
 				all_grouped_cols = bms_add_members(all_grouped_cols,
-												   phasedata->grouped_cols[0]);
+												 phasedata->grouped_cols[0]);
 			}
 			else
 			{

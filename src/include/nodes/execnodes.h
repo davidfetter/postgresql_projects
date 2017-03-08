@@ -1879,7 +1879,7 @@ typedef struct AggState
 	ExprContext *hashcontext;	/* econtexts for long-lived data (hashtable) */
 	ExprContext **aggcontexts;	/* econtexts for long-lived data (per GS) */
 	ExprContext *tmpcontext;	/* econtext for input expressions */
-	ExprContext *curaggcontext;	/* currently active aggcontext */
+	ExprContext *curaggcontext; /* currently active aggcontext */
 	AggStatePerTrans curpertrans;		/* currently active trans state */
 	bool		input_done;		/* indicates end of input */
 	bool		agg_done;		/* indicates completion of Agg scan */
@@ -1901,7 +1901,7 @@ typedef struct AggState
 	bool		table_filled;	/* hash table filled yet? */
 	int			num_hashes;
 	AggStatePerHash perhash;
-	AggStatePerGroup *hash_pergroup; /* array of per-group pointers */
+	AggStatePerGroup *hash_pergroup;	/* array of per-group pointers */
 	/* support for evaluation of agg inputs */
 	TupleTableSlot *evalslot;	/* slot for agg inputs */
 	ProjectionInfo *evalproj;	/* projection machinery */

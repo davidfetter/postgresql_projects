@@ -1769,8 +1769,8 @@ create_groupingsets_plan(PlannerInfo *root, GroupingSetsPath *best_path)
 	chain = NIL;
 	if (list_length(rollups) > 1)
 	{
-		ListCell *lc2 = lnext(list_head(rollups));
-		bool is_first_sort = ((RollupData *)linitial(rollups))->is_hashed;
+		ListCell   *lc2 = lnext(list_head(rollups));
+		bool		is_first_sort = ((RollupData *) linitial(rollups))->is_hashed;
 
 		for_each_cell(lc, lc2)
 		{
@@ -1804,9 +1804,9 @@ create_groupingsets_plan(PlannerInfo *root, GroupingSetsPath *best_path)
 										 NIL,
 										 strat,
 										 AGGSPLIT_SIMPLE,
-									   list_length((List *) linitial(rollup->gsets)),
+							   list_length((List *) linitial(rollup->gsets)),
 										 new_grpColIdx,
-										 extract_grouping_ops(rollup->groupClause),
+								   extract_grouping_ops(rollup->groupClause),
 										 rollup->gsets,
 										 NIL,
 										 rollup->numGroups,
