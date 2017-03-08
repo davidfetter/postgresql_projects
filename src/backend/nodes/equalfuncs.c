@@ -1095,10 +1095,10 @@ _equalGrantStmt(const GrantStmt *a, const GrantStmt *b)
 }
 
 static bool
-_equalFuncWithArgs(const FuncWithArgs *a, const FuncWithArgs *b)
+_equalObjectWithArgs(const ObjectWithArgs *a, const ObjectWithArgs *b)
 {
-	COMPARE_NODE_FIELD(funcname);
-	COMPARE_NODE_FIELD(funcargs);
+	COMPARE_NODE_FIELD(objname);
+	COMPARE_NODE_FIELD(objargs);
 
 	return true;
 }
@@ -1220,7 +1220,6 @@ static bool
 _equalDropStmt(const DropStmt *a, const DropStmt *b)
 {
 	COMPARE_NODE_FIELD(objects);
-	COMPARE_NODE_FIELD(arguments);
 	COMPARE_SCALAR_FIELD(removeType);
 	COMPARE_SCALAR_FIELD(behavior);
 	COMPARE_SCALAR_FIELD(missing_ok);
@@ -1243,8 +1242,7 @@ static bool
 _equalCommentStmt(const CommentStmt *a, const CommentStmt *b)
 {
 	COMPARE_SCALAR_FIELD(objtype);
-	COMPARE_NODE_FIELD(objname);
-	COMPARE_NODE_FIELD(objargs);
+	COMPARE_NODE_FIELD(object);
 	COMPARE_STRING_FIELD(comment);
 
 	return true;
@@ -1254,8 +1252,7 @@ static bool
 _equalSecLabelStmt(const SecLabelStmt *a, const SecLabelStmt *b)
 {
 	COMPARE_SCALAR_FIELD(objtype);
-	COMPARE_NODE_FIELD(objname);
-	COMPARE_NODE_FIELD(objargs);
+	COMPARE_NODE_FIELD(object);
 	COMPARE_STRING_FIELD(provider);
 	COMPARE_STRING_FIELD(label);
 
@@ -1347,7 +1344,6 @@ _equalRenameStmt(const RenameStmt *a, const RenameStmt *b)
 	COMPARE_SCALAR_FIELD(relationType);
 	COMPARE_NODE_FIELD(relation);
 	COMPARE_NODE_FIELD(object);
-	COMPARE_NODE_FIELD(objarg);
 	COMPARE_STRING_FIELD(subname);
 	COMPARE_STRING_FIELD(newname);
 	COMPARE_SCALAR_FIELD(behavior);
@@ -1361,8 +1357,7 @@ _equalAlterObjectDependsStmt(const AlterObjectDependsStmt *a, const AlterObjectD
 {
 	COMPARE_SCALAR_FIELD(objectType);
 	COMPARE_NODE_FIELD(relation);
-	COMPARE_NODE_FIELD(objname);
-	COMPARE_NODE_FIELD(objargs);
+	COMPARE_NODE_FIELD(object);
 	COMPARE_NODE_FIELD(extname);
 
 	return true;
@@ -1374,7 +1369,6 @@ _equalAlterObjectSchemaStmt(const AlterObjectSchemaStmt *a, const AlterObjectSch
 	COMPARE_SCALAR_FIELD(objectType);
 	COMPARE_NODE_FIELD(relation);
 	COMPARE_NODE_FIELD(object);
-	COMPARE_NODE_FIELD(objarg);
 	COMPARE_STRING_FIELD(newschema);
 	COMPARE_SCALAR_FIELD(missing_ok);
 
@@ -1387,7 +1381,6 @@ _equalAlterOwnerStmt(const AlterOwnerStmt *a, const AlterOwnerStmt *b)
 	COMPARE_SCALAR_FIELD(objectType);
 	COMPARE_NODE_FIELD(relation);
 	COMPARE_NODE_FIELD(object);
-	COMPARE_NODE_FIELD(objarg);
 	COMPARE_NODE_FIELD(newowner);
 
 	return true;
@@ -1397,7 +1390,6 @@ static bool
 _equalAlterOperatorStmt(const AlterOperatorStmt *a, const AlterOperatorStmt *b)
 {
 	COMPARE_NODE_FIELD(opername);
-	COMPARE_NODE_FIELD(operargs);
 	COMPARE_NODE_FIELD(options);
 
 	return true;
@@ -1542,7 +1534,6 @@ _equalCreateOpClassItem(const CreateOpClassItem *a, const CreateOpClassItem *b)
 {
 	COMPARE_SCALAR_FIELD(itemtype);
 	COMPARE_NODE_FIELD(name);
-	COMPARE_NODE_FIELD(args);
 	COMPARE_SCALAR_FIELD(number);
 	COMPARE_NODE_FIELD(order_family);
 	COMPARE_NODE_FIELD(class_args);
@@ -1783,8 +1774,7 @@ _equalAlterExtensionContentsStmt(const AlterExtensionContentsStmt *a, const Alte
 	COMPARE_STRING_FIELD(extname);
 	COMPARE_SCALAR_FIELD(action);
 	COMPARE_SCALAR_FIELD(objtype);
-	COMPARE_NODE_FIELD(objname);
-	COMPARE_NODE_FIELD(objargs);
+	COMPARE_NODE_FIELD(object);
 
 	return true;
 }
@@ -3532,8 +3522,8 @@ equal(const void *a, const void *b)
 		case T_CommonTableExpr:
 			retval = _equalCommonTableExpr(a, b);
 			break;
-		case T_FuncWithArgs:
-			retval = _equalFuncWithArgs(a, b);
+		case T_ObjectWithArgs:
+			retval = _equalObjectWithArgs(a, b);
 			break;
 		case T_AccessPriv:
 			retval = _equalAccessPriv(a, b);

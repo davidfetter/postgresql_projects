@@ -902,49 +902,78 @@ if {[catch { spi_exec $sql_command }]} {
     </para>
    </sect1>
 
-   <sect1 id="pltcl-unknown">
-       <title>Modules and the <function>unknown</> Command</title>
+   <sect1 id="pltcl-config">
+    <title>PL/Tcl Configuration</title>
+
+    <para>
+     This section lists configuration parameters that
+     affect <application>PL/Tcl</>.
+    </para>
+
+    <variablelist>
+
+     <varlistentry id="guc-pltcl-start-proc" xreflabel="pltcl.start_proc">
+      <term>
+       <varname>pltcl.start_proc</varname> (<type>string</type>)
+       <indexterm>
+        <primary><varname>pltcl.start_proc</> configuration parameter</primary>
+       </indexterm>
+      </term>
+      <listitem>
        <para>
-        PL/Tcl has support for autoloading Tcl code when used.
-        It recognizes a special table, <literal>pltcl_modules</>, which
-        is presumed to contain modules of Tcl code.  If this table
-        exists, the module <literal>unknown</> is fetched from the table
-        and loaded into the Tcl interpreter immediately before the first
-        execution of a PL/Tcl function in a database session.  (This
-        happens separately for each Tcl interpreter, if more than one is
-        used in a session; see <xref linkend="pltcl-global">.)
+        This parameter, if set to a nonempty string, specifies the name
+        (possibly schema-qualified) of a parameterless PL/Tcl function that
+        is to be executed whenever a new Tcl interpreter is created for
+        PL/Tcl.  Such a function can perform per-session initialization, such
+        as loading additional Tcl code.  A new Tcl interpreter is created
+        when a PL/Tcl function is first executed in a database session, or
+        when an additional interpreter has to be created because a PL/Tcl
+        function is called by a new SQL role.
        </para>
+
        <para>
-        While the <literal>unknown</> module could actually contain any
-        initialization script you need, it normally defines a Tcl
-        <function>unknown</> procedure that is invoked whenever Tcl does
-        not recognize an invoked procedure name.  <application>PL/Tcl</>'s standard version
-        of this procedure tries to find a module in <literal>pltcl_modules</>
-        that will define the required procedure.  If one is found, it is
-        loaded into the interpreter, and then execution is allowed to
-        proceed with the originally attempted procedure call.  A
-        secondary table <literal>pltcl_modfuncs</> provides an index of
-        which functions are defined by which modules, so that the lookup
-        is reasonably quick.
+        The referenced function must be written in the <literal>pltcl</>
+        language, and must not be marked <literal>SECURITY DEFINER</>.
+        (These restrictions ensure that it runs in the interpreter it's
+        supposed to initialize.)  The current user must have permission to
+        call it, too.
        </para>
+
        <para>
-        The <productname>PostgreSQL</productname> distribution includes
-        support scripts to maintain these tables:
-        <command>pltcl_loadmod</>, <command>pltcl_listmod</>,
-        <command>pltcl_delmod</>, as well as source for the standard
-        <literal>unknown</> module in <filename>share/unknown.pltcl</>.  This module
-        must be loaded
-        into each database initially to support the autoloading mechanism.
+        If the function fails with an error it will abort the function call
+        that caused the new interpreter to be created and propagate out to
+        the calling query, causing the current transaction or subtransaction
+        to be aborted.  Any actions already done within Tcl won't be undone;
+        however, that interpreter won't be used again.  If the language is
+        used again the initialization will be attempted again within a fresh
+        Tcl interpreter.
        </para>
+
        <para>
-        The tables <literal>pltcl_modules</> and <literal>pltcl_modfuncs</>
-        must be readable by all, but it is wise to make them owned and
-        writable only by the database administrator.  As a security
-        precaution, PL/Tcl will ignore <literal>pltcl_modules</> (and thus,
-        not attempt to load the <literal>unknown</> module) unless it is
-        owned by a superuser.  But update privileges on this table can be
-        granted to other users, if you trust them sufficiently.
+        Only superusers can change this setting.  Although this setting
+        can be changed within a session, such changes will not affect Tcl
+        interpreters that have already been created.
        </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry id="guc-pltclu-start-proc" xreflabel="pltclu.start_proc">
+      <term>
+       <varname>pltclu.start_proc</varname> (<type>string</type>)
+       <indexterm>
+        <primary><varname>pltclu.start_proc</> configuration parameter</primary>
+       </indexterm>
+      </term>
+      <listitem>
+       <para>
+        This parameter is exactly like <varname>pltcl.start_proc</varname>,
+        except that it applies to PL/TclU.  The referenced function must
+        be written in the <literal>pltclu</> language.
+       </para>
+      </listitem>
+     </varlistentry>
+
+    </variablelist>
    </sect1>
 
    <sect1 id="pltcl-procnames">

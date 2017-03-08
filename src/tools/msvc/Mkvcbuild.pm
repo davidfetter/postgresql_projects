@@ -110,9 +110,18 @@ sub mkvcbuild
 	}
 
 	our @pgcommonallfiles = qw(
-	  config_info.c controldata_utils.c exec.c ip.c keywords.c
+	  base64.c config_info.c controldata_utils.c exec.c ip.c keywords.c
 	  md5.c pg_lzcompress.c pgfnames.c psprintf.c relpath.c rmtree.c
-	  string.c username.c wait_error.c);
+	  scram-common.c string.c username.c wait_error.c);
+
+	if ($solution->{options}->{openssl})
+	{
+		push(@pgcommonallfiles, 'sha2_openssl.c');
+	}
+	else
+	{
+		push(@pgcommonallfiles, 'sha2.c');
+	}
 
 	our @pgcommonfrontendfiles = (
 		@pgcommonallfiles, qw(fe_memutils.c file_utils.c
@@ -224,10 +233,16 @@ sub mkvcbuild
 	$libpq->AddReference($libpgport);
 
    # The OBJS scraper doesn't know about ifdefs, so remove fe-secure-openssl.c
-   # if building without OpenSSL
+   # and sha2_openssl.c if building without OpenSSL, and remove sha2.c if
+   # building with OpenSSL.
 	if (!$solution->{options}->{openssl})
 	{
 		$libpq->RemoveFile('src/interfaces/libpq/fe-secure-openssl.c');
+		$libpq->RemoveFile('src/common/sha2_openssl.c');
+	}
+	else
+	{
+		$libpq->RemoveFile('src/common/sha2.c');
 	}
 
 	my $libpqwalreceiver =
@@ -421,13 +436,14 @@ sub mkvcbuild
 	else
 	{
 		$pgcrypto->AddFiles(
-			'contrib/pgcrypto',   'md5.c',
-			'sha1.c',             'sha2.c',
-			'internal.c',         'internal-sha2.c',
-			'blf.c',              'rijndael.c',
-			'pgp-mpi-internal.c', 'imath.c');
+			'contrib/pgcrypto', 'md5.c',
+			'sha1.c',           'internal.c',
+			'internal-sha2.c',  'blf.c',
+			'rijndael.c',       'pgp-mpi-internal.c',
+			'imath.c');
 	}
 	$pgcrypto->AddReference($postgres);
+	$pgcrypto->AddReference($libpgcommon);
 	$pgcrypto->AddLibrary('ws2_32.lib');
 	my $mf = Project::read_file('contrib/pgcrypto/Makefile');
 	GenerateContribSqlFiles('pgcrypto', $mf);

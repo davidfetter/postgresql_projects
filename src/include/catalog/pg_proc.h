@@ -3096,13 +3096,13 @@ DESCR("get transaction Id and commit timestamp of latest transaction commit");
 DATA(insert OID = 3537 (  pg_describe_object		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 3 0 25 "26 26 23" _null_ _null_ _null_ _null_ _null_ pg_describe_object _null_ _null_ _null_ ));
 DESCR("get identification of SQL object");
 
-DATA(insert OID = 3839 (  pg_identify_object		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 3 0 2249 "26 26 23" "{26,26,23,25,25,25,25}" "{i,i,i,o,o,o,o}" "{classid,objid,subobjid,type,schema,name,identity}" _null_ _null_ pg_identify_object _null_ _null_ _null_ ));
+DATA(insert OID = 3839 (  pg_identify_object		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 3 0 2249 "26 26 23" "{26,26,23,25,25,25,25}" "{i,i,i,o,o,o,o}" "{classid,objid,objsubid,type,schema,name,identity}" _null_ _null_ pg_identify_object _null_ _null_ _null_ ));
 DESCR("get machine-parseable identification of SQL object");
 
-DATA(insert OID = 3382 (  pg_identify_object_as_address PGNSP PGUID 12 1 0 0 0 f f f f t f s s 3 0 2249 "26 26 23" "{26,26,23,25,1009,1009}" "{i,i,i,o,o,o}" "{classid,objid,subobjid,type,object_names,object_args}" _null_ _null_ pg_identify_object_as_address _null_ _null_ _null_ ));
+DATA(insert OID = 3382 (  pg_identify_object_as_address PGNSP PGUID 12 1 0 0 0 f f f f t f s s 3 0 2249 "26 26 23" "{26,26,23,25,1009,1009}" "{i,i,i,o,o,o}" "{classid,objid,objsubid,type,object_names,object_args}" _null_ _null_ pg_identify_object_as_address _null_ _null_ _null_ ));
 DESCR("get identification of SQL object for pg_get_object_address()");
 
-DATA(insert OID = 3954 (  pg_get_object_address    PGNSP PGUID 12 1 0 0 0 f f f f t f s s 3 0 2249 "25 1009 1009" "{25,1009,1009,26,26,23}" "{i,i,i,o,o,o}" "{type,name,args,classid,objid,subobjid}" _null_ _null_ pg_get_object_address _null_ _null_ _null_ ));
+DATA(insert OID = 3954 (  pg_get_object_address    PGNSP PGUID 12 1 0 0 0 f f f f t f s s 3 0 2249 "25 1009 1009" "{25,1009,1009,26,26,23}" "{i,i,i,o,o,o}" "{type,name,args,classid,objid,objsubid}" _null_ _null_ pg_get_object_address _null_ _null_ _null_ ));
 DESCR("get OID-based object address from name/args arrays");
 
 DATA(insert OID = 2079 (  pg_table_is_visible		PGNSP PGUID 12 10 0 0 0 f f f f t f s s 1 0 16 "26" _null_ _null_ _null_ _null_ _null_ pg_table_is_visible _null_ _null_ _null_ ));
@@ -3141,9 +3141,9 @@ DATA(insert OID = 2096 ( pg_terminate_backend		PGNSP PGUID 12 1 0 0 0 f f f f t 
 DESCR("terminate a server process");
 DATA(insert OID = 2172 ( pg_start_backup		PGNSP PGUID 12 1 0 0 0 f f f f t f v r 3 0 3220 "25 16 16" _null_ _null_ _null_ _null_ _null_ pg_start_backup _null_ _null_ _null_ ));
 DESCR("prepare for taking an online backup");
-DATA(insert OID = 2173 ( pg_stop_backup			PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 3220 "" _null_ _null_ _null_ _null_ _null_ pg_stop_backup _null_ _null_ _null_ ));
+DATA(insert OID = 2173 ( pg_stop_backup			PGNSP PGUID 12 1 0 0 0 f f f f t f v r 0 0 3220 "" _null_ _null_ _null_ _null_ _null_ pg_stop_backup _null_ _null_ _null_ ));
 DESCR("finish taking an online backup");
-DATA(insert OID = 2739 ( pg_stop_backup			PGNSP PGUID 12 1 1 0 0 f f f f t t v s 1 0 2249 "16" "{16,3220,25,25}" "{i,o,o,o}" "{exclusive,lsn,labelfile,spcmapfile}" _null_ _null_ pg_stop_backup_v2 _null_ _null_ _null_ ));
+DATA(insert OID = 2739 ( pg_stop_backup			PGNSP PGUID 12 1 1 0 0 f f f f t t v r 1 0 2249 "16" "{16,3220,25,25}" "{i,o,o,o}" "{exclusive,lsn,labelfile,spcmapfile}" _null_ _null_ pg_stop_backup_v2 _null_ _null_ _null_ ));
 DESCR("finish taking an online backup");
 DATA(insert OID = 3813 ( pg_is_in_backup		PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pg_is_in_backup _null_ _null_ _null_ ));
 DESCR("true if server is in online backup");
@@ -3191,6 +3191,10 @@ DATA(insert OID = 2621 ( pg_reload_conf			PGNSP PGUID 12 1 0 0 0 f f f f t f v s
 DESCR("reload configuration files");
 DATA(insert OID = 2622 ( pg_rotate_logfile		PGNSP PGUID 12 1 0 0 0 f f f f t f v s 0 0 16 "" _null_ _null_ _null_ _null_ _null_ pg_rotate_logfile _null_ _null_ _null_ ));
 DESCR("rotate log file");
+DATA(insert OID = 3800 ( pg_current_logfile             PGNSP PGUID 12 1 0 0 0 f f f f f f v s 0 0 25 "" _null_ _null_ _null_ _null_ _null_ pg_current_logfile _null_ _null_ _null_ ));
+DESCR("current logging collector file location");
+DATA(insert OID = 3801 ( pg_current_logfile             PGNSP PGUID 12 1 0 0 0 f f f f f f v s 1 0 25 "25" _null_ _null_ _null_ _null_ _null_ pg_current_logfile_1arg _null_ _null_ _null_ ));
+DESCR("current logging collector file location");
 
 DATA(insert OID = 2623 ( pg_stat_file		PGNSP PGUID 12 1 0 0 0 f f f f t f v s 1 0 2249 "25" "{25,20,1184,1184,1184,1184,16}" "{i,o,o,o,o,o,o}" "{filename,size,access,modification,change,creation,isdir}" _null_ _null_ pg_stat_file_1arg _null_ _null_ _null_ ));
 DESCR("get information about file");

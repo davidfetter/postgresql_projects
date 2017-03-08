@@ -12,7 +12,6 @@
  */
 #include "postgres.h"
 
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <time.h>
@@ -27,6 +26,7 @@
 #include "nodes/pg_list.h"
 #include "pgtar.h"
 #include "pgstat.h"
+#include "postmaster/syslogger.h"
 #include "replication/basebackup.h"
 #include "replication/walsender.h"
 #include "replication/walsender_private.h"
@@ -147,6 +147,9 @@ static const char *excludeFiles[] =
 {
 	/* Skip auto conf temporary file. */
 	PG_AUTOCONF_FILENAME ".tmp",
+
+	/* Skip current log file temporary file */
+	LOG_METAINFO_DATAFILE_TMP,
 
 	/*
 	 * If there's a backup_label or tablespace_map file, it belongs to a

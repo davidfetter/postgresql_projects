@@ -303,13 +303,15 @@ extern Datum hash_uint32(uint32 k);
 extern void _hash_doinsert(Relation rel, IndexTuple itup);
 extern OffsetNumber _hash_pgaddtup(Relation rel, Buffer buf,
 			   Size itemsize, IndexTuple itup);
+extern void _hash_pgaddmultitup(Relation rel, Buffer buf, IndexTuple *itups,
+					OffsetNumber *itup_offsets, uint16 nitups);
 
 /* hashovfl.c */
 extern Buffer _hash_addovflpage(Relation rel, Buffer metabuf, Buffer buf, bool retain_pin);
-extern BlockNumber _hash_freeovflpage(Relation rel, Buffer ovflbuf, Buffer wbuf,
-				   BufferAccessStrategy bstrategy);
-extern void _hash_initbitmap(Relation rel, HashMetaPage metap,
-				 BlockNumber blkno, ForkNumber forkNum);
+extern BlockNumber _hash_freeovflpage(Relation rel, Buffer bucketbuf, Buffer ovflbuf,
+				   Buffer wbuf, IndexTuple *itups, OffsetNumber *itup_offsets,
+			 Size *tups_size, uint16 nitups, BufferAccessStrategy bstrategy);
+extern void _hash_initbitmapbuffer(Buffer buf, uint16 bmsize, bool initpage);
 extern void _hash_squeezebucket(Relation rel,
 					Bucket bucket, BlockNumber bucket_blkno,
 					Buffer bucket_buf,
@@ -327,6 +329,8 @@ extern Buffer _hash_getbucketbuf_from_hashkey(Relation rel, uint32 hashkey,
 								int access,
 								HashMetaPage *cachedmetap);
 extern Buffer _hash_getinitbuf(Relation rel, BlockNumber blkno);
+extern void _hash_initbuf(Buffer buf, uint32 max_bucket, uint32 num_bucket,
+				uint32 flag, bool initpage);
 extern Buffer _hash_getnewbuf(Relation rel, BlockNumber blkno,
 				ForkNumber forkNum);
 extern Buffer _hash_getbuf_with_strategy(Relation rel, BlockNumber blkno,
@@ -335,8 +339,10 @@ extern Buffer _hash_getbuf_with_strategy(Relation rel, BlockNumber blkno,
 extern void _hash_relbuf(Relation rel, Buffer buf);
 extern void _hash_dropbuf(Relation rel, Buffer buf);
 extern void _hash_dropscanbuf(Relation rel, HashScanOpaque so);
-extern uint32 _hash_metapinit(Relation rel, double num_tuples,
-				ForkNumber forkNum);
+extern uint32 _hash_init(Relation rel, double num_tuples,
+		   ForkNumber forkNum);
+extern void _hash_init_metabuffer(Buffer buf, double num_tuples,
+					  RegProcedure procid, uint16 ffactor, bool initpage);
 extern void _hash_pageinit(Page page, Size size);
 extern void _hash_expandtable(Relation rel, Buffer metabuf);
 extern void _hash_finish_split(Relation rel, Buffer metabuf, Buffer obuf,

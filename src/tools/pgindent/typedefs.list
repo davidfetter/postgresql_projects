@@ -745,7 +745,6 @@ FuncDetailCode
 FuncExpr
 FuncExprState
 FuncInfo
-FuncWithArgs
 FunctionCallInfo
 FunctionCallInfoData
 FunctionParameter
@@ -1228,6 +1227,7 @@ ObjectAddresses
 ObjectClass
 ObjectPropertyType
 ObjectType
+ObjectWithArgs
 Offset
 OffsetNumber
 OffsetVarNodes_context
@@ -1941,6 +1941,9 @@ SimpleStringList
 SimpleStringListCell
 SingleBoundSortItem
 Size
+SlabBlock
+SlabContext
+SlabChunk
 SlabSlot
 SlotNumber
 SlruCtl
@@ -1998,7 +2001,6 @@ SplitLR
 SplitVar
 SplitedPageLayout
 StackElem
-StandardChunkHeader
 StartBlobPtr
 StartBlobsPtr
 StartDataPtr

@@ -39,11 +39,17 @@ my %pgdump_runs = (
 	binary_upgrade => {
 		dump_cmd => [
 			'pg_dump',
-			"--file=$tempdir/binary_upgrade.sql",
+			'--format=custom',
+			"--file=$tempdir/binary_upgrade.dump",
 			'--schema-only',
 			'--binary-upgrade',
 			'-d', 'postgres',    # alternative way to specify database
-		], },
+		],
+		restore_cmd => [
+			'pg_restore', '-Fc',
+			'--verbose',
+			"--file=$tempdir/binary_upgrade.sql",
+			"$tempdir/binary_upgrade.dump", ], },
 	clean => {
 		dump_cmd => [
 			'pg_dump',
@@ -334,6 +340,7 @@ my %tests = (
 		all_runs => 1,
 		regexp   => qr/^ALTER LARGE OBJECT \d+ OWNER TO .*;/m,
 		like     => {
+			binary_upgrade           => 1,
 			clean                    => 1,
 			clean_if_exists          => 1,
 			column_inserts           => 1,
@@ -348,7 +355,6 @@ my %tests = (
 			section_pre_data         => 1,
 			test_schema_plus_blobs   => 1, },
 		unlike => {
-			binary_upgrade           => 1,
 			no_blobs                 => 1,
 			no_owner                 => 1,
 			only_dump_test_schema    => 1,
@@ -666,6 +672,7 @@ my %tests = (
 'SELECT pg_catalog.lo_from_bytea(0, \'\\x310a320a330a340a350a360a370a380a390a\');',
 		regexp => qr/^SELECT pg_catalog\.lo_create\('\d+'\);/m,
 		like   => {
+			binary_upgrade           => 1,
 			clean                    => 1,
 			clean_if_exists          => 1,
 			column_inserts           => 1,
@@ -681,7 +688,6 @@ my %tests = (
 			section_pre_data         => 1,
 			test_schema_plus_blobs   => 1, },
 		unlike => {
-			binary_upgrade           => 1,
 			no_blobs                 => 1,
 			only_dump_test_schema    => 1,
 			only_dump_test_table     => 1,
@@ -3075,6 +3081,34 @@ qr/^GRANT SELECT ON TABLE test_third_table TO regress_dump_test_role;/m,
 			role                   => 1,
 			test_schema_plus_blobs => 1, }, },
 
+	'GRANT USAGE ON SCHEMA public TO public' => {
+		regexp       => qr/^
+			\Q--\E\n\n
+			\QGRANT USAGE ON SCHEMA public TO PUBLIC;\E
+			/xm,
+		like => {
+			clean                    => 1,
+			clean_if_exists          => 1, },
+		unlike => {
+			binary_upgrade           => 1,
+			createdb                 => 1,
+			defaults                 => 1,
+			exclude_dump_test_schema => 1,
+			exclude_test_table       => 1,
+			exclude_test_table_data  => 1,
+			no_blobs                 => 1,
+			no_owner                 => 1,
+			pg_dumpall_dbprivs       => 1,
+			schema_only              => 1,
+			section_pre_data         => 1,
+			only_dump_test_schema    => 1,
+			only_dump_test_table     => 1,
+			pg_dumpall_globals_clean => 1,
+			role                     => 1,
+			section_data             => 1,
+			section_post_data        => 1,
+			test_schema_plus_blobs   => 1, }, },
+
 	'GRANT commands' => {    # catch-all for GRANT commands
 		all_runs => 0,              # catch-all
 		regexp   => qr/^GRANT /m,
@@ -3252,8 +3286,6 @@ qr/^GRANT SELECT ON TABLE test_third_table TO regress_dump_test_role;/m,
 			/xm,
 		like => {
 			binary_upgrade           => 1,
-			clean                    => 1,
-			clean_if_exists          => 1,
 			createdb                 => 1,
 			defaults                 => 1,
 			exclude_dump_test_schema => 1,
@@ -3265,6 +3297,8 @@ qr/^GRANT SELECT ON TABLE test_third_table TO regress_dump_test_role;/m,
 			schema_only              => 1,
 			section_pre_data         => 1, },
 		unlike => {
+			clean                    => 1,
+			clean_if_exists          => 1,
 			only_dump_test_schema    => 1,
 			only_dump_test_table     => 1,
 			pg_dumpall_globals_clean => 1,

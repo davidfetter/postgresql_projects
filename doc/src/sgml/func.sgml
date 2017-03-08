@@ -9618,7 +9618,7 @@ CREATE TYPE rainbow AS ENUM ('red', 'orange', 'yellow', 'green', 'blue', 'purple
         </entry>
         <entry><type>tsquery</type></entry>
         <entry>make query that searches for <replaceable>query1</> followed by
-         <replaceable>query2</> at maximum distance <replaceable>distance</></entry>
+         <replaceable>query2</> at distance <replaceable>distance</></entry>
         <entry><literal>tsquery_phrase(to_tsquery('fat'), to_tsquery('cat'), 10)</literal></entry>
         <entry><literal>'fat' &lt;10&gt; 'cat'</literal></entry>
        </row>
@@ -10328,10 +10328,6 @@ SELECT xml_is_well_formed_document('<pg:foo xmlns:pg="http://postgresql.org/stuf
   <sect2 id="functions-xml-processing">
    <title>Processing XML</title>
 
-   <indexterm>
-    <primary>XPath</primary>
-   </indexterm>
-
    <para>
     To process values of data type <type>xml</type>, PostgreSQL offers
     the functions <function>xpath</function> and
@@ -10339,39 +10335,46 @@ SELECT xml_is_well_formed_document('<pg:foo xmlns:pg="http://postgresql.org/stuf
     expressions.
    </para>
 
+   <sect3 id="functions-xml-processing-xpath">
+    <title><literal>xpath</literal></title>
+
+    <indexterm>
+     <primary>XPath</primary>
+    </indexterm>
+
 <synopsis>
 <function>xpath</function>(<replaceable>xpath</replaceable>, <replaceable>xml</replaceable> <optional>, <replaceable>nsarray</replaceable></optional>)
 </synopsis>
 
-   <para>
-    The function <function>xpath</function> evaluates the XPath
-    expression <replaceable>xpath</replaceable> (a <type>text</> value)
-    against the XML value
-    <replaceable>xml</replaceable>.  It returns an array of XML values
-    corresponding to the node set produced by the XPath expression.
-    If the XPath expression returns a scalar value rather than a node set,
-    a single-element array is returned.
-   </para>
+    <para>
+     The function <function>xpath</function> evaluates the XPath
+     expression <replaceable>xpath</replaceable> (a <type>text</> value)
+     against the XML value
+     <replaceable>xml</replaceable>.  It returns an array of XML values
+     corresponding to the node set produced by the XPath expression.
+     If the XPath expression returns a scalar value rather than a node set,
+     a single-element array is returned.
+    </para>
 
-  <para>
-    The second argument must be a well formed XML document. In particular,
-    it must have a single root node element.
-  </para>
+    <para>
+     The second argument must be a well formed XML document. In particular,
+     it must have a single root node element.
+    </para>
 
-   <para>
-    The optional third argument of the function is an array of namespace
-    mappings.  This array should be a two-dimensional <type>text</> array with
-    the length of the second axis being equal to 2 (i.e., it should be an
-    array of arrays, each of which consists of exactly 2 elements).
-    The first element of each array entry is the namespace name (alias), the
-    second the namespace URI. It is not required that aliases provided in
-    this array be the same as those being used in the XML document itself (in
-    other words, both in the XML document and in the <function>xpath</function>
-    function context, aliases are <emphasis>local</>).
-   </para>
+    <para>
+     The optional third argument of the function is an array of namespace
+     mappings.  This array should be a two-dimensional <type>text</> array with
+     the length of the second axis being equal to 2 (i.e., it should be an
+     array of arrays, each of which consists of exactly 2 elements).
+     The first element of each array entry is the namespace name (alias), the
+     second the namespace URI. It is not required that aliases provided in
+     this array be the same as those being used in the XML document itself (in
+     other words, both in the XML document and in the <function>xpath</function>
+     function context, aliases are <emphasis>local</>).
+    </para>
 
-   <para>
-    Example:
+    <para>
+     Example:
 <screen><![CDATA[
 SELECT xpath('/my:a/text()', '<my:a xmlns:my="http://example.com">test</my:a>',
              ARRAY[ARRAY['my', 'http://example.com']]);
@@ -10381,10 +10384,10 @@ SELECT xpath('/my:a/text()', '<my:a xmlns:my="http://example.com">test</my:a>',
  {test}
 (1 row)
 ]]></screen>
-   </para>
+    </para>
 
-   <para>
-    To deal with default (anonymous) namespaces, do something like this:
+    <para>
+     To deal with default (anonymous) namespaces, do something like this:
 <screen><![CDATA[
 SELECT xpath('//mydefns:b/text()', '<a xmlns="http://example.com"><b>test</b></a>',
              ARRAY[ARRAY['mydefns', 'http://example.com']]);
@@ -10394,27 +10397,31 @@ SELECT xpath('//mydefns:b/text()', '<a xmlns="http://example.com"><b>test</b></a
  {test}
 (1 row)
 ]]></screen>
-   </para>
+    </para>
+   </sect3>
 
-   <indexterm>
-    <primary>xpath_exists</primary>
-   </indexterm>
+   <sect3 id="functions-xml-processing-xpath-exists">
+    <title><literal>xpath_exists</literal></title>
+
+    <indexterm>
+     <primary>xpath_exists</primary>
+    </indexterm>
 
 <synopsis>
 <function>xpath_exists</function>(<replaceable>xpath</replaceable>, <replaceable>xml</replaceable> <optional>, <replaceable>nsarray</replaceable></optional>)
 </synopsis>
 
-   <para>
-    The function <function>xpath_exists</function> is a specialized form
-    of the <function>xpath</function> function.  Instead of returning the
-    individual XML values that satisfy the XPath, this function returns a
-    Boolean indicating whether the query was satisfied or not.  This
-    function is equivalent to the standard <literal>XMLEXISTS</> predicate,
-    except that it also offers support for a namespace mapping argument.
-   </para>
+    <para>
+     The function <function>xpath_exists</function> is a specialized form
+     of the <function>xpath</function> function.  Instead of returning the
+     individual XML values that satisfy the XPath, this function returns a
+     Boolean indicating whether the query was satisfied or not.  This
+     function is equivalent to the standard <literal>XMLEXISTS</> predicate,
+     except that it also offers support for a namespace mapping argument.
+    </para>
 
-   <para>
-    Example:
+    <para>
+     Example:
 <screen><![CDATA[
 SELECT xpath_exists('/my:a/text()', '<my:a xmlns:my="http://example.com">test</my:a>',
                      ARRAY[ARRAY['my', 'http://example.com']]);
@@ -10424,7 +10431,8 @@ SELECT xpath_exists('/my:a/text()', '<my:a xmlns:my="http://example.com">test</m
  t
 (1 row)
 ]]></screen>
-   </para>
+    </para>
+   </sect3>
   </sect2>
 
   <sect2 id="functions-xml-mapping">
@@ -15471,6 +15479,13 @@ SELECT * FROM pg_ls_dir('.') WITH ORDINALITY AS t(ls,n);
       </row>
 
       <row>
+       <entry><literal><function>pg_current_logfile(<optional><type>text</></optional>)</function></literal></entry>
+       <entry><type>text</type></entry>
+       <entry>Primary log file name, or log in the requested format,
+       currently in use by the logging collector</entry>
+      </row>
+
+      <row>
        <entry><literal><function>pg_my_temp_schema()</function></literal></entry>
        <entry><type>oid</type></entry>
        <entry>OID of session's temporary schema, or 0 if none</entry>
@@ -15686,6 +15701,45 @@ SET search_path TO <replaceable>schema</> <optional>, <replaceable>schema</>, ..
     when the session itself re-read the configuration files, so the
     reading will vary a little in different sessions.  Otherwise it is
     the time when the postmaster process re-read the configuration files.)
+   </para>
+
+   <indexterm>
+    <primary>pg_current_logfile</primary>
+   </indexterm>
+
+   <indexterm>
+    <primary>Logging</primary>
+    <secondary>pg_current_logfile function</secondary>
+   </indexterm>
+
+   <indexterm>
+     <primary>current_logfiles</primary>
+     <secondary>and the pg_current_logfile function</secondary>
+   </indexterm>
+
+   <indexterm>
+    <primary>Logging</primary>
+    <secondary>current_logfiles file and the pg_current_logfile
+    function</secondary>
+   </indexterm>
+
+   <para>
+    <function>pg_current_logfile</function> returns, as <type>text</type>,
+    the path of the log file(s) currently in use by the logging collector.
+    The path includes the <xref linkend="guc-log-directory"> directory
+    and the log file name.  Log collection must be enabled or the return value
+    is <literal>NULL</literal>.  When multiple log files exist, each in a
+    different format, <function>pg_current_logfile</function> called
+    without arguments returns the path of the file having the first format
+    found in the ordered list: <systemitem>stderr</>, <systemitem>csvlog</>.
+    <literal>NULL</literal> is returned when no log file has any of these
+    formats.  To request a specific file format supply, as <type>text</type>,
+    either <systemitem>csvlog</> or <systemitem>stderr</> as the value of the
+    optional parameter. The return value is <literal>NULL</literal> when the
+    log format requested is not a configured
+    <xref linkend="guc-log-destination">.  The
+    <function>pg_current_logfiles</function> reflects the contents of the
+    <filename>current_logfiles</> file.
    </para>
 
    <indexterm>
