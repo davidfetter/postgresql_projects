@@ -504,8 +504,7 @@ static void prepare_projection_slot(AggState *aggstate,
 						int currentSet);
 static void finalize_aggregates(AggState *aggstate,
 					AggStatePerAgg peragg,
-					AggStatePerGroup pergroup,
-					int currentSet);
+					AggStatePerGroup pergroup);
 static TupleTableSlot *project_aggregates(AggState *aggstate);
 static Bitmapset *find_unaggregated_cols(AggState *aggstate);
 static bool find_unaggregated_cols_walker(Node *node, Bitmapset **colnos);
@@ -1647,29 +1646,22 @@ prepare_projection_slot(AggState *aggstate, TupleTableSlot *slot, int currentSet
 /*
  * Compute the final value of all aggregates for one group.
  *
- * This function handles only one grouping set at a time.  But in the hash
- * case, it's the caller's responsibility to have selected the set already, and
- * we pass in -1 here to flag that and to control the indexing into pertrans.
+ * This function handles only one grouping set at a time, which the caller must
+ * have selected.  It's also the caller's responsibility to adjust the supplied
+ * pergroup parameter to point to the current set's transvalues.
  *
  * Results are stored in the output econtext aggvalues/aggnulls.
  */
 static void
 finalize_aggregates(AggState *aggstate,
 					AggStatePerAgg peraggs,
-					AggStatePerGroup pergroup,
-					int currentSet)
+					AggStatePerGroup pergroup)
 {
 	ExprContext *econtext = aggstate->ss.ps.ps_ExprContext;
 	Datum	   *aggvalues = econtext->ecxt_aggvalues;
 	bool	   *aggnulls = econtext->ecxt_aggnulls;
 	int			aggno;
 	int			transno;
-
-	/* ugly hack for hash */
-	if (currentSet >= 0)
-		select_current_set(aggstate, currentSet, false);
-	else
-		currentSet = 0;
 
 	/*
 	 * If there were any DISTINCT and/or ORDER BY aggregates, sort their
@@ -1680,7 +1672,7 @@ finalize_aggregates(AggState *aggstate,
 		AggStatePerTrans pertrans = &aggstate->pertrans[transno];
 		AggStatePerGroup pergroupstate;
 
-		pergroupstate = &pergroup[transno + (currentSet * (aggstate->numtrans))];
+		pergroupstate = &pergroup[transno];
 
 		if (pertrans->numSortCols > 0)
 		{
@@ -1707,7 +1699,7 @@ finalize_aggregates(AggState *aggstate,
 		int			transno = peragg->transno;
 		AggStatePerGroup pergroupstate;
 
-		pergroupstate = &pergroup[transno + (currentSet * (aggstate->numtrans))];
+		pergroupstate = &pergroup[transno];
 
 		if (DO_AGGSPLIT_SKIPFINAL(aggstate->aggsplit))
 			finalize_partialaggregate(aggstate, peragg, pergroupstate,
@@ -2415,7 +2407,11 @@ agg_retrieve_direct(AggState *aggstate)
 
 		prepare_projection_slot(aggstate, econtext->ecxt_outertuple, currentSet);
 
-		finalize_aggregates(aggstate, peragg, pergroup, currentSet);
+		select_current_set(aggstate, currentSet, false);
+
+		finalize_aggregates(aggstate,
+							peragg,
+							pergroup + (currentSet * aggstate->numtrans));
 
 		/*
 		 * If there's no row to project right now, we must continue rather
@@ -2586,7 +2582,7 @@ agg_retrieve_hash_table(AggState *aggstate)
 								econtext->ecxt_outertuple,
 								aggstate->current_set);
 
-		finalize_aggregates(aggstate, peragg, pergroup, -1);
+		finalize_aggregates(aggstate, peragg, pergroup);
 
 		result = project_aggregates(aggstate);
 		if (result)
