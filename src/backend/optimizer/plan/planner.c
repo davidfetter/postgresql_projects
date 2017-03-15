@@ -4286,8 +4286,12 @@ consider_groupingsets_paths(PlannerInfo *root,
 			 * better have the memory for it.  In more reasonable cases, with
 			 * no more than a couple of dozen rollups, the memory usage will
 			 * be negligible.)
+			 *
+			 * k_capacity is naturally bounded, but we clamp the values for
+			 * scale and weight (below) to avoid overflows or underflows (or
+			 * uselessly trying to use a scale factor less than 1 byte).
 			 */
-			scale = availspace / (20.0 * num_rollups);
+			scale = Max(availspace / (20.0 * num_rollups), 1.0);
 			k_capacity = (int) floor(availspace / scale);
 
 			/*
@@ -4307,7 +4311,12 @@ consider_groupingsets_paths(PlannerInfo *root,
 																agg_costs,
 														  rollup->numGroups);
 
-					k_weights[i] = (int) floor(sz / scale);
+					/*
+					 * If sz is enormous, but work_mem (and hence scale) is
+					 * small, avoid integer overflow here.
+					 */
+					k_weights[i] = (int) Min(floor(sz / scale),
+											 k_capacity + 1.0);
 					++i;
 				}
 			}
