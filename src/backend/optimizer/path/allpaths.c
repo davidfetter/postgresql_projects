@@ -129,6 +129,8 @@ static void subquery_push_qual(Query *subquery,
 static void recurse_push_qual(Node *setOp, Query *topquery,
 				  RangeTblEntry *rte, Index rti, Node *qual);
 static void remove_unused_subquery_outputs(Query *subquery, RelOptInfo *rel);
+static void add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
+						List *live_childrels);
 
 
 /*
@@ -692,7 +694,7 @@ create_plain_partial_paths(PlannerInfo *root, RelOptInfo *rel)
 {
 	int			parallel_workers;
 
-	parallel_workers = compute_parallel_worker(rel, rel->pages, 0);
+	parallel_workers = compute_parallel_worker(rel, rel->pages, -1);
 
 	/* If any limit was set to zero, the user doesn't want a parallel scan. */
 	if (parallel_workers <= 0)
@@ -1182,19 +1184,11 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 {
 	int			parentRTindex = rti;
 	List	   *live_childrels = NIL;
-	List	   *subpaths = NIL;
-	bool		subpaths_valid = true;
-	List	   *partial_subpaths = NIL;
-	bool		partial_subpaths_valid = true;
-	List	   *all_child_pathkeys = NIL;
-	List	   *all_child_outers = NIL;
 	ListCell   *l;
 
 	/*
 	 * Generate access paths for each member relation, and remember the
-	 * cheapest path for each one.  Also, identify all pathkeys (orderings)
-	 * and parameterizations (required_outer sets) available for the member
-	 * relations.
+	 * non-dummy children.
 	 */
 	foreach(l, root->append_rel_list)
 	{
@@ -1202,7 +1196,6 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		int			childRTindex;
 		RangeTblEntry *childRTE;
 		RelOptInfo *childrel;
-		ListCell   *lcp;
 
 		/* append_rel_list contains all append rels; ignore others */
 		if (appinfo->parent_relid != parentRTindex)
@@ -1237,6 +1230,45 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		 * Child is live, so add it to the live_childrels list for use below.
 		 */
 		live_childrels = lappend(live_childrels, childrel);
+	}
+
+	/* Add paths to the "append" relation. */
+	add_paths_to_append_rel(root, rel, live_childrels);
+}
+
+
+/*
+ * add_paths_to_append_rel
+ *		Generate paths for given "append" relation given the set of non-dummy
+ *		child rels.
+ *
+ * The function collects all parameterizations and orderings supported by the
+ * non-dummy children. For every such parameterization or ordering, it creates
+ * an append path collecting one path from each non-dummy child with given
+ * parameterization or ordering. Similarly it collects partial paths from
+ * non-dummy children to create partial append paths.
+ */
+static void
+add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
+						List *live_childrels)
+{
+	List	   *subpaths = NIL;
+	bool		subpaths_valid = true;
+	List	   *partial_subpaths = NIL;
+	bool		partial_subpaths_valid = true;
+	List	   *all_child_pathkeys = NIL;
+	List	   *all_child_outers = NIL;
+	ListCell   *l;
+
+	/*
+	 * For every non-dummy child, remember the cheapest path.  Also, identify
+	 * all pathkeys (orderings) and parameterizations (required_outer sets)
+	 * available for the non-dummy member relations.
+	 */
+	foreach(l, live_childrels)
+	{
+		RelOptInfo *childrel = lfirst(l);
+		ListCell   *lcp;
 
 		/*
 		 * If child has an unparameterized cheapest-total path, add that to
@@ -2084,39 +2116,51 @@ set_worktable_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 /*
  * generate_gather_paths
- *		Generate parallel access paths for a relation by pushing a Gather on
- *		top of a partial path.
+ *		Generate parallel access paths for a relation by pushing a Gather or
+ *		Gather Merge on top of a partial path.
  *
  * This must not be called until after we're done creating all partial paths
  * for the specified relation.  (Otherwise, add_partial_path might delete a
- * path that some GatherPath has a reference to.)
+ * path that some GatherPath or GatherMergePath has a reference to.)
  */
 void
 generate_gather_paths(PlannerInfo *root, RelOptInfo *rel)
 {
 	Path	   *cheapest_partial_path;
 	Path	   *simple_gather_path;
+	ListCell   *lc;
 
 	/* If there are no partial paths, there's nothing to do here. */
 	if (rel->partial_pathlist == NIL)
 		return;
 
 	/*
-	 * The output of Gather is currently always unsorted, so there's only one
-	 * partial path of interest: the cheapest one.  That will be the one at
-	 * the front of partial_pathlist because of the way add_partial_path
-	 * works.
-	 *
-	 * Eventually, we should have a Gather Merge operation that can merge
-	 * multiple tuple streams together while preserving their ordering.  We
-	 * could usefully generate such a path from each partial path that has
-	 * non-NIL pathkeys.
+	 * The output of Gather is always unsorted, so there's only one partial
+	 * path of interest: the cheapest one.  That will be the one at the front
+	 * of partial_pathlist because of the way add_partial_path works.
 	 */
 	cheapest_partial_path = linitial(rel->partial_pathlist);
 	simple_gather_path = (Path *)
 		create_gather_path(root, rel, cheapest_partial_path, rel->reltarget,
 						   NULL, NULL);
 	add_path(rel, simple_gather_path);
+
+	/*
+	 * For each useful ordering, we can consider an order-preserving Gather
+	 * Merge.
+	 */
+	foreach (lc, rel->partial_pathlist)
+	{
+		Path   *subpath = (Path *) lfirst(lc);
+		GatherMergePath   *path;
+
+		if (subpath->pathkeys == NIL)
+			continue;
+
+		path = create_gather_merge_path(root, rel, subpath, rel->reltarget,
+										subpath->pathkeys, NULL, NULL);
+		add_path(rel, &path->path);
+	}
 }
 
 /*
@@ -2926,7 +2970,7 @@ create_partial_bitmap_paths(PlannerInfo *root, RelOptInfo *rel,
 	pages_fetched = compute_bitmap_pages(root, rel, bitmapqual, 1.0,
 										 NULL, NULL);
 
-	parallel_workers = compute_parallel_worker(rel, pages_fetched, 0);
+	parallel_workers = compute_parallel_worker(rel, pages_fetched, -1);
 
 	if (parallel_workers <= 0)
 		return;
@@ -2941,16 +2985,16 @@ create_partial_bitmap_paths(PlannerInfo *root, RelOptInfo *rel,
  * be scanned and the size of the index to be scanned, then choose a minimum
  * of those.
  *
- * "heap_pages" is the number of pages from the table that we expect to scan.
- * "index_pages" is the number of pages from the index that we expect to scan.
+ * "heap_pages" is the number of pages from the table that we expect to scan, or
+ * -1 if we don't expect to scan any.
+ *
+ * "index_pages" is the number of pages from the index that we expect to scan, or
+ * -1 if we don't expect to scan any.
  */
 int
-compute_parallel_worker(RelOptInfo *rel, BlockNumber heap_pages,
-						BlockNumber index_pages)
+compute_parallel_worker(RelOptInfo *rel, double heap_pages, double index_pages)
 {
 	int			parallel_workers = 0;
-	int			heap_parallel_workers = 1;
-	int			index_parallel_workers = 1;
 
 	/*
 	 * If the user has set the parallel_workers reloption, use that; otherwise
@@ -2960,23 +3004,24 @@ compute_parallel_worker(RelOptInfo *rel, BlockNumber heap_pages,
 		parallel_workers = rel->rel_parallel_workers;
 	else
 	{
-		int			heap_parallel_threshold;
-		int			index_parallel_threshold;
-
 		/*
-		 * If this relation is too small to be worth a parallel scan, just
-		 * return without doing anything ... unless it's an inheritance child.
-		 * In that case, we want to generate a parallel path here anyway.  It
-		 * might not be worthwhile just for this relation, but when combined
-		 * with all of its inheritance siblings it may well pay off.
+		 * If the number of pages being scanned is insufficient to justify a
+		 * parallel scan, just return zero ... unless it's an inheritance
+		 * child. In that case, we want to generate a parallel path here
+		 * anyway.  It might not be worthwhile just for this relation, but
+		 * when combined with all of its inheritance siblings it may well pay
+		 * off.
 		 */
-		if (heap_pages < (BlockNumber) min_parallel_table_scan_size &&
-			index_pages < (BlockNumber) min_parallel_index_scan_size &&
-			rel->reloptkind == RELOPT_BASEREL)
+		if (rel->reloptkind == RELOPT_BASEREL &&
+			((heap_pages >= 0 && heap_pages < min_parallel_table_scan_size) ||
+		   (index_pages >= 0 && index_pages < min_parallel_index_scan_size)))
 			return 0;
 
-		if (heap_pages > 0)
+		if (heap_pages >= 0)
 		{
+			int			heap_parallel_threshold;
+			int			heap_parallel_workers = 1;
+
 			/*
 			 * Select the number of workers based on the log of the size of
 			 * the relation.  This probably needs to be a good deal more
@@ -2996,8 +3041,11 @@ compute_parallel_worker(RelOptInfo *rel, BlockNumber heap_pages,
 			parallel_workers = heap_parallel_workers;
 		}
 
-		if (index_pages > 0)
+		if (index_pages >= 0)
 		{
+			int			index_parallel_workers = 1;
+			int			index_parallel_threshold;
+
 			/* same calculation as for heap_pages above */
 			index_parallel_threshold = Max(min_parallel_index_scan_size, 1);
 			while (index_pages >= (BlockNumber) (index_parallel_threshold * 3))

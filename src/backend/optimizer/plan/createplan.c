@@ -277,6 +277,8 @@ static ModifyTable *make_modifytable(PlannerInfo *root,
 				 List *resultRelations, List *subplans,
 				 List *withCheckOptionLists, List *returningLists,
 				 List *rowMarks, OnConflictExpr *onconflict, int epqParam);
+static GatherMerge *create_gather_merge_plan(PlannerInfo *root,
+						 GatherMergePath *best_path);
 
 
 /*
@@ -474,6 +476,10 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 			plan = (Plan *) create_limit_plan(root,
 											  (LimitPath *) best_path,
 											  flags);
+			break;
+		case T_GatherMerge:
+			plan = (Plan *) create_gather_merge_plan(root,
+											  (GatherMergePath *) best_path);
 			break;
 		default:
 			elog(ERROR, "unrecognized node type: %d",
@@ -1449,6 +1455,61 @@ create_gather_plan(PlannerInfo *root, GatherPath *best_path)
 	root->glob->parallelModeNeeded = true;
 
 	return gather_plan;
+}
+
+/*
+ * create_gather_merge_plan
+ *
+ *	  Create a Gather Merge plan for 'best_path' and (recursively)
+ *	  plans for its subpaths.
+ */
+static GatherMerge *
+create_gather_merge_plan(PlannerInfo *root, GatherMergePath *best_path)
+{
+	GatherMerge *gm_plan;
+	Plan	   *subplan;
+	List	   *pathkeys = best_path->path.pathkeys;
+	List	   *tlist = build_path_tlist(root, &best_path->path);
+
+	/* As with Gather, it's best to project away columns in the workers. */
+	subplan = create_plan_recurse(root, best_path->subpath, CP_EXACT_TLIST);
+
+	/* Create a shell for a GatherMerge plan. */
+	gm_plan = makeNode(GatherMerge);
+	gm_plan->plan.targetlist = tlist;
+	gm_plan->num_workers = best_path->num_workers;
+	copy_generic_path_info(&gm_plan->plan, &best_path->path);
+
+	/* Gather Merge is pointless with no pathkeys; use Gather instead. */
+	Assert(pathkeys != NIL);
+
+	/* Compute sort column info, and adjust subplan's tlist as needed */
+	subplan = prepare_sort_from_pathkeys(subplan, pathkeys,
+										 best_path->subpath->parent->relids,
+										 gm_plan->sortColIdx,
+										 false,
+										 &gm_plan->numCols,
+										 &gm_plan->sortColIdx,
+										 &gm_plan->sortOperators,
+										 &gm_plan->collations,
+										 &gm_plan->nullsFirst);
+
+
+	/* Now, insert a Sort node if subplan isn't sufficiently ordered */
+	if (!pathkeys_contained_in(pathkeys, best_path->subpath->pathkeys))
+		subplan = (Plan *) make_sort(subplan, gm_plan->numCols,
+									 gm_plan->sortColIdx,
+									 gm_plan->sortOperators,
+									 gm_plan->collations,
+									 gm_plan->nullsFirst);
+
+	/* Now insert the subplan under GatherMerge. */
+	gm_plan->plan.lefttree = subplan;
+
+	/* use parallel mode for parallel plans. */
+	root->glob->parallelModeNeeded = true;
+
+	return gm_plan;
 }
 
 /*
@@ -4532,7 +4593,7 @@ fix_indexqual_operand(Node *node, IndexOptInfo *index, int indexcol)
 		}
 	}
 
-	/* Ooops... */
+	/* Oops... */
 	elog(ERROR, "index key does not match expected index column");
 	return NULL;				/* keep compiler quiet */
 }
@@ -5340,9 +5401,9 @@ make_sort(Plan *lefttree, int numCols,
  * prepare_sort_from_pathkeys
  *	  Prepare to sort according to given pathkeys
  *
- * This is used to set up for both Sort and MergeAppend nodes.  It calculates
- * the executor's representation of the sort key information, and adjusts the
- * plan targetlist if needed to add resjunk sort columns.
+ * This is used to set up for Sort, MergeAppend, and Gather Merge nodes.  It
+ * calculates the executor's representation of the sort key information, and
+ * adjusts the plan targetlist if needed to add resjunk sort columns.
  *
  * Input parameters:
  *	  'lefttree' is the plan node which yields input tuples
@@ -5366,7 +5427,7 @@ make_sort(Plan *lefttree, int numCols,
  *
  * If the pathkeys include expressions that aren't simple Vars, we will
  * usually need to add resjunk items to the input plan's targetlist to
- * compute these expressions, since the Sort/MergeAppend node itself won't
+ * compute these expressions, since a Sort or MergeAppend node itself won't
  * do any such calculations.  If the input plan type isn't one that can do
  * projections, this means adding a Result node just to do the projection.
  * However, the caller can pass adjust_tlist_in_place = TRUE to force the

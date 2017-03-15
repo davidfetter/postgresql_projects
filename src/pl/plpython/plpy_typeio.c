@@ -603,9 +603,9 @@ PLyLong_FromOid(PLyDatumToOb *arg, Datum d)
 static PyObject *
 PLyBytes_FromBytea(PLyDatumToOb *arg, Datum d)
 {
-	text	   *txt = DatumGetByteaP(d);
-	char	   *str = VARDATA(txt);
-	size_t		size = VARSIZE(txt) - VARHDRSZ;
+	text	   *txt = DatumGetByteaPP(d);
+	char	   *str = VARDATA_ANY(txt);
+	size_t		size = VARSIZE_ANY_EXHDR(txt);
 
 	return PyBytes_FromStringAndSize(str, size);
 }
@@ -827,7 +827,7 @@ PLyObject_ToComposite(PLyObToDatum *arg, int32 typmod, PyObject *plrv, bool inar
 
 	/*
 	 * This will set up the dummy PLyTypeInfo's output conversion routines,
-	 * since we left is_rowtype as 2. A future optimisation could be caching
+	 * since we left is_rowtype as 2. A future optimization could be caching
 	 * that info instead of looking it up every time a tuple is returned from
 	 * the function.
 	 */

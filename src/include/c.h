@@ -149,6 +149,8 @@
 /*
  * CppAsString
  *		Convert the argument to a string, using the C preprocessor.
+ * CppAsString2
+ *		Convert the argument to a string, after one round of macro expansion.
  * CppConcat
  *		Concatenate two arguments together, using the C preprocessor.
  *
@@ -157,6 +159,7 @@
  * backward compatibility with existing PostgreSQL code.
  */
 #define CppAsString(identifier) #identifier
+#define CppAsString2(x)			CppAsString(x)
 #define CppConcat(x, y)			x##y
 
 /*
@@ -426,10 +429,11 @@ typedef struct
  * may be compressed or moved out-of-line.  However datatype-specific routines
  * are mostly content to deal with de-TOASTed values only, and of course
  * client-side routines should never see a TOASTed value.  But even in a
- * de-TOASTed value, beware of touching vl_len_ directly, as its representation
- * is no longer convenient.  It's recommended that code always use the VARDATA,
- * VARSIZE, and SET_VARSIZE macros instead of relying on direct mentions of
- * the struct fields.  See postgres.h for details of the TOASTed form.
+ * de-TOASTed value, beware of touching vl_len_ directly, as its
+ * representation is no longer convenient.  It's recommended that code always
+ * use macros VARDATA_ANY, VARSIZE_ANY, VARSIZE_ANY_EXHDR, VARDATA, VARSIZE,
+ * and SET_VARSIZE instead of relying on direct mentions of the struct fields.
+ * See postgres.h for details of the TOASTed form.
  * ----------------
  */
 struct varlena
@@ -443,7 +447,7 @@ struct varlena
 /*
  * These widely-used datatypes are just a varlena header and the data bytes.
  * There is no terminating null or anything like that --- the data length is
- * always VARSIZE(ptr) - VARHDRSZ.
+ * always VARSIZE_ANY_EXHDR(ptr).
  */
 typedef struct varlena bytea;
 typedef struct varlena text;
@@ -1002,10 +1006,6 @@ typedef NameData *Name;
  *
  * Make sure this matches the installation rules in nls-global.mk.
  */
-
-/* need a second indirection because we want to stringize the macro value, not the name */
-#define CppAsString2(x) CppAsString(x)
-
 #ifdef SO_MAJOR_VERSION
 #define PG_TEXTDOMAIN(domain) (domain CppAsString2(SO_MAJOR_VERSION) "-" PG_MAJORVERSION)
 #else

@@ -16,7 +16,7 @@
  *-------------------------------------------------------------------------
  */
 
-#include "pg_regress.h"
+#include "postgres_fe.h"
 
 #include <ctype.h>
 #include <sys/stat.h>
@@ -28,6 +28,8 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #endif
+
+#include "pg_regress.h"
 
 #include "common/restricted_token.h"
 #include "common/username.h"
@@ -1869,6 +1871,10 @@ open_result_files(void)
 	char		file[MAXPGPATH];
 	FILE	   *difffile;
 
+	/* create outputdir directory if not present */
+	if (!directory_exists(outputdir))
+		make_directory(outputdir);
+
 	/* create the log file (copy of running status output) */
 	snprintf(file, sizeof(file), "%s/regression.out", outputdir);
 	logfilename = pg_strdup(file);
@@ -1893,7 +1899,7 @@ open_result_files(void)
 	/* we don't keep the diffs file open continuously */
 	fclose(difffile);
 
-	/* also create the output directory if not present */
+	/* also create the results directory if not present */
 	snprintf(file, sizeof(file), "%s/results", outputdir);
 	if (!directory_exists(file))
 		make_directory(file);

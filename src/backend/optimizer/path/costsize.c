@@ -126,6 +126,7 @@ bool		enable_nestloop = true;
 bool		enable_material = true;
 bool		enable_mergejoin = true;
 bool		enable_hashjoin = true;
+bool		enable_gathermerge = true;
 
 typedef struct
 {
@@ -373,6 +374,73 @@ cost_gather(GatherPath *path, PlannerInfo *root,
 }
 
 /*
+ * cost_gather_merge
+ *	  Determines and returns the cost of gather merge path.
+ *
+ * GatherMerge merges several pre-sorted input streams, using a heap that at
+ * any given instant holds the next tuple from each stream. If there are N
+ * streams, we need about N*log2(N) tuple comparisons to construct the heap at
+ * startup, and then for each output tuple, about log2(N) comparisons to
+ * replace the top heap entry with the next tuple from the same stream.
+ */
+void
+cost_gather_merge(GatherMergePath *path, PlannerInfo *root,
+				  RelOptInfo *rel, ParamPathInfo *param_info,
+				  Cost input_startup_cost, Cost input_total_cost,
+				  double *rows)
+{
+	Cost		startup_cost = 0;
+	Cost		run_cost = 0;
+	Cost		comparison_cost;
+	double		N;
+	double		logN;
+
+	/* Mark the path with the correct row estimate */
+	if (rows)
+		path->path.rows = *rows;
+	else if (param_info)
+		path->path.rows = param_info->ppi_rows;
+	else
+		path->path.rows = rel->rows;
+
+	if (!enable_gathermerge)
+		startup_cost += disable_cost;
+
+	/*
+	 * Add one to the number of workers to account for the leader.  This might
+	 * be overgenerous since the leader will do less work than other workers
+	 * in typical cases, but we'll go with it for now.
+	 */
+	Assert(path->num_workers > 0);
+	N = (double) path->num_workers + 1;
+	logN = LOG2(N);
+
+	/* Assumed cost per tuple comparison */
+	comparison_cost = 2.0 * cpu_operator_cost;
+
+	/* Heap creation cost */
+	startup_cost += comparison_cost * N * logN;
+
+	/* Per-tuple heap maintenance cost */
+	run_cost += path->path.rows * comparison_cost * logN;
+
+	/* small cost for heap management, like cost_merge_append */
+	run_cost += cpu_operator_cost * path->path.rows;
+
+	/*
+	 * Parallel setup and communication cost.  Since Gather Merge, unlike
+	 * Gather, requires us to block until a tuple is available from every
+	 * worker, we bump the IPC cost up a little bit as compared with Gather.
+	 * For lack of a better idea, charge an extra 5%.
+	 */
+	startup_cost += parallel_setup_cost;
+	run_cost += parallel_tuple_cost * path->path.rows * 1.05;
+
+	path->path.startup_cost = startup_cost + input_startup_cost;
+	path->path.total_cost = (startup_cost + run_cost + input_total_cost);
+}
+
+/*
  * cost_index
  *	  Determines and returns the cost of scanning a relation using an index.
  *
@@ -595,14 +663,21 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count,
 	if (partial_path)
 	{
 		/*
+		 * For index only scans compute workers based on number of index pages
+		 * fetched; the number of heap pages we fetch might be so small as
+		 * to effectively rule out parallelism, which we don't want to do.
+		 */
+		if (indexonly)
+			rand_heap_pages = -1;
+
+		/*
 		 * Estimate the number of parallel workers required to scan index. Use
 		 * the number of heap pages computed considering heap fetches won't be
 		 * sequential as for parallel scans the pages are accessed in random
 		 * order.
 		 */
 		path->path.parallel_workers = compute_parallel_worker(baserel,
-											   (BlockNumber) rand_heap_pages,
-												  (BlockNumber) index_pages);
+											   rand_heap_pages, index_pages);
 
 		/*
 		 * Fall out if workers can't be assigned for parallel scan, because in
@@ -2077,7 +2152,12 @@ final_cost_nestloop(PlannerInfo *root, NestPath *path,
 
 	/* For partial paths, scale row estimate. */
 	if (path->path.parallel_workers > 0)
-		path->path.rows /= get_parallel_divisor(&path->path);
+	{
+		double	parallel_divisor = get_parallel_divisor(&path->path);
+
+		path->path.rows =
+			clamp_row_est(path->path.rows / parallel_divisor);
+	}
 
 	/*
 	 * We could include disable_cost in the preliminary estimate, but that
@@ -2499,7 +2579,12 @@ final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 
 	/* For partial paths, scale row estimate. */
 	if (path->jpath.path.parallel_workers > 0)
-		path->jpath.path.rows /= get_parallel_divisor(&path->jpath.path);
+	{
+		double	parallel_divisor = get_parallel_divisor(&path->jpath.path);
+
+		path->jpath.path.rows =
+			clamp_row_est(path->jpath.path.rows / parallel_divisor);
+	}
 
 	/*
 	 * We could include disable_cost in the preliminary estimate, but that
@@ -2882,7 +2967,12 @@ final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 
 	/* For partial paths, scale row estimate. */
 	if (path->jpath.path.parallel_workers > 0)
-		path->jpath.path.rows /= get_parallel_divisor(&path->jpath.path);
+	{
+		double	parallel_divisor = get_parallel_divisor(&path->jpath.path);
+
+		path->jpath.path.rows =
+			clamp_row_est(path->jpath.path.rows / parallel_divisor);
+	}
 
 	/*
 	 * We could include disable_cost in the preliminary estimate, but that
@@ -4395,8 +4485,10 @@ set_subquery_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 
 	/* Should only be applied to base relations that are subqueries */
 	Assert(rel->relid > 0);
+#ifdef USE_ASSERT_CHECKING
 	rte = planner_rt_fetch(rel->relid, root);
 	Assert(rte->rtekind == RTE_SUBQUERY);
+#endif
 
 	/*
 	 * Copy raw number of output rows from subquery.  All of its paths should
@@ -4508,12 +4600,14 @@ set_function_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 void
 set_tablefunc_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 {
-	RangeTblEntry *rte;
+	RangeTblEntry *rte PG_USED_FOR_ASSERTS_ONLY;
 
 	/* Should only be applied to base relations that are functions */
 	Assert(rel->relid > 0);
+#ifdef USE_ASSERT_CHECKING
 	rte = planner_rt_fetch(rel->relid, root);
 	Assert(rte->rtekind == RTE_TABLEFUNC);
+#endif
 
 	rel->tuples = 100;
 

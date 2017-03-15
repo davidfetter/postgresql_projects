@@ -98,6 +98,7 @@
 #include "postgres.h"
 
 #include <ctype.h>
+#include <float.h>
 #include <math.h>
 
 #include "access/gin.h"
@@ -3799,6 +3800,7 @@ convert_to_scalar(Datum value, Oid valuetypid, double *scaledvalue,
 		case INETOID:
 		case CIDROID:
 		case MACADDROID:
+		case MACADDR8OID:
 			*scaledvalue = convert_network_to_scalar(value, valuetypid);
 			*scaledlobound = convert_network_to_scalar(lobound, boundstypid);
 			*scaledhibound = convert_network_to_scalar(hibound, boundstypid);
@@ -4311,7 +4313,7 @@ get_restriction_variable(PlannerInfo *root, List *args, int varRelid,
 		return true;
 	}
 
-	/* Ooops, clause has wrong structure (probably var op var) */
+	/* Oops, clause has wrong structure (probably var op var) */
 	ReleaseVariableStats(*vardata);
 	ReleaseVariableStats(rdata);
 
@@ -5341,13 +5343,12 @@ like_fixed_prefix(Const *patt_const, bool case_insensitive, Oid collation,
 	}
 	else
 	{
-		bytea	   *bstr = DatumGetByteaP(patt_const->constvalue);
+		bytea	   *bstr = DatumGetByteaPP(patt_const->constvalue);
 
-		pattlen = VARSIZE(bstr) - VARHDRSZ;
+		pattlen = VARSIZE_ANY_EXHDR(bstr);
 		patt = (char *) palloc(pattlen);
-		memcpy(patt, VARDATA(bstr), pattlen);
-		if ((Pointer) bstr != DatumGetPointer(patt_const->constvalue))
-			pfree(bstr);
+		memcpy(patt, VARDATA_ANY(bstr), pattlen);
+		Assert((Pointer) bstr == DatumGetPointer(patt_const->constvalue));
 	}
 
 	match = palloc(pattlen + 1);
@@ -5857,13 +5858,12 @@ make_greater_string(const Const *str_const, FmgrInfo *ltproc, Oid collation)
 	}
 	else if (datatype == BYTEAOID)
 	{
-		bytea	   *bstr = DatumGetByteaP(str_const->constvalue);
+		bytea	   *bstr = DatumGetByteaPP(str_const->constvalue);
 
-		len = VARSIZE(bstr) - VARHDRSZ;
+		len = VARSIZE_ANY_EXHDR(bstr);
 		workstr = (char *) palloc(len);
-		memcpy(workstr, VARDATA(bstr), len);
-		if ((Pointer) bstr != DatumGetPointer(str_const->constvalue))
-			pfree(bstr);
+		memcpy(workstr, VARDATA_ANY(bstr), len);
+		Assert((Pointer) bstr == DatumGetPointer(str_const->constvalue));
 		cmpstr = str_const->constvalue;
 	}
 	else

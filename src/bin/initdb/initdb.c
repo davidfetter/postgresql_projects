@@ -61,6 +61,7 @@
 
 #include "catalog/catalog.h"
 #include "catalog/pg_authid.h"
+#include "catalog/pg_class.h"
 #include "common/file_utils.h"
 #include "common/restricted_token.h"
 #include "common/username.h"
@@ -1212,15 +1213,23 @@ setup_config(void)
 
 		if (err != 0 ||
 			getaddrinfo("::1", NULL, &hints, &gai_result) != 0)
+		{
 			conflines = replace_token(conflines,
 							   "host    all             all             ::1",
 							 "#host    all             all             ::1");
+			conflines = replace_token(conflines,
+							   "host    replication     all             ::1",
+							 "#host    replication     all             ::1");
+		}
 	}
 #else							/* !HAVE_IPV6 */
 	/* If we didn't compile IPV6 support at all, always comment it out */
 	conflines = replace_token(conflines,
 							  "host    all             all             ::1",
 							  "#host    all             all             ::1");
+	conflines = replace_token(conflines,
+							  "host    replication     all             ::1",
+							  "#host    replication     all             ::1");
 #endif   /* HAVE_IPV6 */
 
 	/* Replace default authentication methods */
@@ -1234,11 +1243,6 @@ setup_config(void)
 	conflines = replace_token(conflines,
 							  "@authcomment@",
 							  (strcmp(authmethodlocal, "trust") == 0 || strcmp(authmethodhost, "trust") == 0) ? AUTHTRUST_WARNING : "");
-
-	/* Replace username for replication */
-	conflines = replace_token(conflines,
-							  "@default_username@",
-							  username);
 
 	snprintf(path, sizeof(path), "%s/pg_hba.conf", pg_data);
 
@@ -1696,9 +1700,13 @@ setup_privileges(FILE *cmdfd)
 		"  SET relacl = (SELECT array_agg(a.acl) FROM "
 		" (SELECT E'=r/\"$POSTGRES_SUPERUSERNAME\"' as acl "
 		"  UNION SELECT unnest(pg_catalog.acldefault("
-		"    CASE WHEN relkind = 'S' THEN 's' ELSE 'r' END::\"char\"," CppAsString2(BOOTSTRAP_SUPERUSERID) "::oid))"
+		"    CASE WHEN relkind = " CppAsString2(RELKIND_SEQUENCE) " THEN 's' "
+		"         ELSE 'r' END::\"char\"," CppAsString2(BOOTSTRAP_SUPERUSERID) "::oid))"
 		" ) as a) "
-		"  WHERE relkind IN ('r', 'v', 'm', 'S') AND relacl IS NULL;\n\n",
+		"  WHERE relkind IN (" CppAsString2(RELKIND_RELATION) ", "
+		CppAsString2(RELKIND_VIEW) ", " CppAsString2(RELKIND_MATVIEW) ", "
+		CppAsString2(RELKIND_SEQUENCE) ")"
+		"  AND relacl IS NULL;\n\n",
 		"GRANT USAGE ON SCHEMA pg_catalog TO PUBLIC;\n\n",
 		"GRANT CREATE, USAGE ON SCHEMA public TO PUBLIC;\n\n",
 		"REVOKE ALL ON pg_largeobject FROM PUBLIC;\n\n",
@@ -1714,7 +1722,9 @@ setup_privileges(FILE *cmdfd)
 		"        pg_class"
 		"    WHERE"
 		"        relacl IS NOT NULL"
-		"        AND relkind IN ('r', 'v', 'm', 'S');",
+		"        AND relkind IN (" CppAsString2(RELKIND_RELATION) ", "
+		CppAsString2(RELKIND_VIEW) ", " CppAsString2(RELKIND_MATVIEW) ", "
+		CppAsString2(RELKIND_SEQUENCE) ");",
 		"INSERT INTO pg_init_privs "
 		"  (objoid, classoid, objsubid, initprivs, privtype)"
 		"    SELECT"
@@ -1728,7 +1738,9 @@ setup_privileges(FILE *cmdfd)
 		"        JOIN pg_attribute ON (pg_class.oid = pg_attribute.attrelid)"
 		"    WHERE"
 		"        pg_attribute.attacl IS NOT NULL"
-		"        AND pg_class.relkind IN ('r', 'v', 'm', 'S');",
+		"        AND pg_class.relkind IN (" CppAsString2(RELKIND_RELATION) ", "
+		CppAsString2(RELKIND_VIEW) ", " CppAsString2(RELKIND_MATVIEW) ", "
+		CppAsString2(RELKIND_SEQUENCE) ");",
 		"INSERT INTO pg_init_privs "
 		"  (objoid, classoid, objsubid, initprivs, privtype)"
 		"    SELECT"
@@ -2319,7 +2331,7 @@ check_need_password(const char *authmethodlocal, const char *authmethodhost)
 		 strcmp(authmethodlocal, "scram") == 0) &&
 		(strcmp(authmethodhost, "md5") == 0 ||
 		 strcmp(authmethodhost, "password") == 0 ||
-		 strcmp(authmethodlocal, "scram") == 0) &&
+		 strcmp(authmethodhost, "scram") == 0) &&
 		!(pwprompt || pwfilename))
 	{
 		fprintf(stderr, _("%s: must specify a password for the superuser to enable %s authentication\n"), progname,
@@ -3223,7 +3235,8 @@ main(int argc, char *argv[])
 	appendShellString(start_db_cmd, pgdata_native);
 
 	/* add suggested -l switch and "start" command */
-	appendPQExpBufferStr(start_db_cmd, " -l logfile start");
+	/* translator: This is a placeholder in a shell command. */
+	appendPQExpBuffer(start_db_cmd, " -l %s start", _("logfile"));
 
 	printf(_("\nSuccess. You can now start the database server using:\n\n"
 			 "    %s\n\n"),

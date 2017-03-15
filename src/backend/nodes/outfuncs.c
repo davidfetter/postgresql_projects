@@ -458,6 +458,35 @@ _outGather(StringInfo str, const Gather *node)
 }
 
 static void
+_outGatherMerge(StringInfo str, const GatherMerge *node)
+{
+	int		i;
+
+	WRITE_NODE_TYPE("GATHERMERGE");
+
+	_outPlanInfo(str, (const Plan *) node);
+
+	WRITE_INT_FIELD(num_workers);
+	WRITE_INT_FIELD(numCols);
+
+	appendStringInfoString(str, " :sortColIdx");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %d", node->sortColIdx[i]);
+
+	appendStringInfoString(str, " :sortOperators");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %u", node->sortOperators[i]);
+
+	appendStringInfoString(str, " :collations");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %u", node->collations[i]);
+
+	appendStringInfoString(str, " :nullsFirst");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
+}
+
+static void
 _outScan(StringInfo str, const Scan *node)
 {
 	WRITE_NODE_TYPE("SCAN");
@@ -2039,6 +2068,17 @@ _outLimitPath(StringInfo str, const LimitPath *node)
 }
 
 static void
+_outGatherMergePath(StringInfo str, const GatherMergePath *node)
+{
+	WRITE_NODE_TYPE("GATHERMERGEPATH");
+
+	_outPathInfo(str, (const Path *) node);
+
+	WRITE_NODE_FIELD(subpath);
+	WRITE_INT_FIELD(num_workers);
+}
+
+static void
 _outNestPath(StringInfo str, const NestPath *node)
 {
 	WRITE_NODE_TYPE("NESTPATH");
@@ -3495,6 +3535,9 @@ outNode(StringInfo str, const void *obj)
 			case T_Gather:
 				_outGather(str, obj);
 				break;
+			case T_GatherMerge:
+				_outGatherMerge(str, obj);
+				break;
 			case T_Scan:
 				_outScan(str, obj);
 				break;
@@ -3830,6 +3873,9 @@ outNode(StringInfo str, const void *obj)
 				break;
 			case T_LimitPath:
 				_outLimitPath(str, obj);
+				break;
+			case T_GatherMergePath:
+				_outGatherMergePath(str, obj);
 				break;
 			case T_NestPath:
 				_outNestPath(str, obj);
