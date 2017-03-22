@@ -48,6 +48,7 @@
 #include "access/transam.h"
 #include "access/xact.h"
 #include "access/xlog_internal.h"
+#include "access/xlogutils.h"
 
 #include "catalog/pg_type.h"
 #include "commands/dbcommands.h"
@@ -463,7 +464,9 @@ SendTimeLineHistory(TimeLineHistoryCmd *cmd)
 		char		rbuf[BLCKSZ];
 		int			nread;
 
+		pgstat_report_wait_start(WAIT_EVENT_WALSENDER_TIMELINE_HISTORY_READ);
 		nread = read(fd, rbuf, sizeof(rbuf));
+		pgstat_report_wait_end();
 		if (nread <= 0)
 			ereport(ERROR,
 					(errcode_for_file_access(),
@@ -719,6 +722,12 @@ logical_read_xlog_page(XLogReaderState *state, XLogRecPtr targetPagePtr, int req
 	XLogRecPtr	flushptr;
 	int			count;
 
+	XLogReadDetermineTimeline(state, targetPagePtr, reqLen);
+	sendTimeLineIsHistoric = (state->currTLI != ThisTimeLineID);
+	sendTimeLine = state->currTLI;
+	sendTimeLineValidUpto = state->currTLIValidUntil;
+	sendTimeLineNextTLI = state->nextTLI;
+
 	/* make sure we have enough WAL available */
 	flushptr = WalSndWaitForWal(targetPagePtr + reqLen);
 
@@ -971,10 +980,6 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 	pq_sendint(&buf, 0, 2);
 	pq_endmessage(&buf);
 	pq_flush();
-
-	/* setup state for XLogReadPage */
-	sendTimeLineIsHistoric = false;
-	sendTimeLine = ThisTimeLineID;
 
 	/*
 	 * Initialize position to the last ack'ed one, then the xlog records begin
@@ -2126,7 +2131,9 @@ retry:
 		else
 			segbytes = nbytes;
 
+		pgstat_report_wait_start(WAIT_EVENT_WAL_READ);
 		readbytes = read(sendFile, p, segbytes);
+		pgstat_report_wait_end();
 		if (readbytes <= 0)
 		{
 			ereport(ERROR,

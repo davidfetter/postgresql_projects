@@ -109,12 +109,13 @@ int			nParallelCurrentXids = 0;
 TransactionId *ParallelCurrentXids;
 
 /*
- * MyXactAccessedTempRel is set when a temporary relation is accessed.
- * We don't allow PREPARE TRANSACTION in that case.  (This is global
- * so that it can be set from heapam.c.)
+ * Miscellaneous flag bits to record events which occur on the top level
+ * transaction. These flags are only persisted in MyXactFlags and are intended
+ * so we remember to do certain things later on in the transaction. This is
+ * globally accessible, so can be set from anywhere in the code that requires
+ * recording flags.
  */
-bool		MyXactAccessedTempRel = false;
-
+int  MyXactFlags;
 
 /*
  *	transaction states - transaction state from server perspective
@@ -1208,8 +1209,8 @@ RecordTransactionCommit(void)
 		/*
 		 * Mark ourselves as within our "commit critical section".  This
 		 * forces any concurrent checkpoint to wait until we've updated
-		 * pg_clog.  Without this, it is possible for the checkpoint to set
-		 * REDO after the XLOG record but fail to flush the pg_clog update to
+		 * pg_xact.  Without this, it is possible for the checkpoint to set
+		 * REDO after the XLOG record but fail to flush the pg_xact update to
 		 * disk, leading to loss of the transaction commit if the system
 		 * crashes a little later.
 		 *
@@ -1231,6 +1232,7 @@ RecordTransactionCommit(void)
 							nchildren, children, nrels, rels,
 							nmsgs, invalMessages,
 							RelcacheInitFileInval, forceSyncCommit,
+							MyXactFlags,
 							InvalidTransactionId /* plain commit */ );
 
 		if (replorigin)
@@ -1583,7 +1585,7 @@ RecordTransactionAbort(bool isSubXact)
 	XactLogAbortRecord(xact_time,
 					   nchildren, children,
 					   nrels, rels,
-					   InvalidTransactionId);
+					   MyXactFlags, InvalidTransactionId);
 
 	/*
 	 * Report the latest async abort LSN, so that the WAL writer knows to
@@ -1845,7 +1847,7 @@ StartTransaction(void)
 	XactDeferrable = DefaultXactDeferrable;
 	XactIsoLevel = DefaultXactIsoLevel;
 	forceSyncCommit = false;
-	MyXactAccessedTempRel = false;
+	MyXactFlags = 0;
 
 	/*
 	 * reinitialize within-transaction counters
@@ -2035,7 +2037,7 @@ CommitTransaction(void)
 	if (!is_parallel_worker)
 	{
 		/*
-		 * We need to mark our XIDs as committed in pg_clog.  This is where we
+		 * We need to mark our XIDs as committed in pg_xact.  This is where we
 		 * durably commit.
 		 */
 		latestXid = RecordTransactionCommit();
@@ -2260,7 +2262,7 @@ PrepareTransaction(void)
 	 * cases, such as a temp table created and dropped all within the
 	 * transaction.  That seems to require much more bookkeeping though.
 	 */
-	if (MyXactAccessedTempRel)
+	if ((MyXactFlags & XACT_FLAGS_ACCESSEDTEMPREL))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("cannot PREPARE a transaction that has operated on temporary tables")));
@@ -2545,7 +2547,7 @@ AbortTransaction(void)
 	AtAbort_Twophase();
 
 	/*
-	 * Advertise the fact that we aborted in pg_clog (assuming that we got as
+	 * Advertise the fact that we aborted in pg_xact (assuming that we got as
 	 * far as assigning an XID to advertise).  But if we're inside a parallel
 	 * worker, skip this; the user backend must be the one to write the abort
 	 * record.
@@ -4631,7 +4633,7 @@ AbortSubTransaction(void)
 								s->parent->subTransactionId);
 		AtSubAbort_Notify();
 
-		/* Advertise the fact that we aborted in pg_clog. */
+		/* Advertise the fact that we aborted in pg_xact. */
 		(void) RecordTransactionAbort(true);
 
 		/* Post-abort cleanup */
@@ -5108,7 +5110,7 @@ XactLogCommitRecord(TimestampTz commit_time,
 					int nrels, RelFileNode *rels,
 					int nmsgs, SharedInvalidationMessage *msgs,
 					bool relcacheInval, bool forceSync,
-					TransactionId twophase_xid)
+					int xactflags, TransactionId twophase_xid)
 {
 	xl_xact_commit xlrec;
 	xl_xact_xinfo xl_xinfo;
@@ -5139,6 +5141,8 @@ XactLogCommitRecord(TimestampTz commit_time,
 		xl_xinfo.xinfo |= XACT_COMPLETION_UPDATE_RELCACHE_FILE;
 	if (forceSyncCommit)
 		xl_xinfo.xinfo |= XACT_COMPLETION_FORCE_SYNC_COMMIT;
+	if ((xactflags & XACT_FLAGS_ACQUIREDACCESSEXCLUSIVELOCK))
+		xl_xinfo.xinfo |= XACT_XINFO_HAS_AE_LOCKS;
 
 	/*
 	 * Check if the caller would like to ask standbys for immediate feedback
@@ -5251,7 +5255,7 @@ XLogRecPtr
 XactLogAbortRecord(TimestampTz abort_time,
 				   int nsubxacts, TransactionId *subxacts,
 				   int nrels, RelFileNode *rels,
-				   TransactionId twophase_xid)
+				   int xactflags, TransactionId twophase_xid)
 {
 	xl_xact_abort xlrec;
 	xl_xact_xinfo xl_xinfo;
@@ -5275,6 +5279,9 @@ XactLogAbortRecord(TimestampTz abort_time,
 	/* First figure out and collect all the information needed */
 
 	xlrec.xact_time = abort_time;
+
+	if ((xactflags & XACT_FLAGS_ACQUIREDACCESSEXCLUSIVELOCK))
+		xl_xinfo.xinfo |= XACT_XINFO_HAS_AE_LOCKS;
 
 	if (nsubxacts > 0)
 	{
@@ -5375,7 +5382,7 @@ xact_redo_commit(xl_xact_parsed_commit *parsed,
 	if (standbyState == STANDBY_DISABLED)
 	{
 		/*
-		 * Mark the transaction committed in pg_clog.
+		 * Mark the transaction committed in pg_xact.
 		 */
 		TransactionIdCommitTree(xid, parsed->nsubxacts, parsed->subxacts);
 	}
@@ -5393,7 +5400,7 @@ xact_redo_commit(xl_xact_parsed_commit *parsed,
 		RecordKnownAssignedTransactionIds(max_xid);
 
 		/*
-		 * Mark the transaction committed in pg_clog. We use async commit
+		 * Mark the transaction committed in pg_xact. We use async commit
 		 * protocol during recovery to provide information on database
 		 * consistency for when users try to set hint bits. It is important
 		 * that we do not set hint bits until the minRecoveryPoint is past
@@ -5427,7 +5434,8 @@ xact_redo_commit(xl_xact_parsed_commit *parsed,
 		 * via their top-level xid only, so no need to provide subxact list,
 		 * which will save time when replaying commits.
 		 */
-		StandbyReleaseLockTree(xid, 0, NULL);
+		if (parsed->xinfo & XACT_XINFO_HAS_AE_LOCKS)
+			StandbyReleaseLockTree(xid, 0, NULL);
 	}
 
 	if (parsed->xinfo & XACT_XINFO_HAS_ORIGIN)
@@ -5530,7 +5538,7 @@ xact_redo_abort(xl_xact_parsed_abort *parsed, TransactionId xid)
 
 	if (standbyState == STANDBY_DISABLED)
 	{
-		/* Mark the transaction aborted in pg_clog, no need for async stuff */
+		/* Mark the transaction aborted in pg_xact, no need for async stuff */
 		TransactionIdAbortTree(xid, parsed->nsubxacts, parsed->subxacts);
 	}
 	else
@@ -5546,7 +5554,7 @@ xact_redo_abort(xl_xact_parsed_abort *parsed, TransactionId xid)
 		 */
 		RecordKnownAssignedTransactionIds(max_xid);
 
-		/* Mark the transaction aborted in pg_clog, no need for async stuff */
+		/* Mark the transaction aborted in pg_xact, no need for async stuff */
 		TransactionIdAbortTree(xid, parsed->nsubxacts, parsed->subxacts);
 
 		/*
@@ -5563,7 +5571,8 @@ xact_redo_abort(xl_xact_parsed_abort *parsed, TransactionId xid)
 		/*
 		 * Release locks, if any. There are no invalidations to send.
 		 */
-		StandbyReleaseLockTree(xid, parsed->nsubxacts, parsed->subxacts);
+		if (parsed->xinfo & XACT_XINFO_HAS_AE_LOCKS)
+			StandbyReleaseLockTree(xid, parsed->nsubxacts, parsed->subxacts);
 	}
 
 	/* Make sure files supposed to be dropped are dropped */

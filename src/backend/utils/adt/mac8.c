@@ -35,9 +35,9 @@
 #define lobits(addr) \
   ((unsigned long)(((addr)->e<<24) | ((addr)->f<<16) | ((addr)->g<<8) | ((addr)->h)))
 
-static unsigned char hex2_to_uchar(const char *str, int offset);
+static unsigned char hex2_to_uchar(const unsigned char *str, const unsigned char *ptr);
 
-static const int hexlookup[128] = {
+static const signed char hexlookup[128] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -48,19 +48,27 @@ static const int hexlookup[128] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 };
 
+/*
+ * hex2_to_uchar - convert 2 hex digits to a byte (unsigned char)
+ *
+ * This will ereport() if the end of the string is reached ('\0' found), or if
+ * either character is not a valid hex digit.
+ *
+ * ptr is the pointer to where the digits to convert are in the string, str is
+ * the entire string, which is used only for error reporting.
+ */
 static inline unsigned char
-hex2_to_uchar(const char *str, int offset)
+hex2_to_uchar(const unsigned char *ptr, const unsigned char *str)
 {
 	unsigned char ret = 0;
-	int			lookup;
-	const char *ptr = str + offset;
+	signed char lookup;
 
 	/* Handle the first character */
-	if (*ptr < 0 || *ptr >= 127)
+	if (*ptr > 127)
 		goto invalid_input;
 
-	lookup = hexlookup[(unsigned char) *ptr];
-	if (lookup < 0 || lookup > 15)
+	lookup = hexlookup[*ptr];
+	if (lookup < 0)
 		goto invalid_input;
 
 	ret = lookup << 4;
@@ -68,11 +76,11 @@ hex2_to_uchar(const char *str, int offset)
 	/* Move to the second character */
 	ptr++;
 
-	if (*ptr < 0 || *ptr > 127)
+	if (*ptr > 127)
 		goto invalid_input;
 
-	lookup = hexlookup[(unsigned char) *ptr];
-	if (lookup < 0 || lookup > 15)
+	lookup = hexlookup[*ptr];
+	if (lookup < 0)
 		goto invalid_input;
 
 	ret += lookup;
@@ -95,8 +103,8 @@ invalid_input:
 Datum
 macaddr8_in(PG_FUNCTION_ARGS)
 {
-	const char *str = PG_GETARG_CSTRING(0);
-	const char *ptr = str;
+	const unsigned char *str = (unsigned char*) PG_GETARG_CSTRING(0);
+	const unsigned char *ptr = str;
 	macaddr8   *result;
 	unsigned char a = 0,
 				b = 0,
@@ -107,10 +115,10 @@ macaddr8_in(PG_FUNCTION_ARGS)
 				g = 0,
 				h = 0;
 	int			count = 0;
-	char		spacer = '\0';
+	unsigned char spacer = '\0';
 
 	/* skip leading spaces */
-	while (*ptr && isspace((unsigned char) *ptr))
+	while (*ptr && isspace(*ptr))
 		ptr++;
 
 	/* digits must always come in pairs */
@@ -128,28 +136,28 @@ macaddr8_in(PG_FUNCTION_ARGS)
 		switch (count)
 		{
 			case 1:
-				a = hex2_to_uchar(str, ptr - str);
+				a = hex2_to_uchar(ptr, str);
 				break;
 			case 2:
-				b = hex2_to_uchar(str, ptr - str);
+				b = hex2_to_uchar(ptr, str);
 				break;
 			case 3:
-				c = hex2_to_uchar(str, ptr - str);
+				c = hex2_to_uchar(ptr, str);
 				break;
 			case 4:
-				d = hex2_to_uchar(str, ptr - str);
+				d = hex2_to_uchar(ptr, str);
 				break;
 			case 5:
-				e = hex2_to_uchar(str, ptr - str);
+				e = hex2_to_uchar(ptr, str);
 				break;
 			case 6:
-				f = hex2_to_uchar(str, ptr - str);
+				f = hex2_to_uchar(ptr, str);
 				break;
 			case 7:
-				g = hex2_to_uchar(str, ptr - str);
+				g = hex2_to_uchar(ptr, str);
 				break;
 			case 8:
-				h = hex2_to_uchar(str, ptr - str);
+				h = hex2_to_uchar(ptr, str);
 				break;
 			default:
 				/* must be trailing garbage... */
@@ -183,9 +191,9 @@ macaddr8_in(PG_FUNCTION_ARGS)
 		/* allow trailing whitespace after if we have 6 or 8 bytes */
 		if (count == 6 || count == 8)
 		{
-			if (isspace((unsigned char) *ptr))
+			if (isspace(*ptr))
 			{
-				while (*++ptr && isspace((unsigned char) *ptr));
+				while (*++ptr && isspace(*ptr));
 
 				/* If we found a space and then non-space, it's invalid */
 				if (*ptr)

@@ -1200,8 +1200,10 @@ ReadTwoPhaseFile(TransactionId xid, bool give_warnings)
 	 */
 	buf = (char *) palloc(stat.st_size);
 
+	pgstat_report_wait_start(WAIT_EVENT_TWOPHASE_FILE_READ);
 	if (read(fd, buf, stat.st_size) != stat.st_size)
 	{
+		pgstat_report_wait_end();
 		CloseTransientFile(fd);
 		if (give_warnings)
 			ereport(WARNING,
@@ -1212,6 +1214,7 @@ ReadTwoPhaseFile(TransactionId xid, bool give_warnings)
 		return NULL;
 	}
 
+	pgstat_report_wait_end();
 	CloseTransientFile(fd);
 
 	hdr = (TwoPhaseFileHeader *) buf;
@@ -1379,7 +1382,7 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 	/*
 	 * The order of operations here is critical: make the XLOG entry for
 	 * commit or abort, then mark the transaction committed or aborted in
-	 * pg_clog, then remove its PGPROC from the global ProcArray (which means
+	 * pg_xact, then remove its PGPROC from the global ProcArray (which means
 	 * TransactionIdIsInProgress will stop saying the prepared xact is in
 	 * progress), then run the post-commit or post-abort callbacks. The
 	 * callbacks will release the locks the transaction held.
@@ -1542,8 +1545,10 @@ RecreateTwoPhaseFile(TransactionId xid, void *content, int len)
 						path)));
 
 	/* Write content and CRC */
+	pgstat_report_wait_start(WAIT_EVENT_TWOPHASE_FILE_WRITE);
 	if (write(fd, content, len) != len)
 	{
+		pgstat_report_wait_end();
 		CloseTransientFile(fd);
 		ereport(ERROR,
 				(errcode_for_file_access(),
@@ -1551,16 +1556,19 @@ RecreateTwoPhaseFile(TransactionId xid, void *content, int len)
 	}
 	if (write(fd, &statefile_crc, sizeof(pg_crc32c)) != sizeof(pg_crc32c))
 	{
+		pgstat_report_wait_end();
 		CloseTransientFile(fd);
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not write two-phase state file: %m")));
 	}
+	pgstat_report_wait_end();
 
 	/*
 	 * We must fsync the file because the end-of-replay checkpoint will not do
 	 * so, there being no GXACT in shared memory yet to tell it to.
 	 */
+	pgstat_report_wait_start(WAIT_EVENT_TWOPHASE_FILE_SYNC);
 	if (pg_fsync(fd) != 0)
 	{
 		CloseTransientFile(fd);
@@ -1568,6 +1576,7 @@ RecreateTwoPhaseFile(TransactionId xid, void *content, int len)
 				(errcode_for_file_access(),
 				 errmsg("could not fsync two-phase state file: %m")));
 	}
+	pgstat_report_wait_end();
 
 	if (CloseTransientFile(fd) != 0)
 		ereport(ERROR,
@@ -2056,11 +2065,15 @@ RecordTransactionCommitPrepared(TransactionId xid,
 	/* See notes in RecordTransactionCommit */
 	MyPgXact->delayChkpt = true;
 
-	/* Emit the XLOG commit record */
+	/*
+	 * Emit the XLOG commit record. Note that we mark 2PC commits as potentially
+	 * having AccessExclusiveLocks since we don't know whether or not they do.
+	 */
 	recptr = XactLogCommitRecord(committs,
 								 nchildren, children, nrels, rels,
 								 ninvalmsgs, invalmsgs,
 								 initfileinval, false,
+						 MyXactFlags | XACT_FLAGS_ACQUIREDACCESSEXCLUSIVELOCK,
 								 xid);
 
 
@@ -2093,7 +2106,7 @@ RecordTransactionCommitPrepared(TransactionId xid,
 	/* Flush XLOG to disk */
 	XLogFlush(recptr);
 
-	/* Mark the transaction committed in pg_clog */
+	/* Mark the transaction committed in pg_xact */
 	TransactionIdCommitTree(xid, nchildren, children);
 
 	/* Checkpoint can proceed now */
@@ -2137,10 +2150,14 @@ RecordTransactionAbortPrepared(TransactionId xid,
 
 	START_CRIT_SECTION();
 
-	/* Emit the XLOG abort record */
+	/*
+	 * Emit the XLOG commit record. Note that we mark 2PC aborts as potentially
+	 * having AccessExclusiveLocks since we don't know whether or not they do.
+	 */
 	recptr = XactLogAbortRecord(GetCurrentTimestamp(),
 								nchildren, children,
 								nrels, rels,
+						 MyXactFlags | XACT_FLAGS_ACQUIREDACCESSEXCLUSIVELOCK,
 								xid);
 
 	/* Always flush, since we're about to remove the 2PC state file */

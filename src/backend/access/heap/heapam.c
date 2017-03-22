@@ -1132,7 +1132,7 @@ relation_open(Oid relationId, LOCKMODE lockmode)
 
 	/* Make note that we've accessed a temporary relation */
 	if (RelationUsesLocalBuffers(r))
-		MyXactAccessedTempRel = true;
+		MyXactFlags |= XACT_FLAGS_ACCESSEDTEMPREL;
 
 	pgstat_initstats(r);
 
@@ -1178,7 +1178,7 @@ try_relation_open(Oid relationId, LOCKMODE lockmode)
 
 	/* Make note that we've accessed a temporary relation */
 	if (RelationUsesLocalBuffers(r))
-		MyXactAccessedTempRel = true;
+		MyXactFlags |= XACT_FLAGS_ACCESSEDTEMPREL;
 
 	pgstat_initstats(r);
 
@@ -6790,8 +6790,8 @@ heap_prepare_freeze_tuple(HeapTupleHeader tuple, TransactionId cutoff_xid,
  * Note: it might seem we could make the changes without exclusive lock, since
  * TransactionId read/write is assumed atomic anyway.  However there is a race
  * condition: someone who just fetched an old XID that we overwrite here could
- * conceivably not finish checking the XID against pg_clog before we finish
- * the VACUUM and perhaps truncate off the part of pg_clog he needs.  Getting
+ * conceivably not finish checking the XID against pg_xact before we finish
+ * the VACUUM and perhaps truncate off the part of pg_xact he needs.  Getting
  * exclusive lock ensures no other backend is in process of checking the
  * tuple status.  Also, getting exclusive lock makes it safe to adjust the
  * infomask bits.
