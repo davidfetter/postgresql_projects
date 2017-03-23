@@ -2775,7 +2775,6 @@ create_groupingsets_path(PlannerInfo *root,
 		 * non-hashed one takes the (already-sorted) input, and following ones
 		 * do their own sort.
 		 */
-
 		if (is_first)
 		{
 			cost_agg(&pathnode->path, root,

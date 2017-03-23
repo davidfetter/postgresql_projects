@@ -23,6 +23,7 @@
 #include "access/hash.h"
 #include "nodes/pg_list.h"
 
+
 #define WORDNUM(x)	((x) / BITS_PER_BITMAPWORD)
 #define BITNUM(x)	((x) % BITS_PER_BITMAPWORD)
 

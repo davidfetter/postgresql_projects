@@ -2061,7 +2061,12 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 	/* Note: currently, we leave it to callers to do set_cheapest() */
 }
 
-
+/*
+ * Do preprocessing for groupingSets clause and related data.  This handles the
+ * preliminary steps of expanding the grouping sets, organizing them into lists
+ * of rollups, and preparing annotations which will later be filled in with
+ * size estimates.
+ */
 static grouping_sets_data *
 preprocess_grouping_sets(PlannerInfo *root)
 {
@@ -2131,7 +2136,6 @@ preprocess_grouping_sets(PlannerInfo *root)
 				 * Note that passing this test doesn't guarantee we can
 				 * generate a plan; there might be other showstoppers.
 				 */
-
 				if (bms_overlap_list(gd->unhashable_refs, gset))
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -2193,7 +2197,8 @@ preprocess_grouping_sets(PlannerInfo *root)
 		/*
 		 * Is it hashable? We pretend empty sets are hashable even though we
 		 * actually force them not to be hashed later. But don't bother if
-		 * there's nothing but empty sets.
+		 * there's nothing but empty sets (since in that case we can't hash
+		 * anything).
 		 */
 		if (gs->set &&
 			!bms_overlap_list(gd->unhashable_refs, gs->set))
@@ -4130,7 +4135,6 @@ create_grouping_paths(PlannerInfo *root,
  * times, so it's important that it not scribble on input.  No result is
  * returned, but any generated paths are added to grouped_rel.
  */
-
 static void
 consider_groupingsets_paths(PlannerInfo *root,
 							RelOptInfo *grouped_rel,
@@ -4278,7 +4282,6 @@ consider_groupingsets_paths(PlannerInfo *root,
 	/*
 	 * If we have sorted input but nothing we can do with it, bail.
 	 */
-
 	if (list_length(gd->rollups) == 0)
 		return;
 
@@ -4290,7 +4293,6 @@ consider_groupingsets_paths(PlannerInfo *root,
 	 * can_hash is passed in as false if some obstacle elsewhere (such as
 	 * ordered aggs) means that we shouldn't consider hashing at all.
 	 */
-
 	if (can_hash && gd->any_hashable)
 	{
 		List	   *rollups = NIL;

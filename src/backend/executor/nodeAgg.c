@@ -453,7 +453,6 @@ typedef struct AggStatePerPhaseData
  * grouping set. (When doing hashing without grouping sets, we have just one of
  * them.)
  */
-
 typedef struct AggStatePerHashData
 {
 	TupleHashTable hashtable;	/* hash table with one entry per group */
@@ -534,7 +533,6 @@ static int find_compatible_pertrans(AggState *aggstate, Aggref *newagg,
  * Select the current grouping set; affects current_set and
  * curaggcontext.
  */
-
 static void
 select_current_set(AggState *aggstate, int setno, bool is_hash)
 {
@@ -549,6 +547,9 @@ select_current_set(AggState *aggstate, int setno, bool is_hash)
 /*
  * Switch to phase "newphase", which must either be 0 or 1 (to reset) or
  * current_phase + 1. Juggle the tuplesorts accordingly.
+ *
+ * Phase 0 is for hashing, which we currently handle last in the AGG_MIXED
+ * case, so when entering phase 0, all we need to do is drop open sorts.
  */
 static void
 initialize_phase(AggState *aggstate, int newphase)
@@ -2608,7 +2609,7 @@ agg_retrieve_hash_table(AggState *aggstate)
  *	For many purposes, we treat the "real" node as if it were just the first
  *	node in the chain.  The chain must be ordered such that hashed entries come
  *	before sorted/plain entries; the real node is marked AGG_MIXED if there are
- *	mixed types (in which case the real node describes one of the hashed
+ *	both types present (in which case the real node describes one of the hashed
  *	groupings, other AGG_HASHED nodes may optionally follow in the chain,
  *	followed in turn by AGG_SORTED or (one) AGG_PLAIN node).  If the real node
  *	is marked AGG_HASHED or AGG_SORTED, then all the chained nodes must be of
@@ -2999,7 +3000,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 * hashing is being done too, then phase 0 is processed last); but if only
 	 * hashing is being done, then phase 0 is all there is.
 	 */
-
 	if (node->aggstrategy == AGG_HASHED)
 	{
 		aggstate->current_phase = 0;
@@ -3941,7 +3941,6 @@ ExecReScanAgg(AggState *node)
 	 * the hashcontext. This used to be an issue, but now, resetting a context
 	 * automatically deletes sub-contexts too.
 	 */
-
 	if (node->aggstrategy == AGG_HASHED || node->aggstrategy == AGG_MIXED)
 	{
 		ReScanExprContext(node->hashcontext);
