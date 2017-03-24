@@ -1623,6 +1623,14 @@ ProcessUtilitySlow(ParseState *pstate,
 				commandCollected = true;
 				break;
 
+			case T_CreateStatsStmt:
+				address = CreateStatistics((CreateStatsStmt *) parsetree);
+				break;
+
+			case T_AlterCollationStmt:
+				address = AlterCollation((AlterCollationStmt *) parsetree);
+				break;
+
 			default:
 				elog(ERROR, "unrecognized node type: %d",
 					 (int) nodeTag(parsetree));
@@ -1988,6 +1996,8 @@ AlterObjectTypeCommandTag(ObjectType objtype)
 			break;
 		case OBJECT_SUBSCRIPTION:
 			tag = "ALTER SUBSCRIPTION";
+		case OBJECT_STATISTIC_EXT:
+			tag = "ALTER STATISTICS";
 			break;
 		default:
 			tag = "???";
@@ -2282,6 +2292,8 @@ CreateCommandTag(Node *parsetree)
 					break;
 				case OBJECT_PUBLICATION:
 					tag = "DROP PUBLICATION";
+				case OBJECT_STATISTIC_EXT:
+					tag = "DROP STATISTICS";
 					break;
 				default:
 					tag = "???";
@@ -2673,12 +2685,20 @@ CreateCommandTag(Node *parsetree)
 			tag = "DROP SUBSCRIPTION";
 			break;
 
+		case T_AlterCollationStmt:
+			tag = "ALTER COLLATION";
+			break;
+
 		case T_PrepareStmt:
 			tag = "PREPARE";
 			break;
 
 		case T_ExecuteStmt:
 			tag = "EXECUTE";
+			break;
+
+		case T_CreateStatsStmt:
+			tag = "CREATE STATISTICS";
 			break;
 
 		case T_DeallocateStmt:
