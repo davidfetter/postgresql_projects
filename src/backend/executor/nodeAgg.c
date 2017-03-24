@@ -146,6 +146,55 @@
  *	  sensitive to the grouping set for which the aggregate function is
  *	  currently being called.
  *
+ *	  Plan structure:
+ *
+ *	  What we get from the planner is actually one "real" Agg node which is
+ *	  part of the plan tree proper, but which optionally has an additional list
+ *	  of Agg nodes hung off the side via the "chain" field.  This is because an
+ *	  Agg node happens to be a convenient representation of all the data we
+ *	  need for grouping sets.
+ *
+ *	  For many purposes, we treat the "real" node as if it were just the first
+ *	  node in the chain.  The chain must be ordered such that hashed entries
+ *	  come before sorted/plain entries; the real node is marked AGG_MIXED if
+ *	  there are both types present (in which case the real node describes one
+ *	  of the hashed groupings, other AGG_HASHED nodes may optionally follow in
+ *	  the chain, followed in turn by AGG_SORTED or (one) AGG_PLAIN node).  If
+ *	  the real node is marked AGG_HASHED or AGG_SORTED, then all the chained
+ *	  nodes must be of the same type; if it is AGG_PLAIN, there can be no
+ *	  chained nodes.
+ *
+ *	  We collect all hashed nodes into a single "phase", numbered 0, and create
+ *	  a sorted phase (numbered 1..n) for each AGG_SORTED or AGG_PLAIN node.
+ *	  Phase 0 is allocated even if there are no hashes, but remains unused in
+ *	  that case.
+ *
+ *	  AGG_HASHED nodes actually refer to only a single grouping set each,
+ *	  because for each hashed grouping we need a separate grpColIdx and
+ *	  numGroups estimate.  AGG_SORTED nodes represent a "rollup", a list of
+ *	  grouping sets that share a sort order.  Each AGG_SORTED node other than
+ *	  the first one has an associated Sort node which describes the sort order
+ *	  to be used; the first sorted node takes its input from the outer subtree,
+ *	  which the planner has already arranged to provide ordered data.
+ *
+ *	  Memory and ExprContext usage:
+ *
+ *	  Because we're accumulating aggregate values across input rows, we need to
+ *	  use more memory contexts than just simple input/output tuple contexts.
+ *	  In fact, for a rollup, we need a separate context for each grouping set
+ *	  so that we can reset the inner (finer-grained) aggregates on their group
+ *	  boundaries while continuing to accumulate values for outer
+ *	  (coarser-grained) groupings.  On top of this, we might be simultaneously
+ *	  populating hashtables; however, we only need one context for all the
+ *	  hashtables.
+ *
+ *	  So we create an array, aggcontexts, with an ExprContext for each grouping
+ *	  set in the largest rollup that we're going to process, and use the
+ *	  per-tuple memory context of those ExprContexts to store the aggregate
+ *	  transition values.  hashcontext is the single context created to support
+ *	  all hash tables.
+ *
+ *
  * Portions Copyright (c) 1996-2017, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
@@ -2599,34 +2648,6 @@ agg_retrieve_hash_table(AggState *aggstate)
  *
  *	Creates the run-time information for the agg node produced by the
  *	planner and initializes its outer subtree.
- *
- *	What we get from the planner is actually one "real" Agg node which is part
- *	of the plan tree proper, but which optionally has an additional list of Agg
- *	nodes hung off the side via the "chain" field.  This is because an Agg node
- *	happens to be a convenient representation of all the data we need for
- *	grouping sets.
- *
- *	For many purposes, we treat the "real" node as if it were just the first
- *	node in the chain.  The chain must be ordered such that hashed entries come
- *	before sorted/plain entries; the real node is marked AGG_MIXED if there are
- *	both types present (in which case the real node describes one of the hashed
- *	groupings, other AGG_HASHED nodes may optionally follow in the chain,
- *	followed in turn by AGG_SORTED or (one) AGG_PLAIN node).  If the real node
- *	is marked AGG_HASHED or AGG_SORTED, then all the chained nodes must be of
- *	the same type; if it is AGG_PLAIN, there can be no chained nodes.
- *
- *	We collect all hashed nodes into a single "phase", numbered 0, and create a
- *	sorted phase (numbered 1..n) for each AGG_SORTED or AGG_PLAIN node.  Phase
- *	0 is allocated even if there are no hashes, but remains unused in that
- *	case.
- *
- *	AGG_HASHED nodes actually refer to only a single grouping set each, because
- *	for each hashed grouping we need a separate grpColIdx and numGroups
- *	estimate.  AGG_SORTED nodes represent a "rollup", a list of grouping sets
- *	that share a sort order.  Each AGG_SORTED node other than the first one has
- *	an associated Sort node which describes the sort order to be used; the
- *	first sorted node takes its input from the outer subtree, which the planner
- *	has already arranged to provide ordered data.
  *
  * -----------------
  */

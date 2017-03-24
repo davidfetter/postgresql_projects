@@ -4162,7 +4162,7 @@ consider_groupingsets_paths(PlannerInfo *root,
 	if (!is_sorted)
 	{
 		List	   *new_rollups = NIL;
-		RollupData *unhashable_rollup = NULL;
+		RollupData *unhashed_rollup = NULL;
 		List	   *sets_data;
 		List	   *empty_sets_data = NIL;
 		List	   *empty_sets = NIL;
@@ -4176,8 +4176,8 @@ consider_groupingsets_paths(PlannerInfo *root,
 
 		if (pathkeys_contained_in(root->group_pathkeys, path->pathkeys))
 		{
-			unhashable_rollup = lfirst(l_start);
-			exclude_groups = unhashable_rollup->numGroups;
+			unhashed_rollup = lfirst(l_start);
+			exclude_groups = unhashed_rollup->numGroups;
 			l_start = lnext(l_start);
 		}
 
@@ -4185,6 +4185,11 @@ consider_groupingsets_paths(PlannerInfo *root,
 											  agg_costs,
 											  dNumGroups - exclude_groups);
 
+		/*
+		 * gd->rollups is empty if we have only unsortable columns to work
+		 * with.  Override work_mem in that case; otherwise, we'll rely on the
+		 * sorted-input case to generate usable mixed paths.
+		 */
 		if (hashsize > work_mem * 1024L && gd->rollups)
 			return;				/* nope, won't fit */
 
@@ -4204,6 +4209,10 @@ consider_groupingsets_paths(PlannerInfo *root,
 			 * input (with a different sort order) but we can't get that here.
 			 * So bail out; we'll get a valid path from the is_sorted case
 			 * instead.
+			 *
+			 * The mere presence of empty grouping sets doesn't make a rollup
+			 * unhashable (see preprocess_grouping_sets), we handle those
+			 * specially below.
 			 */
 			if (!rollup->hashable)
 				return;
@@ -4218,6 +4227,7 @@ consider_groupingsets_paths(PlannerInfo *root,
 
 			if (gset == NIL)
 			{
+				/* Empty grouping sets can't be hashed. */
 				empty_sets_data = lappend(empty_sets_data, gs);
 				empty_sets = lappend(empty_sets, NIL);
 			}
@@ -4237,7 +4247,10 @@ consider_groupingsets_paths(PlannerInfo *root,
 			}
 		}
 
-		/* If we didn't find anything nonempty to hash, then bail. */
+		/*
+		 * If we didn't find anything nonempty to hash, then bail.  We'll
+		 * generate a path from the is_sorted case.
+		 */
 		if (new_rollups == NIL)
 			return;
 
@@ -4245,11 +4258,11 @@ consider_groupingsets_paths(PlannerInfo *root,
 		 * If there were empty grouping sets they should have been in the
 		 * first rollup.
 		 */
-		Assert(!unhashable_rollup || !empty_sets);
+		Assert(!unhashed_rollup || !empty_sets);
 
-		if (unhashable_rollup)
+		if (unhashed_rollup)
 		{
-			new_rollups = lappend(new_rollups, unhashable_rollup);
+			new_rollups = lappend(new_rollups, unhashed_rollup);
 			strat = AGG_MIXED;
 		}
 		else if (empty_sets)
@@ -4317,6 +4330,14 @@ consider_groupingsets_paths(PlannerInfo *root,
 			int			i;
 
 			/*
+			 * We treat this as a knapsack problem: the knapsack capacity
+			 * represents work_mem, the item weights are the estimated memory
+			 * usage of the hashtables needed to implement a single rollup, and
+			 * we really ought to use the cost saving as the item value;
+			 * however, currently the costs assigned to sort nodes don't
+			 * reflect the comparison costs well, and so we treat all items as
+			 * of equal value (each rollup we hash instead saves us one sort).
+			 *
 			 * To use the discrete knapsack, we need to scale the values to a
 			 * reasonably small bounded range.  We choose to allow a 5% error
 			 * margin; we have no more than 4096 rollups in the worst possible
