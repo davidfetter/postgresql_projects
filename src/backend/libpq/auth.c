@@ -2570,13 +2570,15 @@ CheckCertAuth(Port *port)
  */
 
 /*
- * RADIUS authentication is described in RFC2865 (and several
- * others).
+ * RADIUS authentication is described in RFC2865 (and several others).
  */
 
 #define RADIUS_VECTOR_LENGTH 16
 #define RADIUS_HEADER_LENGTH 20
 #define RADIUS_MAX_PASSWORD_LENGTH 128
+
+/* Maximum size of a RADIUS packet we will create or accept */
+#define RADIUS_BUFFER_SIZE 1024
 
 typedef struct
 {
@@ -2591,6 +2593,8 @@ typedef struct
 	uint8		id;
 	uint16		length;
 	uint8		vector[RADIUS_VECTOR_LENGTH];
+	/* this is a bit longer than strictly necessary: */
+	char		pad[RADIUS_BUFFER_SIZE - RADIUS_VECTOR_LENGTH];
 } radius_packet;
 
 /* RADIUS packet types */
@@ -2606,9 +2610,6 @@ typedef struct
 
 /* RADIUS service types */
 #define RADIUS_AUTHENTICATE_ONLY	8
-
-/* Maximum size of a RADIUS packet we will create or accept */
-#define RADIUS_BUFFER_SIZE 1024
 
 /* Seconds to wait - XXX: should be in a config variable! */
 #define RADIUS_TIMEOUT 3
@@ -2734,10 +2735,12 @@ CheckRADIUSAuth(Port *port)
 static int
 PerformRadiusTransaction(char *server, char *secret, char *portstr, char *identifier, char *user_name, char *passwd)
 {
-	char		radius_buffer[RADIUS_BUFFER_SIZE];
-	char		receive_buffer[RADIUS_BUFFER_SIZE];
-	radius_packet *packet = (radius_packet *) radius_buffer;
-	radius_packet *receivepacket = (radius_packet *) receive_buffer;
+	radius_packet radius_send_pack;
+	radius_packet radius_recv_pack;
+	radius_packet *packet = &radius_send_pack;
+	radius_packet *receivepacket = &radius_recv_pack;
+	char	   *radius_buffer = (char *) &radius_send_pack;
+	char	   *receive_buffer = (char *) &radius_recv_pack;
 	int32		service = htonl(RADIUS_AUTHENTICATE_ONLY);
 	uint8	   *cryptvector;
 	int			encryptedpasswordlen;
@@ -2793,6 +2796,7 @@ PerformRadiusTransaction(char *server, char *secret, char *portstr, char *identi
 	{
 		ereport(LOG,
 				(errmsg("could not generate random encryption vector")));
+		pg_freeaddrinfo_all(hint.ai_family, serveraddrs);
 		return STATUS_ERROR;
 	}
 	packet->id = packet->vector[0];
@@ -2827,6 +2831,7 @@ PerformRadiusTransaction(char *server, char *secret, char *portstr, char *identi
 			ereport(LOG,
 					(errmsg("could not perform MD5 encryption of password")));
 			pfree(cryptvector);
+			pg_freeaddrinfo_all(hint.ai_family, serveraddrs);
 			return STATUS_ERROR;
 		}
 
@@ -2842,7 +2847,7 @@ PerformRadiusTransaction(char *server, char *secret, char *portstr, char *identi
 
 	radius_add_attribute(packet, RADIUS_PASSWORD, encryptedpassword, encryptedpasswordlen);
 
-	/* Length need to be in network order on the wire */
+	/* Length needs to be in network order on the wire */
 	packetlength = packet->length;
 	packet->length = htons(packet->length);
 
@@ -2868,6 +2873,7 @@ PerformRadiusTransaction(char *server, char *secret, char *portstr, char *identi
 	localaddr.sin_addr.s_addr = INADDR_ANY;
 	addrsize = sizeof(struct sockaddr_in);
 #endif
+
 	if (bind(sock, (struct sockaddr *) & localaddr, addrsize))
 	{
 		ereport(LOG,
@@ -2964,6 +2970,7 @@ PerformRadiusTransaction(char *server, char *secret, char *portstr, char *identi
 		{
 			ereport(LOG,
 					(errmsg("could not read RADIUS response: %m")));
+			closesocket(sock);
 			return STATUS_ERROR;
 		}
 
