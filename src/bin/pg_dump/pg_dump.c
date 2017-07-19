@@ -309,6 +309,8 @@ main(int argc, char **argv)
 		{"format", required_argument, NULL, 'F'},
 		{"host", required_argument, NULL, 'h'},
 		{"jobs", 1, NULL, 'j'},
+		{"list", no_argument, NULL, 'l'},
+		{"use-list", required_argument, NULL, 'L'},
 		{"no-reconnect", no_argument, NULL, 'R'},
 		{"oids", no_argument, NULL, 'o'},
 		{"no-owner", no_argument, NULL, 'O'},
@@ -393,7 +395,7 @@ main(int argc, char **argv)
 
 	InitDumpOptions(&dopt);
 
-	while ((c = getopt_long(argc, argv, "abBcCd:E:f:F:h:j:n:N:oOp:RsS:t:T:U:vwWxZ:",
+	while ((c = getopt_long(argc, argv, "abBcCd:E:f:F:h:j:lL:n:N:oOp:RsS:t:T:U:vwWxZ:",
 							long_options, &optindex)) != -1)
 	{
 		switch (c)
@@ -440,6 +442,17 @@ main(int argc, char **argv)
 
 			case 'j':			/* number of dump jobs */
 				numWorkers = atoi(optarg);
+				break;
+
+			case 'l':			/* list objects in ToC format */
+				dopt.list = true;
+				dopt.include_everything = false;
+				break;
+
+			case 'L':			/* Dump a list objects from a file in ToC format */
+				dopt.use_list = true;
+				dopt.list_file = pg_strdup(optarg);
+				dopt.include_everything = false;
 				break;
 
 			case 'n':			/* include schema(s) */
@@ -597,6 +610,12 @@ main(int argc, char **argv)
 
 	if (dopt.if_exists && !dopt.outputClean)
 		exit_horribly(NULL, "option --if-exists requires option -c/--clean\n");
+
+	if (dopt.list && dopt.use_list)
+	{
+		write_msg(NULL, "options -l/--list and -L/--use-list cannot be used together\n");
+		exit_nicely(1);
+	}
 
 	/* Identify archive format to emit */
 	archiveFormat = parseArchiveFormat(format, &archiveMode);
@@ -933,6 +952,8 @@ help(const char *progname)
 	printf(_("  -c, --clean                  clean (drop) database objects before recreating\n"));
 	printf(_("  -C, --create                 include commands to create database in dump\n"));
 	printf(_("  -E, --encoding=ENCODING      dump the data in encoding ENCODING\n"));
+	printf(_("  -l, --list                   print summarized TOC\n"));
+	printf(_("  -L, --use-list=FILENAME      use table of contents from this file to choose the objects dumped\n"));
 	printf(_("  -n, --schema=SCHEMA          dump the named schema(s) only\n"));
 	printf(_("  -N, --exclude-schema=SCHEMA  do NOT dump the named schema(s)\n"));
 	printf(_("  -o, --oids                   include OIDs in dump\n"));

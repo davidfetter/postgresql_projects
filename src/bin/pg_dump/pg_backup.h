@@ -137,6 +137,9 @@ typedef struct _dumpOptions
 	/* various user-settable parameters */
 	bool		schemaOnly;
 	bool		dataOnly;
+	bool		list;
+	bool		use_list;
+	const char *list_file;
 	int			dumpSections;	/* bitmask of chosen sections */
 	bool		aclsSkip;
 	const char *lockWaitTimeout;
