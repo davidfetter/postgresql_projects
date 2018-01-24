@@ -955,6 +955,40 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 }
 
 /*
+ * Validator for SQL/MED language functions
+ *
+ * Make sure that the foreign server id exists in proc record and points to a
+ * valid foreign server.
+ */
+Datum
+fmgr_sqlmed_validator(PG_FUNCTION_ARGS)
+{
+	Oid			funcoid = PG_GETARG_OID(0);
+	HeapTuple	proc_tuple;
+	HeapTuple	foreignserver_tuple;
+	Datum		serverid_datum;
+	bool		isnull;
+
+	proc_tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcoid));
+	if (!HeapTupleIsValid(proc_tuple))
+		elog(ERROR, "cache lookup failed for function %u", funcoid);
+
+	serverid_datum = SysCacheGetAttr(PROCOID, proc_tuple, Anum_pg_proc_serverid, &isnull);
+	if (isnull)
+		elog(ERROR, "null serverid for SQL/MED function %u", funcoid);
+
+	foreignserver_tuple = SearchSysCache1(FOREIGNSERVEROID, serverid_datum);
+	if (!HeapTupleIsValid(foreignserver_tuple))
+		elog(ERROR, "cache lookup failed for foreign_server %u", DatumGetObjectId(serverid_datum));
+
+	ReleaseSysCache(proc_tuple);
+	ReleaseSysCache(foreignserver_tuple);
+
+	PG_RETURN_VOID();
+}
+
+
+/*
  * Error context callback for handling errors in SQL function definitions
  */
 static void

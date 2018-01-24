@@ -78,5 +78,7 @@ DESCR("dynamically-loaded C functions");
 DATA(insert OID = 14 ( "sql"		PGUID f t 0 0 2248 _null_ ));
 DESCR("SQL-language functions");
 #define SQLlanguageId 14
+DATA(insert OID = 315 ( "sqlmed"		PGUID f f 0 0 3281 _null_ ));
+#define SQLMEDlanguageId 315
 
 #endif							/* PG_LANGUAGE_H */
