@@ -26,6 +26,7 @@
 #include "catalog/pg_inherits.h"
 #include "catalog/toasting.h"
 #include "commands/alter.h"
+#include "commands/assertion.h"
 #include "commands/async.h"
 #include "commands/cluster.h"
 #include "commands/comment.h"
@@ -162,6 +163,7 @@ check_xact_readonly(Node *parsetree)
 		case T_RenameStmt:
 		case T_CommentStmt:
 		case T_DefineStmt:
+		case T_CreateAssertionStmt:
 		case T_CreateCastStmt:
 		case T_CreateEventTrigStmt:
 		case T_AlterEventTrigStmt:
@@ -1517,6 +1519,10 @@ ProcessUtilitySlow(ParseState *pstate,
 				address = DefineDomain((CreateDomainStmt *) parsetree);
 				break;
 
+			case T_CreateAssertionStmt:
+				address = CreateAssertion((CreateAssertionStmt *) parsetree);
+				break;
+
 			case T_CreateConversionStmt:
 				address = CreateConversionCommand((CreateConversionStmt *) parsetree);
 				break;
@@ -1927,6 +1933,9 @@ AlterObjectTypeCommandTag(ObjectType objtype)
 		case OBJECT_AGGREGATE:
 			tag = "ALTER AGGREGATE";
 			break;
+		case OBJECT_ASSERTION:
+			tag = "ALTER ASSERTION";
+			break;
 		case OBJECT_ATTRIBUTE:
 			tag = "ALTER TYPE";
 			break;
@@ -2264,6 +2273,9 @@ CreateCommandTag(Node *parsetree)
 					break;
 				case OBJECT_DOMAIN:
 					tag = "DROP DOMAIN";
+					break;
+				case OBJECT_ASSERTION:
+					tag = "DROP ASSERTION";
 					break;
 				case OBJECT_COLLATION:
 					tag = "DROP COLLATION";
@@ -2693,6 +2705,10 @@ CreateCommandTag(Node *parsetree)
 
 		case T_ReindexStmt:
 			tag = "REINDEX";
+			break;
+
+		case T_CreateAssertionStmt:
+			tag = "CREATE ASSERTION";
 			break;
 
 		case T_CreateConversionStmt:
@@ -3293,6 +3309,10 @@ GetCommandLogLevel(Node *parsetree)
 
 		case T_ReindexStmt:
 			lev = LOGSTMT_ALL;	/* should this be DDL? */
+			break;
+
+		case T_CreateAssertionStmt:
+			lev = LOGSTMT_DDL;
 			break;
 
 		case T_CreateConversionStmt:
