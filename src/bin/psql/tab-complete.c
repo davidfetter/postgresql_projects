@@ -60,6 +60,32 @@ extern char *filename_completion_function();
 #define completion_matches rl_completion_matches
 #endif
 
+/*
+ * By enabling the following definition the source line number is emitted to
+ * stderr for every completion attempt. You can isolate them from console
+ * interaction by redirecting stderr into a file.
+ */
+#ifdef TABCOMPLETION_DEBUG
+#ifdef HAVE_RL_COMPLETION_MATCHES
+#define org_completion_matches rl_completion_matches
+#else
+#define org_completion_matches completion_matches
+#endif
+
+static char **completion_debug(int line, const char *text, char **list)
+{
+	fprintf(stderr, "[%d: (%s", line, text);
+	for (int i = 0; list && list[i]; ++i)
+		fprintf(stderr, ", %s", list[i]);
+	fprintf(stderr, ")]\n");
+	return list;
+}
+
+#undef completion_matches
+#define completion_matches(text, func) \
+	completion_debug(__LINE__, (text), org_completion_matches((text),(func)))
+#endif
+
 /* word break characters */
 #define WORD_BREAKS		"\t\n@$><=;|&{() "
 
