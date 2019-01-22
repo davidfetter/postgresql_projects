@@ -2966,6 +2966,8 @@ initialize_data_directory(void)
 	 * They are all droppable at the whim of the DBA.
 	 */
 
+	load_plpgsql(cmdfd);
+
 	setup_sysviews(cmdfd);
 
 	setup_description(cmdfd);
@@ -2977,8 +2979,6 @@ initialize_data_directory(void)
 	setup_privileges(cmdfd);
 
 	setup_schema(cmdfd);
-
-	load_plpgsql(cmdfd);
 
 	vacuum_db(cmdfd);
 

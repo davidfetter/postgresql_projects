@@ -272,7 +272,6 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 		ListenStmt LoadStmt LockStmt NotifyStmt ExplainableStmt PreparableStmt
 		CreateFunctionStmt AlterFunctionStmt ReindexStmt RemoveAggrStmt
 		RemoveFuncStmt RemoveOperStmt RenameStmt RevokeStmt RevokeRoleStmt
-		RuleActionStmt RuleActionStmtOrEmpty RuleStmt
 		SecLabelStmt SelectStmt TransactionStmt TruncateStmt
 		UnlistenStmt UpdateStmt VacuumStmt
 		VariableResetStmt VariableSetStmt VariableShowStmt
@@ -384,7 +383,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 				aggr_args aggr_args_list
 				func_as createfunc_opt_list alterfunc_opt_list
 				old_aggr_definition old_aggr_list
-				oper_argtypes RuleActionList RuleActionMulti
+				oper_argtypes
 				opt_column_list columnList opt_name_list
 				sort_clause opt_sort_clause sortby_list index_params
 				opt_include opt_c_include index_including_params
@@ -678,7 +677,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 	RANGE READ REAL REASSIGN RECHECK RECURSIVE REF REFERENCES REFERENCING
 	REFRESH REINDEX RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA
 	RESET RESTART RESTRICT RETURNING RETURNS REVOKE RIGHT ROLE ROLLBACK ROLLUP
-	ROUTINE ROUTINES ROW ROWS RULE
+	ROUTINE ROUTINES ROW ROWS
 
 	SAVEPOINT SCHEMA SCHEMAS SCROLL SEARCH SECOND_P SECURITY SELECT SEQUENCE SEQUENCES
 	SERIALIZABLE SERVER SESSION SESSION_USER SET SETS SETOF SHARE SHOW
@@ -938,7 +937,6 @@ stmt :
 			| RenameStmt
 			| RevokeStmt
 			| RevokeRoleStmt
-			| RuleStmt
 			| SecLabelStmt
 			| SelectStmt
 			| TransactionStmt
@@ -2415,38 +2413,6 @@ alter_table_cmd:
 				{
 					AlterTableCmd *n = makeNode(AlterTableCmd);
 					n->subtype = AT_DisableTrigUser;
-					$$ = (Node *)n;
-				}
-			/* ALTER TABLE <name> ENABLE RULE <rule> */
-			| ENABLE_P RULE name
-				{
-					AlterTableCmd *n = makeNode(AlterTableCmd);
-					n->subtype = AT_EnableRule;
-					n->name = $3;
-					$$ = (Node *)n;
-				}
-			/* ALTER TABLE <name> ENABLE ALWAYS RULE <rule> */
-			| ENABLE_P ALWAYS RULE name
-				{
-					AlterTableCmd *n = makeNode(AlterTableCmd);
-					n->subtype = AT_EnableAlwaysRule;
-					n->name = $4;
-					$$ = (Node *)n;
-				}
-			/* ALTER TABLE <name> ENABLE REPLICA RULE <rule> */
-			| ENABLE_P REPLICA RULE name
-				{
-					AlterTableCmd *n = makeNode(AlterTableCmd);
-					n->subtype = AT_EnableReplicaRule;
-					n->name = $4;
-					$$ = (Node *)n;
-				}
-			/* ALTER TABLE <name> DISABLE RULE <rule> */
-			| DISABLE_P RULE name
-				{
-					AlterTableCmd *n = makeNode(AlterTableCmd);
-					n->subtype = AT_DisableRule;
-					n->name = $3;
 					$$ = (Node *)n;
 				}
 			/* ALTER TABLE <name> INHERIT <parent> */
@@ -6345,7 +6311,6 @@ drop_type_name:
 /* object types attached to a table */
 drop_type_name_on_any_name:
 			POLICY									{ $$ = OBJECT_POLICY; }
-			| RULE									{ $$ = OBJECT_RULE; }
 			| TRIGGER								{ $$ = OBJECT_TRIGGER; }
 		;
 
@@ -6417,7 +6382,6 @@ opt_restart_seqs:
  *				 OPERATOR <op> (leftoperand_typ, rightoperand_typ) |
  *				 OPERATOR CLASS <name> USING <access-method> |
  *				 OPERATOR FAMILY <name> USING <access-method> |
- *				 RULE <rulename> ON <relname> |
  *				 TRIGGER <triggername> ON <relname> ]
  *			   IS { 'text' | NULL }
  *
@@ -6523,14 +6487,6 @@ CommentStmt:
 					n->objtype = OBJECT_ROUTINE;
 					n->object = (Node *) $4;
 					n->comment = $6;
-					$$ = (Node *) n;
-				}
-			| COMMENT ON RULE name ON any_name IS comment_text
-				{
-					CommentStmt *n = makeNode(CommentStmt);
-					n->objtype = OBJECT_RULE;
-					n->object = (Node *) lappend($6, makeString($4));
-					n->comment = $8;
 					$$ = (Node *) n;
 				}
 			| COMMENT ON TRANSFORM FOR Typename LANGUAGE name IS comment_text
@@ -8863,16 +8819,6 @@ RenameStmt: ALTER AGGREGATE aggregate_with_argtypes RENAME TO name
 					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
-			| ALTER RULE name ON qualified_name RENAME TO name
-				{
-					RenameStmt *n = makeNode(RenameStmt);
-					n->renameType = OBJECT_RULE;
-					n->relation = $5;
-					n->subname = $3;
-					n->newname = $8;
-					n->missing_ok = false;
-					$$ = (Node *)n;
-				}
 			| ALTER TRIGGER name ON qualified_name RENAME TO name
 				{
 					RenameStmt *n = makeNode(RenameStmt);
@@ -9750,76 +9696,6 @@ DropSubscriptionStmt: DROP SUBSCRIPTION name opt_drop_behavior
 					$$ = (Node *) n;
 				}
 		;
-
-/*****************************************************************************
- *
- *		QUERY:	Define Rewrite Rule
- *
- *****************************************************************************/
-
-RuleStmt:	CREATE opt_or_replace RULE name AS
-			ON event TO qualified_name where_clause
-			DO opt_instead RuleActionList
-				{
-					RuleStmt *n = makeNode(RuleStmt);
-					n->replace = $2;
-					n->relation = $9;
-					n->rulename = $4;
-					n->whereClause = $10;
-					n->event = $7;
-					n->instead = $12;
-					n->actions = $13;
-					$$ = (Node *)n;
-				}
-		;
-
-RuleActionList:
-			NOTHING									{ $$ = NIL; }
-			| RuleActionStmt						{ $$ = list_make1($1); }
-			| '(' RuleActionMulti ')'				{ $$ = $2; }
-		;
-
-/* the thrashing around here is to discard "empty" statements... */
-RuleActionMulti:
-			RuleActionMulti ';' RuleActionStmtOrEmpty
-				{ if ($3 != NULL)
-					$$ = lappend($1, $3);
-				  else
-					$$ = $1;
-				}
-			| RuleActionStmtOrEmpty
-				{ if ($1 != NULL)
-					$$ = list_make1($1);
-				  else
-					$$ = NIL;
-				}
-		;
-
-RuleActionStmt:
-			SelectStmt
-			| InsertStmt
-			| UpdateStmt
-			| DeleteStmt
-			| NotifyStmt
-		;
-
-RuleActionStmtOrEmpty:
-			RuleActionStmt							{ $$ = $1; }
-			|	/*EMPTY*/							{ $$ = NULL; }
-		;
-
-event:		SELECT									{ $$ = CMD_SELECT; }
-			| UPDATE								{ $$ = CMD_UPDATE; }
-			| DELETE_P								{ $$ = CMD_DELETE; }
-			| INSERT								{ $$ = CMD_INSERT; }
-		 ;
-
-opt_instead:
-			INSTEAD									{ $$ = true; }
-			| ALSO									{ $$ = false; }
-			| /*EMPTY*/								{ $$ = false; }
-		;
-
 
 /*****************************************************************************
  *
@@ -15324,7 +15200,6 @@ unreserved_keyword:
 			| ROUTINE
 			| ROUTINES
 			| ROWS
-			| RULE
 			| SAVEPOINT
 			| SCHEMA
 			| SCHEMAS
