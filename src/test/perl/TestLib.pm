@@ -519,22 +519,24 @@ sub command_fails_like
 }
 
 # Run a command and check its status and outputs.
-# The 5 arguments are:
+# The 5 to 6 arguments are:
 # - cmd: ref to list for command, options and arguments to run
 # - ret: expected exit status
 # - out: ref to list of re to be checked against stdout (all must match)
 # - err: ref to list of re to be checked against stderr (all must match)
 # - test_name: name of test
+# - in: standard input
 sub command_checks_all
 {
 	local $Test::Builder::Level = $Test::Builder::Level + 1;
 
-	my ($cmd, $expected_ret, $out, $err, $test_name) = @_;
+	my ($cmd, $expected_ret, $out, $err, $test_name, $in) = @_;
+	$in = '' if not defined $in;
 
 	# run command
 	my ($stdout, $stderr);
 	print("# Running: " . join(" ", @{$cmd}) . "\n");
-	IPC::Run::run($cmd, '>', \$stdout, '2>', \$stderr);
+	IPC::Run::run($cmd, '<', \$in, '>', \$stdout, '2>', \$stderr);
 
 	# See http://perldoc.perl.org/perlvar.html#%24CHILD_ERROR
 	my $ret = $?;

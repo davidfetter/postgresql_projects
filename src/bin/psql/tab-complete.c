@@ -1421,7 +1421,7 @@ psql_completion(const char *text, int start, int end)
 		"\\t", "\\T", "\\timing",
 		"\\unset",
 		"\\x",
-		"\\w", "\\watch",
+		"\\w","\\warn", "\\watch",
 		"\\z",
 		"\\!", "\\?",
 		NULL

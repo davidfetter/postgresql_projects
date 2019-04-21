@@ -1880,6 +1880,26 @@ Tue Oct 26 21:40:57 CEST 1999
       </varlistentry>
 
       <varlistentry>
+        <term><literal>\warn <replaceable class="parameter">text</replaceable> [ ... ]</literal></term>
+        <listitem>
+        <para>
+        Prints the arguments to the standard error, separated by one
+        space and followed by a newline. This can be useful to
+        intersperse information in the output of scripts when not polluting
+        standard output is desired. For example:
+
+<programlisting>
+=&gt; <userinput>\echo :variable</userinput>
+=&gt; <userinput>\warn `date`</userinput>
+Sun Apr 21 10:48:11 PDT 2019
+</programlisting>
+        If the first argument is an unquoted <literal>-n</literal> the trailing
+        newline is not written.
+        </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
         <term><literal>\ef <optional> <replaceable class="parameter">function_description</replaceable> <optional>  <replaceable class="parameter">line_number</replaceable> </optional> </optional> </literal></term>
 
         <listitem>

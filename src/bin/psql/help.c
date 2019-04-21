@@ -206,11 +206,12 @@ slashUsage(unsigned short int pager)
 
 	fprintf(output, _("Input/Output\n"));
 	fprintf(output, _("  \\copy ...              perform SQL COPY with data stream to the client host\n"));
-	fprintf(output, _("  \\echo [STRING]         write string to standard output\n"));
+	fprintf(output, _("  \\echo [-n] [STRING]    write string to standard output (-n for no newline)\n"));
 	fprintf(output, _("  \\i FILE                execute commands from file\n"));
 	fprintf(output, _("  \\ir FILE               as \\i, but relative to location of current script\n"));
+	fprintf(output, _("  \\qecho [-n] [STRING]   write string to query output stream (-n for no newline, see \\o)\n"));
 	fprintf(output, _("  \\o [FILE]              send all query results to file or |pipe\n"));
-	fprintf(output, _("  \\qecho [STRING]        write string to query output stream (see \\o)\n"));
+	fprintf(output, _("  \\warn [-n] [STRING]    write string to standard error (-n for no newline)\n"));
 	fprintf(output, "\n");
 
 	fprintf(output, _("Conditional\n"));
