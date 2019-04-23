@@ -3631,7 +3631,7 @@ listTables(const char *tabtypes, const char *pattern, bool verbose, bool showSys
 	PQExpBufferData buf;
 	PGresult   *res;
 	printQueryOpt myopt = pset.popt;
-	static const bool translate_columns[] = {false, false, true, false, false, false, false};
+	static const bool translate_columns[] = {false, false, true, false, false, false, false, false};
 
 	/* If tabtypes is empty, we default to \dtvmsE (but see also command.c) */
 	if (!(showTables || showIndexes || showViews || showMatViews || showSeq || showForeign))
@@ -3680,22 +3680,37 @@ listTables(const char *tabtypes, const char *pattern, bool verbose, bool showSys
 	if (verbose)
 	{
 		/*
-		 * As of PostgreSQL 9.0, use pg_table_size() to show a more accurate
-		 * size of a table, including FSM, VM and TOAST tables.
+		 * Show whether a table is permanent, temporary, or unlogged.
+		 * Indexes are not, as of this writing, tables.
 		 */
-		if (pset.sversion >= 90000)
-			appendPQExpBuffer(&buf,
-							  ",\n  pg_catalog.pg_size_pretty(pg_catalog.pg_table_size(c.oid)) as \"%s\"",
-							  gettext_noop("Size"));
-		else if (pset.sversion >= 80100)
-			appendPQExpBuffer(&buf,
-							  ",\n  pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) as \"%s\"",
-							  gettext_noop("Size"));
-
-		appendPQExpBuffer(&buf,
-						  ",\n  pg_catalog.obj_description(c.oid, 'pg_class') as \"%s\"",
-						  gettext_noop("Description"));
+		if (!showIndexes)
+		{
+			if (pset.sversion >= 90100)
+				appendPQExpBuffer(&buf,
+								  ",\n  CASE c.relpersistence WHEN 'p' THEN 'permanent' WHEN 't' THEN 'temporary' WHEN 'u' THEN 'unlogged' ELSE 'unknown' END as \"%s\"",
+								  gettext_noop("Persistence"));
+			else if (pset.sversion >= 80400)
+				appendPQExpBuffer(&buf,
+								  ",\n CASE WHEN c.relistemp THEN 'temporary' ELSE 'permanent' END as \"%s\"",
+								  gettext_noop("Persistence"));
+		}
 	}
+	/*
+	 * As of PostgreSQL 9.0, use pg_table_size() to show a more accurate
+	 * size of a table, including FSM, VM and TOAST tables.
+	 */
+	if (pset.sversion >= 90000)
+		appendPQExpBuffer(&buf,
+						  ",\n  pg_catalog.pg_size_pretty(pg_catalog.pg_table_size(c.oid)) as \"%s\"",
+						  gettext_noop("Size"));
+	else if (pset.sversion >= 80100)
+		appendPQExpBuffer(&buf,
+						  ",\n  pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) as \"%s\"",
+						  gettext_noop("Size"));
+
+	appendPQExpBuffer(&buf,
+					  ",\n  pg_catalog.obj_description(c.oid, 'pg_class') as \"%s\"",
+					  gettext_noop("Description"));
 
 	appendPQExpBufferStr(&buf,
 						 "\nFROM pg_catalog.pg_class c"
