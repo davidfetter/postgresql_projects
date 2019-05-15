@@ -1413,7 +1413,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	int			numParams;
 
 	/*
-	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
+	 * Do nothing in EXPLAIN (no EXEC) case.  node->fdw_state stays NULL.
 	 */
 	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
 		return;
@@ -1804,7 +1804,7 @@ postgresBeginForeignModify(ModifyTableState *mtstate,
 	RangeTblEntry *rte;
 
 	/*
-	 * Do nothing in EXPLAIN (no ANALYZE) case.  resultRelInfo->ri_FdwState
+	 * Do nothing in EXPLAIN (no EXEC) case.  resultRelInfo->ri_FdwState
 	 * stays NULL.
 	 */
 	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
@@ -2345,7 +2345,7 @@ postgresBeginDirectModify(ForeignScanState *node, int eflags)
 	int			numParams;
 
 	/*
-	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
+	 * Do nothing in EXPLAIN (no EXEC) case.  node->fdw_state stays NULL.
 	 */
 	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
 		return;
@@ -2477,7 +2477,7 @@ postgresIterateDirectModify(ForeignScanState *node)
 		if (dmstate->set_processed)
 			estate->es_processed += dmstate->num_tuples;
 
-		/* Increment the tuple count for EXPLAIN ANALYZE if necessary. */
+		/* Increment the tuple count for EXPLAIN EXEC if necessary. */
 		if (instr)
 			instr->tuplecount += dmstate->num_tuples;
 
