@@ -3215,19 +3215,19 @@ GetCommandLogLevel(Node *parsetree)
 		case T_ExplainStmt:
 			{
 				ExplainStmt *stmt = (ExplainStmt *) parsetree;
-				bool		analyze = false;
+				bool		exec = false;
 				ListCell   *lc;
 
-				/* Look through an EXPLAIN ANALYZE to the contained stmt */
+				/* Look through an EXPLAIN EXEC to the contained stmt */
 				foreach(lc, stmt->options)
 				{
 					DefElem    *opt = (DefElem *) lfirst(lc);
 
-					if (strcmp(opt->defname, "analyze") == 0)
-						analyze = defGetBoolean(opt);
+					if (strcmp(opt->defname, "exec") == 0)
+						exec = defGetBoolean(opt);
 					/* don't "break", as explain.c will use the last value */
 				}
-				if (analyze)
+				if (exec)
 					return GetCommandLogLevel(stmt->query);
 
 				/* Plain EXPLAIN isn't so interesting */
