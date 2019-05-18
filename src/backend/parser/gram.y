@@ -10632,8 +10632,9 @@ opt_vacuum_relation_list:
 /*****************************************************************************
  *
  *		QUERY:
- *				EXPLAIN [ANALYZE] [VERBOSE] query
  *				EXPLAIN ( options ) query
+ *      Legacy syntax:
+ *				EXPLAIN [ANALYZE] [VERBOSE] query
  *
  *****************************************************************************/
 
@@ -10645,11 +10646,11 @@ ExplainStmt:
 					n->options = NIL;
 					$$ = (Node *) n;
 				}
-		| EXPLAIN analyze_keyword opt_verbose ExplainableStmt
+		| EXPLAIN exec_keyword opt_verbose ExplainableStmt
 				{
 					ExplainStmt *n = makeNode(ExplainStmt);
 					n->query = $4;
-					n->options = list_make1(makeDefElem("analyze", NULL, @2));
+					n->options = list_make1(makeDefElem("exec", NULL, @2));
 					if ($3)
 						n->options = lappend(n->options,
 											 makeDefElem("verbose", NULL, @3));
@@ -10703,13 +10704,18 @@ explain_option_elem:
 
 explain_option_name:
 			NonReservedWord			{ $$ = $1; }
-			| analyze_keyword		{ $$ = "analyze"; }
+			| exec_keyword			{ $$ = "exec"; }
 		;
 
 explain_option_arg:
 			opt_boolean_or_string	{ $$ = (Node *) makeString($1); }
 			| NumericOnly			{ $$ = (Node *) $1; }
 			| /* EMPTY */			{ $$ = NULL; }
+		;
+
+exec_keyword:
+			ANALYZE /* Legacy */					{}
+			| ANALYSE /* British and legacy */		{}
 		;
 
 /*****************************************************************************
