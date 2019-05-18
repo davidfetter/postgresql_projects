@@ -2848,10 +2848,11 @@ psql_completion(const char *text, int start, int end)
 
 /*
  * EXPLAIN [ ( option [, ...] ) ] statement
+ * Legacy:
  * EXPLAIN [ ANALYZE ] [ VERBOSE ] statement
  */
 	else if (Matches("EXPLAIN"))
-		COMPLETE_WITH("SELECT", "INSERT", "DELETE", "UPDATE", "DECLARE",
+		COMPLETE_WITH("(", "SELECT", "INSERT", "DELETE", "UPDATE", "DECLARE",
 					  "ANALYZE", "VERBOSE");
 	else if (HeadMatches("EXPLAIN", "(*") &&
 			 !HeadMatches("EXPLAIN", "(*)"))
@@ -2862,19 +2863,21 @@ psql_completion(const char *text, int start, int end)
 		 * one word, so the above test is correct.
 		 */
 		if (ends_with(prev_wd, '(') || ends_with(prev_wd, ','))
-			COMPLETE_WITH("ANALYZE", "VERBOSE", "COSTS", "BUFFERS",
+			COMPLETE_WITH("EXEC", "VERBOSE", "COSTS", "BUFFERS",
 						  "TIMING", "SUMMARY", "FORMAT");
-		else if (TailMatches("ANALYZE|VERBOSE|COSTS|BUFFERS|TIMING|SUMMARY"))
+		else if (TailMatches("EXEC|VERBOSE|COSTS|BUFFERS|TIMING|SUMMARY"))
 			COMPLETE_WITH("ON", "OFF");
 		else if (TailMatches("FORMAT"))
 			COMPLETE_WITH("TEXT", "XML", "JSON", "YAML");
 	}
-	else if (Matches("EXPLAIN", "ANALYZE"))
+	else if (Matches("EXPLAIN", "ANALYZE") ||
+			 Matches("EXPLAIN", "ANALYSE"))
 		COMPLETE_WITH("SELECT", "INSERT", "DELETE", "UPDATE", "DECLARE",
 					  "VERBOSE");
 	else if (Matches("EXPLAIN", "(*)") ||
 			 Matches("EXPLAIN", "VERBOSE") ||
-			 Matches("EXPLAIN", "ANALYZE", "VERBOSE"))
+			 Matches("EXPLAIN", "ANALYZE", "VERBOSE") ||
+			 Matches("EXPLAIN", "ANALYSE", "VERBOSE"))
 		COMPLETE_WITH("SELECT", "INSERT", "DELETE", "UPDATE", "DECLARE");
 
 /* FETCH && MOVE */
