@@ -23,7 +23,7 @@ PG_MODULE_MAGIC;
 
 /* GUC variables */
 static int	auto_explain_log_min_duration = -1; /* msec or -1 */
-static bool auto_explain_log_analyze = false;
+static bool auto_explain_log_exec = false;
 static bool auto_explain_log_verbose = false;
 static bool auto_explain_log_buffers = false;
 static bool auto_explain_log_triggers = false;
@@ -102,10 +102,10 @@ _PG_init(void)
 							NULL,
 							NULL);
 
-	DefineCustomBoolVariable("auto_explain.log_analyze",
-							 "Use EXPLAIN ANALYZE for plan logging.",
+	DefineCustomBoolVariable("auto_explain.log_exec",
+							 "Use EXPLAIN EXEC for plan logging.",
 							 NULL,
-							 &auto_explain_log_analyze,
+							 &auto_explain_log_exec,
 							 false,
 							 PGC_SUSET,
 							 0,
@@ -148,7 +148,7 @@ _PG_init(void)
 
 	DefineCustomBoolVariable("auto_explain.log_triggers",
 							 "Include trigger statistics in plans.",
-							 "This has no effect unless log_analyze is also set.",
+							 "This has no effect unless log_exec is also set.",
 							 &auto_explain_log_triggers,
 							 false,
 							 PGC_SUSET,
@@ -258,8 +258,8 @@ explain_ExecutorStart(QueryDesc *queryDesc, int eflags)
 
 	if (auto_explain_enabled() && current_query_sampled)
 	{
-		/* Enable per-node instrumentation iff log_analyze is required. */
-		if (auto_explain_log_analyze && (eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
+		/* Enable per-node instrumentation iff log_exec is required. */
+		if (auto_explain_log_exec && (eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
 		{
 			if (auto_explain_log_timing)
 				queryDesc->instrument_options |= INSTRUMENT_TIMER;
@@ -362,18 +362,18 @@ explain_ExecutorEnd(QueryDesc *queryDesc)
 		{
 			ExplainState *es = NewExplainState();
 
-			es->analyze = (queryDesc->instrument_options && auto_explain_log_analyze);
+			es->exec = (queryDesc->instrument_options && auto_explain_log_exec);
 			es->verbose = auto_explain_log_verbose;
-			es->buffers = (es->analyze && auto_explain_log_buffers);
-			es->timing = (es->analyze && auto_explain_log_timing);
-			es->summary = es->analyze;
+			es->buffers = (es->exec && auto_explain_log_buffers);
+			es->timing = (es->exec && auto_explain_log_timing);
+			es->summary = es->exec;
 			es->format = auto_explain_log_format;
 			es->settings = auto_explain_log_settings;
 
 			ExplainBeginOutput(es);
 			ExplainQueryText(es, queryDesc);
 			ExplainPrintPlan(es, queryDesc);
-			if (es->analyze && auto_explain_log_triggers)
+			if (es->exec && auto_explain_log_triggers)
 				ExplainPrintTriggers(es, queryDesc);
 			if (es->costs)
 				ExplainPrintJITSummary(es, queryDesc);
