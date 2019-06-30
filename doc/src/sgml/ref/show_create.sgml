@@ -1,0 +1,676 @@
+<!--
+doc/src/sgml/ref/describe.sgml
+PostgreSQL documentation
+-->
+
+<refentry id="sql-show-create">
+ <indexterm zone="sql-show-create">
+  <primary>SHOW CREATE</primary>
+ </indexterm>
+
+ <refmeta>
+  <refentrytitle>SHOW CREATE</refentrytitle>
+  <manvolnum>7</manvolnum>
+  <refmiscinfo>SQL - Language Statements</refmiscinfo>
+ </refmeta>
+
+ <refnamediv>
+  <refname>SHOW CREATE</refname>
+  <refpurpose>List the SQL statements needed to create a given object</refpurpose>
+ </refnamediv>
+
+ <refsynopsisdiv>
+  <synopsis>
+SHOW CREATE 
+{
+  DATABASE [ <replaceable class="parameter">database_name</replaceable> ] |
+  SCHEMA <replaceable class="parameter">schema_name</replaceable> |
+  AGGREGATE <replaceable class="parameter">aggregate_name</replaceable> ( <replaceable>aggregate_signature</replaceable> ) |
+  ACCESS METHOD <replaceable class="parameter">object_name</replaceable> |
+  CAST (<replaceable>source_type</replaceable> AS <replaceable>target_type</replaceable>) |
+  COLLATION <replaceable class="parameter">object_name</replaceable> |
+  COLUMN <replaceable class="parameter">relation_name</replaceable>.<replaceable class="parameter">column_name</replaceable> |
+  CONSTRAINT <replaceable class="parameter">constraint_name</replaceable> ON <replaceable class="parameter">table_name</replaceable> |
+  CONSTRAINT <replaceable class="parameter">constraint_name</replaceable> ON DOMAIN <replaceable class="parameter">domain_name</replaceable> |
+  CONVERSION <replaceable class="parameter">object_name</replaceable> |
+  DOMAIN <replaceable class="parameter">object_name</replaceable> |
+  EXTENSION <replaceable class="parameter">object_name</replaceable> |
+  EVENT TRIGGER <replaceable class="parameter">object_name</replaceable> |
+  FOREIGN DATA WRAPPER <replaceable class="parameter">object_name</replaceable> |
+  FOREIGN TABLE <replaceable class="parameter">object_name</replaceable> |
+  FUNCTION <replaceable class="parameter">function_name</replaceable> [ ( [ [ <replaceable class="parameter">argmode</replaceable> ] [ <replaceable class="parameter">argname</replaceable> ] <replaceable class="parameter">argtype</replaceable> [, ...] ] ) ] |
+  INDEX <replaceable class="parameter">object_name</replaceable> |
+  LARGE OBJECT <replaceable class="parameter">large_object_oid</replaceable> |
+  MATERIALIZED VIEW <replaceable class="parameter">object_name</replaceable> |
+  OPERATOR <replaceable class="parameter">operator_name</replaceable> (<replaceable class="parameter">left_type</replaceable>, <replaceable class="parameter">right_type</replaceable>) |
+  OPERATOR CLASS <replaceable class="parameter">object_name</replaceable> USING <replaceable class="parameter">index_method</replaceable> |
+  OPERATOR FAMILY <replaceable class="parameter">object_name</replaceable> USING <replaceable class="parameter">index_method</replaceable> |
+  POLICY <replaceable class="parameter">policy_name</replaceable> ON <replaceable class="parameter">table_name</replaceable> |
+  [ PROCEDURAL ] LANGUAGE <replaceable class="parameter">object_name</replaceable> |
+  PROCEDURE <replaceable class="parameter">procedure_name</replaceable> [ ( [ [ <replaceable class="parameter">argmode</replaceable> ] [ <replaceable class="parameter">argname</replaceable> ] <replaceable class="parameter">argtype</replaceable> [, ...] ] ) ] |
+  PUBLICATION <replaceable class="parameter">object_name</replaceable> |
+  ROLE <replaceable class="parameter">object_name</replaceable> |
+  ROUTINE <replaceable class="parameter">routine_name</replaceable> [ ( [ [ <replaceable class="parameter">argmode</replaceable> ] [ <replaceable class="parameter">argname</replaceable> ] <replaceable class="parameter">argtype</replaceable> [, ...] ] ) ] |
+  RULE <replaceable class="parameter">rule_name</replaceable> ON <replaceable class="parameter">table_name</replaceable> |
+  SEQUENCE <replaceable class="parameter">object_name</replaceable> |
+  SERVER <replaceable class="parameter">object_name</replaceable> |
+  STATISTICS <replaceable class="parameter">object_name</replaceable> |
+  SUBSCRIPTION <replaceable class="parameter">object_name</replaceable> |
+  TABLE <replaceable class="parameter">object_name</replaceable> |
+  TABLESPACE <replaceable class="parameter">object_name</replaceable> |
+  TEXT SEARCH CONFIGURATION <replaceable class="parameter">object_name</replaceable> |
+  TEXT SEARCH DICTIONARY <replaceable class="parameter">object_name</replaceable> |
+  TEXT SEARCH PARSER <replaceable class="parameter">object_name</replaceable> |
+  TEXT SEARCH TEMPLATE <replaceable class="parameter">object_name</replaceable> |
+  TRANSFORM FOR <replaceable>type_name</replaceable> LANGUAGE <replaceable>lang_name</replaceable> |
+  TRIGGER <replaceable class="parameter">trigger_name</replaceable> ON <replaceable class="parameter">table_name</replaceable> |
+  TYPE <replaceable class="parameter">object_name</replaceable> |
+  VIEW <replaceable class="parameter">object_name</replaceable>
+} [ [ WITH ] ( <replaceable class="parameter">option</replaceable> [, ...] ) ]
+
+<phrase>where <replaceable class="parameter">option</replaceable> can be one of:</phrase>
+
+    CLEAN { <replaceable class="parameter">boolean</replaceable> | 'IF EXISTS' }
+    COMMENTS [ <replaceable class="parameter">boolean</replaceable> ]
+    CREATE [ <replaceable class="parameter">boolean</replaceable> ]
+    DOLLAR_QUTOING [ <replaceable class="parameter">boolean</replaceable> ]
+    ENCODING <replaceable class="parameter">'encoding_name'</replaceable>
+    OWNER [ <replaceable class="parameter">boolean</replaceable> ]
+    PRE_DATA_SECTION [ <replaceable class="parameter">boolean</replaceable> ]
+    PRIVILEGES [ <replaceable class="parameter">boolean</replaceable> ]
+    POST_DATA_SECTION [ <replaceable class="parameter">boolean</replaceable> ]
+    PUBLICATIONS [ <replaceable class="parameter">boolean</replaceable> ]
+    QUOTE_ALL [ <replaceable class="parameter">boolean</replaceable> ]
+    SECURITY_LABELS [ <replaceable class="parameter">boolean</replaceable> ]
+    SCHEMAS <replaceable class="parameter">'schema_pattern'</replaceable> 
+    SCHEMAS_EXCLUDE <replaceable class="parameter">'schema_pattern'</replaceable> 
+    STRICT_NAMES [ <replaceable class="parameter">boolean</replaceable> ]
+    SUBSCRIPTIONS [ <replaceable class="parameter">boolean</replaceable> ]
+    TABLES <replaceable class="parameter">'table_pattern'</replaceable> 
+    TABLES_EXCLUDE <replaceable class="parameter">'table_pattern'</replaceable> 
+    TABLESPACES [ <replaceable class="parameter">boolean</replaceable> ]
+    USE_SET_SESSION_AUTHORIZATION [ <replaceable class="parameter">boolean</replaceable> ]
+    VERBOSE [ <replaceable class="parameter">boolean</replaceable> ]
+  </synopsis>
+ </refsynopsisdiv>
+
+ <refsect1>
+  <title>Description</title>
+
+  <para>
+   <command> SHOW CREATE </command> will retrieve a set of rows containing a single column, where each row is a SQL statement required to create the object specified by the command.
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Parameters</title>
+  <variablelist>
+   <varlistentry>
+    <term><replaceable class="parameter">database_name</replaceable></term>
+    <listitem>
+     <para>
+      The name of the database to be dumped. If the is <replaceable class="parameter">database_name</replaceable>
+      is omitted then the current database is assumed.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><replaceable class="parameter">schema_name</replaceable></term>
+    <listitem>
+     <para>
+      The name of the schema to be dumped.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><replaceable class="parameter">object_name</replaceable></term>
+    <term><replaceable class="parameter">relation_name</replaceable>.<replaceable>column_name</replaceable></term>
+    <term><replaceable class="parameter">aggregate_name</replaceable></term>
+    <term><replaceable class="parameter">constraint_name</replaceable></term>
+    <term><replaceable class="parameter">function_name</replaceable></term>
+    <term><replaceable class="parameter">operator_name</replaceable></term>
+    <term><replaceable class="parameter">policy_name</replaceable></term>
+    <term><replaceable class="parameter">procedure_name</replaceable></term>
+    <term><replaceable class="parameter">routine_name</replaceable></term>
+    <term><replaceable class="parameter">rule_name</replaceable></term>
+    <term><replaceable class="parameter">trigger_name</replaceable></term>
+    <listitem>
+     <para>
+      The name of the object to be dumped. Names of objects can be
+      schema-qualified, if not then the current session's search path is used.
+      Aggregates, collations, conversions, domains, foreign tables, functions,
+      indexes, operators, operator classes, operator families, procedures, routines, sequences,
+      statistics, text search objects, types, and views can be
+      schema-qualified. When commenting on a column,
+      <replaceable class="parameter">relation_name</replaceable> must refer
+      to a table, view, composite type, or foreign table.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="parameter">table_name</replaceable></term>
+    <term><replaceable class="parameter">domain_name</replaceable></term>
+    <listitem>
+     <para>
+      When showing the create statements on a constraint, a trigger, a rule or
+      a policy these parameters specify the name of the table or domain on
+      which that object is defined.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+     <term><replaceable>source_type</replaceable></term>
+     <listitem>
+      <para>
+       The name of the source data type of the cast.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><replaceable>target_type</replaceable></term>
+     <listitem>
+      <para>
+       The name of the target data type of the cast.
+      </para>
+     </listitem>
+    </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="parameter">argmode</replaceable></term>
+    <listitem>
+     <para>
+      The mode of a function, procedure, or aggregate
+      argument: <literal>IN</literal>, <literal>OUT</literal>,
+      <literal>INOUT</literal>, or <literal>VARIADIC</literal>.
+      If omitted, the default is <literal>IN</literal>.
+      Note that <command>SHOW CREATE</command> does not actually pay
+      any attention to <literal>OUT</literal> arguments, since only the input
+      arguments are needed to determine the function's identity.
+      So it is sufficient to list the <literal>IN</literal>, <literal>INOUT</literal>,
+      and <literal>VARIADIC</literal> arguments.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="parameter">argname</replaceable></term>
+    <listitem>
+     <para>
+      The name of a function, procedure, or aggregate argument.
+      Note that <command>SHOW CREATE</command> does not actually pay
+      any attention to argument names, since only the argument data
+      types are needed to determine the function's identity.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="parameter">argtype</replaceable></term>
+    <listitem>
+     <para>
+      The data type of a function, procedure, or aggregate argument.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="parameter">large_object_oid</replaceable></term>
+    <listitem>
+     <para>
+      The OID of the large object.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="parameter">left_type</replaceable></term>
+    <term><replaceable class="parameter">right_type</replaceable></term>
+    <listitem>
+     <para>
+      The data type(s) of the operator's arguments (optionally
+      schema-qualified).  Write <literal>NONE</literal> for the missing argument
+      of a prefix or postfix operator.
+     </para>
+    </listitem>
+   </varlistentry>
+
+    <varlistentry>
+     <term><literal>PROCEDURAL</literal></term>
+     <listitem>
+      <para>
+       This is a noise word.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><replaceable>type_name</replaceable></term>
+
+     <listitem>
+      <para>
+       The name of the data type of the transform.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><replaceable>lang_name</replaceable></term>
+
+     <listitem>
+      <para>
+       The name of the language of the transform.
+      </para>
+     </listitem>
+    </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="parameter">boolean</replaceable></term>
+    <listitem>
+     <para>
+      Specifies whether the selected option should be turned on or off.
+      You can write <literal>TRUE</literal>, <literal>ON</literal>, or
+      <literal>1</literal> to enable the option, and <literal>FALSE</literal>,
+      <literal>OFF</literal>, or <literal>0</literal> to disable it.  The
+      <replaceable class="parameter">boolean</replaceable> value can also
+      be omitted, in which case <literal>TRUE</literal> is assumed.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="parameter">encoding_name</replaceable></term>
+    <listitem>
+     <para>
+      The name of a valid character set encoding.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="parameter">'schema_pattern'</replaceable></term>
+    <term><replaceable class="parameter">'table_pattern'</replaceable></term>
+    <listitem>
+     <para>
+      A name-matching pattern identical to those found in a <literal>LIKE</literal> of a <literal>SELECT</literal> statement.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>CLEAN</literal></term>
+    <listitem>
+     <para>
+     Specified whether the object creation statements should have corresponding
+     <literal>DROP</literal> statements. If the value specified is
+     <literal>'IF EXISTS'</literal> the the <literal>DROP</literal> statements
+     will all be of the <literal>DROP ... IF EXISTS'</literal> variant.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> options
+     <literal>-c</literal> / <literal>--clean</literal>, and
+     <literal>--if-exists</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>COMMENTS</literal></term>
+    <listitem>
+     <para>
+     Specifies whether <literal>COMMENT ON </literal> statements will be
+     included in the output. Empty comments will not generate a statement.
+     The default is <literal>true</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> option
+     <literal>--no-comments</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>CREATE</literal></term>
+    <listitem>
+     <para>
+     Specifies whether a <literal>CREATE DATABASE</literal> statement will be
+     included in the output. This option is only meaningful for the object
+     type <literal>DATABASE</literal> and has no effect for any other object type.
+     The default is <literal>false</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> options
+     <literal>-C</literal> / <literal>--create</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>DOLLAR_QUOTING</literal></term>
+    <listitem>
+     <para>
+      Specifies the use of dollar-quoting vs regular quoting in procedure and
+      function bodies. This option is ignored in all other object types.
+      The default is <literal>true</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> option
+     <literal>--disable-dollar-quoting</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>ENCODING</literal></term>
+    <listitem>
+     <para>
+      Specifies the use of a character set encoding that is different from the
+      database encoding. The default is to use the default database encoding.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> options
+     <literal>-E</literal> / <literal>--encoding</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>OWNER</literal></term>
+    <listitem>
+     <para>
+      Specifies the inclusion of <literal>ALTER OWNER</literal> or
+      <literal>SET SESSION AUTHORIZATION</literal> statements in the output.
+      The default is <literal>true</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> options
+     <literal>-O</literal> / <literal>--owner</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>PRE_DATA_SECTION</literal></term>
+    <listitem>
+     <para>
+      Specifies whether to include dump statements that would fall into
+      the <literal>pre-data</literal> section of a
+      <application>pg_dump</application>. The default is
+      <literal>true</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> option
+     <literal>--section=pre-data</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>PRIVILEGES</literal></term>
+    <listitem>
+     <para>
+      Specifies whether to include access privileges (grant/revoke) statements.
+      The default is <literal>true</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> options
+     <literal>-x</literal> / <literal>--no-privileges</literal> /
+     <literal>--no-acl</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>POST_DATA_SECTION</literal></term>
+    <listitem>
+     <para>
+      Specifies whether to include dump statements that would fall into
+      the <literal>post-data</literal> section of a
+      <application>pg_dump</application>. The default is
+      <literal>true</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> option
+     <literal>--section=post-data</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>PUBLICATIONS</literal></term>
+    <listitem>
+     <para>
+      Specifies whether to publications in the output.
+      The default is <literal>true</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> option
+     <literal>--no-publications</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>QUOTE_ALL</literal></term>
+    <listitem>
+     <para>
+      Specifies whether to force quoting of all identifiers.
+      The default is <literal>false</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> option
+     <literal>--quote-all-identifiers</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>SECURITY_LABELS</literal></term>
+    <listitem>
+     <para>
+      Specifies whether to include security labels in the output.
+      The default is <literal>true</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> option
+     <literal>--no-security-labels</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>SCHEMAS</literal></term>
+    <listitem>
+     <para>
+      Specifies that only schemas matching the given pattern should be dumped.
+      This option is meaningless outside of the context of a full database
+      dump. This option can be specified multiple times. The default is to dump
+      all schemas.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> options
+     <literal>-n</literal> / <literal>--schema</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>SCHEMAS_EXCLUDE</literal></term>
+    <listitem>
+     <para>
+      Specifies that schemas matching the given pattern should not be dumped.
+      This option is meaningless outside of the context of a full database
+      dump. This option can be specified multiple times. The default is to dump
+      all schemas.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> options
+     <literal>-N</literal> / <literal>--exclude-schema</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>STRICT_NAMES</literal></term>
+    <listitem>
+     <para>
+      If set, require that every option of <literal>SCHEMAS</literal>, or
+      <literal>TABLES</literal> must match at least one object. This option
+      has no effect on <literal>SCHEMAS_EXCLUDE</literal> or
+      <literal>TABLES_EXCLUDE</literal>.
+      The default is <literal>false</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> option
+     <literal>--strict-names</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>SUBSCRIPTIONS</literal></term>
+    <listitem>
+     <para>
+      Specifies whether to subscriptions in the output.
+      The default is <literal>true</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> option
+     <literal>--no-subscriptions</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>TABLES</literal></term>
+    <listitem>
+     <para>
+      Specifies that only tables matching the given pattern should be dumped.
+      This option is meaningless outside of the context of a full database
+      dump and a schema dump. This option can be specified multiple times.
+      The default is to dump
+      all tables.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> options
+     <literal>-t</literal> / <literal>--table</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>TABLES_EXCLUDE</literal></term>
+    <listitem>
+     <para>
+      Specifies that tables matching the given pattern should not be dumped.
+      This option is meaningless outside of the context of a full database
+      dump and a schema dump. This option can be specified multiple times.
+      The default is to dump
+      all tables.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> options
+     <literal>-T</literal> / <literal>--exclude-table</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>TABLESPACES</literal></term>
+    <listitem>
+     <para>
+      Specifies whether to include tablespace specifications in output.
+      The default is <literal>true</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> option
+     <literal>--no-tablespaces</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>USE_SET_SESSION_AUTHORIZATION</literal></term>
+    <listitem>
+     <para>
+      Specifies whether to include SQL-standard
+      <literal>SET SESSIONAUTHORIZATION</literal> commands instead of 
+      <literal>ALTER OWNER</literal> commands.
+      The default is <literal>false</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> option
+     <literal>--use-set-session-authorization</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>VERBOSE</literal></term>
+    <listitem>
+     <para>
+      Specifies whether to include detailed object comments in the output.
+      The default is <literal>false</literal>.
+     </para>
+     <para>
+     This option is analogous to the <application>pg_dump</application> options
+     <literal>-v</literal> / <literal>--verbose</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </refsect1>
+
+ <refsect1>
+  <title>Examples</title>
+
+  <para>
+  To dump the schema for the current database.
+<programlisting>
+SHOW CREATE DATABASE;
+</programlisting>
+  </para>
+
+  <para>
+  To dump the schema public for tables matching foo* or bar*
+<programlisting>
+SHOW CREATE SCHEMA public WITH (SCHEMAS 'foo%', SCHEMAS 'bar%')
+</programlisting>
+  </para>
+
+  <para>
+   Show the definition of the <varname>foo</varname> table:
+
+<programlisting>
+SHOW CREATE TABLE foo WITH (OWNER off);
+ table
+-------
+ CREATE TABLE foo(id BIGINT, t TEXT)
+ ALTER TABLE foo ALTER COLUMN id SET GENERATED BY DEFAULT AS IDENTITY
+ ALTER TABLE foo ADD PRIMARY KEY(id)
+</programlisting>
+  </para>
+
+  <para>
+   Show the definition of the <varname>foo_pkey</varname> index:
+
+<programlisting>
+SHOW CREATE INDEX foo_pkey;
+ index
+-------
+ CREATE UNIQUE INDEX foo_pkey ON public.foo USING btree (id)
+</programlisting>
+  </para>
+
+ </refsect1>
+
+ <refsect1>
+  <title>Compatibility</title>
+
+  <para>
+   There is no <command>SHOW CREATE</command> command in the SQL standard.
+  </para>
+ </refsect1>
+</refentry>

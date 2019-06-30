@@ -209,6 +209,7 @@
    &setSessionAuth;
    &setTransaction;
    &show;
+   &showCreate;
    &startTransaction;
    &truncate;
    &unlisten;
