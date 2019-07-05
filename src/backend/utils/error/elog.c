@@ -75,6 +75,7 @@
 #include "storage/proc.h"
 #include "tcop/tcopprot.h"
 #include "utils/guc.h"
+#include "utils/json.h"
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
 
@@ -174,6 +175,7 @@ static void setup_formatted_start_time(void);
 static const char *process_log_prefix_padding(const char *p, int *padding);
 static void log_line_prefix(StringInfo buf, ErrorData *edata);
 static void write_csvlog(ErrorData *edata);
+static void write_jsonlog(ErrorData *edata);
 static void send_message_to_server_log(ErrorData *edata);
 static void write_pipe_chunks(char *data, int len, int dest);
 static void send_message_to_frontend(ErrorData *edata);
@@ -2824,6 +2826,212 @@ write_csvlog(ErrorData *edata)
 }
 
 /*
+ * appendJSONLiteral
+ * Append to given StringInfo a JSON with a given key and a value
+ * not yet made literal.
+ */
+static void
+appendJSONLiteral(StringInfo buf, const char *key, const char *value,
+				  bool is_comma)
+{
+	StringInfoData literal_json;
+
+	initStringInfo(&literal_json);
+	Assert(key && value);
+
+	escape_json(&literal_json, value);
+
+	/* Now append the field */
+	appendStringInfo(buf, "\"%s\":%s", key, literal_json.data);
+
+	/* Add comma if necessary */
+	if (is_comma)
+		appendStringInfoChar(buf, ',');
+
+	/* Clean up */
+	pfree(literal_json.data);
+}
+
+/*
+ * Write logs in json format.
+ */
+static void
+write_jsonlog(ErrorData *edata)
+{
+	StringInfoData	buf;
+	bool			print_stmt = false;
+
+	/* static counter for line numbers */
+	static long	log_line_number = 0;
+
+	/* Has the counter been reset in the current process? */
+	static int	log_my_pid = 0;
+
+	if (log_my_pid != MyProcPid)
+	{
+		log_line_number = 0;
+		log_my_pid = MyProcPid;
+		formatted_start_time[0] = '\0';
+	}
+	log_line_number++;
+
+	initStringInfo(&buf);
+
+	/* Initialize string */
+	appendStringInfoChar(&buf, '{');
+
+	/* Timestamp with milliseconds */
+	setup_formatted_log_time();
+	if (formatted_log_time[0] == '\0')
+		setup_formatted_log_time();
+
+	appendJSONLiteral(&buf, "timestamp", formatted_log_time, true);
+
+	/* username */
+	if (MyProcPort)
+		appendJSONLiteral(&buf, "user", MyProcPort->user_name, true);
+
+	/* database name */
+	if (MyProcPort)
+		appendJSONLiteral(&buf, "dbname", MyProcPort->database_name, true);
+
+	/* Process ID */
+	if (MyProcPid != 0)
+		appendStringInfo(&buf, "\"pid\":%d,", MyProcPid);
+
+	/* Remote host and port */
+	if (MyProcPort && MyProcPort->remote_host)
+	{
+		appendJSONLiteral(&buf, "remote_host",
+						  MyProcPort->remote_host, true);
+		if (MyProcPort->remote_port && MyProcPort->remote_port[0] != '\0')
+			appendJSONLiteral(&buf, "remote_port",
+							  MyProcPort->remote_port, true);
+	}
+
+	/* Session id */
+	appendStringInfo(&buf, "\"session_id\":\"%lx.%x\",",
+					 (long) MyStartTime, MyProcPid);
+
+	/* Line number */
+	appendStringInfo(&buf, "\"line_number\":%ld,", log_line_number);
+
+	/* PS display */
+	if (MyProcPort)
+	{
+		StringInfoData	msgbuf;
+		const char	   *psdisp;
+		int				displen;
+
+		initStringInfo(&msgbuf);
+		psdisp = get_ps_display(&displen);
+		appendBinaryStringInfo(&msgbuf, psdisp, displen);
+		appendJSONLiteral(&buf, "pid", msgbuf.data, true);
+
+		pfree(msgbuf.data);
+	}
+
+	/* session start timestamp */
+	if (formatted_start_time[0] == '\0')
+		setup_formatted_start_time();
+	appendJSONLiteral(&buf, "session_start", formatted_start_time, true);
+
+	/* Virtual transaction id */
+	/* keep VXID format in sync with lockfuncs.c */
+	if (MyProc != NULL && MyProc->backendId != InvalidBackendId)
+		appendStringInfo(&buf, "\"vxid\":\"%d/%u\",",
+						 MyProc->backendId, MyProc->lxid);
+
+	/* Transaction id */
+	appendStringInfo(&buf, "\"txid\":%u,", GetTopTransactionIdIfAny());
+
+	/* Error severity */
+	if (edata->elevel)
+		appendJSONLiteral(&buf, "error_severity",
+						  (char *) error_severity(edata->elevel), true);
+
+	/* SQL state code */
+	if (edata->sqlerrcode)
+		appendJSONLiteral(&buf, "state_code",
+						  unpack_sql_state(edata->sqlerrcode), true);
+
+	/* errmessage */
+	if (edata->message)
+		appendJSONLiteral(&buf, "error_message", edata->message, true);
+
+	/* errdetail or error_detail log */
+	if (edata->detail_log)
+		appendJSONLiteral(&buf, "detail_log", edata->detail_log, true);
+	else if (edata->detail)
+		appendJSONLiteral(&buf, "detail", edata->detail, true);
+
+	/* errhint */
+	if (edata->hint)
+		appendJSONLiteral(&buf, "hint", edata->hint, true);
+
+	/* Internal query */
+	if (edata->internalquery)
+		appendJSONLiteral(&buf, "internal_query",
+						  edata->internalquery, true);
+
+	/* If the internal query got printed, print internal pos, too */
+	if (edata->internalpos > 0 && edata->internalquery != NULL)
+		appendStringInfo(&buf, "\"internal_position\":%d,", edata->internalpos);
+
+	/* errcontext */
+	if (!edata->hide_ctx)
+		appendJSONLiteral(&buf, "errcontext", edata->context, true);
+
+	/* user query --- only reported if not disabled by the caller */
+	if (is_log_level_output(edata->elevel, log_min_error_statement) &&
+		debug_query_string != NULL &&
+		!edata->hide_stmt)
+		print_stmt = true;
+	if (print_stmt)
+		appendJSONLiteral(&buf, "statement", debug_query_string, true);
+	if (print_stmt && edata->cursorpos > 0)
+		appendStringInfo(&buf, "\"cursor_position\":%d,");
+
+	/* file error location */
+	if (Log_error_verbosity >= PGERROR_VERBOSE)
+	{
+		StringInfoData msgbuf;
+
+		initStringInfo(&msgbuf);
+
+		if (edata->funcname && edata->filename)
+			appendStringInfo(&msgbuf, "%s, %s:%d",
+							 edata->funcname, edata->filename,
+							 edata->lineno);
+		else if (edata->filename)
+			appendStringInfo(&msgbuf, "%s:%d",
+							 edata->filename, edata->lineno);
+		appendJSONLiteral(&buf, "file_location", msgbuf.data, true);
+		pfree(msgbuf.data);
+	}
+
+	/* Application name */
+	if (application_name && application_name[0] != '\0')
+		appendJSONLiteral(&buf, "application_name",
+						  application_name, true);
+
+	/* Error message */
+	appendJSONLiteral(&buf, "message", edata->message, false);
+
+	/* Finish string */
+	appendStringInfoChar(&buf, '}');
+	appendStringInfoChar(&buf, '\n');
+
+	/* If in the syslogger process, try to write messages direct to file */
+	if (am_syslogger)
+		write_syslogger_file(buf.data, buf.len, LOG_DESTINATION_STDERR);
+	else
+		write_pipe_chunks(buf.data, buf.len, LOG_DESTINATION_JSONLOG);
+
+	pfree(buf.data);
+}
+
+/*
  * Unpack MAKE_SQLSTATE code. Note that this returns a pointer to a
  * static buffer.
  */
@@ -3048,6 +3256,30 @@ send_message_to_server_log(ErrorData *edata)
 			pfree(buf.data);
 		}
 	}
+	/* Write to JSON log if enabled */
+	else if (Log_destination & LOG_DESTINATION_JSONLOG)
+	{
+		if (redirection_done || am_syslogger)
+		{
+			/*
+			 * send JSON data if it's safe to do so (syslogger doesn't need the
+			 * pipe). First get back the space in the message buffer.
+			 */
+			pfree(buf.data);
+			write_jsonlog(edata);
+		}
+		else
+		{
+			/*
+			 * syslogger not up (yet), so just dump the message to stderr,
+			 * unless we already did so above.
+			 */
+			if (!(Log_destination & LOG_DESTINATION_STDERR) &&
+				whereToSendOutput != DestDebug)
+				write_console(buf.data, buf.len);
+			pfree(buf.data);
+		}
+	}
 	else
 	{
 		pfree(buf.data);
@@ -3089,7 +3321,7 @@ write_pipe_chunks(char *data, int len, int dest)
 	/* write all but the last chunk */
 	while (len > PIPE_MAX_PAYLOAD)
 	{
-		p.proto.is_last = (dest == LOG_DESTINATION_CSVLOG ? 'F' : 'f');
+		p.proto.is_last = ((dest == LOG_DESTINATION_CSVLOG || dest == LOG_DESTINATION_JSONLOG) ? 'F' : 'f');
 		p.proto.len = PIPE_MAX_PAYLOAD;
 		memcpy(p.proto.data, data, PIPE_MAX_PAYLOAD);
 		rc = write(fd, &p, PIPE_HEADER_SIZE + PIPE_MAX_PAYLOAD);
@@ -3099,7 +3331,7 @@ write_pipe_chunks(char *data, int len, int dest)
 	}
 
 	/* write the last chunk */
-	p.proto.is_last = (dest == LOG_DESTINATION_CSVLOG ? 'T' : 't');
+	p.proto.is_last = ((dest == LOG_DESTINATION_CSVLOG || dest == LOG_DESTINATION_JSONLOG) ? 'T' : 't');
 	p.proto.len = len;
 	memcpy(p.proto.data, data, len);
 	rc = write(fd, &p, PIPE_HEADER_SIZE + len);

@@ -47,7 +47,7 @@ typedef struct
 	uint16		len;			/* size of this chunk (counts data only) */
 	int32		pid;			/* writer's pid */
 	char		is_last;		/* last chunk of message? 't' or 'f' ('T' or
-								 * 'F' for CSV case) */
+								 * 'F' for CSV/JSON case) */
 	char		data[FLEXIBLE_ARRAY_MEMBER];	/* data payload starts here */
 } PipeProtoHeader;
 

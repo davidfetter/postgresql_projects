@@ -17394,10 +17394,12 @@ SET search_path TO <replaceable>schema</replaceable> <optional>, <replaceable>sc
     is <literal>NULL</literal>.  When multiple log files exist, each in a
     different format, <function>pg_current_logfile</function> called
     without arguments returns the path of the file having the first format
-    found in the ordered list: <systemitem>stderr</systemitem>, <systemitem>csvlog</systemitem>.
+    found in the ordered list: <systemitem>stderr</systemitem>, <systemitem>csvlog</systemitem>,
+    <systemitem>jsonlog</systemitem>.
     <literal>NULL</literal> is returned when no log file has any of these
     formats.  To request a specific file format supply, as <type>text</type>,
-    either <systemitem>csvlog</systemitem> or <systemitem>stderr</systemitem> as the value of the
+    one of <systemitem>csvlog</systemitem>,  <systemitem>jsonlog</systemitem>,
+    <systemitem>stderr</systemitem> as the value of the
     optional parameter. The return value is <literal>NULL</literal> when the
     log format requested is not a configured
     <xref linkend="guc-log-destination"/>.  The
