@@ -2826,30 +2826,116 @@ write_csvlog(ErrorData *edata)
 }
 
 /*
- * appendJSONLiteral
- * Append to given StringInfo a JSON with a given key and a value
- * not yet made literal.
+ * appendJSONKeyValue
+ * Escape value as a JSON string and append to buf.
  */
 static void
-appendJSONLiteral(StringInfo buf, const char *key, const char *value,
-				  bool is_comma)
-{
+appendJSONString(StringInfo buf, const char *value) {
 	StringInfoData literal_json;
-
+	Assert(value);
 	initStringInfo(&literal_json);
-	Assert(key && value);
-
 	escape_json(&literal_json, value);
-
-	/* Now append the field */
-	appendStringInfo(buf, "\"%s\":%s", key, literal_json.data);
-
-	/* Add comma if necessary */
-	if (is_comma)
-		appendStringInfoChar(buf, ',');
-
+	appendStringInfoString(buf, literal_json.data);
 	/* Clean up */
 	pfree(literal_json.data);
+}
+
+/*
+ * appendJSONKeyValue
+ * Append to given StringInfo a comma followed by a JSON key and value.
+ * Both the key and value will be escaped as JSON string literals.
+ */
+static void
+appendJSONKeyValue(StringInfo buf, const char *key, const char *value)
+{
+	appendStringInfoChar(buf, ',');
+	appendJSONString(buf, key);
+	appendStringInfoChar(buf, ':');
+	appendJSONString(buf, value);
+}
+
+/*
+ * appendJSONKeyValueFmt
+ * Evaluate the fmt string and then invoke appendJSONKeyValue as the
+ * value of the JSON property. Both the key and value will be escaped by
+ * appendJSONKeyValue.
+ */
+static void
+appendJSONKeyValueFmt(StringInfo buf, const char *key, const char *fmt,...)
+{
+	int			save_errno = errno;
+	size_t		len = 128;		/* initial assumption about buffer size */
+	char	    *value;
+
+	for (;;)
+	{
+		va_list		args;
+		size_t		newlen;
+
+		/*
+		 * Allocate result buffer.  Note that in frontend this maps to malloc
+		 * with exit-on-error.
+		 */
+		value = (char *) palloc(len);
+
+		/* Try to format the data. */
+		errno = save_errno;
+		va_start(args, fmt);
+		newlen = pvsnprintf(value, len, fmt, args);
+		va_end(args);
+
+		if (newlen < len)
+			break; /* success */
+
+		/* Release buffer and loop around to try again with larger len. */
+		pfree(value);
+		len = newlen;
+	}
+	appendJSONKeyValue(buf, key, value);
+	/* Clean up */
+	pfree(value);
+}
+
+/*
+ * appendJSONKeyValueAsInt
+ * Append to given StringInfo a comma followed by a JSON key and value with
+ * value being formatted as a signed integer (a JSON number).
+ */
+static void
+appendJSONKeyValueAsInt(StringInfo buf, const char *key, int value)
+{
+	appendStringInfoChar(buf, ',');
+	appendJSONString(buf, key);
+	appendStringInfoChar(buf, ':');
+	appendStringInfo(buf, "%d", value);
+}
+
+/*
+ * appendJSONKeyValueAsInt
+ * Append to given StringInfo a comma followed by a JSON key and value with
+ * value being formatted as an unsigned integer (a JSON number).
+ */
+static void
+appendJSONKeyValueAsUInt(StringInfo buf, const char *key, int value)
+{
+	appendStringInfoChar(buf, ',');
+	appendJSONString(buf, key);
+	appendStringInfoChar(buf, ':');
+	appendStringInfo(buf, "%u", value);
+}
+
+/*
+ * appendJSONKeyValueAsInt
+ * Append to given StringInfo a comma followed by a JSON key and value with
+ * value being formatted as a long (a JSON number).
+ */
+static void
+appendJSONKeyValueAsLong(StringInfo buf, const char *key, long value)
+{
+	appendStringInfoChar(buf, ',');
+	appendJSONString(buf, key);
+	appendStringInfoChar(buf, ':');
+	appendStringInfo(buf, "%ld", value);
 }
 
 /*
@@ -2885,36 +2971,36 @@ write_jsonlog(ErrorData *edata)
 	if (formatted_log_time[0] == '\0')
 		setup_formatted_log_time();
 
-	appendJSONLiteral(&buf, "timestamp", formatted_log_time, true);
+	/* First property does not use appendJSONKeyValue as it does not have comma prefix */
+	appendJSONString(&buf, "timestamp");
+	appendStringInfoChar(&buf, ':');
+	appendJSONString(&buf, formatted_log_time);
 
 	/* username */
 	if (MyProcPort)
-		appendJSONLiteral(&buf, "user", MyProcPort->user_name, true);
+		appendJSONKeyValue(&buf, "user", MyProcPort->user_name);
 
 	/* database name */
 	if (MyProcPort)
-		appendJSONLiteral(&buf, "dbname", MyProcPort->database_name, true);
+		appendJSONKeyValue(&buf, "dbname", MyProcPort->database_name);
 
 	/* Process ID */
 	if (MyProcPid != 0)
-		appendStringInfo(&buf, "\"pid\":%d,", MyProcPid);
+		appendJSONKeyValueAsInt(&buf, "pid", MyProcPid);
 
 	/* Remote host and port */
 	if (MyProcPort && MyProcPort->remote_host)
 	{
-		appendJSONLiteral(&buf, "remote_host",
-						  MyProcPort->remote_host, true);
+		appendJSONKeyValue(&buf, "remote_host", MyProcPort->remote_host);
 		if (MyProcPort->remote_port && MyProcPort->remote_port[0] != '\0')
-			appendJSONLiteral(&buf, "remote_port",
-							  MyProcPort->remote_port, true);
+			appendJSONKeyValue(&buf, "remote_port", MyProcPort->remote_port);
 	}
 
 	/* Session id */
-	appendStringInfo(&buf, "\"session_id\":\"%lx.%x\",",
-					 (long) MyStartTime, MyProcPid);
+	appendJSONKeyValueFmt(&buf, "session_id", "%lx.%x", (long) MyStartTime, MyProcPid);
 
 	/* Line number */
-	appendStringInfo(&buf, "\"line_number\":%ld,", log_line_number);
+	appendJSONKeyValueAsLong(&buf, "line_number", log_line_number);
 
 	/* PS display */
 	if (MyProcPort)
@@ -2926,7 +3012,7 @@ write_jsonlog(ErrorData *edata)
 		initStringInfo(&msgbuf);
 		psdisp = get_ps_display(&displen);
 		appendBinaryStringInfo(&msgbuf, psdisp, displen);
-		appendJSONLiteral(&buf, "pid", msgbuf.data, true);
+		appendJSONKeyValue(&buf, "pid", msgbuf.data);
 
 		pfree(msgbuf.data);
 	}
@@ -2934,53 +3020,49 @@ write_jsonlog(ErrorData *edata)
 	/* session start timestamp */
 	if (formatted_start_time[0] == '\0')
 		setup_formatted_start_time();
-	appendJSONLiteral(&buf, "session_start", formatted_start_time, true);
+	appendJSONKeyValue(&buf, "session_start", formatted_start_time);
 
 	/* Virtual transaction id */
 	/* keep VXID format in sync with lockfuncs.c */
 	if (MyProc != NULL && MyProc->backendId != InvalidBackendId)
-		appendStringInfo(&buf, "\"vxid\":\"%d/%u\",",
-						 MyProc->backendId, MyProc->lxid);
+		appendJSONKeyValueFmt(&buf, "vxid", "%d/%u", MyProc->backendId, MyProc->lxid);
 
 	/* Transaction id */
-	appendStringInfo(&buf, "\"txid\":%u,", GetTopTransactionIdIfAny());
+	appendJSONKeyValueAsUInt(&buf, "txid", GetTopTransactionIdIfAny());
 
 	/* Error severity */
 	if (edata->elevel)
-		appendJSONLiteral(&buf, "error_severity",
-						  (char *) error_severity(edata->elevel), true);
+		appendJSONKeyValue(&buf, "error_severity", (char *) error_severity(edata->elevel));
 
 	/* SQL state code */
 	if (edata->sqlerrcode)
-		appendJSONLiteral(&buf, "state_code",
-						  unpack_sql_state(edata->sqlerrcode), true);
+		appendJSONKeyValue(&buf, "state_code", unpack_sql_state(edata->sqlerrcode));
 
 	/* errmessage */
 	if (edata->message)
-		appendJSONLiteral(&buf, "error_message", edata->message, true);
+		appendJSONKeyValue(&buf, "error_message", edata->message);
 
 	/* errdetail or error_detail log */
 	if (edata->detail_log)
-		appendJSONLiteral(&buf, "detail_log", edata->detail_log, true);
+		appendJSONKeyValue(&buf, "detail_log", edata->detail_log);
 	else if (edata->detail)
-		appendJSONLiteral(&buf, "detail", edata->detail, true);
+		appendJSONKeyValue(&buf, "detail", edata->detail);
 
 	/* errhint */
 	if (edata->hint)
-		appendJSONLiteral(&buf, "hint", edata->hint, true);
+		appendJSONKeyValue(&buf, "hint", edata->hint);
 
 	/* Internal query */
 	if (edata->internalquery)
-		appendJSONLiteral(&buf, "internal_query",
-						  edata->internalquery, true);
+		appendJSONKeyValue(&buf, "internal_query", edata->internalquery);
 
 	/* If the internal query got printed, print internal pos, too */
 	if (edata->internalpos > 0 && edata->internalquery != NULL)
-		appendStringInfo(&buf, "\"internal_position\":%d,", edata->internalpos);
+		appendJSONKeyValueAsUInt(&buf, "internal_position", edata->internalpos);
 
 	/* errcontext */
 	if (!edata->hide_ctx)
-		appendJSONLiteral(&buf, "errcontext", edata->context, true);
+		appendJSONKeyValue(&buf, "errcontext", edata->context);
 
 	/* user query --- only reported if not disabled by the caller */
 	if (is_log_level_output(edata->elevel, log_min_error_statement) &&
@@ -2988,9 +3070,9 @@ write_jsonlog(ErrorData *edata)
 		!edata->hide_stmt)
 		print_stmt = true;
 	if (print_stmt)
-		appendJSONLiteral(&buf, "statement", debug_query_string, true);
+		appendJSONKeyValue(&buf, "statement", debug_query_string);
 	if (print_stmt && edata->cursorpos > 0)
-		appendStringInfo(&buf, "\"cursor_position\":%d,");
+		appendJSONKeyValueAsInt(&buf, "cursor_position", edata->cursorpos);
 
 	/* file error location */
 	if (Log_error_verbosity >= PGERROR_VERBOSE)
@@ -3006,17 +3088,16 @@ write_jsonlog(ErrorData *edata)
 		else if (edata->filename)
 			appendStringInfo(&msgbuf, "%s:%d",
 							 edata->filename, edata->lineno);
-		appendJSONLiteral(&buf, "file_location", msgbuf.data, true);
+		appendJSONKeyValue(&buf, "file_location", msgbuf.data);
 		pfree(msgbuf.data);
 	}
 
 	/* Application name */
 	if (application_name && application_name[0] != '\0')
-		appendJSONLiteral(&buf, "application_name",
-						  application_name, true);
+		appendJSONKeyValue(&buf, "application_name", application_name);
 
 	/* Error message */
-	appendJSONLiteral(&buf, "message", edata->message, false);
+	appendJSONKeyValue(&buf, "message", edata->message);
 
 	/* Finish string */
 	appendStringInfoChar(&buf, '}');
