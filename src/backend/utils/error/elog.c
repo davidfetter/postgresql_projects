@@ -3024,7 +3024,7 @@ write_jsonlog(ErrorData *edata)
 
 	/* If in the syslogger process, try to write messages direct to file */
 	if (am_syslogger)
-		write_syslogger_file(buf.data, buf.len, LOG_DESTINATION_STDERR);
+		write_syslogger_file(buf.data, buf.len, LOG_DESTINATION_JSONLOG);
 	else
 		write_pipe_chunks(buf.data, buf.len, LOG_DESTINATION_JSONLOG);
 
