@@ -3012,7 +3012,7 @@ write_jsonlog(ErrorData *edata)
 		initStringInfo(&msgbuf);
 		psdisp = get_ps_display(&displen);
 		appendBinaryStringInfo(&msgbuf, psdisp, displen);
-		appendJSONKeyValue(&buf, "pid", msgbuf.data);
+		appendJSONKeyValue(&buf, "ps", msgbuf.data);
 
 		pfree(msgbuf.data);
 	}
