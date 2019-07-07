@@ -363,12 +363,18 @@ SysLoggerMain(int argc, char *argv[])
 			}
 
 			/*
-			 * Force a rotation if CSVLOG or JSONLOG output was just turned on
-			 * or off and we need to open or close csvlogFile accordingly.
+			 * Force a rotation if CSVLOG output was just turned on or off and
+			 * we need to open or close csvlogFile accordingly.
 			 */
 			if (((Log_destination & LOG_DESTINATION_CSVLOG) != 0) !=
-				(csvlogFile != NULL) ||
-				((Log_destination & LOG_DESTINATION_JSONLOG) != 0) !=
+				(csvlogFile != NULL))
+				rotation_requested = true;
+
+			/*
+			 * Force a rotation if JSONLOG output was just turned on or off and
+			 * we need to open or close jsonlogFile accordingly.
+			 */
+			if (((Log_destination & LOG_DESTINATION_JSONLOG) != 0) !=
 				(jsonlogFile != NULL))
 				rotation_requested = true;
 
