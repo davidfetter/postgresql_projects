@@ -2827,21 +2827,6 @@ write_csvlog(ErrorData *edata)
 
 /*
  * appendJSONKeyValue
- * Escape value as a JSON string and append to buf.
- */
-static void
-appendJSONString(StringInfo buf, const char *value) {
-	StringInfoData literal_json;
-	Assert(value);
-	initStringInfo(&literal_json);
-	escape_json(&literal_json, value);
-	appendStringInfoString(buf, literal_json.data);
-	/* Clean up */
-	pfree(literal_json.data);
-}
-
-/*
- * appendJSONKeyValue
  * Append to given StringInfo a comma followed by a JSON key and value.
  * Both the key and value will be escaped as JSON string literals.
  */
@@ -2849,9 +2834,9 @@ static void
 appendJSONKeyValue(StringInfo buf, const char *key, const char *value)
 {
 	appendStringInfoChar(buf, ',');
-	appendJSONString(buf, key);
+	escape_json(buf, key);
 	appendStringInfoChar(buf, ':');
-	appendJSONString(buf, value);
+	escape_json(buf, value);
 }
 
 /*
@@ -2905,7 +2890,7 @@ static void
 appendJSONKeyValueAsInt(StringInfo buf, const char *key, int value)
 {
 	appendStringInfoChar(buf, ',');
-	appendJSONString(buf, key);
+	escape_json(buf, key);
 	appendStringInfoChar(buf, ':');
 	appendStringInfo(buf, "%d", value);
 }
@@ -2919,7 +2904,7 @@ static void
 appendJSONKeyValueAsUInt(StringInfo buf, const char *key, int value)
 {
 	appendStringInfoChar(buf, ',');
-	appendJSONString(buf, key);
+	escape_json(buf, key);
 	appendStringInfoChar(buf, ':');
 	appendStringInfo(buf, "%u", value);
 }
@@ -2933,7 +2918,7 @@ static void
 appendJSONKeyValueAsLong(StringInfo buf, const char *key, long value)
 {
 	appendStringInfoChar(buf, ',');
-	appendJSONString(buf, key);
+	escape_json(buf, key);
 	appendStringInfoChar(buf, ':');
 	appendStringInfo(buf, "%ld", value);
 }
@@ -2972,9 +2957,9 @@ write_jsonlog(ErrorData *edata)
 		setup_formatted_log_time();
 
 	/* First property does not use appendJSONKeyValue as it does not have comma prefix */
-	appendJSONString(&buf, "timestamp");
+	escape_json(&buf, "timestamp");
 	appendStringInfoChar(&buf, ':');
-	appendJSONString(&buf, formatted_log_time);
+	escape_json(&buf, formatted_log_time);
 
 	/* username */
 	if (MyProcPort)
