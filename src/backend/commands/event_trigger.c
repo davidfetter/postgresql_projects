@@ -111,6 +111,7 @@ static const event_trigger_support_data event_trigger_support[] = {
 	{"PUBLICATION", true},
 	{"ROLE", false},
 	{"ROUTINE", true},
+	{"ROUTINE MAPPING", true},
 	{"RULE", true},
 	{"SCHEMA", true},
 	{"SEQUENCE", true},
@@ -1209,6 +1210,7 @@ EventTriggerSupportsObjectClass(ObjectClass objclass)
 		case OCLASS_FDW:
 		case OCLASS_FOREIGN_SERVER:
 		case OCLASS_USER_MAPPING:
+		case OCLASS_ROUTINE_MAPPING:
 		case OCLASS_DEFACL:
 		case OCLASS_EXTENSION:
 		case OCLASS_POLICY:

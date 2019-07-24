@@ -59,6 +59,7 @@
 #include "catalog/pg_shdepend.h"
 #include "catalog/pg_shdescription.h"
 #include "catalog/pg_shseclabel.h"
+#include "catalog/pg_routine_mapping.h"
 #include "catalog/pg_replication_origin.h"
 #include "catalog/pg_statistic.h"
 #include "catalog/pg_statistic_ext.h"
@@ -705,6 +706,39 @@ static const struct cachedesc cacheinfo[] = {
 			0
 		},
 		16
+	},
+	{RoutineMappingRelationId,	/* ROUTINEMAPPINGOID */
+		RoutineMappingOidIndexId,
+		1,
+		{
+			TableOidAttributeNumber,
+			0,
+			0,
+			0
+		},
+		2
+	},
+	{RoutineMappingRelationId,	/* ROUTINEMAPPINGPROCSERVER */
+		RoutineMappingProcServerIndexId,
+		2,
+		{
+			Anum_pg_routine_mapping_rmproc,
+			Anum_pg_routine_mapping_rmserver,
+			0,
+			0
+		},
+		2
+	},
+	{RoutineMappingRelationId,	/* ROUTINEMAPINGNAME */
+		RoutineMappingNameIndexId,
+		1,
+		{
+			Anum_pg_routine_mapping_rmname,
+			0,
+			0,
+			0
+		},
+		2
 	},
 	{RewriteRelationId,			/* RULERELNAME */
 		RewriteRelRulenameIndexId,

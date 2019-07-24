@@ -17,6 +17,7 @@
 #include "catalog/pg_foreign_data_wrapper.h"
 #include "catalog/pg_foreign_server.h"
 #include "catalog/pg_foreign_table.h"
+#include "catalog/pg_routine_mapping.h"
 #include "catalog/pg_user_mapping.h"
 #include "foreign/fdwapi.h"
 #include "foreign/foreign.h"
@@ -497,6 +498,68 @@ IsImportableForeignTable(const char *tablename,
 	return false;				/* shouldn't get here */
 }
 
+/*
+ * GetRoutineMapping - look up the routine mapping.
+ */
+RoutineMapping *
+GetRoutineMapping(Oid rmid)
+{
+	Form_pg_routine_mapping	rmform;
+	RoutineMapping *rm;
+	HeapTuple		tp;
+	Datum			datum;
+	bool			isnull;
+
+	tp = SearchSysCache1(ROUTINEMAPPINGOID, ObjectIdGetDatum(rmid));
+
+	if (!HeapTupleIsValid(tp))
+		elog(ERROR, "cache lookup failed for routine mapping");
+
+	rmform = (Form_pg_routine_mapping) GETSTRUCT(tp);
+
+	rm = (RoutineMapping *) palloc(sizeof(RoutineMapping));
+	rm->rmid = rmid;
+	rm->rmname = pstrdup(NameStr(rmform->rmname));
+	rm->procid = rmform->rmproc;
+	rm->serverid = rmform->rmserver;
+
+	datum = SysCacheGetAttr(ROUTINEMAPPINGPROCSERVER,
+							tp,
+							Anum_pg_routine_mapping_rmoptions,
+							&isnull);
+
+	if (isnull)
+		rm->options = NIL;
+	else
+		rm->options = untransformRelOptions(datum);
+
+	ReleaseSysCache(tp);
+
+	return rm;
+}
+
+/*
+ * GetRoutineMappingByName - look up the routine map by name.
+ */
+RoutineMapping *
+GetRoutineMappingByName(const char *rmname, bool missing_ok)
+{
+	Oid	rmid;
+
+	rmid = GetSysCacheOid1(ROUTINEMAPPINGNAME,
+						   Anum_pg_routine_mapping_rmname,
+						   CStringGetDatum(rmname));
+
+	if (!OidIsValid(rmid) && !missing_ok)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("routine mapping \"%s\" does not exist", rmname)));
+
+	if (!OidIsValid(rmid))
+		return NULL;
+
+	return GetRoutineMapping(rmid);
+}
 
 /*
  * deflist_to_tuplestore - Helper function to convert DefElem list to

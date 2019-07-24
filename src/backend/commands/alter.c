@@ -630,6 +630,7 @@ AlterObjectNamespace_oid(Oid classId, Oid objid, Oid nspOid,
 		case OCLASS_FDW:
 		case OCLASS_FOREIGN_SERVER:
 		case OCLASS_USER_MAPPING:
+		case OCLASS_ROUTINE_MAPPING:
 		case OCLASS_DEFACL:
 		case OCLASS_EXTENSION:
 		case OCLASS_EVENT_TRIGGER:

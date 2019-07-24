@@ -151,6 +151,10 @@ extern Datum transformGenericOptions(Oid catalogId,
 									 Datum oldOptions,
 									 List *options,
 									 Oid fdwvalidator);
+extern ObjectAddress CreateRoutineMapping(CreateRoutineMappingStmt *stmt);
+extern ObjectAddress AlterRoutineMapping(AlterRoutineMappingStmt *stmt);
+extern Oid RemoveRoutineMapping(DropRoutineMappingStmt *stmt);
+extern void RemoveRoutineMappingById(Oid rmId);
 
 /* commands/amcmds.c */
 extern ObjectAddress CreateAccessMethod(CreateAmStmt *stmt);

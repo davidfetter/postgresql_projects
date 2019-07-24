@@ -42,7 +42,7 @@ CATALOG_HEADERS := \
 	pg_ts_config.h pg_ts_config_map.h pg_ts_dict.h \
 	pg_ts_parser.h pg_ts_template.h pg_extension.h \
 	pg_foreign_data_wrapper.h pg_foreign_server.h pg_user_mapping.h \
-	pg_foreign_table.h pg_policy.h pg_replication_origin.h \
+	pg_routine_mapping.h pg_foreign_table.h pg_policy.h pg_replication_origin.h \
 	pg_default_acl.h pg_init_privs.h pg_seclabel.h pg_shseclabel.h \
 	pg_collation.h pg_partitioned_table.h pg_range.h pg_transform.h \
 	pg_sequence.h pg_publication.h pg_publication_rel.h pg_subscription.h \

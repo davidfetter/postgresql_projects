@@ -63,6 +63,14 @@ typedef struct ForeignTable
 /* Flags for GetForeignDataWrapperExtended */
 #define FDW_MISSING_OK	0x01
 
+typedef struct RoutineMapping
+{
+	Oid			rmid;			/* Oid of routine mapping */
+	char		*rmname;
+	Oid			procid;			/* local function oid */
+	Oid			serverid;		/* server oid */
+	List		*options;		/* rmoptions as DefElem list */
+} RoutineMapping;
 
 extern ForeignServer *GetForeignServer(Oid serverid);
 extern ForeignServer *GetForeignServerExtended(Oid serverid,
@@ -75,6 +83,8 @@ extern ForeignDataWrapper *GetForeignDataWrapperExtended(Oid fdwid,
 extern ForeignDataWrapper *GetForeignDataWrapperByName(const char *name,
 													   bool missing_ok);
 extern ForeignTable *GetForeignTable(Oid relid);
+extern RoutineMapping *GetRoutineMapping(Oid rmid);
+extern RoutineMapping *GetRoutineMappingByName(const char *rmname, bool missing_ok);
 
 extern List *GetForeignColumnOptions(Oid relid, AttrNumber attnum);
 

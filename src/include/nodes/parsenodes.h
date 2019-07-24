@@ -2355,6 +2355,35 @@ typedef struct ImportForeignSchemaStmt
 	List	   *options;		/* list of options to pass to FDW */
 } ImportForeignSchemaStmt;
 
+/* ----------------------
+ *		Create/Drop ROUTINE MAPPING Statements
+ * ----------------------
+ */
+typedef struct CreateRoutineMappingStmt
+{
+	NodeTag			type;
+	char			*name;	/* routine mapping name */
+	ObjectType		objtype;
+	ObjectWithArgs	*func;			/* name and args of function */
+	char			*servername;	/* server name */
+	List			*options;		/* generic option to server */
+	bool			if_not_exists;
+} CreateRoutineMappingStmt;
+
+typedef struct AlterRoutineMappingStmt
+{
+	NodeTag			type;
+	char			*name;
+	List			*options;
+} AlterRoutineMappingStmt;
+
+typedef struct DropRoutineMappingStmt
+{
+	NodeTag			type;
+	char			*name;
+	bool			missing_ok;
+} DropRoutineMappingStmt;
+
 /*----------------------
  *		Create POLICY Statement
  *----------------------

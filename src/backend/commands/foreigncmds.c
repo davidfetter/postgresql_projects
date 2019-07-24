@@ -27,6 +27,7 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_user_mapping.h"
+#include "catalog/pg_routine_mapping.h"
 #include "commands/defrem.h"
 #include "foreign/fdwapi.h"
 #include "foreign/foreign.h"
@@ -1676,3 +1677,219 @@ import_error_callback(void *arg)
 		errcontext("importing foreign table \"%s\"",
 				   callback_arg->tablename);
 }
+
+/*
+ * Create routine mapping
+ */
+ObjectAddress
+CreateRoutineMapping(CreateRoutineMappingStmt *stmt)
+{
+	Relation	rel;
+	Datum		options;
+	Datum		values[Natts_pg_routine_mapping];
+	bool		nulls[Natts_pg_routine_mapping];
+	Oid			rmId;
+	Oid			funcId;
+	NameData	procname;
+	HeapTuple	tuple;
+	ObjectAddress myself;
+	ObjectAddress referenced;
+	ForeignServer		*srv;
+	ForeignDataWrapper	*fdw;
+
+	rel = heap_open(RoutineMappingRelationId, RowExclusiveLock);
+
+	funcId = LookupFuncWithArgs(stmt->objtype, stmt->func, false);
+
+	/* @@@: acl check */
+
+	if (GetRoutineMappingByName(stmt->name, true) != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_DUPLICATE_OBJECT),
+				 errmsg("routine mapping \"%s\" already exists",
+						stmt->name)));
+
+	srv = GetForeignServerByName(stmt->servername, false);
+	rmId = GetSysCacheOid2(ROUTINEMAPPINGPROCSERVER, Anum_pg_routine_mapping_rmname,
+						   ObjectIdGetDatum(funcId),
+						   ObjectIdGetDatum(srv->serverid));
+
+	if (OidIsValid(rmId))
+	{
+		if (stmt->if_not_exists)
+		{
+			ereport(NOTICE,
+					(errcode(ERRCODE_DUPLICATE_OBJECT),
+					 errmsg("rouitne mapping for \"%s\" already exists for server %s, skipping",
+							NameListToString(stmt->func->objname), stmt->servername)));
+			return InvalidObjectAddress;
+		}
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_DUPLICATE_OBJECT),
+					 errmsg("routine mapping for \"%s\" already exists for server %s",
+							NameListToString(stmt->func->objname), stmt->servername)));
+	}
+
+	fdw = GetForeignDataWrapper(srv->fdwid);
+
+	memset(values, 0, sizeof(values));
+	memset(nulls, false, sizeof(values));
+
+	namestrcpy(&procname, stmt->name);
+	values[Anum_pg_routine_mapping_rmname - 1] = NameGetDatum(&procname);
+	values[Anum_pg_routine_mapping_rmproc - 1] = ObjectIdGetDatum(funcId);
+	values[Anum_pg_routine_mapping_rmserver - 1] = ObjectIdGetDatum(srv->serverid);
+
+	options = transformGenericOptions(RoutineMappingRelationId,
+									  PointerGetDatum(NULL),
+									  stmt->options,
+									  fdw->fdwvalidator);
+
+	if (PointerIsValid(DatumGetPointer(options)))
+		values[Anum_pg_routine_mapping_rmoptions - 1] = options;
+	else
+		nulls[Anum_pg_routine_mapping_rmoptions - 1] = true;
+
+	tuple = heap_form_tuple(rel->rd_att, values, nulls);
+
+	CatalogTupleInsert(rel, tuple);
+
+	/* Add dependency on the server and proc */
+	myself.classId = RoutineMappingRelationId;
+	myself.objectId = rmId;
+	myself.objectSubId = 0;
+
+	referenced.classId = ForeignServerRelationId;
+	referenced.objectId = srv->serverid;
+	referenced.objectSubId = 0;
+	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+
+	/* Post creation hook for new user mapping */
+	InvokeObjectPostCreateHook(RoutineMappingRelationId, rmId, 0);
+
+	heap_close(rel, RowExclusiveLock);
+
+	return myself;
+}
+
+Oid
+RemoveRoutineMapping(DropRoutineMappingStmt *stmt)
+{
+	RoutineMapping	*rm;
+	ObjectAddress	object;
+	Oid				rmId;
+
+	rm = GetRoutineMappingByName(stmt->name, true);
+
+	if (!rm)
+	{
+		if (!stmt->missing_ok)
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("routine mapping \"%s\" does not exist",
+							stmt->name)));
+
+		ereport(NOTICE,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 (errmsg("routine mapping \"%s\" done not exist, skipping",
+						 stmt->name))));
+		return InvalidOid;
+	}
+
+	rmId = rm->rmid;
+
+	object.classId = RoutineMappingRelationId;
+	object.objectId = rm->rmid;
+	object.objectSubId = 0;
+
+	performDeletion(&object, DROP_CASCADE, 0);
+
+	return rmId;
+}
+
+void
+RemoveRoutineMappingById(Oid rmId)
+{
+	HeapTuple	tp;
+	Relation	rel;
+
+	rel = heap_open(RoutineMappingRelationId, RowExclusiveLock);
+
+	tp = SearchSysCache1(ROUTINEMAPPINGOID, ObjectIdGetDatum(rmId));
+
+	if (!HeapTupleIsValid(tp))
+		elog(ERROR, "cache lookup failed for routine mapping %u", rmId);
+
+	CatalogTupleDelete(rel, &tp->t_self);
+
+	ReleaseSysCache(tp);
+
+	heap_close(rel, RowExclusiveLock);
+}
+
+ObjectAddress
+AlterRoutineMapping(AlterRoutineMappingStmt *stmt)
+{
+	RoutineMapping	*rm;
+	Relation		rel;
+	Datum			values[Natts_pg_routine_mapping];
+	bool			nulls[Natts_pg_routine_mapping];
+	bool			repl[Natts_pg_user_mapping];
+	HeapTuple		tp;
+	ObjectAddress	address;
+
+	rel = heap_open(RoutineMappingRelationId, RowExclusiveLock);
+
+	rm = GetRoutineMappingByName(stmt->name, false);
+
+	tp = SearchSysCacheCopy1(ROUTINEMAPPINGOID, ObjectIdGetDatum(rm->rmid));
+
+	memset(values, 0, sizeof(values));
+	memset(nulls, false, sizeof(nulls));
+	memset(repl, false, sizeof(repl));
+
+	if (stmt->options)
+	{
+		ForeignServer	*server;
+		ForeignDataWrapper *fdw;
+		Datum	datum;
+		bool	isnull;
+
+		server = GetForeignServer(rm->serverid);
+		fdw = GetForeignDataWrapper(server->fdwid);
+
+		datum = SysCacheGetAttr(ROUTINEMAPPINGPROCSERVER,
+								tp,
+								Anum_pg_routine_mapping_rmoptions,
+								&isnull);
+
+		if (isnull)
+			datum = PointerGetDatum(NULL);
+
+		datum = transformGenericOptions(RoutineMappingRelationId,
+										datum,
+										stmt->options,
+										fdw->fdwvalidator);
+		if (PointerIsValid(DatumGetPointer(datum)))
+			values[Anum_pg_routine_mapping_rmoptions - 1] = datum;
+		else
+			nulls[Anum_pg_routine_mapping_rmoptions - 1] = true;
+
+		repl[Anum_pg_routine_mapping_rmoptions - 1] = true;
+	}
+
+	tp = heap_modify_tuple(tp, RelationGetDescr(rel),
+						   values, nulls, repl);
+
+	CatalogTupleUpdate(rel, &tp->t_self, tp);
+
+	ObjectAddressSet(address, RoutineMappingRelationId, rm->rmid);
+
+	heap_freetuple(tp);
+
+	heap_close(rel, RowExclusiveLock);
+
+	return address;
+}
+

@@ -51,6 +51,7 @@
 #include "catalog/pg_publication.h"
 #include "catalog/pg_publication_rel.h"
 #include "catalog/pg_rewrite.h"
+#include "catalog/pg_routine_mapping.h"
 #include "catalog/pg_statistic_ext.h"
 #include "catalog/pg_subscription.h"
 #include "catalog/pg_tablespace.h"
@@ -3409,6 +3410,25 @@ getObjectDescription(const ObjectAddress *object)
 				break;
 			}
 
+		case OCLASS_ROUTINE_MAPPING:
+			{
+				HeapTuple	tup;
+				Oid			funcid;
+				Form_pg_routine_mapping rmform;
+
+				tup = SearchSysCache1(ROUTINEMAPPINGOID,
+									  ObjectIdGetDatum(object->objectId));
+				if (!HeapTupleIsValid(tup))
+					elog(ERROR, "cache lookup failed for routine mapping %u",
+						 object->objectId);
+				rmform = (Form_pg_routine_mapping) GETSTRUCT(tup);
+				funcid = rmform->rmproc;
+
+				ReleaseSysCache(tup);
+				appendStringInfoString(&buffer, NameStr(rmform->rmname));
+				break;
+			}
+
 		case OCLASS_DEFACL:
 			{
 				Relation	defaclrel;
@@ -4113,6 +4133,10 @@ getObjectTypeDescription(const ObjectAddress *object)
 
 		case OCLASS_USER_MAPPING:
 			appendStringInfoString(&buffer, "user mapping");
+			break;
+
+		case OCLASS_ROUTINE_MAPPING:
+			appendStringInfoString(&buffer, "routine mapping");
 			break;
 
 		case OCLASS_DEFACL:
@@ -4975,6 +4999,27 @@ getObjectIdentityParts(const ObjectAddress *object,
 				appendStringInfo(&buffer, "%s on server %s",
 								 quote_identifier(usename),
 								 srv->servername);
+				break;
+			}
+
+		case OCLASS_ROUTINE_MAPPING:
+			{
+				HeapTuple	tup;
+				Form_pg_routine_mapping rmform;
+
+				tup = SearchSysCache1(ROUTINEMAPPINGOID,
+									  ObjectIdGetDatum(object->objectId));
+				if (!HeapTupleIsValid(tup))
+					elog(ERROR, "cache lookup failed for routine mapping %u",
+						 object->objectId);
+				rmform = (Form_pg_routine_mapping) GETSTRUCT(tup);
+
+				ReleaseSysCache(tup);
+
+				if (objname)
+					*objname = list_make1(pstrdup(NameStr(rmform->rmname)));
+
+				appendStringInfoString(&buffer, NameStr(rmform->rmname));
 				break;
 			}
 
