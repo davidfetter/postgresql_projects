@@ -262,7 +262,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 		CreateFdwStmt CreateForeignServerStmt CreateForeignTableStmt
 		CreateAssertionStmt CreateTransformStmt CreateTrigStmt CreateEventTrigStmt
 		CreateUserStmt CreateUserMappingStmt CreateRoleStmt CreatePolicyStmt
-		CreatedbStmt DeclareCursorStmt DefineStmt DeleteStmt DiscardStmt DoStmt
+		CreatedbStmt DeclareCursorStmt DefineStmt DeleteStmt DescribeStmt DiscardStmt DoStmt
 		DropOpClassStmt DropOpFamilyStmt DropPLangStmt DropStmt
 		DropCastStmt DropRoleStmt
 		DropdbStmt DropTableSpaceStmt
@@ -900,6 +900,7 @@ stmt :
 			| DeclareCursorStmt
 			| DefineStmt
 			| DeleteStmt
+			| DescribeStmt
 			| DiscardStmt
 			| DoStmt
 			| DropCastStmt
@@ -1585,6 +1586,47 @@ iso_level:	READ UNCOMMITTED						{ $$ = "read uncommitted"; }
 			| SERIALIZABLE							{ $$ = "serializable"; }
 		;
 
+describe_type: ACCESS METHOD						{ $$ = "access method"; }
+			   | AGGREGATE							{ $$ = "aggregate"; }
+			   | CAST	 							{ $$ = "cast"; }
+			   | COLLATION 							{ $$ = "collation"; }
+			   | CONSTRAINT 						{ $$ = "constraint"; }
+			   | CONVERSION 						{ $$ = "conversion"; }
+			   | DOMAIN		 						{ $$ = "domain"; }
+			   | EVENT TRIGGER 						{ $$ = "event trigger"; }
+			   | EXTENSION	 						{ $$ = "extension"; }
+			   | FOREIGN DATA WRAPPER				{ $$ = "foreign data wrapper"; }
+			   | FOREIGN TABLE						{ $$ = "foreign table"; }
+			   | FUNCTION							{ $$ = "function"; }
+			   | INDEX								{ $$ = "index"; }
+			   | LANGUAGE							{ $$ = "language"; }
+			   | LARGE OBJECT						{ $$ = "large object"; }
+			   | MATERIALIZED VIEW					{ $$ = "materialized view"; }
+			   | OPERATOR							{ $$ = "operator"; }
+			   | OPERATOR CLASS						{ $$ = "operator class"; }
+			   | OPERATOR FAMILY					{ $$ = "operator family"; }
+			   | POLICY								{ $$ = "policy"; }
+			   | PROCEDURE							{ $$ = "procedure"; }
+			   | PUBLICATION						{ $$ = "publication"; }
+			   | ROLE								{ $$ = "role"; }
+			   | ROUTINE							{ $$ = "routine"; }
+			   | RULE								{ $$ = "rule"; }
+			   | SCHEMA								{ $$ = "schema"; }
+			   | SERVER								{ $$ = "server"; }
+			   | STATISTICS							{ $$ = "statistics"; }
+			   | SUBSCRIPTION						{ $$ = "subscription"; }
+			   | TABLE								{ $$ = "table"; }
+			   | TABLESPACE							{ $$ = "tablespace"; }
+			   | TEXT SEARCH CONFIGURATION			{ $$ = "text search configuration"; }
+			   | TEXT SEARCH DICTIONARY				{ $$ = "text search dictionary"; }
+			   | TEXT SEARCH PARSER					{ $$ = "text search parser"; }
+			   | TEXT SEARCH TEMPLATE				{ $$ = "text search template"; }
+			   | TRANSFORM							{ $$ = "transform"; }
+			   | TRIGGER							{ $$ = "trigger"; }
+			   | TYPE								{ $$ = "type"; }
+			   | VIEW								{ $$ = "view"; }
+		;
+
 opt_boolean_or_string:
 			TRUE_P									{ $$ = "true"; }
 			| FALSE_P								{ $$ = "false"; }
@@ -1743,6 +1785,15 @@ VariableShowStmt:
 				}
 		;
 
+DescribeStmt:
+			DESCRIBE describe_type var_name
+				{
+					DescribeStmt *n = makeNode(DescribeStmt);
+					n->type = $2;
+					n->name = $3;
+					$$ = (Node *) n;
+				}
+		;
 
 ConstraintsSetStmt:
 			SET CONSTRAINTS constraints_set_list constraints_set_mode
