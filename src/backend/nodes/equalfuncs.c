@@ -1792,6 +1792,14 @@ _equalVariableShowStmt(const VariableShowStmt *a, const VariableShowStmt *b)
 }
 
 static bool
+_equalDescribeStmt(const DescribeStmt *a, const DescribeStmt *b)
+{
+	COMPARE_STRING_FIELD(name);
+
+	return true;
+}
+
+static bool
 _equalDiscardStmt(const DiscardStmt *a, const DiscardStmt *b)
 {
 	COMPARE_SCALAR_FIELD(target);

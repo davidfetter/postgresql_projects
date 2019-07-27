@@ -4004,6 +4004,16 @@ _copyVariableShowStmt(const VariableShowStmt *from)
 	return newnode;
 }
 
+static DescribeStmt *
+_copyDescribeStmt(const DescribeStmt *from)
+{
+	DescribeStmt *newnode = makeNode(DescribeStmt);
+
+	COPY_STRING_FIELD(name);
+
+	return newnode;
+}
+
 static DiscardStmt *
 _copyDiscardStmt(const DiscardStmt *from)
 {
