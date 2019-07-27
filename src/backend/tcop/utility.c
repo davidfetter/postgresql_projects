@@ -693,6 +693,14 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			}
 			break;
 
+		case T_DescribeStmt:
+			{
+				DescribeStmt *n = (DescribeStmt *) parsetree;
+
+				GetDescription(n->type, n->name, dest);
+			}
+			break;
+
 		case T_DiscardStmt:
 			/* should we allow DISCARD PLANS? */
 			CheckRestrictedOperation("DISCARD");
@@ -1807,6 +1815,9 @@ UtilityReturnsTuples(Node *parsetree)
 		case T_VariableShowStmt:
 			return true;
 
+		case T_DescribeStmt:
+			return true;
+
 		default:
 			return false;
 	}
@@ -1860,6 +1871,13 @@ UtilityTupleDescriptor(Node *parsetree)
 				VariableShowStmt *n = (VariableShowStmt *) parsetree;
 
 				return GetPGVariableResultDesc(n->name);
+			}
+
+		case T_DescribeStmt:
+			{
+				DescribeStmt *n = (DescribeStmt *) parsetree;
+
+				return PGDescribe(n->type, n->name);
 			}
 
 		default:
@@ -2649,6 +2667,10 @@ CreateCommandTag(Node *parsetree)
 			tag = "SHOW";
 			break;
 
+		case T_VariableShowStmt:
+			tag = "DESCRIBE";
+			break;
+
 		case T_DiscardStmt:
 			switch (((DiscardStmt *) parsetree)->target)
 			{
@@ -3266,6 +3288,10 @@ GetCommandLogLevel(Node *parsetree)
 			break;
 
 		case T_VariableShowStmt:
+			lev = LOGSTMT_ALL;
+			break;
+
+		case T_DescribeStmt:
 			lev = LOGSTMT_ALL;
 			break;
 

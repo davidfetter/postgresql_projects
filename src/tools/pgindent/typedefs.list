@@ -505,6 +505,7 @@ DependencyGenerator
 DependencyGeneratorData
 DependencyType
 DestReceiver
+DescribeStmt
 DictISpell
 DictInt
 DictSimple
