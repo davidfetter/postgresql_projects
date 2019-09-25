@@ -102,6 +102,7 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY createView         SYSTEM "create_view.sgml">
 <!ENTITY deallocate         SYSTEM "deallocate.sgml">
 <!ENTITY declare            SYSTEM "declare.sgml">
+<!ENTITY describe           SYSTEM "describe.sgml">
 <!ENTITY delete             SYSTEM "delete.sgml">
 <!ENTITY discard            SYSTEM "discard.sgml">
 <!ENTITY do                 SYSTEM "do.sgml">

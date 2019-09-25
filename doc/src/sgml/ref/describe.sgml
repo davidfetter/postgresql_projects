@@ -1,0 +1,107 @@
+<!--
+doc/src/sgml/ref/describe.sgml
+PostgreSQL documentation
+-->
+
+<refentry id="sql-describe">
+ <indexterm zone="sql-describe">
+  <primary>DESCRIBE</primary>
+ </indexterm>
+
+ <refmeta>
+  <refentrytitle>DESCRIBE</refentrytitle>
+  <manvolnum>7</manvolnum>
+  <refmiscinfo>SQL - Language Statements</refmiscinfo>
+ </refmeta>
+
+ <refnamediv>
+  <refname>DESCRIBE</refname>
+  <refpurpose>describe a database object</refpurpose>
+ </refnamediv>
+
+ <refsynopsisdiv>
+<synopsis>
+  DESCRIBE { ACCESS METHOD | AGGREGATE | CAST | COLLATION | CONVERSION |
+             DATABASE | DOMAIN | EVENT TRIGGER | EXTENSION |
+             FOREIGN DATA WRAPPER | FOREIGN TABLE | FUNCTION | GROUP |
+             INDEX | LANGUAGE | MATERIALIZED VIEW |
+             OPCLASS | OPERATOR | OPFAMILY | OWNED |
+             POLICY | PROCEDURE | PUBLICATION | ROLE | ROUTINE | RULE |
+             SCHEMA | SEQUENCE | SERVER | STATISTICS | SUBSCRIPTION |
+             TABLE | TABLESPACE | TRANSFORM | TRIGGER |
+             TSCONFIG | TSDICTIONARY | TSPARSER | TSTEMPLATE | TYPE |
+             USER MAPPING | USER | VIEW } <replaceable class="parameter">name</replaceable>
+
+</synopsis>
+ </refsynopsisdiv>
+
+ <refsect1>
+  <title>Description</title>
+
+  <para>
+   <command>DESCRIBE</command> displays a description of the supplied database object.
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Parameters</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><replaceable class="parameter">object_type</replaceable></term>
+    <listitem>
+     <para>
+       The type of database object being described, e.g. <literal>TABLE</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="parameter">name</replaceable></term>
+    <listitem>
+    <para>
+      The name of the database object being described.
+    </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </refsect1>
+
+ <refsect1>
+  <title>Examples</title>
+
+  <para>
+   Describe the <varname>foo</varname> table:
+
+<programlisting>
+DESCRIBE TABLE foo;
+ Column | Type       | Collation | Nullable | Default                       | Description
+------------------------------------------------------------------------------------------
+  id    | BIGINT     |           |   f      | generated always as identity  |
+  t     | TEXT       |           |   t      |                               |
+</programlisting>
+  </para>
+
+  <para>
+   Describe the <varname>foo_pkey</varname> index:
+
+<programlisting>
+DESCRIBE INDEX foo_pkey;
+ Schema |   Name   | Type  |  Owner  | Table 
+----------------------------------------------
+ public | foo_pkey | index | shackle | foo
+</programlisting>
+  </para>
+
+ </refsect1>
+
+ <refsect1>
+  <title>Compatibility</title>
+
+  <para>
+   The <command>DESCRIBE</command> command for objects other than cursors is a
+   <productname>PostgreSQL</productname> extension.
+  </para>
+ </refsect1>
+
+</refentry>
