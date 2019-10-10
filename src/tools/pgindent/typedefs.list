@@ -504,6 +504,7 @@ DeleteStmt
 DependencyGenerator
 DependencyGeneratorData
 DependencyType
+DescribeStmt
 DestReceiver
 DictISpell
 DictInt

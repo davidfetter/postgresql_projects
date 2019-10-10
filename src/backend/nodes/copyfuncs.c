@@ -4004,6 +4004,17 @@ _copyVariableShowStmt(const VariableShowStmt *from)
 	return newnode;
 }
 
+static DescribeStmt *
+_copyDescribeStmt(const DescribeStmt *from)
+{
+	DescribeStmt *newnode = makeNode(DescribeStmt);
+
+	COPY_SCALAR_FIELD(objtype);
+	COPY_NODE_FIELD(object_name);
+
+	return newnode;
+}
+
 static DiscardStmt *
 _copyDiscardStmt(const DiscardStmt *from)
 {
@@ -5345,6 +5356,9 @@ copyObjectImpl(const void *from)
 			break;
 		case T_VariableShowStmt:
 			retval = _copyVariableShowStmt(from);
+			break;
+		case T_DescribeStmt:
+			retval = _copyDescribeStmt(from);
 			break;
 		case T_DiscardStmt:
 			retval = _copyDiscardStmt(from);

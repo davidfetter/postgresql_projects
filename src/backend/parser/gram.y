@@ -262,7 +262,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 		CreateFdwStmt CreateForeignServerStmt CreateForeignTableStmt
 		CreateAssertionStmt CreateTransformStmt CreateTrigStmt CreateEventTrigStmt
 		CreateUserStmt CreateUserMappingStmt CreateRoleStmt CreatePolicyStmt
-		CreatedbStmt DeclareCursorStmt DefineStmt DeleteStmt DiscardStmt DoStmt
+		CreatedbStmt DeclareCursorStmt DefineStmt DeleteStmt DescribeStmt DiscardStmt DoStmt
 		DropOpClassStmt DropOpFamilyStmt DropPLangStmt DropStmt
 		DropCastStmt DropRoleStmt
 		DropdbStmt DropTableSpaceStmt
@@ -284,6 +284,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 		CreatePublicationStmt AlterPublicationStmt
 		CreateSubscriptionStmt AlterSubscriptionStmt DropSubscriptionStmt
 
+%type <objtype>	describe_type
 %type <node>	select_no_parens select_with_parens select_clause
 				simple_select values_clause
 
@@ -630,7 +631,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 	DATA_P DATABASE DAY_P DEALLOCATE DEC DECIMAL_P DECLARE DEFAULT DEFAULTS
 	DEFERRABLE DEFERRED DEFINER DELETE_P DELIMITER DELIMITERS DEPENDS DESC
-	DETACH DICTIONARY DISABLE_P DISCARD DISTINCT DO DOCUMENT_P DOMAIN_P
+	DESCRIBE DETACH DICTIONARY DISABLE_P DISCARD DISTINCT DO DOCUMENT_P DOMAIN_P
 	DOUBLE_P DROP
 
 	EACH ELSE ENABLE_P ENCODING ENCRYPTED END_P ENUM_P ESCAPE EVENT EXCEPT
@@ -900,6 +901,7 @@ stmt :
 			| DeclareCursorStmt
 			| DefineStmt
 			| DeleteStmt
+			| DescribeStmt
 			| DiscardStmt
 			| DoStmt
 			| DropCastStmt
@@ -1743,6 +1745,85 @@ VariableShowStmt:
 				}
 		;
 
+DescribeStmt:
+			DESCRIBE describe_type any_name
+				{
+					DescribeStmt *n = makeNode(DescribeStmt);
+					n->objtype = $2;
+					n->object_name = list_make1($3);
+					$$ = (Node *) n;
+				}
+			| DESCRIBE CURSOR any_name
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("DESCRIBE CURSOR not yet implemented"),
+							 parser_errposition(@1)));
+				}
+			| DESCRIBE OPERATOR operator_with_argtypes
+				{
+					DescribeStmt *n = makeNode(DescribeStmt);
+					n->objtype = OBJECT_OPERATOR;
+					n->object_name = list_make1($3);
+					$$ = (Node *) n;
+				}
+			| DESCRIBE OPERATOR CLASS any_name USING access_method
+				{
+					DescribeStmt *n = makeNode(DescribeStmt);
+					n->objtype  = OBJECT_OPCLASS;
+					n->object_name = list_make2($4, $6);
+					$$ = (Node *) n;
+				}
+			| DESCRIBE OPERATOR FAMILY any_name USING access_method
+				{
+					DescribeStmt *n = makeNode(DescribeStmt);
+					n->objtype = OBJECT_OPFAMILY;
+					n->object_name = list_make2($4, $6);
+					$$ = (Node *) n;
+				}
+		;
+
+describe_type:
+		ACCESS METHOD					{ $$ = OBJECT_ACCESS_METHOD; }
+		| AGGREGATE						{ $$ = OBJECT_AGGREGATE; }
+		| CAST							{ $$ = OBJECT_CAST; }
+		| COLLATION						{ $$ = OBJECT_COLLATION; }
+		| TABLE CONSTRAINT				{ $$ = OBJECT_TABCONSTRAINT; }
+		| CONVERSION_P					{ $$ = OBJECT_CONVERSION; }
+		| DOMAIN_P						{ $$ = OBJECT_DOMAIN; }
+		| DOMAIN_P CONSTRAINT			{ $$ = OBJECT_DOMCONSTRAINT; }
+		| EVENT TRIGGER					{ $$ = OBJECT_EVENT_TRIGGER; }
+		| EXTENSION						{ $$ = OBJECT_EXTENSION; }
+		| FOREIGN DATA_P WRAPPER		{ $$ = OBJECT_FDW; }
+		| FOREIGN TABLE					{ $$ = OBJECT_FOREIGN_TABLE; }
+		| FUNCTION						{ $$ = OBJECT_FUNCTION; }
+		| GROUP_P						{ $$ = OBJECT_ROLE; }
+		| INDEX							{ $$ = OBJECT_INDEX; }
+		| LANGUAGE						{ $$ = OBJECT_LANGUAGE; }
+		| LARGE_P OBJECT_P				{ $$ = OBJECT_LARGEOBJECT; }
+		| MATERIALIZED VIEW				{ $$ = OBJECT_MATVIEW; }
+		| POLICY						{ $$ = OBJECT_POLICY; }
+		| PROCEDURE						{ $$ = OBJECT_PROCEDURE; }
+		| PUBLICATION					{ $$ = OBJECT_PUBLICATION; }
+		| ROLE							{ $$ = OBJECT_ROLE; }
+		| ROUTINE						{ $$ = OBJECT_ROUTINE; }
+		| RULE							{ $$ = OBJECT_RULE; }
+		| SCHEMA						{ $$ = OBJECT_SCHEMA; }
+		| SERVER						{ $$ = OBJECT_FOREIGN_SERVER; }
+		| STATISTICS					{ $$ = OBJECT_STATISTIC_EXT; }
+		| SUBSCRIPTION					{ $$ = OBJECT_SUBSCRIPTION; }
+		| TABLE							{ $$ = OBJECT_TABLE; }
+		| TABLESPACE					{ $$ = OBJECT_TABLESPACE; }
+		| TEXT_P SEARCH CONFIGURATION	{ $$ = OBJECT_TSCONFIGURATION; }
+		| TEXT_P SEARCH DICTIONARY		{ $$ = OBJECT_TSDICTIONARY; }
+		| TEXT_P SEARCH PARSER			{ $$ = OBJECT_TSPARSER; }
+		| TEXT_P SEARCH TEMPLATE		{ $$ = OBJECT_TSTEMPLATE; }
+		| TRANSFORM						{ $$ = OBJECT_TRANSFORM; }
+		| TRIGGER						{ $$ = OBJECT_TRIGGER; }
+		| USER							{ $$ = OBJECT_ROLE; }
+		| TYPE_P						{ $$ = OBJECT_TYPE; }
+		| VIEW							{ $$ = OBJECT_VIEW; }
+		;
 
 ConstraintsSetStmt:
 			SET CONSTRAINTS constraints_set_list constraints_set_mode
@@ -15110,6 +15191,7 @@ unreserved_keyword:
 			| DELIMITER
 			| DELIMITERS
 			| DEPENDS
+			| DESCRIBE
 			| DETACH
 			| DICTIONARY
 			| DISABLE_P

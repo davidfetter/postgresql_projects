@@ -1792,6 +1792,15 @@ _equalVariableShowStmt(const VariableShowStmt *a, const VariableShowStmt *b)
 }
 
 static bool
+_equalDescribeStmt(const DescribeStmt *a, const DescribeStmt *b)
+{
+	COMPARE_SCALAR_FIELD(objtype);
+	COMPARE_NODE_FIELD(object_name);
+
+	return true;
+}
+
+static bool
 _equalDiscardStmt(const DiscardStmt *a, const DiscardStmt *b)
 {
 	COMPARE_SCALAR_FIELD(target);
@@ -3441,6 +3450,9 @@ equal(const void *a, const void *b)
 			break;
 		case T_VariableShowStmt:
 			retval = _equalVariableShowStmt(a, b);
+			break;
+		case T_DescribeStmt:
+			retval = _equalDescribeStmt(a, b);
 			break;
 		case T_DiscardStmt:
 			retval = _equalDiscardStmt(a, b);

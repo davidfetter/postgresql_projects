@@ -2033,6 +2033,17 @@ typedef struct VariableShowStmt
 } VariableShowStmt;
 
 /* ----------------------
+ * Describe Steatement
+ * ----------------------
+ */
+typedef struct DescribeStmt
+{
+	NodeTag		type;
+	ObjectType	objtype;
+	List	   *object_name;
+} DescribeStmt;
+
+/* ----------------------
  *		Create Table Statement
  *
  * NOTE: in the raw gram.y output, ColumnDef and Constraint nodes are

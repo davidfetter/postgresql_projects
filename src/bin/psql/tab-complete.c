@@ -1402,7 +1402,7 @@ psql_completion(const char *text, int start, int end)
 	/* Known command-starting keywords. */
 	static const char *const sql_commands[] = {
 		"ABORT", "ALTER", "ANALYZE", "BEGIN", "CALL", "CHECKPOINT", "CLOSE", "CLUSTER",
-		"COMMENT", "COMMIT", "COPY", "CREATE", "DEALLOCATE", "DECLARE",
+		"COMMENT", "COMMIT", "COPY", "CREATE", "DEALLOCATE", "DECLARE", "DESCRIBE",
 		"DELETE FROM", "DISCARD", "DO", "DROP", "END", "EXECUTE", "EXPLAIN",
 		"FETCH", "GRANT", "IMPORT", "INSERT", "LISTEN", "LOAD", "LOCK",
 		"MOVE", "NOTIFY", "PREPARE",
@@ -1494,6 +1494,10 @@ psql_completion(const char *text, int start, int end)
 	else if (TailMatches("CREATE", "OR", "REPLACE"))
 		COMPLETE_WITH("FUNCTION", "PROCEDURE", "LANGUAGE", "RULE", "VIEW",
 					  "AGGREGATE", "TRANSFORM");
+/* DESCRIBE */
+	/* complete with something you can describe */
+	else if (Matches("DESCRIBE"))
+		matches = completion_matches(text, drop_command_generator);
 
 /* DROP, but not DROP embedded in other commands */
 	/* complete with something you can drop */
@@ -2823,43 +2827,43 @@ psql_completion(const char *text, int start, int end)
 	else if (Matches("DO"))
 		COMPLETE_WITH("LANGUAGE");
 
-/* DROP */
+/* DESCRIBE/DROP */
 	/* Complete DROP object with CASCADE / RESTRICT */
-	else if (Matches("DROP",
+	else if (Matches("DESCRIBE|DROP",
 					 "COLLATION|CONVERSION|DOMAIN|EXTENSION|LANGUAGE|PUBLICATION|SCHEMA|SEQUENCE|SERVER|SUBSCRIPTION|STATISTICS|TABLE|TYPE|VIEW",
 					 MatchAny) ||
-			 Matches("DROP", "ACCESS", "METHOD", MatchAny) ||
-			 (Matches("DROP", "AGGREGATE|FUNCTION|PROCEDURE|ROUTINE", MatchAny, MatchAny) &&
+			 Matches("DESCRIBE|DROP", "ACCESS", "METHOD", MatchAny) ||
+			 (Matches("DESCRIBE|DROP", "AGGREGATE|FUNCTION|PROCEDURE|ROUTINE", MatchAny, MatchAny) &&
 			  ends_with(prev_wd, ')')) ||
-			 Matches("DROP", "EVENT", "TRIGGER", MatchAny) ||
-			 Matches("DROP", "FOREIGN", "DATA", "WRAPPER", MatchAny) ||
-			 Matches("DROP", "FOREIGN", "TABLE", MatchAny) ||
-			 Matches("DROP", "TEXT", "SEARCH", "CONFIGURATION|DICTIONARY|PARSER|TEMPLATE", MatchAny))
+			 Matches("DESCRIBE|DROP", "EVENT", "TRIGGER", MatchAny) ||
+			 Matches("DESCRIBE|DROP", "FOREIGN", "DATA", "WRAPPER", MatchAny) ||
+			 Matches("DESCRIBE|DROP", "FOREIGN", "TABLE", MatchAny) ||
+			 Matches("DESCRIBE|DROP", "TEXT", "SEARCH", "CONFIGURATION|DICTIONARY|PARSER|TEMPLATE", MatchAny))
 		COMPLETE_WITH("CASCADE", "RESTRICT");
 
 	/* help completing some of the variants */
-	else if (Matches("DROP", "AGGREGATE|FUNCTION|PROCEDURE|ROUTINE", MatchAny))
+	else if (Matches("DESCRIBE|DROP", "AGGREGATE|FUNCTION|PROCEDURE|ROUTINE", MatchAny))
 		COMPLETE_WITH("(");
-	else if (Matches("DROP", "AGGREGATE|FUNCTION|PROCEDURE|ROUTINE", MatchAny, "("))
+	else if (Matches("DESCRIBE|DROP", "AGGREGATE|FUNCTION|PROCEDURE|ROUTINE", MatchAny, "("))
 		COMPLETE_WITH_FUNCTION_ARG(prev2_wd);
-	else if (Matches("DROP", "FOREIGN"))
+	else if (Matches("DESCRIBE|DROP", "FOREIGN"))
 		COMPLETE_WITH("DATA WRAPPER", "TABLE");
 
 	/* DROP INDEX */
-	else if (Matches("DROP", "INDEX"))
+	else if (Matches("DESCRIBE|DROP", "INDEX"))
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_indexes,
 								   " UNION SELECT 'CONCURRENTLY'");
 	else if (Matches("DROP", "INDEX", "CONCURRENTLY"))
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_indexes, NULL);
-	else if (Matches("DROP", "INDEX", MatchAny))
+	else if (Matches("DESCRIBE|DROP", "INDEX", MatchAny))
 		COMPLETE_WITH("CASCADE", "RESTRICT");
 	else if (Matches("DROP", "INDEX", "CONCURRENTLY", MatchAny))
 		COMPLETE_WITH("CASCADE", "RESTRICT");
 
 	/* DROP MATERIALIZED VIEW */
-	else if (Matches("DROP", "MATERIALIZED"))
+	else if (Matches("DESCRIBE|DROP", "MATERIALIZED"))
 		COMPLETE_WITH("VIEW");
-	else if (Matches("DROP", "MATERIALIZED", "VIEW"))
+	else if (Matches("DESCRIBE|DROP", "MATERIALIZED", "VIEW"))
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_matviews, NULL);
 
 	/* DROP OWNED BY */
@@ -2869,11 +2873,11 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH_QUERY(Query_for_list_of_roles);
 
 	/* DROP TEXT SEARCH */
-	else if (Matches("DROP", "TEXT", "SEARCH"))
+	else if (Matches("DESCRIBE|DROP", "TEXT", "SEARCH"))
 		COMPLETE_WITH("CONFIGURATION", "DICTIONARY", "PARSER", "TEMPLATE");
 
 	/* DROP TRIGGER */
-	else if (Matches("DROP", "TRIGGER", MatchAny))
+	else if (Matches("DESCRIBE|DROP", "TRIGGER", MatchAny))
 		COMPLETE_WITH("ON");
 	else if (Matches("DROP", "TRIGGER", MatchAny, "ON"))
 	{
@@ -2884,19 +2888,19 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH("CASCADE", "RESTRICT");
 
 	/* DROP ACCESS METHOD */
-	else if (Matches("DROP", "ACCESS"))
+	else if (Matches("DESCRIBE|DROP", "ACCESS"))
 		COMPLETE_WITH("METHOD");
-	else if (Matches("DROP", "ACCESS", "METHOD"))
+	else if (Matches("DESCRIBE|DROP", "ACCESS", "METHOD"))
 		COMPLETE_WITH_QUERY(Query_for_list_of_access_methods);
 
 	/* DROP EVENT TRIGGER */
-	else if (Matches("DROP", "EVENT"))
+	else if (Matches("DESCRIBE|DROP", "EVENT"))
 		COMPLETE_WITH("TRIGGER");
-	else if (Matches("DROP", "EVENT", "TRIGGER"))
+	else if (Matches("DESCRIBE|DROP", "EVENT", "TRIGGER"))
 		COMPLETE_WITH_QUERY(Query_for_list_of_event_triggers);
 
 	/* DROP POLICY <name>  */
-	else if (Matches("DROP", "POLICY"))
+	else if (Matches("DESCRIBE|DROP", "POLICY"))
 		COMPLETE_WITH_QUERY(Query_for_list_of_policies);
 	/* DROP POLICY <name> ON */
 	else if (Matches("DROP", "POLICY", MatchAny))
@@ -2909,7 +2913,7 @@ psql_completion(const char *text, int start, int end)
 	}
 
 	/* DROP RULE */
-	else if (Matches("DROP", "RULE", MatchAny))
+	else if (Matches("DESCRIBE|DROP", "RULE", MatchAny))
 		COMPLETE_WITH("ON");
 	else if (Matches("DROP", "RULE", MatchAny, "ON"))
 	{

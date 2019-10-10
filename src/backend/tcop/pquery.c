@@ -1150,6 +1150,7 @@ PortalRunUtility(Portal portal, PlannedStmt *pstmt,
 		  IsA(utilityStmt, LockStmt) ||
 		  IsA(utilityStmt, VariableSetStmt) ||
 		  IsA(utilityStmt, VariableShowStmt) ||
+		  IsA(utilityStmt, DescribeStmt) ||
 		  IsA(utilityStmt, ConstraintsSetStmt) ||
 	/* efficiency hacks from here down */
 		  IsA(utilityStmt, FetchStmt) ||
