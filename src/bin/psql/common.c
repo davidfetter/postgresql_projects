@@ -2443,3 +2443,50 @@ recognized_connection_string(const char *connstr)
 {
 	return uri_prefix_length(connstr) != 0 || strchr(connstr, '=') != NULL;
 }
+
+/*
+ * Return visible width of the string
+ */
+int
+visible_length(char *string)
+{
+	int		visible_length = 0;
+	char   *p = string;
+	char   *end = p + strlen(p);
+	bool	visible = true;
+
+	while(*string)
+	{
+#if defined(USE_READLINE) && defined(RL_PROMPT_START_IGNORE)
+		if (*string == RL_PROMPT_START_IGNORE)
+		{
+			visible = false;
+			++p;
+		}
+		else if (*p == RL_PROMPT_END_IGNORE)
+		{
+			visible = true;
+			++p;
+		}
+		else
+#endif
+		{
+			int		chlen,
+					chwidth;
+
+			chlen = PQmblen(p, pset.encoding);
+			if (p + chlen > end)
+				break;
+
+			if (visible)
+			{
+				chwidth = PQdsplen(p, pset.encoding);
+				if (chwidth > 0)
+					visible_length += chwidth;
+			}
+
+			p += chlen;
+		}
+	}
+	return visible_length;
+}

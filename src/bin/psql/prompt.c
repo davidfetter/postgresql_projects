@@ -347,46 +347,7 @@ get_prompt(promptStatus_t status, ConditionalStack cstack)
 
 	/* Compute the visible width of PROMPT1, for PROMPT2's %w */
 	if (prompt_string == pset.prompt1)
-	{
-		char	   *p = destination;
-		char	   *end = p + strlen(p);
-		bool		visible = true;
-
-		last_prompt1_width = 0;
-		while (*p)
-		{
-#if defined(USE_READLINE) && defined(RL_PROMPT_START_IGNORE)
-			if (*p == RL_PROMPT_START_IGNORE)
-			{
-				visible = false;
-				++p;
-			}
-			else if (*p == RL_PROMPT_END_IGNORE)
-			{
-				visible = true;
-				++p;
-			}
-			else
-#endif
-			{
-				int			chlen,
-							chwidth;
-
-				chlen = PQmblen(p, pset.encoding);
-				if (p + chlen > end)
-					break;		/* Invalid string */
-
-				if (visible)
-				{
-					chwidth = PQdsplen(p, pset.encoding);
-					if (chwidth > 0)
-						last_prompt1_width += chwidth;
-				}
-
-				p += chlen;
-			}
-		}
-	}
+		last_prompt1_width = visible_length(destination);
 
 	return destination;
 }
