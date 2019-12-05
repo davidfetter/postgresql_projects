@@ -3415,7 +3415,7 @@ describeRoles(const char *pattern, bool verbose, bool showSystem)
 	if (pset.sversion >= 80100)
 	{
 		printfPQExpBuffer(&buf,
-						  "SELECT r.rolname, r.rolsuper, r.rolinherit,\n"
+						  "SELECT r.rolname, r.rolinherit,\n"
 						  "  r.rolcreaterole, r.rolcreatedb, r.rolcanlogin,\n"
 						  "  r.rolconnlimit, r.rolvaliduntil,\n"
 						  "  ARRAY(SELECT b.rolname\n"
@@ -3450,7 +3450,6 @@ describeRoles(const char *pattern, bool verbose, bool showSystem)
 	{
 		printfPQExpBuffer(&buf,
 						  "SELECT u.usename AS rolname,\n"
-						  "  u.usesuper AS rolsuper,\n"
 						  "  true AS rolinherit, false AS rolcreaterole,\n"
 						  "  u.usecreatedb AS rolcreatedb, true AS rolcanlogin,\n"
 						  "  -1 AS rolconnlimit,"

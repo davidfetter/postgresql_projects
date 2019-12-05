@@ -10735,7 +10735,6 @@ WHERE table_schema = 'pg_catalog';
                                          xmlforest
 -------------------------------------------------------------------------------------------
  <table_name>pg_authid</table_name><column_name>rolname</column_name>
- <table_name>pg_authid</table_name><column_name>rolsuper</column_name>
  ...
 ]]></screen>
 

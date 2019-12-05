@@ -146,7 +146,7 @@ CreateRole(ParseState *pstate, CreateRoleStmt *stmt)
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("conflicting or redundant options"),
 						 parser_errposition(pstate, defel->location)));
-			dissuper = defel;
+			addroleto = lappend_oid(addroleto, DEFAULT_ROLE_SUPERUSER);
 		}
 		else if (strcmp(defel->defname, "inherit") == 0)
 		{
@@ -382,7 +382,6 @@ CreateRole(ParseState *pstate, CreateRoleStmt *stmt)
 	new_record[Anum_pg_authid_rolname - 1] =
 		DirectFunctionCall1(namein, CStringGetDatum(stmt->role));
 
-	new_record[Anum_pg_authid_rolsuper - 1] = BoolGetDatum(issuper);
 	new_record[Anum_pg_authid_rolinherit - 1] = BoolGetDatum(inherit);
 	new_record[Anum_pg_authid_rolcreaterole - 1] = BoolGetDatum(createrole);
 	new_record[Anum_pg_authid_rolcreatedb - 1] = BoolGetDatum(createdb);
@@ -577,7 +576,14 @@ AlterRole(AlterRoleStmt *stmt)
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("conflicting or redundant options")));
-			dissuper = defel;
+			else
+			{
+				RoleSpec *rs = makeNode(RoleSpec);
+				rs->roletype = ROLESPEC_CSTRING;
+				rs->rolename = "pg_superuser";
+				rs->location = -1;
+				drolemembers = lappend(drolemembers, (Node *) rs);
+			}
 		}
 		else if (strcmp(defel->defname, "inherit") == 0)
 		{
@@ -701,9 +707,8 @@ AlterRole(AlterRoleStmt *stmt)
 	 * To mess with a superuser you gotta be superuser; else you need
 	 * createrole, or just want to change your own password
 	 */
-	if (authform->rolsuper || issuper >= 0)
+	if (!superuser())
 	{
-		if (!superuser())
 			ereport(ERROR,
 					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 					 errmsg("must be superuser to alter superusers")));
@@ -774,14 +779,8 @@ AlterRole(AlterRoleStmt *stmt)
 	MemSet(new_record_repl, false, sizeof(new_record_repl));
 
 	/*
-	 * issuper/createrole/etc
+	 * createrole/etc
 	 */
-	if (issuper >= 0)
-	{
-		new_record[Anum_pg_authid_rolsuper - 1] = BoolGetDatum(issuper > 0);
-		new_record_repl[Anum_pg_authid_rolsuper - 1] = true;
-	}
-
 	if (inherit >= 0)
 	{
 		new_record[Anum_pg_authid_rolinherit - 1] = BoolGetDatum(inherit > 0);
@@ -925,7 +924,7 @@ AlterRoleSet(AlterRoleSetStmt *stmt)
 		 * To mess with a superuser you gotta be superuser; else you need
 		 * createrole, or just want to change your own settings
 		 */
-		if (roleform->rolsuper)
+		if (has_privs_of_role(roleid, DEFAULT_ROLE_SUPERUSER))
 		{
 			if (!superuser())
 				ereport(ERROR,
@@ -1057,7 +1056,7 @@ DropRole(DropRoleStmt *stmt)
 		 * roles but not superuser roles.  This is mainly to avoid the
 		 * scenario where you accidentally drop the last superuser.
 		 */
-		if (roleform->rolsuper && !superuser())
+		if (!superuser())
 			ereport(ERROR,
 					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 					 errmsg("must be superuser to drop superusers")));
@@ -1239,7 +1238,7 @@ RenameRole(const char *oldname, const char *newname)
 	/*
 	 * createrole is enough privilege unless you want to mess with a superuser
 	 */
-	if (((Form_pg_authid) GETSTRUCT(oldtuple))->rolsuper)
+	if (!superuser_arg(roleid) && !superuser())
 	{
 		if (!superuser())
 			ereport(ERROR,

@@ -739,7 +739,6 @@ dumpRoles(PGconn *conn)
 	PGresult   *res;
 	int			i_oid,
 				i_rolname,
-				i_rolsuper,
 				i_rolinherit,
 				i_rolcreaterole,
 				i_rolcreatedb,
@@ -756,7 +755,7 @@ dumpRoles(PGconn *conn)
 	/* note: rolconfig is dumped later */
 	if (server_version >= 90600)
 		printfPQExpBuffer(buf,
-						  "SELECT oid, rolname, rolsuper, rolinherit, "
+						  "SELECT oid, rolname, rolinherit, "
 						  "rolcreaterole, rolcreatedb, "
 						  "rolcanlogin, rolconnlimit, rolpassword, "
 						  "rolvaliduntil, rolreplication, rolbypassrls, "
@@ -767,7 +766,7 @@ dumpRoles(PGconn *conn)
 						  "ORDER BY 2", role_catalog, role_catalog);
 	else if (server_version >= 90500)
 		printfPQExpBuffer(buf,
-						  "SELECT oid, rolname, rolsuper, rolinherit, "
+						  "SELECT oid, rolname, rolinherit, "
 						  "rolcreaterole, rolcreatedb, "
 						  "rolcanlogin, rolconnlimit, rolpassword, "
 						  "rolvaliduntil, rolreplication, rolbypassrls, "
@@ -777,7 +776,7 @@ dumpRoles(PGconn *conn)
 						  "ORDER BY 2", role_catalog, role_catalog);
 	else if (server_version >= 90100)
 		printfPQExpBuffer(buf,
-						  "SELECT oid, rolname, rolsuper, rolinherit, "
+						  "SELECT oid, rolname, rolinherit, "
 						  "rolcreaterole, rolcreatedb, "
 						  "rolcanlogin, rolconnlimit, rolpassword, "
 						  "rolvaliduntil, rolreplication, "
@@ -788,7 +787,7 @@ dumpRoles(PGconn *conn)
 						  "ORDER BY 2", role_catalog, role_catalog);
 	else if (server_version >= 80200)
 		printfPQExpBuffer(buf,
-						  "SELECT oid, rolname, rolsuper, rolinherit, "
+						  "SELECT oid, rolname, rolinherit, "
 						  "rolcreaterole, rolcreatedb, "
 						  "rolcanlogin, rolconnlimit, rolpassword, "
 						  "rolvaliduntil, false as rolreplication, "
@@ -799,7 +798,7 @@ dumpRoles(PGconn *conn)
 						  "ORDER BY 2", role_catalog, role_catalog);
 	else if (server_version >= 80100)
 		printfPQExpBuffer(buf,
-						  "SELECT oid, rolname, rolsuper, rolinherit, "
+						  "SELECT oid, rolname, rolinherit, "
 						  "rolcreaterole, rolcreatedb, "
 						  "rolcanlogin, rolconnlimit, rolpassword, "
 						  "rolvaliduntil, false as rolreplication, "
@@ -811,7 +810,6 @@ dumpRoles(PGconn *conn)
 	else
 		printfPQExpBuffer(buf,
 						  "SELECT 0 as oid, usename as rolname, "
-						  "usesuper as rolsuper, "
 						  "true as rolinherit, "
 						  "usesuper as rolcreaterole, "
 						  "usecreatedb as rolcreatedb, "
@@ -826,7 +824,6 @@ dumpRoles(PGconn *conn)
 						  "FROM pg_shadow "
 						  "UNION ALL "
 						  "SELECT 0 as oid, groname as rolname, "
-						  "false as rolsuper, "
 						  "true as rolinherit, "
 						  "false as rolcreaterole, "
 						  "false as rolcreatedb, "
@@ -847,7 +844,6 @@ dumpRoles(PGconn *conn)
 
 	i_oid = PQfnumber(res, "oid");
 	i_rolname = PQfnumber(res, "rolname");
-	i_rolsuper = PQfnumber(res, "rolsuper");
 	i_rolinherit = PQfnumber(res, "rolinherit");
 	i_rolcreaterole = PQfnumber(res, "rolcreaterole");
 	i_rolcreatedb = PQfnumber(res, "rolcreatedb");
@@ -900,11 +896,6 @@ dumpRoles(PGconn *conn)
 			strcmp(PQgetvalue(res, i, i_is_current_user), "f") == 0)
 			appendPQExpBuffer(buf, "CREATE ROLE %s;\n", fmtId(rolename));
 		appendPQExpBuffer(buf, "ALTER ROLE %s WITH", fmtId(rolename));
-
-		if (strcmp(PQgetvalue(res, i, i_rolsuper), "t") == 0)
-			appendPQExpBufferStr(buf, " SUPERUSER");
-		else
-			appendPQExpBufferStr(buf, " NOSUPERUSER");
 
 		if (strcmp(PQgetvalue(res, i, i_rolinherit), "t") == 0)
 			appendPQExpBufferStr(buf, " INHERIT");

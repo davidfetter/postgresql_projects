@@ -17,7 +17,6 @@
 CREATE VIEW pg_roles AS
     SELECT
         rolname,
-        rolsuper,
         rolinherit,
         rolcreaterole,
         rolcreatedb,
@@ -37,7 +36,6 @@ CREATE VIEW pg_shadow AS
         rolname AS usename,
         pg_authid.oid AS usesysid,
         rolcreatedb AS usecreatedb,
-        rolsuper AS usesuper,
         rolreplication AS userepl,
         rolbypassrls AS usebypassrls,
         rolpassword AS passwd,
@@ -62,7 +60,6 @@ CREATE VIEW pg_user AS
         usename,
         usesysid,
         usecreatedb,
-        usesuper,
         userepl,
         usebypassrls,
         '********'::text as passwd,
@@ -1046,7 +1043,7 @@ CREATE VIEW pg_user_mappings AS
                      AND (pg_has_role(S.srvowner, 'USAGE')
                           OR has_server_privilege(S.oid, 'USAGE')))
                     OR (U.umuser = 0 AND pg_has_role(S.srvowner, 'USAGE'))
-                    OR (SELECT rolsuper FROM pg_authid WHERE rolname = current_user)
+                    OR (pg_catalog.pg_has_role('pg_superuser', current_user))
                     THEN U.umoptions
                  ELSE NULL END AS umoptions
     FROM pg_user_mapping U

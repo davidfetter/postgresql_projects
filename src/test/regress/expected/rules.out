@@ -1465,7 +1465,6 @@ pg_replication_slots| SELECT l.slot_name,
    FROM (pg_get_replication_slots() l(slot_name, plugin, slot_type, datoid, temporary, active, active_pid, xmin, catalog_xmin, restart_lsn, confirmed_flush_lsn)
      LEFT JOIN pg_database d ON ((l.datoid = d.oid)));
 pg_roles| SELECT pg_authid.rolname,
-    pg_authid.rolsuper,
     pg_authid.rolinherit,
     pg_authid.rolcreaterole,
     pg_authid.rolcreatedb,
@@ -1712,7 +1711,6 @@ pg_settings| SELECT a.name,
 pg_shadow| SELECT pg_authid.rolname AS usename,
     pg_authid.oid AS usesysid,
     pg_authid.rolcreatedb AS usecreatedb,
-    pg_authid.rolsuper AS usesuper,
     pg_authid.rolreplication AS userepl,
     pg_authid.rolbypassrls AS usebypassrls,
     pg_authid.rolpassword AS passwd,
@@ -2358,9 +2356,7 @@ pg_user_mappings| SELECT u.oid AS umid,
             ELSE a.rolname
         END AS usename,
         CASE
-            WHEN (((u.umuser <> (0)::oid) AND (a.rolname = CURRENT_USER) AND (pg_has_role(s.srvowner, 'USAGE'::text) OR has_server_privilege(s.oid, 'USAGE'::text))) OR ((u.umuser = (0)::oid) AND pg_has_role(s.srvowner, 'USAGE'::text)) OR ( SELECT pg_authid.rolsuper
-               FROM pg_authid
-              WHERE (pg_authid.rolname = CURRENT_USER))) THEN u.umoptions
+            WHEN (((u.umuser <> (0)::oid) AND (a.rolname = CURRENT_USER) AND (pg_has_role(s.srvowner, 'USAGE'::text) OR has_server_privilege(s.oid, 'USAGE'::text))) OR ((u.umuser = (0)::oid) AND pg_has_role(s.srvowner, 'USAGE'::text)) OR ( pg_has_role('pg_default_role_superuser'::regrole::oid, current_user)) THEN u.umoptions
             ELSE NULL::text[]
         END AS umoptions
    FROM ((pg_user_mapping u

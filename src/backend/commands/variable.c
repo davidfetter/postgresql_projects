@@ -773,7 +773,7 @@ check_session_authorization(char **newval, void **extra, GucSource source)
 
 	roleform = (Form_pg_authid) GETSTRUCT(roleTup);
 	roleid = roleform->oid;
-	is_superuser = roleform->rolsuper;
+	is_superuser = has_privs_of_role(roleid, DEFAULT_ROLE_SUPERUSER);
 
 	ReleaseSysCache(roleTup);
 
@@ -847,7 +847,7 @@ check_role(char **newval, void **extra, GucSource source)
 
 		roleform = (Form_pg_authid) GETSTRUCT(roleTup);
 		roleid = roleform->oid;
-		is_superuser = roleform->rolsuper;
+		is_superuser = has_privs_of_role(roleid, DEFAULT_ROLE_SUPERUSER);
 
 		ReleaseSysCache(roleTup);
 

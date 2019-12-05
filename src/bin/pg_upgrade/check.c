@@ -677,7 +677,7 @@ check_is_install_user(ClusterInfo *cluster)
 
 	/* Can't use pg_authid because only superusers can view it. */
 	res = executeQueryOrDie(conn,
-							"SELECT rolsuper, oid "
+							"SELECT oid "
 							"FROM pg_catalog.pg_roles "
 							"WHERE rolname = current_user "
 							"AND rolname !~ '^pg_'");

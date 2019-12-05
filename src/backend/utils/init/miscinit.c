@@ -46,6 +46,7 @@
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/inval.h"
@@ -620,7 +621,7 @@ InitializeSessionUserId(const char *rolename, Oid roleid)
 	rname = NameStr(rform->rolname);
 
 	AuthenticatedUserId = roleid;
-	AuthenticatedUserIsSuperuser = rform->rolsuper;
+	AuthenticatedUserIsSuperuser = has_privs_of_role(roleid, DEFAULT_ROLE_SUPERUSER);
 
 	/* This sets OuterUserId/CurrentUserId too */
 	SetSessionUserId(roleid, AuthenticatedUserIsSuperuser);

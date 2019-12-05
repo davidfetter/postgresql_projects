@@ -2907,7 +2907,7 @@ CREATE VIEW user_mapping_options AS
            CAST(opts.option_name AS sql_identifier) AS option_name,
            CAST(CASE WHEN (umuser <> 0 AND authorization_identifier = current_user)
                        OR (umuser = 0 AND pg_has_role(srvowner, 'USAGE'))
-                       OR (SELECT rolsuper FROM pg_authid WHERE rolname = current_user)
+                       OR (pg_has_role('pg_superuser', current_user))
                      THEN opts.option_value
                      ELSE NULL END AS character_data) AS option_value
     FROM _pg_user_mappings um,

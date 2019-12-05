@@ -1,0 +1,22 @@
+#----------------------------------------------------------------------
+#
+# pg_auth_members.dat
+#    Initial contents of the pg_auth_members system catalog.
+#
+# Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+# Portions Copyright (c) 1994, Regents of the University of California
+#
+# src/include/catalog/pg_auth_members.dat
+#
+#----------------------------------------------------------------------
+
+[
+
+# The C code typically refers to these roles using the #define symbols,
+# so make sure every entry has an oid_symbol value.
+
+{ roleid => '9', oid_symbol => 'DEFAULT_ROLE_SUPERUSER',
+  member => 'PGUID', grantor => '9',
+  admin_option => 'f' },
+
+]
