@@ -407,6 +407,10 @@ extern PGDLLIMPORT char *GUC_check_errhint_string;
 
 extern void GUC_check_errcode(int sqlerrcode);
 
+/* Support for triggers on pg_catalog views */
+
+extern Datum update_pg_settings(PG_FUNCTION_ARGS);
+
 #define GUC_check_errmsg \
 	pre_format_elog_string(errno, TEXTDOMAIN), \
 	GUC_check_errmsg_string = format_elog_string

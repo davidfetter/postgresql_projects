@@ -512,24 +512,11 @@ FROM
 CREATE VIEW pg_settings AS
     SELECT * FROM pg_show_all_settings() AS A;
 
-CREATE OR REPLACE FUNCTION pg_catalog.pg_settings_dml()
-RETURNS TRIGGER
-STRICT
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    /* The only legitimate type of UPDATE to this view */
-    IF NEW.name = OLD.name THEN
-        PERFORM set_config(OLD.name, NEW.setting, 'f');
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
 CREATE TRIGGER pg_settings_update
     INSTEAD OF UPDATE ON pg_catalog.pg_settings
     FOR EACH ROW
-    EXECUTE FUNCTION pg_catalog.pg_settings_dml();
+    WHEN (OLD.name = NEW.name AND OLD.setting IS DISTINCT FROM NEW.setting)
+    EXECUTE FUNCTION pg_catalog.update_pg_settings();
 
 GRANT SELECT, UPDATE ON pg_settings TO PUBLIC;
 

@@ -11876,4 +11876,30 @@ check_default_with_oids(bool *newval, void **extra, GucSource source)
 	return true;
 }
 
+Datum
+update_pg_settings(PG_FUNCTION_ARGS)
+{
+	TriggerData	*trigdata = (TriggerData *) fcinfo->context;
+	HeapTuple	 old_tuple = trigdata->tg_trigtuple;
+	HeapTuple	 new_tuple = trigdata->tg_newtuple;
+	TupleDesc	 tupdesc = trigdata->tg_relation->rd_att;
+	Datum		 name = SPI_getbinval(old_tuple, tupdesc, 1, &isnull);
+	Datum		 value = SPI_getbinval(new_tuple, tupdesc, 2, &isnull);
+	bool		*isnull = false;
+	Datum		 ret;
+
+	if (!CALLED_AS_TRIGGER(fcinfo))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("update_pg_settings: not called by trigger manager"),
+				 errdetail("This function should only be called internally.")));
+
+	ret = DirectFunctionCall3(set_config_by_name,
+							  SPI_getbinval(old_tuple, tupdesc, 1, &isnull),
+							  SPI_getbinval(new_tuple, tupdesc, 2, &isnull),
+							  false);
+
+	return PointerGetDatum(new_tuple);
+}
+
 #include "guc-file.c"
