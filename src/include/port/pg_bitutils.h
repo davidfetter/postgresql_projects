@@ -145,4 +145,34 @@ pg_rotate_right32(uint32 word, int n)
 	return (word >> n) | (word << (sizeof(word) * BITS_PER_BYTE - n));
 }
 
+/* ceil(lg2(num)) */
+static inline uint32
+ceil_log2_32(uint32 num)
+{
+	Assert(num > 1);
+	return pg_leftmost_one_pos32(num-1) + 1;
+}
+
+static inline uint64
+ceil_log2_64(uint64 num)
+{
+	Assert(num > 1);
+	return pg_leftmost_one_pos64(num-1) + 1;
+}
+
+/* Calculate the first power of 2 >= num */
+static inline uint32
+next_power_of_2_32(uint32 num)
+{
+	Assert(num > 1);
+	return ((uint32) 1) << (pg_leftmost_one_pos32(num-1) + 1);
+}
+
+static inline uint64
+next_power_of_2_64(uint64 num)
+{
+	Assert(num > 1);
+	return ((uint64) 1) << (pg_leftmost_one_pos64(num-1) + 1);
+}
+
 #endif							/* PG_BITUTILS_H */
