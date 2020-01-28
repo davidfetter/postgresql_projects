@@ -26,13 +26,12 @@ static inline int
 pg_leftmost_one_pos32(uint32 word)
 {
 #ifdef HAVE__BUILTIN_CLZ
-	Assert(word != 0);
-
-	return 31 - __builtin_clz(word);
+	return word ? 31 - __builtin_clz(word) : 32;
 #else
 	int			shift = 32 - 8;
 
-	Assert(word != 0);
+	if (word == 0)
+		return 32;
 
 	while ((word >> shift) == 0)
 		shift -= 8;
@@ -49,19 +48,18 @@ static inline int
 pg_leftmost_one_pos64(uint64 word)
 {
 #ifdef HAVE__BUILTIN_CLZ
-	Assert(word != 0);
-
 #if defined(HAVE_LONG_INT_64)
-	return 63 - __builtin_clzl(word);
+	return word ? 63 - __builtin_clzl(word) : 64;
 #elif defined(HAVE_LONG_LONG_INT_64)
-	return 63 - __builtin_clzll(word);
+	return word ? 63 - __builtin_clzll(word) : 64;
 #else
 #error must have a working 64-bit integer datatype
 #endif
 #else							/* !HAVE__BUILTIN_CLZ */
 	int			shift = 64 - 8;
 
-	Assert(word != 0);
+	if (word == 0)
+		return 64;
 
 	while ((word >> shift) == 0)
 		shift -= 8;
@@ -79,13 +77,12 @@ static inline int
 pg_rightmost_one_pos32(uint32 word)
 {
 #ifdef HAVE__BUILTIN_CTZ
-	Assert(word != 0);
-
-	return __builtin_ctz(word);
+	return word ? __builtin_ctz(word) : 32;
 #else
 	int			result = 0;
 
-	Assert(word != 0);
+	if (word == 0)
+		return 32;
 
 	while ((word & 255) == 0)
 	{
@@ -105,19 +102,18 @@ static inline int
 pg_rightmost_one_pos64(uint64 word)
 {
 #ifdef HAVE__BUILTIN_CTZ
-	Assert(word != 0);
-
 #if defined(HAVE_LONG_INT_64)
-	return __builtin_ctzl(word);
+	return word ? __builtin_ctzl(word) : 64;
 #elif defined(HAVE_LONG_LONG_INT_64)
-	return __builtin_ctzll(word);
+	return word ? __builtin_ctzll(word) : 64;
 #else
 #error must have a working 64-bit integer datatype
 #endif
 #else							/* !HAVE__BUILTIN_CTZ */
 	int			result = 0;
 
-	Assert(word != 0);
+	if (word == 0)
+		return 64;
 
 	while ((word & 255) == 0)
 	{
