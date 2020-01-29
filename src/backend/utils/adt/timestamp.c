@@ -1655,7 +1655,7 @@ timeofday(PG_FUNCTION_ARGS)
  */
 void
 TimestampDifference(TimestampTz start_time, TimestampTz stop_time,
-					long *secs, int *microsecs)
+					int64 *secs, int *microsecs)
 {
 	TimestampTz diff = stop_time - start_time;
 
@@ -1666,7 +1666,7 @@ TimestampDifference(TimestampTz start_time, TimestampTz stop_time,
 	}
 	else
 	{
-		*secs = (long) (diff / USECS_PER_SEC);
+		*secs = (int64) (diff / USECS_PER_SEC);
 		*microsecs = (int) (diff % USECS_PER_SEC);
 	}
 }
