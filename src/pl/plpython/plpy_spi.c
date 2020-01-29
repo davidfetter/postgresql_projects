@@ -25,7 +25,7 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 
-static PyObject *PLy_spi_execute_query(char *query, long limit);
+static PyObject *PLy_spi_execute_query(char *query, uint64 limit);
 static PyObject *PLy_spi_execute_fetch_result(SPITupleTable *tuptable,
 											  uint64 rows, int status);
 static void PLy_spi_exception_set(PyObject *excclass, ErrorData *edata);
@@ -158,7 +158,7 @@ PLy_spi_execute(PyObject *self, PyObject *args)
 	char	   *query;
 	PyObject   *plan;
 	PyObject   *list = NULL;
-	long		limit = 0;
+	uint64		limit = 0;
 
 	if (PyArg_ParseTuple(args, "s|l", &query, &limit))
 		return PLy_spi_execute_query(query, limit);
@@ -174,7 +174,7 @@ PLy_spi_execute(PyObject *self, PyObject *args)
 }
 
 PyObject *
-PLy_spi_execute_plan(PyObject *ob, PyObject *list, long limit)
+PLy_spi_execute_plan(PyObject *ob, PyObject *list, uint64 limit)
 {
 	volatile int nargs;
 	int			i,
@@ -305,7 +305,7 @@ PLy_spi_execute_plan(PyObject *ob, PyObject *list, long limit)
 }
 
 static PyObject *
-PLy_spi_execute_query(char *query, long limit)
+PLy_spi_execute_query(char *query, uint64 limit)
 {
 	int			rv;
 	volatile MemoryContext oldcontext;
