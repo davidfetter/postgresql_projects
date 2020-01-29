@@ -71,7 +71,7 @@ extern TimestampTz GetCurrentTimestamp(void);
 extern TimestampTz GetSQLCurrentTimestamp(int32 typmod);
 extern Timestamp GetSQLLocalTimestamp(int32 typmod);
 extern void TimestampDifference(TimestampTz start_time, TimestampTz stop_time,
-								long *secs, int *microsecs);
+								int64 *secs, int *microsecs);
 extern bool TimestampDifferenceExceeds(TimestampTz start_time,
 									   TimestampTz stop_time,
 									   int msec);

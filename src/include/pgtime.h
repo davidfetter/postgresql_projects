@@ -33,7 +33,7 @@ struct pg_tm
 	int			tm_wday;
 	int			tm_yday;
 	int			tm_isdst;
-	long int	tm_gmtoff;
+	int64		tm_gmtoff;
 	const char *tm_zone;
 };
 
@@ -48,18 +48,18 @@ typedef struct pg_tzenum pg_tzenum;
 extern struct pg_tm *pg_localtime(const pg_time_t *timep, const pg_tz *tz);
 extern struct pg_tm *pg_gmtime(const pg_time_t *timep);
 extern int	pg_next_dst_boundary(const pg_time_t *timep,
-								 long int *before_gmtoff,
+								 int64 *before_gmtoff,
 								 int *before_isdst,
 								 pg_time_t *boundary,
-								 long int *after_gmtoff,
+								 int64 *after_gmtoff,
 								 int *after_isdst,
 								 const pg_tz *tz);
 extern bool pg_interpret_timezone_abbrev(const char *abbrev,
 										 const pg_time_t *timep,
-										 long int *gmtoff,
+										 int64 *gmtoff,
 										 int *isdst,
 										 const pg_tz *tz);
-extern bool pg_get_timezone_offset(const pg_tz *tz, long int *gmtoff);
+extern bool pg_get_timezone_offset(const pg_tz *tz, int64 *gmtoff);
 extern const char *pg_get_timezone_name(pg_tz *tz);
 extern bool pg_tz_acceptable(pg_tz *tz);
 
@@ -75,7 +75,7 @@ extern pg_tz *log_timezone;
 
 extern void pg_timezone_initialize(void);
 extern pg_tz *pg_tzset(const char *tzname);
-extern pg_tz *pg_tzset_offset(long gmtoffset);
+extern pg_tz *pg_tzset_offset(int64 gmtoffset);
 
 extern pg_tzenum *pg_tzenumerate_start(void);
 extern pg_tz *pg_tzenumerate_next(pg_tzenum *dir);

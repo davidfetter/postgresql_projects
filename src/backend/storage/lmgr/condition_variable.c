@@ -129,10 +129,10 @@ ConditionVariableSleep(ConditionVariable *cv, uint32 wait_event_info)
  * See ConditionVariableSleep() for general usage.
  */
 bool
-ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
+ConditionVariableTimedSleep(ConditionVariable *cv, int64 timeout,
 							uint32 wait_event_info)
 {
-	long		cur_timeout = -1;
+	int64		cur_timeout = -1;
 	instr_time	start_time;
 	instr_time	cur_time;
 
@@ -217,7 +217,7 @@ ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
 		{
 			INSTR_TIME_SET_CURRENT(cur_time);
 			INSTR_TIME_SUBTRACT(cur_time, start_time);
-			cur_timeout = timeout - (long) INSTR_TIME_GET_MILLISEC(cur_time);
+			cur_timeout = timeout - (int64) INSTR_TIME_GET_MILLISEC(cur_time);
 
 			/* Have we crossed the timeout threshold? */
 			if (cur_timeout <= 0)

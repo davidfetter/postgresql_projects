@@ -37,7 +37,7 @@
  */
 BlockNumber
 BlockSampler_Init(BlockSampler bs, BlockNumber nblocks, int samplesize,
-				  long randseed)
+				  uint64 randseed)
 {
 	bs->N = nblocks;			/* measured table size */
 
@@ -230,7 +230,7 @@ reservoir_get_next_S(ReservoirState rs, double t, int n)
  *----------
  */
 void
-sampler_random_init_state(long seed, SamplerRandomState randstate)
+sampler_random_init_state(uint64 seed, SamplerRandomState randstate)
 {
 	randstate[0] = 0x330e;		/* same as pg_erand48, but could be anything */
 	randstate[1] = (unsigned short) seed;

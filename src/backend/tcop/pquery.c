@@ -44,7 +44,7 @@ static void ProcessQuery(PlannedStmt *plan,
 static void FillPortalStore(Portal portal, bool isTopLevel);
 static uint64 RunFromStore(Portal portal, ScanDirection direction, uint64 count,
 						   DestReceiver *dest);
-static uint64 PortalRunSelect(Portal portal, bool forward, long count,
+static uint64 PortalRunSelect(Portal portal, bool forward, int64 count,
 							  DestReceiver *dest);
 static void PortalRunUtility(Portal portal, PlannedStmt *pstmt,
 							 bool isTopLevel, bool setHoldSnapshot,
@@ -55,7 +55,7 @@ static void PortalRunMulti(Portal portal,
 						   char *completionTag);
 static uint64 DoPortalRunFetch(Portal portal,
 							   FetchDirection fdirection,
-							   long count,
+							   int64 count,
 							   DestReceiver *dest);
 static void DoPortalRewind(Portal portal);
 
@@ -683,7 +683,7 @@ PortalSetResultFormat(Portal portal, int nFormats, int16 *formats)
  * suspended due to exhaustion of the count parameter.
  */
 bool
-PortalRun(Portal portal, long count, bool isTopLevel, bool run_once,
+PortalRun(Portal portal, int64 count, bool isTopLevel, bool run_once,
 		  DestReceiver *dest, DestReceiver *altdest,
 		  char *completionTag)
 {
@@ -871,7 +871,7 @@ PortalRun(Portal portal, long count, bool isTopLevel, bool run_once,
 static uint64
 PortalRunSelect(Portal portal,
 				bool forward,
-				long count,
+				int64 count,
 				DestReceiver *dest)
 {
 	QueryDesc  *queryDesc;
@@ -1391,7 +1391,7 @@ PortalRunMulti(Portal portal,
 uint64
 PortalRunFetch(Portal portal,
 			   FetchDirection fdirection,
-			   long count,
+			   int64 count,
 			   DestReceiver *dest)
 {
 	uint64		result;
@@ -1493,7 +1493,7 @@ PortalRunFetch(Portal portal,
 static uint64
 DoPortalRunFetch(Portal portal,
 				 FetchDirection fdirection,
-				 long count,
+				 int64 count,
 				 DestReceiver *dest)
 {
 	bool		forward;
@@ -1531,7 +1531,7 @@ DoPortalRunFetch(Portal portal,
 				 * In practice, if the goal is less than halfway back to the
 				 * start, it's better to scan from where we are.
 				 *
-				 * Also, if current portalPos is outside the range of "long",
+				 * Also, if current portalPos is outside the range of "int64",
 				 * do it the hard way to avoid possible overflow of the count
 				 * argument to PortalRunSelect.  We must exclude exactly
 				 * LONG_MAX, as well, lest the count look like FETCH_ALL.
@@ -1549,7 +1549,7 @@ DoPortalRunFetch(Portal portal,
 				}
 				else
 				{
-					long		pos = (long) portal->portalPos;
+					int64		pos = (int64) portal->portalPos;
 
 					if (portal->atEnd)
 						pos++;	/* need one extra fetch if off end */

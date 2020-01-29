@@ -109,7 +109,7 @@ int			PostAuthDelay = 0;
  */
 
 /* max_stack_depth converted to bytes for speed of checking */
-static long max_stack_depth_bytes = 100 * 1024L;
+static uint64 max_stack_depth_bytes = 100 * 1024UL;
 
 /*
  * Stack base pointer -- initialized by PostmasterMain and inherited by
@@ -2016,7 +2016,7 @@ exec_bind_message(StringInfo input_message)
  * Process an "Execute" message for a portal
  */
 static void
-exec_execute_message(const char *portal_name, long max_rows)
+exec_execute_message(const char *portal_name, uint64 max_rows)
 {
 	CommandDest dest;
 	DestReceiver *receiver;
@@ -2302,7 +2302,7 @@ check_log_duration(char *msec_str, bool was_logged)
 	if (log_duration || log_min_duration_sample >= 0 ||
 		log_min_duration_statement >= 0 || xact_is_sampled)
 	{
-		long		secs;
+		int64		secs;
 		int			usecs;
 		int			msecs;
 		bool		exceeded_duration;
@@ -3302,12 +3302,12 @@ bool
 stack_is_too_deep(void)
 {
 	char		stack_top_loc;
-	long		stack_depth;
+	int64		stack_depth;
 
 	/*
 	 * Compute distance from reference point to my local variables
 	 */
-	stack_depth = (long) (stack_base_ptr - &stack_top_loc);
+	stack_depth = (int64) (stack_base_ptr - &stack_top_loc);
 
 	/*
 	 * Take abs value, since stacks grow up on some machines, down on others
@@ -3336,7 +3336,7 @@ stack_is_too_deep(void)
 	 * Note we assume that the same max_stack_depth applies to both stacks.
 	 */
 #if defined(__ia64__) || defined(__ia64)
-	stack_depth = (long) (ia64_get_bsp() - register_stack_base_ptr);
+	stack_depth = (int64) (ia64_get_bsp() - register_stack_base_ptr);
 
 	if (stack_depth > max_stack_depth_bytes &&
 		register_stack_base_ptr != NULL)
@@ -3350,8 +3350,8 @@ stack_is_too_deep(void)
 bool
 check_max_stack_depth(int *newval, void **extra, GucSource source)
 {
-	long		newval_bytes = *newval * 1024L;
-	long		stack_rlimit = get_stack_depth_rlimit();
+	uint64		newval_bytes = *newval * 1024UL;
+	uint64		stack_rlimit = get_stack_depth_rlimit();
 
 	if (stack_rlimit > 0 && newval_bytes > stack_rlimit - STACK_DEPTH_SLOP)
 	{
@@ -3367,7 +3367,7 @@ check_max_stack_depth(int *newval, void **extra, GucSource source)
 void
 assign_max_stack_depth(int newval, void *extra)
 {
-	long		newval_bytes = newval * 1024L;
+	uint64	newval_bytes = newval * 1024UL;
 
 	max_stack_depth_bytes = newval_bytes;
 }
@@ -4696,7 +4696,7 @@ static void
 log_disconnections(int code, Datum arg)
 {
 	Port	   *port = MyProcPort;
-	long		secs;
+	int64		secs;
 	int			usecs;
 	int			msecs;
 	int			hours,

@@ -136,7 +136,7 @@ typedef struct timespec instr_time;
 	(((double) (t).tv_sec) + ((double) (t).tv_nsec) / 1000000000.0)
 
 #define INSTR_TIME_GET_MILLISEC(t) \
-	(((double) (t).tv_sec * 1000.0) + ((double) (t).tv_nsec) / 1000000.0)
+	(((int64) (t).tv_sec * 1000.0) + ((int64) (t).tv_nsec) / 1000000.0)
 
 #define INSTR_TIME_GET_MICROSEC(t) \
 	(((uint64) (t).tv_sec * (uint64) 1000000) + (uint64) ((t).tv_nsec / 1000))

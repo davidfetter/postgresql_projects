@@ -141,7 +141,7 @@ typedef HASHBUCKET *HASHSEGMENT;
 typedef struct
 {
 	slock_t		mutex;			/* spinlock for this freelist */
-	long		nentries;		/* number of entries in associated buckets */
+	uint64		nentries;		/* number of entries in associated buckets */
 	HASHELEMENT *freeList;		/* chain of free elements */
 } FreeListData;
 
@@ -169,8 +169,8 @@ struct HASHHDR
 
 	/* These fields can change, but not in a partitioned table */
 	/* Also, dsize can't change in a shared table, even if unpartitioned */
-	long		dsize;			/* directory size */
-	long		nsegs;			/* number of allocated segments (<= dsize) */
+	uint64		dsize;			/* directory size */
+	uint64		nsegs;			/* number of allocated segments (<= dsize) */
 	uint32		max_bucket;		/* ID of maximum bucket in use */
 	uint32		high_mask;		/* mask to modulo into entire table */
 	uint32		low_mask;		/* mask to modulo into lower half of table */
@@ -178,10 +178,10 @@ struct HASHHDR
 	/* These fields are fixed at hashtable creation */
 	Size		keysize;		/* hash key length in bytes */
 	Size		entrysize;		/* total user element size in bytes */
-	long		num_partitions; /* # partitions (must be power of 2), or 0 */
-	long		ffactor;		/* target fill factor */
-	long		max_dsize;		/* 'dsize' limit if directory is fixed size */
-	long		ssize;			/* segment size --- must be power of 2 */
+	uint64		num_partitions; /* # partitions (must be power of 2), or 0 */
+	uint64		ffactor;		/* target fill factor */
+	uint64		max_dsize;		/* 'dsize' limit if directory is fixed size */
+	uint64		ssize;			/* segment size --- must be power of 2 */
 	int			sshift;			/* segment shift = log2(ssize) */
 	int			nelem_alloc;	/* number of entries to allocate at once */
 
@@ -191,8 +191,8 @@ struct HASHHDR
 	 * Count statistics here.  NB: stats code doesn't bother with mutex, so
 	 * counts could be corrupted a bit in a partitioned table.
 	 */
-	long		accesses;
-	long		collisions;
+	uint64		accesses;
+	uint64		collisions;
 #endif
 };
 
@@ -223,7 +223,7 @@ struct HTAB
 
 	/* We keep local copies of these fixed values to reduce contention */
 	Size		keysize;		/* hash key length in bytes */
-	long		ssize;			/* segment size --- must be power of 2 */
+	uint64		ssize;			/* segment size --- must be power of 2 */
 	int			sshift;			/* segment shift = log2(ssize) */
 };
 
@@ -244,9 +244,9 @@ struct HTAB
 #define MOD(x,y)			   ((x) & ((y)-1))
 
 #ifdef HASH_STATISTICS
-static long hash_accesses,
-			hash_collisions,
-			hash_expansions;
+static uint64 hash_accesses,
+			  hash_collisions,
+			  hash_expansions;
 #endif
 
 /*
@@ -260,10 +260,10 @@ static bool expand_table(HTAB *hashp);
 static HASHBUCKET get_hash_entry(HTAB *hashp, int freelist_idx);
 static void hdefault(HTAB *hashp);
 static int	choose_nelem_alloc(Size entrysize);
-static bool init_htab(HTAB *hashp, long nelem);
+static bool init_htab(HTAB *hashp, uint64 nelem);
 static void hash_corrupted(HTAB *hashp);
-static long next_pow2_long(long num);
-static int	next_pow2_int(long num);
+static uint64 next_pow2_uint64(uint64 num);
+static int	next_pow2_int(uint64 num);
 static void register_seq_scan(HTAB *hashp);
 static void deregister_seq_scan(HTAB *hashp);
 static bool has_seq_scans(HTAB *hashp);
@@ -313,7 +313,7 @@ string_compare(const char *key1, const char *key2, Size keysize)
  * large nelem will penalize hash_seq_search speed without buying much.
  */
 HTAB *
-hash_create(const char *tabname, long nelem, HASHCTL *info, int flags)
+hash_create(const char *tabname, uint64 nelem, HASHCTL *info, int flags)
 {
 	HTAB	   *hashp;
 	HASHHDR    *hctl;
@@ -633,7 +633,7 @@ choose_nelem_alloc(Size entrysize)
  * arrays
  */
 static bool
-init_htab(HTAB *hashp, long nelem)
+init_htab(HTAB *hashp, uint64 nelem)
 {
 	HASHHDR    *hctl = hashp->hctl;
 	HASHSEGMENT *segp;
@@ -729,10 +729,10 @@ init_htab(HTAB *hashp, long nelem)
  * NB: assumes that all hash structure parameters have default values!
  */
 Size
-hash_estimate_size(long num_entries, Size entrysize)
+hash_estimate_size(uint64 num_entries, Size entrysize)
 {
 	Size		size;
-	long		nBuckets,
+	uint64		nBuckets,
 				nSegments,
 				nDirEntries,
 				nElementAllocs,
@@ -740,9 +740,9 @@ hash_estimate_size(long num_entries, Size entrysize)
 				elementAllocCnt;
 
 	/* estimate number of buckets wanted */
-	nBuckets = next_pow2_long((num_entries - 1) / DEF_FFACTOR + 1);
+	nBuckets = next_pow2_uint64((num_entries - 1) / DEF_FFACTOR + 1);
 	/* # of segments needed for nBuckets */
-	nSegments = next_pow2_long((nBuckets - 1) / DEF_SEGSIZE + 1);
+	nSegments = next_pow2_uint64((nBuckets - 1) / DEF_SEGSIZE + 1);
 	/* directory entries */
 	nDirEntries = DEF_DIRSIZE;
 	while (nDirEntries < nSegments)
@@ -775,17 +775,17 @@ hash_estimate_size(long num_entries, Size entrysize)
  *
  * XXX this had better agree with the behavior of init_htab()...
  */
-long
-hash_select_dirsize(long num_entries)
+uint64
+hash_select_dirsize(uint64 num_entries)
 {
-	long		nBuckets,
+	uint64		nBuckets,
 				nSegments,
 				nDirEntries;
 
 	/* estimate number of buckets wanted */
-	nBuckets = next_pow2_long((num_entries - 1) / DEF_FFACTOR + 1);
+	nBuckets = next_pow2_uint64((num_entries - 1) / DEF_FFACTOR + 1);
 	/* # of segments needed for nBuckets */
-	nSegments = next_pow2_long((nBuckets - 1) / DEF_SEGSIZE + 1);
+	nSegments = next_pow2_uint64((nBuckets - 1) / DEF_SEGSIZE + 1);
 	/* directory entries */
 	nDirEntries = DEF_DIRSIZE;
 	while (nDirEntries < nSegments)
@@ -836,8 +836,8 @@ hash_stats(const char *where, HTAB *hashp)
 	fprintf(stderr, "%s: this HTAB -- accesses %ld collisions %ld\n",
 			where, hashp->hctl->accesses, hashp->hctl->collisions);
 
-	fprintf(stderr, "hash_stats: entries %ld keysize %ld maxp %u segmentcount %ld\n",
-			hash_get_num_entries(hashp), (long) hashp->hctl->keysize,
+	fprintf(stderr, "hash_stats: entries %ld keysize %llu maxp %u segmentcount %ld\n",
+			hash_get_num_entries(hashp), (uint64) hashp->hctl->keysize,
 			hashp->hctl->max_bucket, hashp->hctl->nsegs);
 	fprintf(stderr, "%s: total accesses %ld total collisions %ld\n",
 			where, hash_accesses, hash_collisions);
@@ -926,8 +926,8 @@ hash_search_with_hash_value(HTAB *hashp,
 	int			freelist_idx = FREELIST_IDX(hctl, hashvalue);
 	Size		keysize;
 	uint32		bucket;
-	long		segment_num;
-	long		segment_ndx;
+	uint64		segment_num;
+	uint64		segment_ndx;
 	HASHSEGMENT segp;
 	HASHBUCKET	currBucket;
 	HASHBUCKET *prevBucketPtr;
@@ -954,7 +954,7 @@ hash_search_with_hash_value(HTAB *hashp,
 		 * order of these tests is to try to check cheaper conditions first.
 		 */
 		if (!IS_PARTITIONED(hctl) && !hashp->frozen &&
-			hctl->freeList[0].nentries / (long) (hctl->max_bucket + 1) >= hctl->ffactor &&
+			hctl->freeList[0].nentries / (uint64) (hctl->max_bucket + 1) >= hctl->ffactor &&
 			!has_seq_scans(hashp))
 			(void) expand_table(hashp);
 	}
@@ -1122,8 +1122,8 @@ hash_update_hash_key(HTAB *hashp,
 	Size		keysize;
 	uint32		bucket;
 	uint32		newbucket;
-	long		segment_num;
-	long		segment_ndx;
+	uint64		segment_num;
+	uint64		segment_ndx;
 	HASHSEGMENT segp;
 	HASHBUCKET	currBucket;
 	HASHBUCKET *prevBucketPtr;
@@ -1331,11 +1331,11 @@ get_hash_entry(HTAB *hashp, int freelist_idx)
 /*
  * hash_get_num_entries -- get the number of entries in a hashtable
  */
-long
+uint64
 hash_get_num_entries(HTAB *hashp)
 {
 	int			i;
-	long		sum = hashp->hctl->freeList[0].nentries;
+	uint64		sum = hashp->hctl->freeList[0].nentries;
 
 	/*
 	 * We currently don't bother with acquiring the mutexes; it's only
@@ -1391,9 +1391,9 @@ hash_seq_search(HASH_SEQ_STATUS *status)
 	HTAB	   *hashp;
 	HASHHDR    *hctl;
 	uint32		max_bucket;
-	long		ssize;
-	long		segment_num;
-	long		segment_ndx;
+	uint64		ssize;
+	uint64		segment_num;
+	uint64		segment_ndx;
 	HASHSEGMENT segp;
 	uint32		curBucket;
 	HASHELEMENT *curElem;
@@ -1504,11 +1504,11 @@ expand_table(HTAB *hashp)
 	HASHHDR    *hctl = hashp->hctl;
 	HASHSEGMENT old_seg,
 				new_seg;
-	long		old_bucket,
+	uint64		old_bucket,
 				new_bucket;
-	long		new_segnum,
+	uint64		new_segnum,
 				new_segndx;
-	long		old_segnum,
+	uint64		old_segnum,
 				old_segndx;
 	HASHBUCKET *oldlink,
 			   *newlink;
@@ -1576,7 +1576,7 @@ expand_table(HTAB *hashp)
 		 currElement = nextElement)
 	{
 		nextElement = currElement->link;
-		if ((long) calc_bucket(hctl, currElement->hashvalue) == old_bucket)
+		if ((uint64) calc_bucket(hctl, currElement->hashvalue) == old_bucket)
 		{
 			*oldlink = currElement;
 			oldlink = &currElement->link;
@@ -1600,9 +1600,9 @@ dir_realloc(HTAB *hashp)
 {
 	HASHSEGMENT *p;
 	HASHSEGMENT *old_p;
-	long		new_dsize;
-	long		old_dirsize;
-	long		new_dirsize;
+	uint64		new_dsize;
+	uint64		old_dirsize;
+	uint64		new_dirsize;
 
 	if (hashp->hctl->max_dsize != NO_MAX_DSIZE)
 		return false;
@@ -1715,10 +1715,10 @@ hash_corrupted(HTAB *hashp)
 
 /* calculate ceil(log base 2) of num */
 int
-my_log2(long num)
+my_log2(uint64 num)
 {
 	int			i;
-	long		limit;
+	uint64		limit;
 
 	/* guard against too-large input, which would put us into infinite loop */
 	if (num > LONG_MAX / 2)
@@ -1729,9 +1729,9 @@ my_log2(long num)
 	return i;
 }
 
-/* calculate first power of 2 >= num, bounded to what will fit in a long */
-static long
-next_pow2_long(long num)
+/* calculate first power of 2 >= num, bounded to what will fit in a uint64 */
+static uint64
+next_pow2_uint64(uint64 num)
 {
 	/* my_log2's internal range check is sufficient */
 	return 1L << my_log2(num);
@@ -1739,7 +1739,7 @@ next_pow2_long(long num)
 
 /* calculate first power of 2 >= num, bounded to what will fit in an int */
 static int
-next_pow2_int(long num)
+next_pow2_int(uint64 num)
 {
 	if (num > INT_MAX / 2)
 		num = INT_MAX / 2;

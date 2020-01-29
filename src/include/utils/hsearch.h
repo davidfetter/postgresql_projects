@@ -64,11 +64,11 @@ typedef struct HTAB HTAB;
 /* Only those fields indicated by hash_flags need be set */
 typedef struct HASHCTL
 {
-	long		num_partitions; /* # partitions (must be power of 2) */
-	long		ssize;			/* segment size */
-	long		dsize;			/* (initial) directory size */
-	long		max_dsize;		/* limit to dsize if dir size is limited */
-	long		ffactor;		/* fill factor */
+	uint64		num_partitions; /* # partitions (must be power of 2) */
+	uint64		ssize;			/* segment size */
+	uint64		dsize;			/* (initial) directory size */
+	uint64		max_dsize;		/* limit to dsize if dir size is limited */
+	uint64		ffactor;		/* fill factor */
 	Size		keysize;		/* hash key length in bytes */
 	Size		entrysize;		/* total user element size in bytes */
 	HashValueFunc hash;			/* hash function */
@@ -119,7 +119,7 @@ typedef struct
 /*
  * prototypes for functions in dynahash.c
  */
-extern HTAB *hash_create(const char *tabname, long nelem,
+extern HTAB *hash_create(const char *tabname, uint64 nelem,
 						 HASHCTL *info, int flags);
 extern void hash_destroy(HTAB *hashp);
 extern void hash_stats(const char *where, HTAB *hashp);
@@ -131,13 +131,13 @@ extern void *hash_search_with_hash_value(HTAB *hashp, const void *keyPtr,
 										 bool *foundPtr);
 extern bool hash_update_hash_key(HTAB *hashp, void *existingEntry,
 								 const void *newKeyPtr);
-extern long hash_get_num_entries(HTAB *hashp);
+extern uint64 hash_get_num_entries(HTAB *hashp);
 extern void hash_seq_init(HASH_SEQ_STATUS *status, HTAB *hashp);
 extern void *hash_seq_search(HASH_SEQ_STATUS *status);
 extern void hash_seq_term(HASH_SEQ_STATUS *status);
 extern void hash_freeze(HTAB *hashp);
-extern Size hash_estimate_size(long num_entries, Size entrysize);
-extern long hash_select_dirsize(long num_entries);
+extern Size hash_estimate_size(uint64 num_entries, Size entrysize);
+extern uint64 hash_select_dirsize(uint64 num_entries);
 extern Size hash_get_shared_size(HASHCTL *info, int flags);
 extern void AtEOXact_HashTables(bool isCommit);
 extern void AtEOSubXact_HashTables(bool isCommit, int nestDepth);

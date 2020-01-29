@@ -798,7 +798,7 @@ typedef struct PLpgSQL_stmt_fetch
 	PLpgSQL_variable *target;	/* target (record or row) */
 	int			curvar;			/* cursor variable to fetch from */
 	FetchDirection direction;	/* fetch direction */
-	long		how_many;		/* count, if constant (expr is NULL) */
+	int64		how_many;		/* count, if constant (expr is NULL) */
 	PLpgSQL_expr *expr;			/* count, if expression */
 	bool		is_move;		/* is this a fetch or move? */
 	bool		returns_multiple_rows;	/* can return more than one row? */
@@ -1026,7 +1026,7 @@ typedef struct PLpgSQL_function
 
 	/* these fields change when the function is used */
 	struct PLpgSQL_execstate *cur_estate;
-	unsigned long use_count;
+	uint64 use_count;
 } PLpgSQL_function;
 
 /*

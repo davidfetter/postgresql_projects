@@ -328,7 +328,7 @@ DisownLatch(Latch *latch)
  * function returns immediately.
  *
  * The "timeout" is given in milliseconds. It must be >= 0 if WL_TIMEOUT flag
- * is given.  Although it is declared as "long", we don't actually support
+ * is given.  Although it is declared as "int64", we don't actually support
  * timeouts longer than INT_MAX milliseconds.  Note that some extra overhead
  * is incurred when WL_TIMEOUT is given, so avoid using a timeout if possible.
  *
@@ -341,7 +341,7 @@ DisownLatch(Latch *latch)
  * we return all of them in one call, but we will return at least one.
  */
 int
-WaitLatch(Latch *latch, int wakeEvents, long timeout,
+WaitLatch(Latch *latch, int wakeEvents, int64 timeout,
 		  uint32 wait_event_info)
 {
 	return WaitLatchOrSocket(latch, wakeEvents, PGINVALID_SOCKET, timeout,
@@ -367,7 +367,7 @@ WaitLatch(Latch *latch, int wakeEvents, long timeout,
  */
 int
 WaitLatchOrSocket(Latch *latch, int wakeEvents, pgsocket sock,
-				  long timeout, uint32 wait_event_info)
+				  int64 timeout, uint32 wait_event_info)
 {
 	int			ret = 0;
 	int			rc;
@@ -950,14 +950,14 @@ WaitEventAdjustWin32(WaitEventSet *set, WaitEvent *event)
  * values associated with the registered event.
  */
 int
-WaitEventSetWait(WaitEventSet *set, long timeout,
+WaitEventSetWait(WaitEventSet *set, int64 timeout,
 				 WaitEvent *occurred_events, int nevents,
 				 uint32 wait_event_info)
 {
 	int			returned_events = 0;
 	instr_time	start_time;
 	instr_time	cur_time;
-	long		cur_timeout = -1;
+	int64		cur_timeout = -1;
 
 	Assert(nevents > 0);
 
@@ -1042,7 +1042,7 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 		{
 			INSTR_TIME_SET_CURRENT(cur_time);
 			INSTR_TIME_SUBTRACT(cur_time, start_time);
-			cur_timeout = timeout - (long) INSTR_TIME_GET_MILLISEC(cur_time);
+			cur_timeout = timeout - INSTR_TIME_GET_MILLISEC(cur_time);
 			if (cur_timeout <= 0)
 				break;
 		}

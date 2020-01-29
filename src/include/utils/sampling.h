@@ -19,7 +19,7 @@
 /* Random generator for sampling code */
 typedef unsigned short SamplerRandomState[3];
 
-extern void sampler_random_init_state(long seed,
+extern void sampler_random_init_state(uint64 seed,
 									  SamplerRandomState randstate);
 extern double sampler_random_fract(SamplerRandomState randstate);
 
@@ -38,7 +38,7 @@ typedef struct
 typedef BlockSamplerData *BlockSampler;
 
 extern BlockNumber BlockSampler_Init(BlockSampler bs, BlockNumber nblocks,
-									 int samplesize, long randseed);
+									 int samplesize, uint64 randseed);
 extern bool BlockSampler_HasMore(BlockSampler bs);
 extern BlockNumber BlockSampler_Next(BlockSampler bs);
 

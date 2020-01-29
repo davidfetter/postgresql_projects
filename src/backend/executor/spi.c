@@ -70,7 +70,7 @@ static int	_SPI_pquery(QueryDesc *queryDesc, bool fire_triggers, uint64 tcount);
 static void _SPI_error_callback(void *arg);
 
 static void _SPI_cursor_operation(Portal portal,
-								  FetchDirection direction, long count,
+								  FetchDirection direction, uint64 count,
 								  DestReceiver *dest);
 
 static SPIPlanPtr _SPI_make_plan_non_temp(SPIPlanPtr plan);
@@ -493,7 +493,7 @@ SPI_inside_nonatomic_context(void)
 
 /* Parse, plan, and execute a query string */
 int
-SPI_execute(const char *src, bool read_only, long tcount)
+SPI_execute(const char *src, bool read_only, int64 tcount)
 {
 	_SPI_plan	plan;
 	int			res;
@@ -521,7 +521,7 @@ SPI_execute(const char *src, bool read_only, long tcount)
 
 /* Obsolete version of SPI_execute */
 int
-SPI_exec(const char *src, long tcount)
+SPI_exec(const char *src, int64 tcount)
 {
 	return SPI_execute(src, false, tcount);
 }
@@ -529,7 +529,7 @@ SPI_exec(const char *src, long tcount)
 /* Execute a previously prepared plan */
 int
 SPI_execute_plan(SPIPlanPtr plan, Datum *Values, const char *Nulls,
-				 bool read_only, long tcount)
+				 bool read_only, int64 tcount)
 {
 	int			res;
 
@@ -555,7 +555,7 @@ SPI_execute_plan(SPIPlanPtr plan, Datum *Values, const char *Nulls,
 
 /* Obsolete version of SPI_execute_plan */
 int
-SPI_execp(SPIPlanPtr plan, Datum *Values, const char *Nulls, long tcount)
+SPI_execp(SPIPlanPtr plan, Datum *Values, const char *Nulls, int64 tcount)
 {
 	return SPI_execute_plan(plan, Values, Nulls, false, tcount);
 }
@@ -563,7 +563,7 @@ SPI_execp(SPIPlanPtr plan, Datum *Values, const char *Nulls, long tcount)
 /* Execute a previously prepared plan */
 int
 SPI_execute_plan_with_paramlist(SPIPlanPtr plan, ParamListInfo params,
-								bool read_only, long tcount)
+								bool read_only, int64 tcount)
 {
 	int			res;
 
@@ -599,7 +599,7 @@ int
 SPI_execute_snapshot(SPIPlanPtr plan,
 					 Datum *Values, const char *Nulls,
 					 Snapshot snapshot, Snapshot crosscheck_snapshot,
-					 bool read_only, bool fire_triggers, long tcount)
+					 bool read_only, bool fire_triggers, int64 tcount)
 {
 	int			res;
 
@@ -633,7 +633,7 @@ int
 SPI_execute_with_args(const char *src,
 					  int nargs, Oid *argtypes,
 					  Datum *Values, const char *Nulls,
-					  bool read_only, long tcount)
+					  bool read_only, int64 tcount)
 {
 	int			res;
 	_SPI_plan	plan;
@@ -1530,7 +1530,7 @@ SPI_cursor_find(const char *name)
  *	Fetch rows in a cursor
  */
 void
-SPI_cursor_fetch(Portal portal, bool forward, long count)
+SPI_cursor_fetch(Portal portal, bool forward, int64 count)
 {
 	_SPI_cursor_operation(portal,
 						  forward ? FETCH_FORWARD : FETCH_BACKWARD, count,
@@ -1545,7 +1545,7 @@ SPI_cursor_fetch(Portal portal, bool forward, long count)
  *	Move in a cursor
  */
 void
-SPI_cursor_move(Portal portal, bool forward, long count)
+SPI_cursor_move(Portal portal, bool forward, int64 count)
 {
 	_SPI_cursor_operation(portal,
 						  forward ? FETCH_FORWARD : FETCH_BACKWARD, count,
@@ -1559,7 +1559,7 @@ SPI_cursor_move(Portal portal, bool forward, long count)
  *	Fetch rows in a scrollable cursor
  */
 void
-SPI_scroll_cursor_fetch(Portal portal, FetchDirection direction, long count)
+SPI_scroll_cursor_fetch(Portal portal, FetchDirection direction, int64 count)
 {
 	_SPI_cursor_operation(portal,
 						  direction, count,
@@ -1574,7 +1574,7 @@ SPI_scroll_cursor_fetch(Portal portal, FetchDirection direction, long count)
  *	Move in a scrollable cursor
  */
 void
-SPI_scroll_cursor_move(Portal portal, FetchDirection direction, long count)
+SPI_scroll_cursor_move(Portal portal, FetchDirection direction, int64 count)
 {
 	_SPI_cursor_operation(portal, direction, count, None_Receiver);
 }
@@ -2567,7 +2567,7 @@ _SPI_error_callback(void *arg)
  *	Do a FETCH or MOVE in a cursor
  */
 static void
-_SPI_cursor_operation(Portal portal, FetchDirection direction, long count,
+_SPI_cursor_operation(Portal portal, FetchDirection direction, uint64 count,
 					  DestReceiver *dest)
 {
 	uint64		nfetched;
