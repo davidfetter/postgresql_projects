@@ -84,24 +84,24 @@ extern PGDLLIMPORT int SPI_result;
 extern int	SPI_connect(void);
 extern int	SPI_connect_ext(int options);
 extern int	SPI_finish(void);
-extern int	SPI_execute(const char *src, bool read_only, long tcount);
+extern int	SPI_execute(const char *src, bool read_only, int64 tcount);
 extern int	SPI_execute_plan(SPIPlanPtr plan, Datum *Values, const char *Nulls,
-							 bool read_only, long tcount);
+							 bool read_only, int64 tcount);
 extern int	SPI_execute_plan_with_paramlist(SPIPlanPtr plan,
 											ParamListInfo params,
-											bool read_only, long tcount);
-extern int	SPI_exec(const char *src, long tcount);
+											bool read_only, int64 tcount);
+extern int	SPI_exec(const char *src, int64 tcount);
 extern int	SPI_execp(SPIPlanPtr plan, Datum *Values, const char *Nulls,
-					  long tcount);
+					  int64 tcount);
 extern int	SPI_execute_snapshot(SPIPlanPtr plan,
 								 Datum *Values, const char *Nulls,
 								 Snapshot snapshot,
 								 Snapshot crosscheck_snapshot,
-								 bool read_only, bool fire_triggers, long tcount);
+								 bool read_only, bool fire_triggers, int64 tcount);
 extern int	SPI_execute_with_args(const char *src,
 								  int nargs, Oid *argtypes,
 								  Datum *Values, const char *Nulls,
-								  bool read_only, long tcount);
+								  bool read_only, int64 tcount);
 extern SPIPlanPtr SPI_prepare(const char *src, int nargs, Oid *argtypes);
 extern SPIPlanPtr SPI_prepare_cursor(const char *src, int nargs, Oid *argtypes,
 									 int cursorOptions);
@@ -151,10 +151,10 @@ extern Portal SPI_cursor_open_with_args(const char *name,
 extern Portal SPI_cursor_open_with_paramlist(const char *name, SPIPlanPtr plan,
 											 ParamListInfo params, bool read_only);
 extern Portal SPI_cursor_find(const char *name);
-extern void SPI_cursor_fetch(Portal portal, bool forward, long count);
-extern void SPI_cursor_move(Portal portal, bool forward, long count);
-extern void SPI_scroll_cursor_fetch(Portal, FetchDirection direction, long count);
-extern void SPI_scroll_cursor_move(Portal, FetchDirection direction, long count);
+extern void SPI_cursor_fetch(Portal portal, bool forward, int64 count);
+extern void SPI_cursor_move(Portal portal, bool forward, int64 count);
+extern void SPI_scroll_cursor_fetch(Portal, FetchDirection direction, int64 count);
+extern void SPI_scroll_cursor_move(Portal, FetchDirection direction, int64 count);
 extern void SPI_cursor_close(Portal portal);
 
 extern int	SPI_register_relation(EphemeralNamedRelation enr);
