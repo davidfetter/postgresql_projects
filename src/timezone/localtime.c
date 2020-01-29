@@ -1623,10 +1623,10 @@ increment_overflow_time(pg_time_t *tp, int32 j)
  */
 int
 pg_next_dst_boundary(const pg_time_t *timep,
-					 long int *before_gmtoff,
+					 int64 *before_gmtoff,
 					 int *before_isdst,
 					 pg_time_t *boundary,
-					 long int *after_gmtoff,
+					 int64 *after_gmtoff,
 					 int *after_isdst,
 					 const pg_tz *tz)
 {
@@ -1771,7 +1771,7 @@ pg_next_dst_boundary(const pg_time_t *timep,
 bool
 pg_interpret_timezone_abbrev(const char *abbrev,
 							 const pg_time_t *timep,
-							 long int *gmtoff,
+							 int64 *gmtoff,
 							 int *isdst,
 							 const pg_tz *tz)
 {
@@ -1863,7 +1863,7 @@ pg_interpret_timezone_abbrev(const char *abbrev,
  * into *gmtoff and return true, else return false.
  */
 bool
-pg_get_timezone_offset(const pg_tz *tz, long int *gmtoff)
+pg_get_timezone_offset(const pg_tz *tz, int64 *gmtoff)
 {
 	/*
 	 * The zone could have more than one ttinfo, if it's historically used
