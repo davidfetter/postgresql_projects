@@ -2302,7 +2302,7 @@ check_log_duration(char *msec_str, bool was_logged)
 	if (log_duration || log_min_duration_sample >= 0 ||
 		log_min_duration_statement >= 0 || xact_is_sampled)
 	{
-		uint64		secs;
+		int64		secs;
 		int			usecs;
 		int			msecs;
 		bool		exceeded_duration;
@@ -3350,7 +3350,7 @@ stack_is_too_deep(void)
 bool
 check_max_stack_depth(int *newval, void **extra, GucSource source)
 {
-	uint64		newval_bytes = *newval * 1024L;
+	uint64		newval_bytes = *newval * 1024UL;
 	uint64		stack_rlimit = get_stack_depth_rlimit();
 
 	if (stack_rlimit > 0 && newval_bytes > stack_rlimit - STACK_DEPTH_SLOP)
@@ -4696,7 +4696,7 @@ static void
 log_disconnections(int code, Datum arg)
 {
 	Port	   *port = MyProcPort;
-	uint64		secs;
+	int64		secs;
 	int			usecs;
 	int			msecs;
 	int			hours,

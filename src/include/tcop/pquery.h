@@ -33,13 +33,13 @@ extern void PortalStart(Portal portal, ParamListInfo params,
 extern void PortalSetResultFormat(Portal portal, int nFormats,
 								  int16 *formats);
 
-extern bool PortalRun(Portal portal, long count, bool isTopLevel,
+extern bool PortalRun(Portal portal, int64 count, bool isTopLevel,
 					  bool run_once, DestReceiver *dest, DestReceiver *altdest,
 					  char *completionTag);
 
 extern uint64 PortalRunFetch(Portal portal,
 							 FetchDirection fdirection,
-							 long count,
+							 int64 count,
 							 DestReceiver *dest);
 
 #endif							/* PQUERY_H */
