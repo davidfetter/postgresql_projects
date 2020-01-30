@@ -37,8 +37,8 @@ static bool still_sending = true;	/* feedback still needs to be sent? */
 
 static PGresult *HandleCopyStream(PGconn *conn, StreamCtl *stream,
 								  XLogRecPtr *stoppos);
-static int	CopyStreamPoll(PGconn *conn, long timeout_ms, pgsocket stop_socket);
-static int	CopyStreamReceive(PGconn *conn, long timeout, pgsocket stop_socket,
+static int	CopyStreamPoll(PGconn *conn, int64 timeout_ms, pgsocket stop_socket);
+static int	CopyStreamReceive(PGconn *conn, int64 timeout, pgsocket stop_socket,
 							  char **buffer);
 static bool ProcessKeepaliveMsg(PGconn *conn, StreamCtl *stream, char *copybuf,
 								int len, XLogRecPtr blockpos, TimestampTz *last_status);
@@ -48,7 +48,7 @@ static PGresult *HandleEndOfCopyStream(PGconn *conn, StreamCtl *stream, char *co
 									   XLogRecPtr blockpos, XLogRecPtr *stoppos);
 static bool CheckCopyStreamStop(PGconn *conn, StreamCtl *stream, XLogRecPtr blockpos,
 								XLogRecPtr *stoppos);
-static long CalculateCopyStreamSleeptime(TimestampTz now, int standby_message_timeout,
+static int64 CalculateCopyStreamSleeptime(TimestampTz now, int standby_message_timeout,
 										 TimestampTz last_status);
 
 static bool ReadEndOfStreamingResult(PGresult *res, XLogRecPtr *startpos,
@@ -742,7 +742,7 @@ HandleCopyStream(PGconn *conn, StreamCtl *stream,
 	{
 		int			r;
 		TimestampTz now;
-		long		sleeptime;
+		int64		sleeptime;
 
 		/*
 		 * Check if we should continue streaming, or abort at this point.
@@ -858,7 +858,7 @@ error:
  * or interrupted by signal or stop_socket input, and -1 on an error.
  */
 static int
-CopyStreamPoll(PGconn *conn, long timeout_ms, pgsocket stop_socket)
+CopyStreamPoll(PGconn *conn, int64 timeout_ms, pgsocket stop_socket)
 {
 	int			ret;
 	fd_set		input_mask;
@@ -920,7 +920,7 @@ CopyStreamPoll(PGconn *conn, long timeout_ms, pgsocket stop_socket)
  * -1 on error. -2 if the server ended the COPY.
  */
 static int
-CopyStreamReceive(PGconn *conn, long timeout, pgsocket stop_socket,
+CopyStreamReceive(PGconn *conn, int64 timeout, pgsocket stop_socket,
 				  char **buffer)
 {
 	char	   *copybuf = NULL;
@@ -1228,12 +1228,12 @@ CheckCopyStreamStop(PGconn *conn, StreamCtl *stream, XLogRecPtr blockpos,
 /*
  * Calculate how long send/receive loops should sleep
  */
-static long
+static int64
 CalculateCopyStreamSleeptime(TimestampTz now, int standby_message_timeout,
 							 TimestampTz last_status)
 {
 	TimestampTz status_targettime = 0;
-	long		sleeptime;
+	int64		sleeptime;
 
 	if (standby_message_timeout && still_sending)
 		status_targettime = last_status +
@@ -1241,7 +1241,7 @@ CalculateCopyStreamSleeptime(TimestampTz now, int standby_message_timeout,
 
 	if (status_targettime > 0)
 	{
-		long		secs;
+		int64		secs;
 		int			usecs;
 
 		feTimestampDifference(now,
