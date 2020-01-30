@@ -749,7 +749,7 @@ BufFileTell(BufFile *file, int *fileno, off_t *offset)
  * impossible seek is attempted.
  */
 int
-BufFileSeekBlock(BufFile *file, long blknum)
+BufFileSeekBlock(BufFile *file, uint64 blknum)
 {
 	return BufFileSeek(file,
 					   (int) (blknum / BUFFILE_SEG_SIZE),
@@ -760,13 +760,11 @@ BufFileSeekBlock(BufFile *file, long blknum)
 #ifdef NOT_USED
 /*
  * BufFileTellBlock --- block-oriented tell
- *
- * Any fractional part of a block in the current seek position is ignored.
  */
-long
+uint64
 BufFileTellBlock(BufFile *file)
 {
-	long		blknum;
+	uint64		blknum;
 
 	blknum = (file->curOffset + file->pos) / BLCKSZ;
 	blknum += file->curFile * BUFFILE_SEG_SIZE;
@@ -820,10 +818,10 @@ BufFileSize(BufFile *file)
  * begins.  Caller should apply this as an offset when working off block
  * positions that are in terms of the original BufFile space.
  */
-long
+uint64
 BufFileAppend(BufFile *target, BufFile *source)
 {
-	long		startBlock = target->numFiles * BUFFILE_SEG_SIZE;
+	uint64		startBlock = target->numFiles * BUFFILE_SEG_SIZE;
 	int			newNumFiles = target->numFiles + source->numFiles;
 	int			i;
 
