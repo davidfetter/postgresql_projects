@@ -43,7 +43,7 @@ extern void ConditionVariableInit(ConditionVariable *cv);
  * the condition variable.
  */
 extern void ConditionVariableSleep(ConditionVariable *cv, uint32 wait_event_info);
-extern bool ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
+extern bool ConditionVariableTimedSleep(ConditionVariable *cv, int64 timeout,
 										uint32 wait_event_info);
 extern void ConditionVariableCancelSleep(void);
 
