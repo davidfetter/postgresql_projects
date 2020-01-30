@@ -34,11 +34,11 @@ static void gistPlaceItupToPage(GISTNodeBufferPage *pageBuffer,
 								IndexTuple item);
 static void gistGetItupFromPage(GISTNodeBufferPage *pageBuffer,
 								IndexTuple *item);
-static long gistBuffersGetFreeBlock(GISTBuildBuffers *gfbb);
-static void gistBuffersReleaseBlock(GISTBuildBuffers *gfbb, long blocknum);
+static uint64 gistBuffersGetFreeBlock(GISTBuildBuffers *gfbb);
+static void gistBuffersReleaseBlock(GISTBuildBuffers *gfbb, uint64 blocknum);
 
-static void ReadTempFileBlock(BufFile *file, long blknum, void *ptr);
-static void WriteTempFileBlock(BufFile *file, long blknum, void *ptr);
+static void ReadTempFileBlock(BufFile *file, uint64 blknum, void *ptr);
+static void WriteTempFileBlock(BufFile *file, uint64 blknum, void *ptr);
 
 
 /*
@@ -64,7 +64,7 @@ gistInitBuildBuffers(int pagesPerBuffer, int levelStep, int maxLevel)
 	/* Initialize free page management. */
 	gfbb->nFreeBlocks = 0;
 	gfbb->freeBlocksLen = 32;
-	gfbb->freeBlocks = (long *) palloc(gfbb->freeBlocksLen * sizeof(long));
+	gfbb->freeBlocks = (int64 *) palloc(gfbb->freeBlocksLen * sizeof(int64));
 
 	/*
 	 * Current memory context will be used for all in-memory data structures
@@ -469,7 +469,7 @@ gistPopItupFromNodeBuffer(GISTBuildBuffers *gfbb, GISTNodeBuffer *nodeBuffer,
 /*
  * Select a currently unused block for writing to.
  */
-static long
+static uint64
 gistBuffersGetFreeBlock(GISTBuildBuffers *gfbb)
 {
 	/*
@@ -487,7 +487,7 @@ gistBuffersGetFreeBlock(GISTBuildBuffers *gfbb)
  * Return a block# to the freelist.
  */
 static void
-gistBuffersReleaseBlock(GISTBuildBuffers *gfbb, long blocknum)
+gistBuffersReleaseBlock(GISTBuildBuffers *gfbb, uint64 blocknum)
 {
 	int			ndx;
 
@@ -495,9 +495,9 @@ gistBuffersReleaseBlock(GISTBuildBuffers *gfbb, long blocknum)
 	if (gfbb->nFreeBlocks >= gfbb->freeBlocksLen)
 	{
 		gfbb->freeBlocksLen *= 2;
-		gfbb->freeBlocks = (long *) repalloc(gfbb->freeBlocks,
+		gfbb->freeBlocks = (int64 *) repalloc(gfbb->freeBlocks,
 											 gfbb->freeBlocksLen *
-											 sizeof(long));
+											 sizeof(uint64));
 	}
 
 	/* Add blocknum to array */
@@ -755,7 +755,7 @@ gistRelocateBuildBuffersOnSplit(GISTBuildBuffers *gfbb, GISTSTATE *giststate,
  */
 
 static void
-ReadTempFileBlock(BufFile *file, long blknum, void *ptr)
+ReadTempFileBlock(BufFile *file, uint64 blknum, void *ptr)
 {
 	if (BufFileSeekBlock(file, blknum) != 0)
 		elog(ERROR, "could not seek temporary file: %m");
@@ -764,7 +764,7 @@ ReadTempFileBlock(BufFile *file, long blknum, void *ptr)
 }
 
 static void
-WriteTempFileBlock(BufFile *file, long blknum, void *ptr)
+WriteTempFileBlock(BufFile *file, uint64 blknum, void *ptr)
 {
 	if (BufFileSeekBlock(file, blknum) != 0)
 		elog(ERROR, "could not seek temporary file: %m");
