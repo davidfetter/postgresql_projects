@@ -30,6 +30,7 @@
 
 #include "access/hash.h"
 #include "access/hash_xlog.h"
+#include "port/pg_bitutils.h"
 #include "miscadmin.h"
 #include "storage/lmgr.h"
 #include "storage/predicate.h"
@@ -502,7 +503,6 @@ _hash_init_metabuffer(Buffer buf, double num_tuples, RegProcedure procid,
 	double		dnumbuckets;
 	uint32		num_buckets;
 	uint32		spare_index;
-	uint32		i;
 
 	/*
 	 * Choose the number of initial bucket pages to match the fill factor
@@ -543,14 +543,8 @@ _hash_init_metabuffer(Buffer buf, double num_tuples, RegProcedure procid,
 	metap->hashm_ffactor = ffactor;
 	metap->hashm_bsize = HashGetMaxBitmapSize(page);
 	/* find largest bitmap array size that will fit in page size */
-	for (i = _hash_log2(metap->hashm_bsize); i > 0; --i)
-	{
-		if ((1 << i) <= metap->hashm_bsize)
-			break;
-	}
-	Assert(i > 0);
-	metap->hashm_bmsize = 1 << i;
-	metap->hashm_bmshift = i + BYTE_TO_BIT;
+	metap->hashm_bmsize = 1 << pg_leftmost_one_pos32(metap->hashm_bsize);
+	metap->hashm_bmshift = pg_leftmost_one_pos32(metap->hashm_bsize) + BYTE_TO_BIT;
 	Assert((1 << BMPG_SHIFT(metap)) == (BMPG_MASK(metap) + 1));
 
 	/*
@@ -570,7 +564,7 @@ _hash_init_metabuffer(Buffer buf, double num_tuples, RegProcedure procid,
 	 * Set highmask as next immediate ((2 ^ x) - 1), which should be
 	 * sufficient to cover num_buckets.
 	 */
-	metap->hashm_highmask = (1 << (_hash_log2(num_buckets + 1))) - 1;
+	metap->hashm_highmask = next_power_of_2_32(num_buckets + 1) - 1;
 	metap->hashm_lowmask = (metap->hashm_highmask >> 1);
 
 	MemSet(metap->hashm_spares, 0, sizeof(metap->hashm_spares));
@@ -657,13 +651,12 @@ restart_expand:
 	 * Can't split anymore if maxbucket has reached its maximum possible
 	 * value.
 	 *
-	 * Ideally we'd allow bucket numbers up to UINT_MAX-1 (no higher because
-	 * the calculation maxbucket+1 mustn't overflow).  Currently we restrict
-	 * to half that because of overflow looping in _hash_log2() and
-	 * insufficient space in hashm_spares[].  It's moot anyway because an
-	 * index with 2^32 buckets would certainly overflow BlockNumber and hence
-	 * _hash_alloc_buckets() would fail, but if we supported buckets smaller
-	 * than a disk block then this would be an independent constraint.
+	 * Ideally we'd allow bucket numbers up to UINT_MAX-1 (no higher because the
+	 * calculation maxbucket+1 mustn't overflow).  Currently we restrict to half
+	 * that because of insufficient space in hashm_spares[].  It's moot anyway
+	 * because an index with 2^32 buckets would certainly overflow BlockNumber
+	 * and hence _hash_alloc_buckets() would fail, but if we supported buckets
+	 * smaller than a disk block then this would be an independent constraint.
 	 *
 	 * If you change this, see also the maximum initial number of buckets in
 	 * _hash_init().

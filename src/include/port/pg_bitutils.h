@@ -20,19 +20,18 @@ extern PGDLLIMPORT const uint8 pg_number_of_ones[256];
 /*
  * pg_leftmost_one_pos32
  *		Returns the position of the most significant set bit in "word",
- *		measured from the least significant bit.  word must not be 0.
+ *		measured from the least significant bit.
  */
 static inline int
 pg_leftmost_one_pos32(uint32 word)
 {
 #ifdef HAVE__BUILTIN_CLZ
-	Assert(word != 0);
-
-	return 31 - __builtin_clz(word);
+	return word ? 31 - __builtin_clz(word) : 0;
 #else
 	int			shift = 32 - 8;
 
-	Assert(word != 0);
+	if (word == 0)
+		return 0;
 
 	while ((word >> shift) == 0)
 		shift -= 8;
@@ -49,19 +48,18 @@ static inline int
 pg_leftmost_one_pos64(uint64 word)
 {
 #ifdef HAVE__BUILTIN_CLZ
-	Assert(word != 0);
-
 #if defined(HAVE_LONG_INT_64)
-	return 63 - __builtin_clzl(word);
+	return word ? 63 - __builtin_clzl(word) : 0;
 #elif defined(HAVE_LONG_LONG_INT_64)
-	return 63 - __builtin_clzll(word);
+	return word ? 63 - __builtin_clzll(word) : 0;
 #else
 #error must have a working 64-bit integer datatype
 #endif
 #else							/* !HAVE__BUILTIN_CLZ */
 	int			shift = 64 - 8;
 
-	Assert(word != 0);
+	if (word == 0)
+		return 0;
 
 	while ((word >> shift) == 0)
 		shift -= 8;
@@ -73,19 +71,18 @@ pg_leftmost_one_pos64(uint64 word)
 /*
  * pg_rightmost_one_pos32
  *		Returns the position of the least significant set bit in "word",
- *		measured from the least significant bit.  word must not be 0.
+ *		measured from the least significant bit.
  */
 static inline int
 pg_rightmost_one_pos32(uint32 word)
 {
 #ifdef HAVE__BUILTIN_CTZ
-	Assert(word != 0);
-
-	return __builtin_ctz(word);
+	return word ? __builtin_ctz(word) : 32;
 #else
 	int			result = 0;
 
-	Assert(word != 0);
+	if (word == 0)
+		return 32;
 
 	while ((word & 255) == 0)
 	{
@@ -105,19 +102,18 @@ static inline int
 pg_rightmost_one_pos64(uint64 word)
 {
 #ifdef HAVE__BUILTIN_CTZ
-	Assert(word != 0);
-
 #if defined(HAVE_LONG_INT_64)
-	return __builtin_ctzl(word);
+	return word ? __builtin_ctzl(word) : 64;
 #elif defined(HAVE_LONG_LONG_INT_64)
-	return __builtin_ctzll(word);
+	return word ? __builtin_ctzll(word) : 64;
 #else
 #error must have a working 64-bit integer datatype
 #endif
 #else							/* !HAVE__BUILTIN_CTZ */
 	int			result = 0;
 
-	Assert(word != 0);
+	if (word == 0)
+		return 64;
 
 	while ((word & 255) == 0)
 	{
@@ -143,6 +139,36 @@ static inline uint32
 pg_rotate_right32(uint32 word, int n)
 {
 	return (word >> n) | (word << (sizeof(word) * BITS_PER_BYTE - n));
+}
+
+/* ceil(lg2(num)) */
+static inline uint32
+ceil_log2_32(uint32 num)
+{
+	Assert(num > 0);
+	return pg_leftmost_one_pos32(num-1) + 1;
+}
+
+static inline uint64
+ceil_log2_64(uint64 num)
+{
+	Assert(num > 0);
+	return pg_leftmost_one_pos64(num-1) + 1;
+}
+
+/* Calculate the first power of 2 >= num */
+static inline uint32
+next_power_of_2_32(uint32 num)
+{
+	Assert(num > 0);
+	return ((uint32) 1) << (pg_leftmost_one_pos32(num-1) + 1);
+}
+
+static inline uint64
+next_power_of_2_64(uint64 num)
+{
+	Assert(num > 0);
+	return ((uint64) 1) << (pg_leftmost_one_pos64(num-1) + 1);
 }
 
 #endif							/* PG_BITUTILS_H */

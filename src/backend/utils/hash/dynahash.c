@@ -86,6 +86,7 @@
 #include <limits.h>
 
 #include "access/xact.h"
+#include "port/pg_bitutils.h"
 #include "storage/shmem.h"
 #include "storage/spin.h"
 #include "utils/dynahash.h"
@@ -1717,16 +1718,11 @@ hash_corrupted(HTAB *hashp)
 int
 my_log2(uint64 num)
 {
-	int			i;
-	uint64		limit;
-
 	/* guard against too-large input, which would put us into infinite loop */
 	if (num > LONG_MAX / 2)
 		num = LONG_MAX / 2;
 
-	for (i = 0, limit = 1; limit < num; i++, limit <<= 1)
-		;
-	return i;
+	return ceil_log2_64(num);
 }
 
 /* calculate first power of 2 >= num, bounded to what will fit in a uint64 */
