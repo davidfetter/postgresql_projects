@@ -2297,6 +2297,49 @@ hello 10
         </listitem>
       </varlistentry>
 
+      <varlistentry>
+        <term><literal>\gsetenv [ <replaceable class="parameter">prefix</replaceable> ]</literal></term>
+
+        <listitem>
+        <para>
+         Sends the current query buffer to the server and stores the
+         query's output into environment variables.
+         The query to be executed must return exactly one row.  Each column of
+         the row is stored into a separate variable, named the same as the
+         column.  For example:
+<programlisting>
+=&gt; <userinput>SELECT 'hello' AS var1, 10 AS var2</userinput>
+-&gt; <userinput>\gsetenv</userinput>
+=&gt; <userinput>\! echo $var1 $var2</userinput>
+hello 10
+</programlisting>
+        </para>
+        <para>
+         If you specify a <replaceable class="parameter">prefix</replaceable>,
+         that string is prepended to the query's column names to create the
+         variable names to use:
+<programlisting>
+=&gt; <userinput>SELECT 'hello' AS var1, 10 AS var2</userinput>
+-&gt; <userinput>\gsetenv result_</userinput>
+=&gt; <userinput>\! echo $result_var1 $result_var2</userinput>
+hello 10
+</programlisting>
+        </para>
+        <para>
+         If a column result is NULL, the corresponding environment variable is unset
+         rather than being set.
+        </para>
+        <para>
+         If the query fails or does not return one row,
+         no variables are changed.
+        </para>
+        <para>
+         If the current query buffer is empty, the most recently sent query
+         is re-executed instead.
+        </para>
+        </listitem>
+      </varlistentry>
+
 
       <varlistentry>
         <term><literal>\gx [ (<replaceable class="parameter">option</replaceable>=<replaceable class="parameter">value</replaceable> [...]) ] [ <replaceable class="parameter">filename</replaceable> ]</literal></term>

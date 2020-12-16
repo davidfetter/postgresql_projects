@@ -180,6 +180,7 @@ slashUsage(unsigned short int pager)
 	fprintf(output, _("  \\gdesc                 describe result of query, without executing it\n"));
 	fprintf(output, _("  \\gexec                 execute query, then execute each value in its result\n"));
 	fprintf(output, _("  \\gset [PREFIX]         execute query and store results in psql variables\n"));
+	fprintf(output, _("  \\gsetenv [PREFIX]      execute query and store results in environment variables\n"));
 	fprintf(output, _("  \\gx [(OPTIONS)] [FILE] as \\g, but forces expanded output mode\n"));
 	fprintf(output, _("  \\q                     quit psql\n"));
 	fprintf(output, _("  \\watch [SEC]           execute query every SEC seconds\n"));
@@ -309,7 +310,7 @@ slashUsage(unsigned short int pager)
 
 	fprintf(output, _("Operating System\n"));
 	fprintf(output, _("  \\cd [DIR]              change the current working directory\n"));
-	fprintf(output, _("  \\setenv NAME [VALUE]   set or unset environment variable\n"));
+	fprintf(output, _("  \\setenv NAME [VALUE]   set environment variable, or list all if no parameters\n"));
 	fprintf(output, _("  \\timing [on|off]       toggle timing of commands (currently %s)\n"),
 			ON(pset.timing));
 	fprintf(output, _("  \\! [COMMAND]           execute command in shell or start interactive shell\n"));

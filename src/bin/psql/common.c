@@ -28,6 +28,7 @@
 #include "fe_utils/string_utils.h"
 #include "portability/instr_time.h"
 #include "settings.h"
+#include "variables.h"
 
 static bool DescribeQuery(const char *query, double *elapsed_msec);
 static bool ExecQueryUsingCursor(const char *query, double *elapsed_msec);
@@ -762,15 +763,24 @@ static bool
 StoreQueryTuple(const PGresult *result)
 {
 	bool		success = true;
+	char		*gset_suffix;
+
+	if (pset.gset_target == GSET_TARGET_PSET)
+		gset_suffix = "";
+	else if (pset.gset_target == GSET_TARGET_ENV)
+		gset_suffix = "env";
+	else
+		pg_log_error("How did you manage to get gset_target to be \"%d\%?!?",
+					 pset.gset_target);
 
 	if (PQntuples(result) < 1)
 	{
-		pg_log_error("no rows returned for \\gset");
+		pg_log_error("no rows returned for \\gset%s", gset_suffix);
 		success = false;
 	}
 	else if (PQntuples(result) > 1)
 	{
-		pg_log_error("more than one row returned for \\gset");
+		pg_log_error("more than one row returned for \\gset%s", gset_suffix);
 		success = false;
 	}
 	else
@@ -786,7 +796,7 @@ StoreQueryTuple(const PGresult *result)
 			/* concatenate prefix and column name */
 			varname = psprintf("%s%s", pset.gset_prefix, colname);
 
-			if (VariableHasHook(pset.vars, varname))
+			if (pset.gset_target == GSET_TARGET_PSET && VariableHasHook(pset.vars, varname))
 			{
 				pg_log_warning("attempt to \\gset into specially treated variable \"%s\" ignored",
 							   varname);
@@ -801,14 +811,31 @@ StoreQueryTuple(const PGresult *result)
 				value = NULL;
 			}
 
-			if (!SetVariable(pset.vars, varname, value))
+			if (pset.gset_target == GSET_TARGET_PSET)
 			{
-				free(varname);
-				success = false;
-				break;
-			}
+				if (!SetVariable(pset.vars, varname, value))
+				{
+					free(varname);
+					success = false;
+					continue;
+				}
 
-			free(varname);
+				free(varname);
+			}
+			else /* Only GSET_TARGET_ENV is possible now */
+			{
+				const char *cmd;
+
+				cmd = "gsetenv";
+				if (!SetEnvVariable(cmd, varname, value))
+				{
+					free(varname);
+					success = false;
+					continue;
+				}
+
+				free(varname);
+			}
 		}
 	}
 

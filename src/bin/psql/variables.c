@@ -5,6 +5,8 @@
  *
  * src/bin/psql/variables.c
  */
+#include <unistd.h>
+
 #include "postgres_fe.h"
 
 #include "common.h"
@@ -293,6 +295,67 @@ SetVariable(VariableSpace space, const char *name, const char *value)
 		previous->next = current;
 	}
 	return true;
+}
+
+/*
+ * Common code for of \{,g}setenv
+ *
+ * Set the environment variable named "name" to value "value",
+ * or delete it if "value" is NULL.
+ */
+bool SetEnvVariable(const char *cmd, const char *name, const char *value)
+{
+	bool	success = true;
+	if (!name)
+	{
+		int cmp;
+
+		cmp = strcmp(cmd, "setenv");
+
+		if (cmp == 0)
+		{
+			int i;
+
+			for (i = 0; environ[i] != NULL; i++)
+			{
+				printf("%-24s\n", environ[i]);
+			}
+			success = true;
+		}
+		else
+		{
+			pg_log_error("\\%s: missing required argument", cmd);
+			success = false;
+		}
+	}
+	else if (strchr(name, '=') != NULL)
+	{
+		pg_log_error("\\%s: environment variable name must not contain \"=\"",
+					 cmd);
+		success = false;
+	}
+	else if (!value)
+	{
+		/* No argument - unset the environment variable */
+		unsetenv(name);
+		success = true;
+	}
+	else
+	{
+		/* Set variable to the value of the next argument */
+		char	   *newval;
+
+		newval = psprintf("%s=%s", name, value);
+		putenv(newval);
+		success = true;
+
+		/*
+		 * Do not free newvalue here, as it may screw up the environment if
+		 * you do. See putenv man page for details. That means we leak a
+		 * bit of memory here, but not enough to worry about.
+		 */
+	}
+	return success;
 }
 
 /*

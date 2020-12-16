@@ -83,6 +83,39 @@ select 10 as test01, 20 as test02 from generate_series(1,0) \gset
 
 \unset FETCH_COUNT
 
+-- \gsetenv
+
+select 10 as test01, 20 as test02, 'Hello' as test03 \gsetenv pref01_
+
+\! echo $pref01_test01 $pref01_test02 $pref01_test03
+
+-- should fail: bad environment variable name
+select 10 as "bad=name"
+\gsetenv
+
+-- multiple backslash commands in one line
+select 1 as x, 2 as y \gsetenv pref01_ \\ \! echo $pref01_x
+select 3 as x, 4 as y \gsetenv pref01_ \\ \g \! echo $pref01_x $pref01_y
+
+-- NULL should unset the variable
+\setenv var2 xyz
+select 1 as var1, NULL as var2, 3 as var3 \gsetenv
+\! echo $var1 $var2 $var3
+
+-- \gsetenv requires just one tuple
+select 10 as test01, 20 as test02 from generate_series(1,3) \gsetenv
+select 10 as test01, 20 as test02 from generate_series(1,0) \gsetenv
+
+-- \gsetenv should work in FETCH_COUNT mode too
+\set FETCH_COUNT 1
+
+select 1 as x, 2 as y \gsetenv pref01_ \\ \! echo $pref01_x
+select 3 as x, 4 as y \gsetenv pref01_ \! echo $pref01_x $pref01_y
+select 10 as test01, 20 as test02 from generate_series(1,3) \gsetenv
+select 10 as test01, 20 as test02 from generate_series(1,0) \gsetenv
+
+\unset FETCH_COUNT
+
 -- \gdesc
 
 SELECT

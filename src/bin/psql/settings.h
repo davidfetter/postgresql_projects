@@ -64,6 +64,13 @@ typedef enum
 
 typedef enum
 {
+	GSET_TARGET_NONE,
+	GSET_TARGET_PSET,
+	GSET_TARGET_ENV
+} GSET_TARGET;
+
+typedef enum
+{
 	hctl_none = 0,
 	hctl_ignorespace = 1,
 	hctl_ignoredups = 2,
@@ -93,7 +100,7 @@ typedef struct _psqlSettings
 	char	   *gfname;			/* one-shot file output argument for \g */
 	printQueryOpt *gsavepopt;	/* if not null, saved print format settings */
 
-	char	   *gset_prefix;	/* one-shot prefix argument for \gset */
+	char	   *gset_prefix;	/* one-shot prefix argument for \gset* */
 	bool		gdesc_flag;		/* one-shot request to describe query results */
 	bool		gexec_flag;		/* one-shot request to execute query results */
 	bool		crosstab_flag;	/* one-shot request to crosstab results */
@@ -142,6 +149,7 @@ typedef struct _psqlSettings
 	PSQL_ECHO_HIDDEN echo_hidden;
 	PSQL_ERROR_ROLLBACK on_error_rollback;
 	PSQL_COMP_CASE comp_case;
+	GSET_TARGET gset_target;
 	HistControl histcontrol;
 	const char *prompt1;
 	const char *prompt2;

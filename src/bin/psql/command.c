@@ -94,7 +94,9 @@ static backslashResult process_command_g_options(char *first_option,
 												 const char *cmd);
 static backslashResult exec_command_gdesc(PsqlScanState scan_state, bool active_branch);
 static backslashResult exec_command_gexec(PsqlScanState scan_state, bool active_branch);
-static backslashResult exec_command_gset(PsqlScanState scan_state, bool active_branch);
+static backslashResult exec_command_gset(PsqlScanState scan_state,
+										 bool active_branch,
+										 GSET_TARGET gset_target);
 static backslashResult exec_command_help(PsqlScanState scan_state, bool active_branch);
 static backslashResult exec_command_html(PsqlScanState scan_state, bool active_branch);
 static backslashResult exec_command_include(PsqlScanState scan_state, bool active_branch,
@@ -346,7 +348,9 @@ exec_command(const char *cmd,
 	else if (strcmp(cmd, "gexec") == 0)
 		status = exec_command_gexec(scan_state, active_branch);
 	else if (strcmp(cmd, "gset") == 0)
-		status = exec_command_gset(scan_state, active_branch);
+		status = exec_command_gset(scan_state, active_branch, GSET_TARGET_PSET);
+	else if (strcmp(cmd, "gsetenv") == 0)
+		status = exec_command_gset(scan_state, active_branch, GSET_TARGET_ENV);
 	else if (strcmp(cmd, "h") == 0 || strcmp(cmd, "help") == 0)
 		status = exec_command_help(scan_state, active_branch);
 	else if (strcmp(cmd, "H") == 0 || strcmp(cmd, "html") == 0)
@@ -1451,10 +1455,11 @@ exec_command_gexec(PsqlScanState scan_state, bool active_branch)
 }
 
 /*
- * \gset [prefix] -- send query and store result into variables
+ * \gset[env] [prefix] -- send query and store result into variables
  */
 static backslashResult
-exec_command_gset(PsqlScanState scan_state, bool active_branch)
+exec_command_gset(PsqlScanState scan_state, bool active_branch,
+				  GSET_TARGET gset_target)
 {
 	backslashResult status = PSQL_CMD_SKIP_LINE;
 
@@ -1462,6 +1467,8 @@ exec_command_gset(PsqlScanState scan_state, bool active_branch)
 	{
 		char	   *prefix = psql_scan_slash_option(scan_state,
 													OT_NORMAL, NULL, false);
+
+		pset.gset_target = gset_target;
 
 		if (prefix)
 			pset.gset_prefix = prefix;
@@ -2275,39 +2282,8 @@ exec_command_setenv(PsqlScanState scan_state, bool active_branch,
 													OT_NORMAL, NULL, false);
 		char	   *envval = psql_scan_slash_option(scan_state,
 													OT_NORMAL, NULL, false);
+		success = SetEnvVariable(cmd, envvar, envval);
 
-		if (!envvar)
-		{
-			pg_log_error("\\%s: missing required argument", cmd);
-			success = false;
-		}
-		else if (strchr(envvar, '=') != NULL)
-		{
-			pg_log_error("\\%s: environment variable name must not contain \"=\"",
-						 cmd);
-			success = false;
-		}
-		else if (!envval)
-		{
-			/* No argument - unset the environment variable */
-			unsetenv(envvar);
-			success = true;
-		}
-		else
-		{
-			/* Set variable to the value of the next argument */
-			char	   *newval;
-
-			newval = psprintf("%s=%s", envvar, envval);
-			putenv(newval);
-			success = true;
-
-			/*
-			 * Do not free newval here, it will screw up the environment if
-			 * you do. See putenv man page for details. That means we leak a
-			 * bit of memory here, but not enough to worry about.
-			 */
-		}
 		free(envvar);
 		free(envval);
 	}
