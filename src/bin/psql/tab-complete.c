@@ -1573,6 +1573,13 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH_LIST(sql_commands);
 
 /* CREATE */
+	/* Special cases for EXPLAIN */
+	else if (Matches("EXPLAIN", "CREATE"))
+		COMPLETE_WITH("TABLE AS", "MATERIALIZED VIEW");
+	else if (Matches("EXPLAIN","CREATE"))
+		COMPLETE_WITH("TABLE AS", "MATERIALIZED VIEW");
+	else if (Matches("EXPLAIN","CREATE", "TABLE", "AS"))
+		COMPLETE_WITH("SELECT", "WITH");
 	/* complete with something you can create */
 	else if (TailMatches("CREATE"))
 		matches = rl_completion_matches(text, create_command_generator);
@@ -3138,6 +3145,7 @@ psql_completion(const char *text, int start, int end)
  */
 	else if (Matches("EXPLAIN"))
 		COMPLETE_WITH("SELECT", "INSERT", "DELETE", "UPDATE", "DECLARE",
+					  "CREATE TABLE AS", "CREATE MATERIALIZED VIEW",
 					  "ANALYZE", "VERBOSE");
 	else if (HeadMatches("EXPLAIN", "(*") &&
 			 !HeadMatches("EXPLAIN", "(*)"))
@@ -3157,11 +3165,13 @@ psql_completion(const char *text, int start, int end)
 	}
 	else if (Matches("EXPLAIN", "ANALYZE"))
 		COMPLETE_WITH("SELECT", "INSERT", "DELETE", "UPDATE", "DECLARE",
+					  "CREATE TABLE AS", "CREATE MATERIALIZED VIEW",
 					  "VERBOSE");
 	else if (Matches("EXPLAIN", "(*)") ||
 			 Matches("EXPLAIN", "VERBOSE") ||
 			 Matches("EXPLAIN", "ANALYZE", "VERBOSE"))
-		COMPLETE_WITH("SELECT", "INSERT", "DELETE", "UPDATE", "DECLARE");
+		COMPLETE_WITH("SELECT", "INSERT", "DELETE", "UPDATE", "DECLARE"
+					  "CREATE TABLE AS", "CREATE MATERIALIZED VIEW");
 
 /* FETCH && MOVE */
 
