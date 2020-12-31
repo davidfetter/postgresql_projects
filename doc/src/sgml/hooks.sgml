@@ -1,0 +1,321 @@
+<!-- doc/src/sgml/hooks.sgml -->
+
+<chapter id="hooks">
+ <title>Hooks System</title>
+
+ <indexterm>
+  <primary>Hook</primary>
+ </indexterm>
+
+ <para>
+  This chapter explains the <productname>PostgreSQL</productname>
+  hooks system, a way to inject functionality in many different parts
+  of the database via function pointers to shared libraries. They simply
+  need to honor the hooks API, which consists roughly of the following:
+
+  <itemizedlist>
+    <listitem>
+     <para>
+     Initialize a hook of the correct type for what you are doing, conventionally
+     using a function with signature:
+<programlisting>
+void _PG_init(void)
+</programlisting>
+     which initializes whatever the hook code needs initialized.  Here, you will cache
+     any previous hook(s) with code that looks like:
+<programlisting>
+prev_Foo = Foo_hook;
+prev_Bar = Bar_hook;
+</programlisting>
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+     Let your imagination run wild, but try very hard not to crash while doing so.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+     Restore cached hooks in a function conventionally called
+<programlisting>
+void _PG_fini(void)
+</programlisting>
+     with code that looks like:
+<programlisting>
+Foo_hook = prev_Foo;
+Bar_hook = prev_Bar;
+</programlisting>
+     </para>
+    </listitem>
+    </itemizedlist>
+  
+ </para>
+
+ <sect1 id="available-hooks">
+  <title>Available Hooks</title>
+
+  <para>
+   The following backend hooks are available for your use:
+  </para>
+
+  <sect2 id="analyze-hook">
+   <title>Analyze hook</title>
+
+   <para>
+    Take control at the end of parse analysis.
+   </para>
+  </sect2>
+
+  <sect2 id="auth-hook">
+   <title>Authentication hook</title>
+
+   <para>
+    Take control in <literal>ClientAuthentication</literal>.
+   </para>
+  </sect2>
+
+  <sect2 id="elog-hook">
+   <title>Logging hook</title>
+
+   <para>
+    Intercept messages before they are sent to the server log.
+   </para>
+  </sect2>
+
+  <sect2 id="executor-hook">
+   <title>Executor hooks</title>
+
+   <para>
+    The following hooks control the executor:
+   </para>
+
+   <sect3 id="executor-start-hook">
+    <title>Executor Start Hook</title>
+
+    <para>
+     Take control in <literal>ExecutorStart()</literal>.
+    </para>
+   </sect3>
+
+   <sect3 id="executor-run-hook">
+    <title>Executor Run Hook</title>
+
+    <para>
+     Take control in <literal>ExecutorRun()</literal>.
+    </para>
+   </sect3>
+
+   <sect3 id="executor-finish-hook">
+    <title>Executor Finish Hook</title>
+
+    <para>
+     Take control in <literal>ExecutorFinish()</literal>.
+    </para>
+   </sect3>
+
+   <sect3 id="executor-end-hook">
+    <title>Executor End Hook</title>
+
+    <para>
+     Take control in <literal>ExecutorEnd()</literal>.
+    </para>
+   </sect3>
+
+   <sect3 id="executor-check-permissions-hook">
+    <title>Executor Check Permissions Hook</title>
+
+    <para>
+     Take control in <literal>ExecutorCheckRTPerms()</literal>.
+    </para>
+   </sect3>
+
+  </sect2>
+
+  <sect2 id="explain-hook">
+   <title>Explain hook</title>
+
+   <para>
+    Take control of <command>EXPLAIN</command>.
+   </para>
+
+   <sect3 id="explain-one-query-hook">
+    <title>Explain One Query</title>
+
+    <para>
+     Take control in <literal>ExplainOneQuery()</literal>.
+    </para>
+   </sect3>
+
+   <sect3 id="explain-get-index-name">
+    <title>Explain Get Index Name</title>
+
+    <para>
+     Take control in <literal>explain_get_index_name()</literal>.
+    </para>
+   </sect3>
+
+  </sect2>
+
+  <sect2 id="fmgr-hook">
+   <title>Function Call Hooks</title>
+
+   <sect3 id="needs-fmgr-hook">
+    <title>Needs Function Manager</title>
+
+    <para>
+     Look around and decide whether the function manager hook is needed.
+    </para>
+   </sect3>
+
+   <sect3 id="fmgr-execution-hook">
+    <title>Function Manager</title>
+
+    <para>
+     Take control at start, end, or abort of a <literal>ROUTINE</literal>.
+    </para>
+   </sect3>
+  </sect2>
+
+  <sect2 id="ipc-hook">
+   <title>Shared Memory Startup</title>
+
+   <para>
+    Take control of chunks of shared memory at startup.
+   </para>
+  </sect2>
+
+  <sect2 id="openssl-tls-init-hook">
+   <title>OpenSSL TLS Init</title>
+
+   <para>
+    Take control in initialization of OpenSSL.
+   </para>
+  </sect2>
+
+  <sect2 id="get-attavgwidth-hook">
+   <title>Get Attribute Average Width</title>
+
+   <para>
+    Take control in <literal>get_attavgwidth()</literal>.
+   </para>
+  </sect2>
+
+  <sect2 id="object-access-hook">
+   <title>Object Access Hooks</title>
+
+   <para>
+    Take control just before or just after <command>CREATE</command>,
+    <command>DROP</command>, <command>ALTER</command>,
+    namespace search, function execution, and <command>TRUNCATE</command>.
+   </para>
+  </sect2>
+
+  <sect2 id="path-hook">
+   <title>Path (Optimizer) Hooks</title>
+
+   <para>
+    Take control during query planning.
+   </para>
+
+   <sect3 id="set-rel-pathlist-hook">
+    <title>Set Relation Pathlist</title>
+
+    <para>
+     Take control in <literal>set_rel_pathlist()</literal>.
+    </para>
+   </sect3>
+
+   <sect3 id="set-join-pathlist-hook">
+    <title>Set Join Pathlist</title>
+
+    <para>
+     Take control in <literal>set_join_pathlist()</literal>.
+    </para>
+   </sect3>
+
+   <sect3 id="join-search-hook">
+    <title>Join Search</title>
+
+    <para>
+     Take control in <literal>join_search()</literal>.
+    </para>
+   </sect3>
+  </sect2>
+
+  <sect2 id="get-relation-info-hook">
+   <title>Get Relation Info Hook</title>
+
+   <para>
+    Take control in <literal>get_relation_info()</literal>.
+   </para>
+  </sect2>
+
+  <sect2 id="planner-hook">
+   <title>Planner Hooks</title>
+
+   <para>
+    Take control in parts of the planner intended to be called by the optimizer.
+   </para>
+
+   <sect3 id="planner-hook-planner">
+    <title>Planner Function Hook</title>
+
+    <para>
+     Take control in <literal>planner()</literal>.
+    </para>
+   </sect3>
+
+   <sect3 id="planner-hook-grouping-planner">
+    <title>Grouping Planner Hook</title>
+
+    <para>
+     Take control in <literal>grouping_planner()</literal>.
+    </para>
+   </sect3>
+  </sect2>
+
+  <sect2 id="selectivity-hook">
+   <title>Selectivity Hooks</title>
+
+   <para>
+    Take control in bits that estimate selectivity.
+   </para>
+
+   <sect3 id="relation-stats-hook">
+    <title>Relation Stats Hook</title>
+
+    <para>
+     Take control when we ask for relation stats.
+    </para>
+   </sect3>
+
+   <sect3 id="index-stats-hook">
+    <title>Index Stats Hook</title>
+
+    <para>
+     Take control when we ask for index stats.
+    </para>
+   </sect3>
+  </sect2>
+
+  <sect2 id="user-hook">
+   <title>Check Password Hook</title>
+
+   <para>
+    Take control when calling <literal>CreateRole()</literal> and
+    <literal>AlterRole()</literal>.
+   </para>
+  </sect2>
+
+  <sect2 id="process-utility-hook">
+   <title>Process Utility Hook</title>
+
+   <para>
+    Take control in <literal>ProcessUtility()</literal>
+   </para>
+  </sect2>
+ </sect1>
+
+</chapter>

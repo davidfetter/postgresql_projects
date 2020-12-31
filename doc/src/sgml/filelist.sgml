@@ -58,6 +58,7 @@
 <!ENTITY external-projects SYSTEM "external-projects.sgml">
 <!ENTITY func-ref   SYSTEM "func-ref.sgml">
 <!ENTITY infoschema SYSTEM "information_schema.sgml">
+<!ENTITY hooks      SYSTEM "hooks.sgml">
 <!ENTITY libpq      SYSTEM "libpq.sgml">
 <!ENTITY lobj       SYSTEM "lobj.sgml">
 <!ENTITY rules      SYSTEM "rules.sgml">
