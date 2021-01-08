@@ -26,7 +26,7 @@ PostgreSQL documentation
 
  <refsynopsisdiv>
 <synopsis>
-PREPARE <replaceable class="parameter">name</replaceable> [ ( <replaceable class="parameter">data_type</replaceable> [, ...] ) ] AS <replaceable class="parameter">statement</replaceable>
+PREPARE [ IF NOT EXISTS ] <replaceable class="parameter">name</replaceable> [ ( <replaceable class="parameter">data_type</replaceable> [, ...] ) ] AS <replaceable class="parameter">statement</replaceable>
 </synopsis>
  </refsynopsisdiv>
 
@@ -85,6 +85,18 @@ PREPARE <replaceable class="parameter">name</replaceable> [ ( <replaceable class
   <title>Parameters</title>
 
   <variablelist>
+   <varlistentry>
+    <term><literal>IF NOT EXISTS</literal></term>
+    <listitem>
+     <para>
+      Do not throw an error if a prepared statement with the same name already exists.
+      A notice is issued in this case. Note that there is no guarantee that the existing
+      prepared statement is anything like the prepared statement that would have been
+      created.
+     </para>
+    </listitem>
+   </varlistentry>
+
    <varlistentry>
     <term><replaceable class="parameter">name</replaceable></term>
     <listitem>

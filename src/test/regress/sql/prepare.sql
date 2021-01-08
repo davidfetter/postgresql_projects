@@ -12,10 +12,16 @@ SELECT name, statement, parameter_types FROM pg_prepared_statements;
 -- should fail
 PREPARE q1 AS SELECT 2;
 
+-- should succeed with a warning
+PREPARE IF NOT EXISTS q1 AS SELECT 2;
+
 -- should succeed
 DEALLOCATE q1;
 PREPARE q1 AS SELECT 2;
 EXECUTE q1;
+
+-- should fail
+PREPARE q1 AS SELECT 2;
 
 PREPARE q2 AS SELECT 2 AS b;
 SELECT name, statement, parameter_types FROM pg_prepared_statements;

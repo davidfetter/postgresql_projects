@@ -1546,7 +1546,7 @@ exec_parse_message(const char *query_string,	/* string to execute */
 		/*
 		 * Store the query as a prepared statement.
 		 */
-		StorePreparedStatement(stmt_name, psrc, false);
+		StorePreparedStatement(stmt_name, psrc, false, false);
 	}
 	else
 	{

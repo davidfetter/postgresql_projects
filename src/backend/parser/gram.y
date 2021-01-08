@@ -10693,6 +10693,16 @@ PrepareStmt: PREPARE name prep_type_clause AS PreparableStmt
 					n->name = $2;
 					n->argtypes = $3;
 					n->query = $5;
+					n->if_not_exists = false;
+					$$ = (Node *) n;
+				}
+			| PREPARE IF_P NOT EXISTS name prep_type_clause AS PreparableStmt
+				{
+					PrepareStmt *n = makeNode(PrepareStmt);
+					n->name = $5;
+					n->argtypes = $6;
+					n->query = $8;
+					n->if_not_exists = true;
 					$$ = (Node *) n;
 				}
 		;

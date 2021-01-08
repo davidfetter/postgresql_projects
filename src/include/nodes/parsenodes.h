@@ -3429,6 +3429,7 @@ typedef struct PrepareStmt
 	char	   *name;			/* Name of plan, arbitrary */
 	List	   *argtypes;		/* Types of parameters (List of TypeName) */
 	Node	   *query;			/* The query itself (as a raw parsetree) */
+	bool		if_not_exists;	/* just do nothing if it already exists? */
 } PrepareStmt;
 
 

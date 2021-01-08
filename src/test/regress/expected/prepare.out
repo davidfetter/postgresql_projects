@@ -22,6 +22,9 @@ SELECT name, statement, parameter_types FROM pg_prepared_statements;
 -- should fail
 PREPARE q1 AS SELECT 2;
 ERROR:  prepared statement "q1" already exists
+-- should succeed with a warning
+PREPARE IF NOT EXISTS q1 AS SELECT 2;
+NOTICE:  prepared statement "q1" already exists, skipping
 -- should succeed
 DEALLOCATE q1;
 PREPARE q1 AS SELECT 2;

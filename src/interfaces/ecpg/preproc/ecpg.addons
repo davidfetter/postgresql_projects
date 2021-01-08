@@ -321,12 +321,20 @@ ECPG: PrepareStmtPREPAREprepared_nameprep_type_clauseASPreparableStmt block
 		$$.name = $2;
 		$$.type = $3;
 		$$.stmt = $5;
+		$$.if_not_exists = false;
 	}
 	| PREPARE prepared_name FROM execstring
 	{
 		$$.name = $2;
 		$$.type = NULL;
 		$$.stmt = $4;
+	}
+ECPG: PrepareStmtPREPAREIF_PNOTEXISTSnameprep_type_clauseASPreparableStmt block
+	{
+		$$.name = $5;
+		$$.type = $6;
+		$$.query = $8;
+		$$.if_not_exists = true;
 	}
 ECPG: ExecuteStmtEXECUTEprepared_nameexecute_param_clauseexecute_rest block
 	{

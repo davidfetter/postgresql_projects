@@ -46,7 +46,10 @@ my %replace_line = (
 	  => 'CREATE OptTemp TABLE IF_P NOT EXISTS create_as_target AS EXECUTE prepared_name execute_param_clause opt_with_data execute_rest',
 
 	'PrepareStmtPREPAREnameprep_type_clauseASPreparableStmt' =>
-	  'PREPARE prepared_name prep_type_clause AS PreparableStmt');
+	  'PREPARE prepared_name prep_type_clause AS PreparableStmt',
+
+	'PrepareStmtPREPAREIF_PNOTEXISTSnameprep_type_clauseASPreparableStmt' =>
+	  'PREPARE IF_P NOT EXISTS prepared_name prep_type_clause AS PreparableStmt');
 
 my $block        = '';
 my $yaccmode     = 0;

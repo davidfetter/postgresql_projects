@@ -172,7 +172,8 @@ PrepareQuery(ParseState *pstate, PrepareStmt *stmt,
 	 */
 	StorePreparedStatement(stmt->name,
 						   plansource,
-						   true);
+						   true,
+						   stmt->if_not_exists);
 }
 
 /*
@@ -424,7 +425,8 @@ InitQueryHashTable(void)
 void
 StorePreparedStatement(const char *stmt_name,
 					   CachedPlanSource *plansource,
-					   bool from_sql)
+					   bool from_sql,
+					   bool if_not_exists)
 {
 	PreparedStatement *entry;
 	TimestampTz cur_ts = GetCurrentStatementStartTimestamp();
@@ -442,10 +444,21 @@ StorePreparedStatement(const char *stmt_name,
 
 	/* Shouldn't get a duplicate entry */
 	if (found)
-		ereport(ERROR,
-				(errcode(ERRCODE_DUPLICATE_PSTATEMENT),
-				 errmsg("prepared statement \"%s\" already exists",
-						stmt_name)));
+	{
+		if (!if_not_exists)
+			ereport(ERROR,
+					(errcode(ERRCODE_DUPLICATE_PSTATEMENT),
+					 errmsg("prepared statement \"%s\" already exists",
+							stmt_name)));
+		else
+		{
+			ereport(NOTICE,
+					(errcode(ERRCODE_DUPLICATE_PSTATEMENT),
+					 errmsg("prepared statement \"%s\" already exists, skipping",
+							stmt_name)));
+			return;
+		}
+	}
 
 	/* Fill in the hash table entry */
 	entry->plansource = plansource;
