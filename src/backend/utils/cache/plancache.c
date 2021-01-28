@@ -1043,12 +1043,12 @@ choose_custom_plan(CachedPlanSource *plansource, ParamListInfo boundParams)
 	if (plansource->cursor_options & CURSOR_OPT_CUSTOM_PLAN)
 		return true;
 
-	/* Generate custom plans until we have done at least 5 (arbitrary) */
+	/* Generate custom plans until we have done at least 5 (arbitrary)
 	if (plansource->num_custom_plans < 5)
 		return true;
 
 	avg_custom_cost = plansource->total_custom_cost / plansource->num_custom_plans;
-
+ */
 	/*
 	 * Prefer generic plan if it's less expensive than the average custom
 	 * plan.  (Because we include a charge for cost of planning in the
@@ -1059,7 +1059,7 @@ choose_custom_plan(CachedPlanSource *plansource, ParamListInfo boundParams)
 	 * Note that if generic_cost is -1 (indicating we've not yet determined
 	 * the generic plan cost), we'll always prefer generic at this point.
 	 */
-	if (plansource->generic_cost < avg_custom_cost)
+	if (plansource->generic_cost < plansource->total_custom_cost)
 		return false;
 
 	return true;
