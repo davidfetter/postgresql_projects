@@ -18,6 +18,7 @@
 #include <limits.h>
 #include <ctype.h>
 
+#include "../common/d2s_intrinsics.h"
 #include "common/int.h"
 #include "utils/builtins.h"
 #include "port/pg_bitutils.h"
@@ -39,50 +40,45 @@ static const char DIGIT_TABLE[200] =
 "90" "91" "92" "93" "94" "95" "96" "97" "98" "99";
 
 /*
- * Adapted from http://graphics.stanford.edu/~seander/bithacks.html#IntegerLog10
+ * Adapted from
+ * https://lemire.me/blog/2021/06/03/computing-the-number-of-digits-of-an-integer-even-faster/
  */
 static inline int
 decimalLength32(const uint32 v)
 {
-	int			t;
-	static const uint32 PowersOfTen[] = {
-		1, 10, 100,
-		1000, 10000, 100000,
-		1000000, 10000000, 100000000,
-		1000000000
+	/*
+	 * Each element in the array, when added to a number with MSB that is the
+	 * array index, will produce a number whose top 32 bits are its decimal
+	 * length, so that can now be had using:
+	 *
+	 * 1 CLZ instruction,
+	 * 1 table lookup,
+	 * 1 add, and
+	 * 1 shift
+	 *
+	 */
+	static const uint64 digit_transitions[32] = {
+		4294967295,  8589934582,  8589934582,  8589934582,  12884901788,
+		12884901788, 12884901788, 17179868184, 17179868184, 17179868184,
+		21474826480, 21474826480, 21474826480, 21474826480, 25769703776,
+		25769703776, 25769703776, 30063771072, 30063771072, 30063771072,
+		34349738368, 34349738368, 34349738368, 34349738368, 38554705664,
+		38554705664, 38554705664, 41949672960, 41949672960, 41949672960,
+		42949672960, 42949672960
 	};
 
-	/*
-	 * Compute base-10 logarithm by dividing the base-2 logarithm by a
-	 * good-enough approximation of the base-2 logarithm of 10
-	 */
-	t = (pg_leftmost_one_pos32(v) + 1) * 1233 / 4096;
-	return t + (v >= PowersOfTen[t]);
+	return (v + digit_transitions[pg_leftmost_one_pos32(v)]) >> 32;
 }
 
 static inline int
 decimalLength64(const uint64 v)
 {
-	int			t;
-	static const uint64 PowersOfTen[] = {
-		UINT64CONST(1), UINT64CONST(10),
-		UINT64CONST(100), UINT64CONST(1000),
-		UINT64CONST(10000), UINT64CONST(100000),
-		UINT64CONST(1000000), UINT64CONST(10000000),
-		UINT64CONST(100000000), UINT64CONST(1000000000),
-		UINT64CONST(10000000000), UINT64CONST(100000000000),
-		UINT64CONST(1000000000000), UINT64CONST(10000000000000),
-		UINT64CONST(100000000000000), UINT64CONST(1000000000000000),
-		UINT64CONST(10000000000000000), UINT64CONST(100000000000000000),
-		UINT64CONST(1000000000000000000), UINT64CONST(10000000000000000000)
-	};
-
-	/*
-	 * Compute base-10 logarithm by dividing the base-2 logarithm by a
-	 * good-enough approximation of the base-2 logarithm of 10
-	 */
-	t = (pg_leftmost_one_pos64(v) + 1) * 1233 / 4096;
-	return t + (v >= PowersOfTen[t]);
+	if (v >> 32 == 0)
+		return decimalLength32(v);
+	else if (div1e8(v) >> 32 == 0)
+		return 8 + decimalLength32(div1e8(v));
+	else
+		return 16 + decimalLength32(div1e8(div1e8(v)));
 }
 
 /*
