@@ -247,6 +247,13 @@ do { \
 	COMPLETE_WITH_LIST(list); \
 } while (0)
 
+#define COMPLETE_CURRENT_WORD() \
+do { \
+	completion_case_sensitive = true; \
+	completion_charp = text; \
+	matches = rl_completion_matches(text, complete_from_const); \
+} while (0)
+
 #define COMPLETE_WITH_CS(...) \
 do { \
 	static const char *const list[] = { __VA_ARGS__, NULL }; \
@@ -1460,6 +1467,40 @@ ends_with(const char *s, char c)
 }
 
 /*
+ * Get the last keyword matching a pattern.
+ */
+static const char *
+last_keyword(int previous_words_count, char **previous_words,
+			 const char *keyword_pattern)
+{
+	for (int i = 0; i < previous_words_count; i++)
+	{
+		if (word_matches(keyword_pattern, previous_words[i], false))
+			return previous_words[i];
+	}
+
+	return NULL;
+}
+
+/*
+ * Was the last keyword one of the expected ones?  For example,
+ * LastKeywordMatchesImpl(...,
+ * 						  "SELECT|FROM|WHERE|GROUP|ORDER", "SELECT")
+ * is true if SELECT is the most recent of those keywords to appear.
+ */
+static bool
+LastKeywordMatchesImpl(int previous_words_count, char **previous_words,
+					   const char *keyword_pattern,
+					   const char *accepted_pattern)
+{
+	const char *last_kw = last_keyword(previous_words_count, previous_words,
+									   keyword_pattern);
+	if (!last_kw)
+		return false;
+	return word_matches(last_kw, accepted_pattern, false);
+}
+
+/*
  * The completion function.
  *
  * According to readline spec this gets passed the text entered so far and its
@@ -1528,6 +1569,18 @@ psql_completion(const char *text, int start, int end)
 #define HeadMatchesCS(...) \
 	HeadMatchesImpl(true, previous_words_count, previous_words, \
 					VA_ARGS_NARGS(__VA_ARGS__), __VA_ARGS__)
+
+	/* Macro for matching last keyword, case-insensitively. */
+#define LastKeywordMatches(keywords, pattern) \
+	(LastKeywordMatchesImpl(previous_words_count, previous_words, \
+							keywords, pattern))
+
+	/*
+	 * Macro for determining (loosely) which part of a DML query we are
+	 * currently in.
+	 */
+#define CurrentQueryPartMatches(pattern) \
+	(LastKeywordMatches("SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|GROUP|ORDER|HAVING", pattern))
 
 	/* Known command-starting keywords. */
 	static const char *const sql_commands[] = {
@@ -1621,6 +1674,13 @@ psql_completion(const char *text, int start, int end)
 		else
 			matches = complete_from_variables(text, ":", "", true);
 	}
+
+	/*
+	 * If current word ends with a comma, add a space; this will expedite
+	 * completions after commas for SELECT, etc.
+	 */
+	if (ends_with(text, ','))
+		COMPLETE_CURRENT_WORD();
 
 	/* If no previous word, suggest one of the basic sql commands */
 	else if (previous_words_count == 0)
@@ -3807,7 +3867,9 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH("IS");
 
 /* SELECT */
-	else if (TailMatches("SELECT") || TailMatches("SELECT", "ALL|DISTINCT"))
+	else if (HeadMatches("SELECT|WITH") &&
+			 CurrentQueryPartMatches("SELECT") &&
+			 (ends_with(prev_wd, ',') || TailMatches("SELECT|ALL|DISTINCT")))
 		COMPLETE_WITH_VERSIONED_SCHEMA_QUERY(Query_for_list_of_selectable_functions,
 											 Query_addon_for_list_of_selectable_attributes);
 
