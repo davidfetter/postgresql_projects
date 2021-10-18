@@ -52,6 +52,13 @@ LockTableCommand(LockStmt *lockstmt)
 		bool		recurse = rv->inh;
 		Oid			reloid;
 
+		if (strcmp(rv->schemaname, "pg_catalog") == 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("cannot lock objects in the catalog schema: \"%s\"",
+							rv->relname),
+					 errdetail("This operation is not supported for objects in the catalog.")));
+
 		reloid = RangeVarGetRelidExtended(rv, lockstmt->mode,
 										  lockstmt->nowait ? RVR_NOWAIT : 0,
 										  RangeVarCallbackForLockTable,
