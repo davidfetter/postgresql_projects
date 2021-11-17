@@ -88,6 +88,7 @@ typedef struct _restoreOptions
 	int			dump_inserts;	/* 0 = COPY, otherwise rows per INSERT */
 	int			column_inserts;
 	int			if_exists;
+	int			no_analyze;	    /* Skip final ANALY[SZ]E */
 	int			no_comments;	/* Skip comments */
 	int			no_publications;	/* Skip publication entries */
 	int			no_security_labels; /* Skip security label entries */

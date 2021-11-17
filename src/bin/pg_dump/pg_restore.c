@@ -88,6 +88,7 @@ main(int argc, char **argv)
 		{"index", 1, NULL, 'I'},
 		{"jobs", 1, NULL, 'j'},
 		{"list", 0, NULL, 'l'},
+		{"no-analyze", 0, NULL, 'A'},
 		{"no-privileges", 0, NULL, 'x'},
 		{"no-acl", 0, NULL, 'x'},
 		{"no-owner", 0, NULL, 'O'},
@@ -149,13 +150,16 @@ main(int argc, char **argv)
 		}
 	}
 
-	while ((c = getopt_long(argc, argv, "acCd:ef:F:h:I:j:lL:n:N:Op:P:RsS:t:T:U:vwWx1",
+	while ((c = getopt_long(argc, argv, "aAcCd:ef:F:h:I:j:lL:n:N:Op:P:RsS:t:T:U:vwWx1",
 							cmdopts, NULL)) != -1)
 	{
 		switch (c)
 		{
 			case 'a':			/* Dump data only */
 				opts->dataOnly = 1;
+				break;
+			case 'A':			/* Don't run ANALY[SZ]E after load */
+				opts->no_analyze = 1;
 				break;
 			case 'c':			/* clean (i.e., drop) schema prior to create */
 				opts->dropSchema = 1;
@@ -332,6 +336,12 @@ main(int argc, char **argv)
 		exit_nicely(1);
 	}
 
+	if (opts->no_analyze && opts->schemaOnly)
+	{
+		pg_log_error("options -A/--no-analyze and -s/--schema-only cannot be used together");
+		exit_nicely(1);
+	}
+
 	if (opts->dataOnly && opts->dropSchema)
 	{
 		pg_log_error("options -c/--clean and -a/--data-only cannot be used together");
@@ -476,6 +486,7 @@ usage(const char *progname)
 	printf(_("  -S, --superuser=NAME         superuser user name to use for disabling triggers\n"));
 	printf(_("  -t, --table=NAME             restore named relation (table, view, etc.)\n"));
 	printf(_("  -T, --trigger=NAME           restore named trigger\n"));
+	printf(_("  -A, --no-analyze             skip analyze after loading data\n"));
 	printf(_("  -x, --no-privileges          skip restoration of access privileges (grant/revoke)\n"));
 	printf(_("  -1, --single-transaction     restore as a single transaction\n"));
 	printf(_("  --disable-triggers           disable triggers during data-only restore\n"));
