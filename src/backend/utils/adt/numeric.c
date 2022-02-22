@@ -35,6 +35,7 @@
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/supportnodes.h"
+#include "port/pg_bitutils.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/float.h"
@@ -57,18 +58,18 @@
  * Numeric values are represented in a base-NBASE floating point format.
  * Each "digit" ranges from 0 to NBASE-1.  The type NumericDigit is signed
  * and wide enough to store a digit.  We assume that NBASE*NBASE can fit in
- * an int.  Although the purely calculational routines could handle any even
- * NBASE that's less than sqrt(INT_MAX), in practice we are only interested
+ * an int64.  Although the purely calculational routines could handle any even
+ * NBASE that's less than sqrt(INT64_MAX), in practice we are only interested
  * in NBASE a power of ten, so that I/O conversions and decimal rounding
  * are easy.  Also, it's actually more efficient if NBASE is rather less than
- * sqrt(INT_MAX), so that there is "headroom" for mul_var and div_var_fast to
+ * sqrt(INT64_MAX), so that there is "headroom" for mul_var and div_var_fast to
  * postpone processing carries.
  *
- * Values of NBASE other than 10000 are considered of historical interest only
+ * Values of NBASE other than 1000000000 are considered of historical interest only
  * and are no longer supported in any sense; no mechanism exists for the client
  * to discover the base, so every client supporting binary mode expects the
- * base-10000 format.  If you plan to change this, also note the numeric
- * abbreviation code, which assumes NBASE=10000.
+ * base-1000000000 format.  If you plan to change this, also note the numeric
+ * abbreviation code, which assumes NBASE=1000000000.
  * ----------
  */
 
@@ -92,7 +93,7 @@ typedef signed char NumericDigit;
 typedef signed char NumericDigit;
 #endif
 
-#if 1
+#if 0
 #define NBASE		10000
 #define HALF_NBASE	5000
 #define DEC_DIGITS	4			/* decimal digits per NBASE digit */
@@ -100,6 +101,16 @@ typedef signed char NumericDigit;
 #define DIV_GUARD_DIGITS	4
 
 typedef int16 NumericDigit;
+#endif
+
+#if 1
+#define NBASE		1000000000
+#define HALF_NBASE	500000000
+#define DEC_DIGITS	9			/* decimal digits per NBASE digit */
+#define MUL_GUARD_DIGITS	2	/* these are measured in NBASE digits */
+#define DIV_GUARD_DIGITS	4
+
+typedef int32 NumericDigit;
 #endif
 
 /*
@@ -427,7 +438,9 @@ static const NumericDigit const_two_data[1] = {2};
 static const NumericVar const_two =
 {1, 0, NUMERIC_POS, 0, NULL, (NumericDigit *) const_two_data};
 
-#if DEC_DIGITS == 4
+#if DEC_DIGITS == 9
+static const NumericDigit const_zero_point_nine_data[1] = {900000000};
+#elif DEC_DIGITS == 4
 static const NumericDigit const_zero_point_nine_data[1] = {9000};
 #elif DEC_DIGITS == 2
 static const NumericDigit const_zero_point_nine_data[1] = {90};
@@ -437,7 +450,9 @@ static const NumericDigit const_zero_point_nine_data[1] = {9};
 static const NumericVar const_zero_point_nine =
 {1, -1, NUMERIC_POS, 1, NULL, (NumericDigit *) const_zero_point_nine_data};
 
-#if DEC_DIGITS == 4
+#if DEC_DIGITS == 9
+static const NumericDigit const_one_point_one_data[2] = {1, 100000000};
+#elif DEC_DIGITS == 4
 static const NumericDigit const_one_point_one_data[2] = {1, 1000};
 #elif DEC_DIGITS == 2
 static const NumericDigit const_one_point_one_data[2] = {1, 10};
@@ -456,7 +471,9 @@ static const NumericVar const_pinf =
 static const NumericVar const_ninf =
 {0, 0, NUMERIC_NINF, 0, NULL, NULL};
 
-#if DEC_DIGITS == 4
+#if DEC_DIGITS == 9
+static const int round_powers[9] = {0, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10};
+#elif DEC_DIGITS == 4
 static const int round_powers[4] = {0, 1000, 100, 10};
 #endif
 
@@ -990,8 +1007,9 @@ numeric_normalize(Numeric num)
 /*
  *		numeric_recv			- converts external binary format to numeric
  *
- * External format is a sequence of int16's:
- * ndigits, weight, sign, dscale, NumericDigits.
+ * External format is a header sequence of int16's:
+ * ndigits, weight, sign, dscale
+ * followed by a sequence of int32's, which are NumericDigits.
  */
 Datum
 numeric_recv(PG_FUNCTION_ARGS)
@@ -1095,7 +1113,7 @@ numeric_send(PG_FUNCTION_ARGS)
 	pq_sendint16(&buf, x.sign);
 	pq_sendint16(&buf, x.dscale);
 	for (i = 0; i < x.ndigits; i++)
-		pq_sendint16(&buf, x.digits[i]);
+		pq_sendint32(&buf, x.digits[i]);
 
 	PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
 }
@@ -4174,7 +4192,7 @@ int64_div_fast_to_numeric(int64 val1, int log10val2)
 	 */
 	if (m > 0)
 	{
-		static int	pow10[] = {1, 10, 100, 1000};
+		static int	pow10[] = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000 };
 
 		StaticAssertStmt(lengthof(pow10) == DEC_DIGITS, "mismatch with DEC_DIGITS");
 		if (unlikely(pg_mul_s64_overflow(val1, pow10[DEC_DIGITS - m], &val1)))
@@ -6944,7 +6962,17 @@ set_var_from_str(const char *str, const char *cp, NumericVar *dest)
 
 	while (ndigits-- > 0)
 	{
-#if DEC_DIGITS == 4
+#if DEC_DIGITS == 9
+		*digits++ = 100000000 * decdigits[i] +
+					10000000 * decdigits[i+1] +
+					1000000 * decdigits[i+2] +
+					100000 * decdigits[i+3] +
+					10000 * decdigits[i+4] +
+					1000 * decdigits[i+5] +
+					100 * decdigits[i+6] +
+					10 * decdigits[i+7] +
+					decdigits[i+8];
+#elif DEC_DIGITS == 4
 		*digits++ = ((decdigits[i] * 10 + decdigits[i + 1]) * 10 +
 					 decdigits[i + 2]) * 10 + decdigits[i + 3];
 #elif DEC_DIGITS == 2
@@ -7098,7 +7126,53 @@ get_str_from_var(const NumericVar *var)
 		{
 			dig = (d < var->ndigits) ? var->digits[d] : 0;
 			/* In the first digit, suppress extra leading decimal zeroes */
-#if DEC_DIGITS == 4
+#if DEC_DIGITS == 9
+			{
+				bool		putit = (d > 0);
+
+				d1 = dig / 100000000;
+				dig -= d1 * 100000000;
+				putit |= (d1 > 0);
+				if (putit)
+					*cp++ = d1 + '0';
+				d1 = dig / 10000000;
+				dig -= d1 * 10000000;
+				putit |= (d1 > 0);
+				if (putit)
+					*cp++ = d1 + '0';
+				d1 = dig / 1000000;
+				dig -= d1 * 1000000;
+				putit |= (d1 > 0);
+				if (putit)
+					*cp++ = d1 + '0';
+				d1 = dig / 100000;
+				dig -= d1 * 100000;
+				putit |= (d1 > 0);
+				if (putit)
+					*cp++ = d1 + '0';
+				d1 = dig / 10000;
+				dig -= d1 * 10000;
+				putit |= (d1 > 0);
+				if (putit)
+					*cp++ = d1 + '0';
+				d1 = dig / 1000;
+				dig -= d1 * 1000;
+				putit |= (d1 > 0);
+				if (putit)
+					*cp++ = d1 + '0';
+				d1 = dig / 100;
+				dig -= d1 * 100;
+				putit |= (d1 > 0);
+				if (putit)
+					*cp++ = d1 + '0';
+				d1 = dig / 10;
+				dig -= d1 * 10;
+				putit |= (d1 > 0);
+				if (putit)
+					*cp++ = d1 + '0';
+				*cp++ = dig + '0';
+			}
+#elif DEC_DIGITS == 4
 			{
 				bool		putit = (d > 0);
 
@@ -7145,7 +7219,33 @@ get_str_from_var(const NumericVar *var)
 		for (i = 0; i < dscale; d++, i += DEC_DIGITS)
 		{
 			dig = (d >= 0 && d < var->ndigits) ? var->digits[d] : 0;
-#if DEC_DIGITS == 4
+#if DEC_DIGITS == 9
+			d1 = dig / 100000000;
+			dig -= d1 * 100000000;
+			*cp++ = d1 + '0';
+			d1 = dig / 10000000;
+			dig -= d1 * 10000000;
+			*cp++ = d1 + '0';
+			d1 = dig / 1000000;
+			dig -= d1 * 1000000;
+			*cp++ = d1 + '0';
+			d1 = dig / 100000;
+			dig -= d1 * 100000;
+			*cp++ = d1 + '0';
+			d1 = dig / 10000;
+			dig -= d1 * 10000;
+			*cp++ = d1 + '0';
+			d1 = dig / 1000;
+			dig -= d1 * 1000;
+			*cp++ = d1 + '0';
+			d1 = dig / 100;
+			dig -= d1 * 100;
+			*cp++ = d1 + '0';
+			d1 = dig / 10;
+			dig -= d1 * 10;
+			*cp++ = d1 + '0';
+			*cp++ = dig + '0';
+#elif DEC_DIGITS == 4
 			d1 = dig / 1000;
 			dig -= d1 * 1000;
 			*cp++ = d1 + '0';
@@ -7498,7 +7598,9 @@ apply_typmod(NumericVar *var, int32 typmod)
 			if (dig)
 			{
 				/* Adjust for any high-order decimal zero digits */
-#if DEC_DIGITS == 4
+#if DEC_DIGITS == 9
+				ddigits -= DEC_DIGITS - decimalLength32(dig);
+#elif DEC_DIGITS == 4
 				if (dig < 10)
 					ddigits -= 3;
 				else if (dig < 100)
@@ -10988,7 +11090,9 @@ round_var(NumericVar *var, int rscale)
 				int			extra,
 							pow10;
 
-#if DEC_DIGITS == 4
+#if DEC_DIGITS == 9
+				pow10 = round_powers[di];
+#elif DEC_DIGITS == 4
 				pow10 = round_powers[di];
 #elif DEC_DIGITS == 2
 				pow10 = 10;
@@ -11088,7 +11192,9 @@ trunc_var(NumericVar *var, int rscale)
 				int			extra,
 							pow10;
 
-#if DEC_DIGITS == 4
+#if DEC_DIGITS == 9
+				pow10 = round_powers[di];
+#elif DEC_DIGITS == 4
 				pow10 = round_powers[di];
 #elif DEC_DIGITS == 2
 				pow10 = 10;
