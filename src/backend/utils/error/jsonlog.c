@@ -139,7 +139,7 @@ write_jsonlog(ErrorData *edata)
 	appendStringInfoChar(&buf, '{');
 
 	/* timestamp with milliseconds */
-	log_time = get_formatted_log_time();
+	log_time = get_formatted_log_time(3);
 
 	/*
 	 * First property does not use appendJSONKeyValue as it does not have

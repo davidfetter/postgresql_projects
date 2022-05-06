@@ -7106,11 +7106,11 @@ local0.*    /var/log/postgresql
          Unrecognized escapes are ignored. Other
          characters are copied straight to the log line. Some escapes are
          only recognized by session processes, and will be treated as empty by
-         background processes such as the main server process. Status
-         information may be aligned either left or right by specifying a
-         numeric literal after the % and before the option. A negative
-         value will cause the status information to be padded on the
-         right with spaces to give it a minimum width, whereas a positive
+         background processes such as the main server process. Apart from the
+         case of <literal>%T</literal>, status information may be aligned either
+         left or right by specifying a numeric literal after the % and before the
+         option. A negative value will cause the status information to be padded
+         on the right with spaces to give it a minimum width, whereas a positive
          value will pad on the left. Padding can be useful to aid human
          readability in log files.
        </para>
@@ -7180,6 +7180,11 @@ local0.*    /var/log/postgresql
             <row>
              <entry><literal>%m</literal></entry>
              <entry>Time stamp with milliseconds</entry>
+             <entry>no</entry>
+            </row>
+            <row>
+             <entry><literal>%T</literal></entry>
+             <entry>Time stamp with fractional seconds, 3 decimal places if not specified by a padding number</entry>
              <entry>no</entry>
             </row>
             <row>

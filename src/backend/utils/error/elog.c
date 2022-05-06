@@ -156,8 +156,9 @@ static struct timeval saved_timeval;
 static bool saved_timeval_set = false;
 
 #define FORMATTED_TS_LEN 128
+#define FORMATTED_TS_GRANULARITIES 6
 static char formatted_start_time[FORMATTED_TS_LEN];
-static char formatted_log_time[FORMATTED_TS_LEN];
+static char formatted_log_time[FORMATTED_TS_GRANULARITIES][FORMATTED_TS_LEN];
 
 
 /* Macro for checking errordata_stack_depth is reasonable */
@@ -2290,16 +2291,40 @@ write_console(const char *line, int len)
  * among all the log destinations that require it to be consistent.  Note
  * that the computed timestamp is returned in a static buffer, not
  * palloc()'d.
+ *
+ * It is the caller's responsibility to ensure that digits is what's handled
+ * here, currently in the range from 1 to 6 inclusive.
  */
 char *
-get_formatted_log_time(void)
+get_formatted_log_time(int digits)
 {
 	pg_time_t	stamp_time;
-	char		msbuf[13];
+	char		msbuf[10 + digits];
+	int			pow10[FORMATTED_TS_GRANULARITIES] = {
+							10,    100,    1000,
+							10000, 100000, 1000000};
+	const char	*format_strftime[FORMATTED_TS_GRANULARITIES] = {
+					/*                .123456 */
+					"%Y-%m-%d %H:%M:%S   %Z",
+					"%Y-%m-%d %H:%M:%S    %Z",
+					"%Y-%m-%d %H:%M:%S     %Z",
+					"%Y-%m-%d %H:%M:%S      %Z",
+					"%Y-%m-%d %H:%M:%S       %Z",
+					"%Y-%m-%d %H:%M:%S        %Z"
+					/*                .123456 */
+				};
+	const char	*format_fractional_seconds[FORMATTED_TS_GRANULARITIES] = {
+					".%01d", ".%02d", ".%03d",
+					".%04d", ".%05d", ".%06d"
+				};
 
-	/* leave if already computed */
+	/*
+	 * We used to be able to
+	 * leave if already computed
+	 * , but since we're taking an input now, it's no longer unique.
 	if (formatted_log_time[0] != '\0')
 		return formatted_log_time;
+	 */
 
 	if (!saved_timeval_set)
 	{
@@ -2316,12 +2341,13 @@ get_formatted_log_time(void)
 	 */
 	pg_strftime(formatted_log_time, FORMATTED_TS_LEN,
 	/* leave room for milliseconds... */
-				"%Y-%m-%d %H:%M:%S     %Z",
+				format_strftime[digits-1],
 				pg_localtime(&stamp_time, log_timezone));
 
-	/* 'paste' milliseconds into place... */
-	sprintf(msbuf, ".%03d", (int) (saved_timeval.tv_usec / 1000));
-	memcpy(formatted_log_time + 19, msbuf, 4);
+	/* 'paste' fractional seconds into place...indexes are off by one */
+	sprintf(msbuf, format_fractional_seconds[digits-1], (int) (saved_timeval.tv_usec / pow10[digits-1]));
+	/* length, on the other hand, is off by one in the other direction */
+	memcpy(formatted_log_time + 19, msbuf, digits+1);
 
 	return formatted_log_time;
 }
@@ -2621,7 +2647,7 @@ log_line_prefix(StringInfo buf, ErrorData *edata)
 			case 'm':
 				/* force a log timestamp reset */
 				formatted_log_time[0] = '\0';
-				(void) get_formatted_log_time();
+				(void) get_formatted_log_time(3);
 
 				if (padding != 0)
 					appendStringInfo(buf, "%*s", padding, formatted_log_time);

@@ -89,7 +89,7 @@ write_csvlog(ErrorData *edata)
 	initStringInfo(&buf);
 
 	/* timestamp with milliseconds */
-	appendStringInfoString(&buf, get_formatted_log_time());
+	appendStringInfoString(&buf, get_formatted_log_time(3));
 	appendStringInfoChar(&buf, ',');
 
 	/* username */
