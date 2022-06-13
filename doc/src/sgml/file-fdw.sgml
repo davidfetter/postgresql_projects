@@ -242,7 +242,7 @@ CREATE SERVER pglog FOREIGN DATA WRAPPER file_fdw;
 
 <programlisting>
 CREATE FOREIGN TABLE pglog (
-  log_time timestamp(3) with time zone,
+  log_time timestamp(6) with time zone,
   user_name text,
   database_name text,
   process_id integer,

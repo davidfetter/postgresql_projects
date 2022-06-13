@@ -2295,7 +2295,7 @@ char *
 get_formatted_log_time(void)
 {
 	pg_time_t	stamp_time;
-	char		msbuf[13];
+	char		usbuf[16];
 
 	/* leave if already computed */
 	if (formatted_log_time[0] != '\0')
@@ -2315,13 +2315,13 @@ get_formatted_log_time(void)
 	 * nonempty or CSV mode can be selected.
 	 */
 	pg_strftime(formatted_log_time, FORMATTED_TS_LEN,
-	/* leave room for milliseconds... */
-				"%Y-%m-%d %H:%M:%S     %Z",
+	/* leave room for microseconds... */
+				"%Y-%m-%d %H:%M:%S        %Z",
 				pg_localtime(&stamp_time, log_timezone));
 
 	/* 'paste' milliseconds into place... */
-	sprintf(msbuf, ".%03d", (int) (saved_timeval.tv_usec / 1000));
-	memcpy(formatted_log_time + 19, msbuf, 4);
+	sprintf(usbuf, ".%06d", saved_timeval.tv_usec );
+	memcpy(formatted_log_time + 19, usbuf, 7);
 
 	return formatted_log_time;
 }
@@ -2652,9 +2652,9 @@ log_line_prefix(StringInfo buf, ErrorData *edata)
 						saved_timeval_set = true;
 					}
 
-					snprintf(strfbuf, sizeof(strfbuf), "%ld.%03d",
+					snprintf(strfbuf, sizeof(strfbuf), "%ld.%06d",
 							 (long) saved_timeval.tv_sec,
-							 (int) (saved_timeval.tv_usec / 1000));
+							 saved_timeval.tv_usec);
 
 					if (padding != 0)
 						appendStringInfo(buf, "%*s", padding, strfbuf);
