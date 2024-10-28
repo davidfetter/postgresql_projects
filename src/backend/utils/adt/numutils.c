@@ -39,30 +39,76 @@ static const char DIGIT_TABLE[200] =
 "90" "91" "92" "93" "94" "95" "96" "97" "98" "99";
 
 /*
- * Adapted from http://graphics.stanford.edu/~seander/bithacks.html#IntegerLog10
+ * Adapted from https://lemire.me/blog/2021/06/03/computing-the-number-of-digits-of-an-integer-even-faster/
  */
 static inline int
 decimalLength32(const uint32 v)
 {
-	int			t;
-	static const uint32 PowersOfTen[] = {
-		1, 10, 100,
-		1000, 10000, 100000,
-		1000000, 10000000, 100000000,
-		1000000000
+	/* Each entry in the table is a 64-bit unsigned integer.
+	 * - The upper 32 bits of this integer is floor(ilog10(v)), a thing we can know from lg(v).
+	 * - The lower 32 bits of the integer is a number n such that v + n = 2^32 when v is a power of 10.
+	 *
+	 * These two parts taken together create a way to put the number of decimal
+	 * digits as the upper 32 bits.
+	 *
+	 */
+	static const uint64_t BaseTwoToBaseTenPivot[] = {
+		4294967296,  8589934582,  8589934582,  8589934582,  12884901788,
+		12884901788, 12884901788, 17179868184, 17179868184, 17179868184,
+		21474826480, 21474826480, 21474826480, 21474826480, 25769703776,
+		25769703776, 25769703776, 30063771072, 30063771072, 30063771072,
+		34349738368, 34349738368, 34349738368, 34349738368, 38554705664,
+		38554705664, 38554705664, 41949672960, 41949672960, 41949672960,
+		42949672960, 42949672960
 	};
 
-	/*
-	 * Compute base-10 logarithm by dividing the base-2 logarithm by a
-	 * good-enough approximation of the base-2 logarithm of 10
-	 */
-	t = (pg_leftmost_one_pos32(v) + 1) * 1233 / 4096;
-	return t + (v >= PowersOfTen[t]);
+	return (v + BaseTwoToBaseTenPivot[pg_leftmost_one_pos32(v)]) >> 32;
 }
 
+/*
+ * Adapted from https://lemire.me/blog/2021/06/03/computing-the-number-of-digits-of-an-integer-even-faster/
+ */
 static inline int
 decimalLength64(const uint64 v)
 {
+#ifdef HAS_INT128
+	/* Each entry in the table is a 128-bit unsigned integer.
+	 * - The upper 64 bits of this integer is floor(ilog10(v)), a thing we can know from lg(v).
+	 * - The lower 64 bits of the integer is a number n such that v + n = 2^64 when v is a power of 10.
+	 *
+	 * These two parts taken together create a way to put the number of decimal
+	 * digits as the upper 64 bits.
+	 *
+	 */
+	static const uint128 BaseTwoToBaseTenPivot[] = {
+		 18446744073709551616,
+		 18446744073709551606,  18446744073709551606,  18446744073709551606,
+		 36893488147419103132,  36893488147419103132,  36893488147419103132,
+		 55340232221128653848,  55340232221128653848,  55340232221128653848,
+		 73786976294838196464,  73786976294838196464,  73786976294838196464,
+		 92233720368547658080,  92233720368547658080,  92233720368547658080,
+		110680464442256309696, 110680464442256309696, 110680464442256309696,
+		129127208515956861312, 129127208515956861312, 129127208515956861312,
+		147573952589576412928, 147573952589576412928, 147573952589576412928,
+		166020696662385964544, 166020696662385964544, 166020696662385964544,
+		184467440727095516160, 184467440727095516160, 184467440727095516160,
+		202914184710805067776, 202914184710805067776, 202914184710805067776,
+		221360927884514619392, 221360927884514619392, 221360927884514619392,
+		239807662958224171008, 239807662958224171008, 239807662958224171008,
+		258254317031933722624, 258254317031933722624, 258254317031933722624,
+		276700161105643274240, 276700161105643274240, 276700161105643274240,
+		295137905179352825856, 295137905179352825856, 295137905179352825856,
+		313494649253062377472, 313494649253062377472, 313494649253062377472,
+		331041393326771929088, 331041393326771929088, 331041393326771929088,
+		340488137400481480704, 340488137400481480704, 340488137400481480704,
+		268934881474191032320, 268934881474191032320, 268934881474191032320
+	};
+
+	return (v + BaseTwoToBaseTenPivot[pg_leftmost_one_pos64(v)]) >> 64;
+#else												/* !HAVE_INT128 */
+	/*
+	 * * Adapted from http://graphics.stanford.edu/~seander/bithacks.html#IntegerLog10
+	 */
 	int			t;
 	static const uint64 PowersOfTen[] = {
 		UINT64CONST(1), UINT64CONST(10),
@@ -83,6 +129,7 @@ decimalLength64(const uint64 v)
 	 */
 	t = (pg_leftmost_one_pos64(v) + 1) * 1233 / 4096;
 	return t + (v >= PowersOfTen[t]);
+#endif												/* HAVE_INT128 */
 }
 
 static const int8 hexlookup[128] = {
